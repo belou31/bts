@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Order, Seat, Tariff } from '../models/index.js';
-import { getCheckoutStatus } from '../services/helloasso.js';
+import { createCheckoutIntent } from '../services/helloasso.js';
 import { sendMail } from '../loaders/mailer.js';
 
 const router = express.Router();

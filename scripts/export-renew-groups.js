@@ -1,141 +1,96 @@
-#!/usr/bin/env node
 // scripts/export-renew-groups.js
-// Usage:
-//  node scripts/export-renew-groups.js <seasonCode> --venue=<slug> --base=<baseUrl> --out=<file.csv> [--expDays=30] [--debug]
-
+import './_env.js';
+import { withDb } from './_db.js';
 import fs from 'fs';
 import path from 'path';
 import jwt from 'jsonwebtoken';
-import mongoose from 'mongoose';
+import { fileURLToPath } from 'url';
 
 import { Subscriber } from '../src/models/Subscriber.js';
-import { Seat } from '../src/models/Seat.js';
 
-import dotenv from 'dotenv';
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
 
-function arg(name, def=null) {
-  const hit = process.argv.find(x => x.startsWith(`--${name}=`));
-  return hit ? hit.split('=').slice(1).join('=') : def;
-}
-const hasFlag = (name) => process.argv.includes(`--${name}`);
-
-function normGroupKey(v){ const s=String(v||'').trim().toLowerCase(); return s ? s.replace(/\s+/g,'_') : null; }
-
-async function resolveSeatIds({ seasonCode, venueSlug, wanted, debug }) {
-  const wantedArr = Array.from(wanted);
-  if (wantedArr.length === 0) return [];
-
-  // 1) correspondance exacte
-  const exact = await Seat.find({ seasonCode, venueSlug, seatId: { $in: wantedArr } }, { seatId:1 }).lean();
-  const found = new Set(exact.map(x => x.seatId));
-  const missing = wantedArr.filter(x => !found.has(x));
-
-  if (debug && missing.length) {
-    console.log('[export-renew] missing exact:', missing);
-  }
-
-  if (missing.length === 0) return Array.from(found);
-
-  // 2) fallback "suffixe" : on cherche des seats dont seatId se termine par "-A-001" (par ex)
-  // NB: on sécurise: suffix = tout après le premier '-' (ex: "A-001" si "S1-A-001")
-  const suffixes = missing
-    .map(id => {
-      const parts = String(id).split('-');
-      return parts.length >= 2 ? parts.slice(1).join('-') : null;
-    })
-    .filter(Boolean);
-
-  if (suffixes.length) {
-    // On récupère *tous* les seats de la saison/lieu et on filtre en JS (évite regex per-doc)
-    const allSeats = await Seat.find({ seasonCode, venueSlug }, { seatId:1 }).lean();
-    const bySuffix = new Map(); // "A-001" -> "S1-A-001"
-    for (const s of allSeats) {
-      const p = s.seatId.split('-');
-      if (p.length >= 2) {
-        const suf = p.slice(1).join('-');
-        if (!bySuffix.has(suf)) bySuffix.set(suf, s.seatId);
-      }
-    }
-    for (const suf of suffixes) {
-      const mapped = bySuffix.get(suf);
-      if (mapped) found.add(mapped);
-    }
-    if (debug) {
-      const got = suffixes.filter(suf => bySuffix.has(suf));
-      const nog = suffixes.filter(suf => !bySuffix.has(suf));
-      console.log('[export-renew] suffix mapped:', got);
-      if (nog.length) console.log('[export-renew] suffix still missing:', nog);
-    }
-  }
-
-  return Array.from(found);
-}
-
-(async () => {
-  const [,, seasonCode] = process.argv;
-  const venueSlug = arg('venue');
-  const baseUrl = arg('base');
-  const outPath = arg('out') || 'renew-groups.csv';
-  const expDays = Number(arg('expDays', '30')) || 30;
-  const debug = hasFlag('debug');
-
-  if (!seasonCode || !venueSlug || !baseUrl) {
-    console.error('Usage: node scripts/export-renew-groups.js <seasonCode> --venue=<slug> --base=<baseUrl> --out=<file.csv> [--expDays=30] [--debug]');
+function parseArgs() {
+  const [,, seasonCode, ...rest] = process.argv;
+  if (!seasonCode) {
+    console.error('Usage: node scripts/export-renew-groups.js <seasonCode> --venue=<slug> --out=<file.csv> --base=<https://host/bts>');
     process.exit(1);
   }
-  if (!process.env.JWT_SECRET) {
-    console.error('Missing JWT_SECRET in .env');
+  const params = { seasonCode };
+  for (const a of rest) {
+    if (a.startsWith('--venue=')) params.venueSlug = a.split('=')[1];
+    else if (a.startsWith('--out=')) params.out = a.split('=')[1];
+    else if (a.startsWith('--base=')) params.base = a.split('=')[1];
+  }
+  if (!params.venueSlug) {
+    console.error('ERROR: --venue=<slug> obligatoire');
     process.exit(1);
   }
-  const mongo = process.env.MONGO_URI;
-  if (!mongo) { console.error('Missing MONGO_URI'); process.exit(1); }
-  await mongoose.connect(mongo);
+  if (!params.base) {
+    console.error('ERROR: --base=<urlBase> (ex: https://billetterie-test.belougas.fr/bts) obligatoire');
+    process.exit(1);
+  }
+  params.out = params.out || `renew-groups-${seasonCode}-${params.venueSlug}.csv`;
+  return params;
+}
 
-  const subs = await Subscriber.find({ seasonCode, venueSlug }).lean();
-  if (debug) console.log(`[export-renew] subscribers loaded: ${subs.length}`);
+function uniq(arr) {
+  return [...new Set(arr.filter(Boolean))];
+}
 
+async function main() {
+  const { seasonCode, venueSlug, base, out } = parseArgs();
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET manquant');
+
+  const subs = await Subscriber.find({ seasonCode, venueSlug }).lean().exec();
+  if (!subs.length) {
+    console.error(`Aucun subscriber pour season=${seasonCode}, venue=${venueSlug}`);
+  }
+
+  // Regroupement par groupKey (fallback email)
   const groups = new Map();
   for (const s of subs) {
-    const gk = normGroupKey(s.groupKey || s.group || s.email);
-    if (!gk) continue;
-    if (!groups.has(gk)) groups.set(gk, []);
-    groups.get(gk).push(s);
-  }
-  if (debug) console.log(`[export-renew] groups: ${groups.size}`);
-
-  const rows = [];
-  for (const [gk, arr] of groups.entries()) {
-    const email = arr.find(x => x.email)?.email || '';
-    const wanted = new Set();
-    for (const s of arr) {
-      if (s.prefSeatId) wanted.add(s.prefSeatId);
-      for (const p of (s.previousSeasonSeats || [])) wanted.add(p);
-    }
-
-    const seatIds = await resolveSeatIds({ seasonCode, venueSlug, wanted, debug });
-    if (debug) console.log(`[export-renew] group=${gk} email=${email} seatIds=${seatIds.join(';')}`);
-
-    const payload = { seasonCode, venueSlug, groupKey: gk, email, seatIds };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: `${expDays}d` });
-    const renewUrl = `${baseUrl.replace(/\/+$/,'')}/s/renew?id=${encodeURIComponent(token)}`;
-
-    rows.push({ groupKey: gk, email, seats: seatIds.join(';'), token, renewUrl });
+    const key = s.groupKey || s.email || s._id.toString();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(s);
   }
 
-  const header = 'groupKey,email,seats,token,renewUrl\n';
-  const body = rows.map(r =>
-    [r.groupKey, r.email, r.seats, r.token, r.renewUrl]
-      .map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')
-  ).join('\n');
-  const full = path.resolve(outPath);
-  fs.writeFileSync(full, header + body + '\n', 'utf8');
-  console.log(`✓ Exported ${rows.length} groups → ${full}`);
+  const lines = [];
+  // En-tête CSV
+  lines.push(['groupKey','email','seatIds','token','url'].join(';'));
 
-  await mongoose.disconnect();
-})().catch(async (e) => {
-  console.error('ERROR', e);
-  try { await mongoose.disconnect(); } catch {}
-  process.exit(1);
-});
+  for (const [groupKey, arr] of groups.entries()) {
+    // Email "contact" = premier ayant un email
+    const contact = arr.find(x => x.email) || arr[0];
+    const email = (contact?.email || '').trim();
 
+    // Collecte des seats (previousSeasonSeats + prefSeatId)
+    const seatIds = uniq(arr.flatMap(x => [
+      ...(Array.isArray(x.previousSeasonSeats) ? x.previousSeasonSeats : []),
+      x.prefSeatId
+    ]));
+
+    if (!seatIds.length) continue; // rien à renouveler
+
+    const payload = {
+      seasonCode,
+      venueSlug,
+      email,
+      groupKey,
+      seatIds,
+      iat: Math.floor(Date.now()/1000),
+      exp: Math.floor(Date.now()/1000) + 60*60*24*30 // 30 jours
+    };
+    const token = jwt.sign(payload, secret);
+    const url = `${base.replace(/\/+$/,'')}/renew?id=${token}`;
+    lines.push([groupKey, email, seatIds.join(','), token, url].join(';'));
+  }
+
+  const outPath = path.resolve(process.cwd(), out);
+  fs.writeFileSync(outPath, lines.join('\n'), 'utf8');
+  console.log(`OK: ${lines.length-1} groupes exportés -> ${outPath}`);
+}
+
+await withDb(main);

@@ -1,6 +1,6 @@
 
 import express from 'express';
-import PaymentIntent from ('../models/PaymentIntent.js';
+import { PaymentIntent } from '../models/PaymentIntent.js';
 import { verifyHaSignature } from '../services/helloasso.js';
 import { markOrderPaid } from '../controllers/order.js';
 
@@ -54,4 +54,4 @@ router.post('/helloasso', express.raw({ type: 'application/json' }), async (req,
   }
 });
 
-module.exports = router;
+export default router;

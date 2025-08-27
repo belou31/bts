@@ -1,140 +1,103 @@
-// src/services/helloasso.js
-import fetch from 'node-fetch';
+// src/services/helloasso.js (ESM)
+const API_BASE  = (process.env.HELLOASSO_API_URL || 'https://api.helloasso.com').replace(/\/+$/,'');
+const OAUTH_URL = `${API_BASE}/oauth2/token`;
+const API_V5    = `${API_BASE}/v5`;
 
-const ENV = (process.env.APP_ENV || 'development').toLowerCase();
-const STUB = String(process.env.HELLOASSO_STUB || 'false').toLowerCase() === 'true';
-const STUB_RESULT = (process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
+const ORG_SLUG   = process.env.HELLOASSO_ORG_SLUG;
+const CLIENT_ID  = process.env.HELLOASSO_CLIENT_ID;
+const CLIENT_SEC = process.env.HELLOASSO_CLIENT_SECRET;
 
-const HELLOASSO_ENV = (process.env.HELLOASSO_ENV || 'sandbox').toLowerCase(); // sandbox | production
-const ORG_SLUG   = process.env.HELLOASSO_ORG_SLUG || '';
-const RETURN_URL = process.env.HELLOASSO_RETURN_URL || '';
-
-const CLIENT_ID     = process.env.HELLOASSO_CLIENT_ID || '';
-const CLIENT_SECRET = process.env.HELLOASSO_CLIENT_SECRET || '';
-
-/**
- * Domaine API HelloAsso :
- * - priorité à HELLOASSO_API_URL si défini
- * - sinon fallback sur HELLOASSO_ENV
- */
-const API_HOST = (process.env.HELLOASSO_API_URL || '').trim()
-  || (HELLOASSO_ENV === 'production'
-      ? 'https://api.helloasso.com'
-      : 'https://api.helloasso-sandbox.com');
-
-const OAUTH_URL = `${API_HOST}/oauth2/token`;
-const API_BASE  = `${API_HOST}/v5`;
-
-let _token = null;
-let _exp = 0;
-let _loggedConfig = false;
-
-function logResolvedConfigOnce() {
-  if (_loggedConfig) return;
-  const mask = (s) => s ? `${s.slice(0,4)}…${s.slice(-4)}` : '(unset)';
-  console.log('[helloasso] resolved config:', {
-    env: ENV,
-    haEnv: HELLOASSO_ENV,
-    apiHost: API_HOST,
-    orgSlug: ORG_SLUG || '(unset)',
-    returnUrl: RETURN_URL || '(unset)',
-    clientId: mask(CLIENT_ID),
-  });
-  _loggedConfig = true;
+function assertEnv() {
+  const miss = [];
+  if (!ORG_SLUG)   miss.push('HELLOASSO_ORG_SLUG');
+  if (!CLIENT_ID)  miss.push('HELLOASSO_CLIENT_ID');
+  if (!CLIENT_SEC) miss.push('HELLOASSO_CLIENT_SECRET');
+  if (miss.length) throw new Error('HelloAsso env manquant: ' + miss.join(', '));
 }
 
 async function getAccessToken() {
-  if (STUB) return 'stub-token';
-  logResolvedConfigOnce();
-
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    throw new Error('HELLOASSO_CLIENT_ID/HELLOASSO_CLIENT_SECRET manquants');
-  }
-
-  const now = Date.now();
-  if (_token && now < _exp) return _token;
-
-  const res = await fetch(OAUTH_URL, {
+  assertEnv();
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SEC,
+  });
+  const r = await fetch(OAUTH_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET
-    })
+    body
   });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`HelloAsso OAuth ${res.status}: ${t}`);
-  }
-  const data = await res.json();
-  _token = data.access_token;
-  _exp = Date.now() + Math.max(60, (data.expires_in || 3600) - 60) * 1000;
-  return _token;
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`HelloAsso oauth ${r.status} ${JSON.stringify(j)}`);
+  return j.access_token;
 }
 
 /**
- * Démarre un checkout HelloAsso et retourne l’URL de redirection.
- * @param {{order:Object, formSlug?:string}} params
+ * Crée un checkout-intent HelloAsso
+ * @param {object} opts
+ *  - orderId, order (mongoose doc)
+ *  - itemName (string)
+ *  - returnUrl, backUrl, errorUrl
  */
-export async function initCheckout({ order, formSlug }) {
-  if (!order) throw new Error('order requis');
-
-  // Mode STUB (DEV)
-  if (STUB) {
-    logResolvedConfigOnce();
-    if (!RETURN_URL) throw new Error('HELLOASSO_RETURN_URL manquant pour le STUB');
-    const res = STUB_RESULT === 'failure' ? 'failure' : 'success';
-    const url = `${RETURN_URL}?stub=1&result=${encodeURIComponent(res)}&oid=${encodeURIComponent(order._id)}`;
-    return { redirectUrl: url, provider: 'stub' };
-  }
-
+export async function createCheckoutIntent(opts) {
+  const { orderId, order, itemName, returnUrl, backUrl, errorUrl } = opts || {};
   const token = await getAccessToken();
 
-  const returnUrl = `${RETURN_URL}?oid=${encodeURIComponent(order._id)}`;
-  const backUrl   = returnUrl.replace('/ha/return', '/ha/back');
-  const errorUrl  = returnUrl.replace('/ha/return', '/ha/error');
+  const title = String(itemName || `Commande ${orderId || order?._id || ''}`);
 
-  const totalCents = Math.round(order.totalCents || 0);
+  // Montants en CENTIMES (HelloAsso attend des entiers)
+  const totalCents = Number(order?.totalCents || 0);
+
   const payload = {
+    // ⚠️ les 3 champs suivants sont obligatoires
     totalAmount: totalCents,
-    returnUrl, backUrl, errorUrl,
-    metadata: {
-      kind: order.kind || 'season-renew',
-      orderId: String(order._id),
-      env: ENV,
-      haEnv: HELLOASSO_ENV,
-      apiHost: API_HOST
-    }
+    initialAmount: totalCents,
+    containsDonation: false,
+
+    // ⚠️ requis par l'API : nom de l’item global du checkout
+    itemName: title,
+
+    payer: {
+      firstName: order?.payerFirstName || '',
+      lastName:  order?.payerLastName  || '',
+      email:     order?.payerEmail     || ''
+    },
+
+    // Détail du panier (optionnel mais utile pour la traçabilité)
+    items: Array.isArray(order?.lines) ? order.lines.map(l => ({
+      name: `${l.seatId} • ${l.tariffCode}`,
+      amount: Number(l.priceCents || 0),
+      quantity: 1
+      // On pourrait ajouter "type" si nécessaire par l’API (Donation/Product/Contribution),
+      // mais pour un checkout simple ce n'est pas requis côté sandbox.
+    })) : [],
+
+    // URLs de redirection
+    returnUrl,
+    backUrl,
+    errorUrl,
+
+    // Métadonnées pour retrouver la commande côté /ha/return
+    metadata: { orderId: String(orderId || order?._id || '') }
   };
 
-  const url = `${API_BASE}/organizations/${ORG_SLUG}/forms/${formSlug || 'checkout'}/checkout-intents`;
-  const res = await fetch(url, {
+  const url = `${API_V5}/organizations/${encodeURIComponent(ORG_SLUG)}/checkout-intents`;
+  const r = await fetch(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type':  'application/json'
+    },
     body: JSON.stringify(payload)
   });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`HelloAsso initCheckout ${res.status}: ${t}`);
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    // Petit log de debug utile en cas d'erreur de validation
+    console.error('[helloasso] payload sent:', JSON.stringify(payload));
+    throw new Error(`HelloAsso checkout ${r.status} ${JSON.stringify(j)}`);
   }
 
-  const data = await res.json();
-  const redirectUrl = data?.redirectUrl || data?.url || data?.links?.payment || '';
-  const intentId    = data?.id || data?.intentId || '';
-  if (!redirectUrl) throw new Error('HelloAsso: redirectUrl manquant');
-
-  return { redirectUrl, provider: 'helloasso', intentId };
-}
-
-export async function getCheckoutStatus(intentId) {
-  if (STUB) return (STUB_RESULT === 'failure') ? 'Failed' : 'Paid';
-  logResolvedConfigOnce();
-  if (!intentId) return 'Unknown';
-  const token = await getAccessToken();
-  const url = `${API_BASE}/checkout-intents/${encodeURIComponent(intentId)}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) return 'Unknown';
-  const data = await res.json().catch(() => ({}));
-  return (data?.state || data?.status || 'Unknown');
+  // Normalisation du champ de redirection (selon versions)
+  return { redirectUrl: j.redirectUrl || j.redirectUri || j.url || '' };
 }

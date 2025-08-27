@@ -2,8 +2,8 @@
 import express from 'express';
 
 import { requireAdmin } from '../middlewares/authz.js';
-import Season from '../models/Season.js';
-import Seat from '../models/Seat.js';
+import { Season } from '../models/Season.js';
+import { Seat } from '../models/Seat.js';
 
 const router = express.Router();
 
@@ -51,4 +51,4 @@ router.post('/renewal/release-provisioned', requireAdmin, async (_req, res, next
   } catch (e) { next(e); }
 });
 
-module.exports = router;
+export default router;

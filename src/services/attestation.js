@@ -67,4 +67,4 @@ function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById 
   </div>`;
 }
 
-module.exports = { renderAttestationHtml };
+exports { renderAttestationHtml };

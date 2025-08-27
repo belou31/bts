@@ -4,121 +4,90 @@
   <meta charset="utf-8">
   <title>Renouvellement d’abonnement — BTS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="../public/static/styles/renew.css">
-  <link rel="icon" href="../public/static/img/favicon.ico">
-  <style>
-    /* —— Ajustements cosmétiques —— */
-    .panel h2{ margin: 0 0 .75rem 0; }
-    .payer-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:end; }
-    .payer-grid .field{ display:flex; flex-direction:column; }
-    .payer-grid .field label{ font-size:.9rem; margin-bottom:.25rem; }
-    .payer-grid .field input, .payer-grid .field select{ padding:.6rem .7rem; }
-    .payer-grid .field-email{ grid-column:1 / span 1; }
-    .payer-grid .field-inst{ grid-column:2 / span 1; }
-    .payer-grid .hint{ grid-column:1 / span 2; margin:0; font-size:.9rem; color:#666; }
-    .actions{ margin-top:12px; display:flex; gap:12px; align-items:center; }
-    .actions .primary{ padding:.75rem 1rem; font-weight:600; }
-
-    .participants .row{
-      display:grid;
-      grid-template-columns: minmax(120px,160px) minmax(260px,1fr) minmax(240px,1fr);
-      gap:12px; padding:8px 0; border-bottom:1px solid #eee;
-      align-items:start;
-    }
-    .participants .row .cell.seat .keep{ display:flex; gap:8px; align-items:center; }
-    .participants .row .cell.seat .seat-label{ font-weight:600; }
-    .participants .row .cell.names .name-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
-    .participants .row input, .participants .row select, .participants .row textarea{ width:100%; padding:.55rem .6rem; }
-
-    @media (max-width: 760px){
-      .payer-grid{ grid-template-columns: 1fr; }
-      .payer-grid .field-email, .payer-grid .field-inst, .payer-grid .hint{ grid-column:1; }
-      .participants .row{ grid-template-columns: 1fr; }
-    }
-  </style>
+  <!-- IMPORTANT : tout est relatif à /bts/ -->
+  <base href="/bts/">
+  <link rel="icon" href="public/static/img/favicon.ico">
+  <link rel="stylesheet" href="public/static/styles/renew.css">
 </head>
 <body>
-  <header class="page-header" style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
-    <img id="clubLogo" src="../public/static/img/logo.png" alt="Club" style="height:40px">
-    <h1 style="margin:0; font-size:1.5rem;">Renouvellement d’abonnement</h1>
+  <header class="site-header">
+    <div class="brand">
+      <img src="public/static/img/logo.png" alt="Logo" class="logo">
+      <h1>Renouvellement d’abonnement</h1>
+    </div>
   </header>
 
-  <div id="renewBanner" class="banner" style="display:none"></div>
+  <main class="page">
+    <!-- Colonne PLAN -->
+    <section class="col plan-col">
+      <div class="panel">
+        <h2>Votre plan</h2>
+        <div id="planWrap" class="plan-wrap">
+          <!-- le src est fixé dynamiquement en JS -->
+          <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="Plan de la salle"></object>
+          <div id="planStatus" class="plan-status">Chargement du plan…</div>
+        </div>
+        <div class="help">
+          <p>Molette pour zoomer, glisser pour déplacer. Les sièges autorisés sont surlignés.</p>
+        </div>
+      </div>
+    </section>
 
-  <main id="renewPage">
-    <section class="layout" style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
-      <div class="plan">
-        <object id="venuePlan" type="image/svg+xml" data="" aria-label="Plan de la salle" style="width:100%; min-height:420px; border:1px solid #eee;"></object>
+    <!-- Colonne FORM -->
+    <section class="col form-col">
+      <div class="panel">
+        <h2>Vos places</h2>
+        <div id="seatsList" class="seats-list">
+          <!-- lignes injectées par JS -->
+        </div>
       </div>
 
-      <div class="form">
-        <section class="panel">
-          <h2>Vos places</h2>
-          <div class="participants" id="participants"></div>
+      <div class="panel">
+        <h2>Paiement</h2>
 
-          <!-- Lignes sièges : Nom + Prénom sur la même ligne -->
-          <template id="participantRowTpl">
-            <div class="row" data-seat="">
-              <div class="cell seat">
-                <label class="keep">
-                  <input type="checkbox" data-name="keep" checked>
-                  <span class="seat-label" data-role="seatLabel"></span>
-                </label>
-              </div>
-              <div class="cell names">
-                <div class="name-grid">
-                  <div><input type="text" data-name="lastName"  placeholder="Nom"></div>
-                  <div><input type="text" data-name="firstName" placeholder="Prénom"></div>
-                </div>
-              </div>
-              <div class="cell tariff">
-                <select data-name="tariff"></select>
-                <input type="text" data-name="fieldValue" placeholder="Justificatif (si requis)" style="display:none; margin-top:6px">
-                <textarea data-name="info" placeholder="Informations complémentaires (si requis)" style="display:none; margin-top:6px"></textarea>
-              </div>
-            </div>
-          </template>
-        </section>
+        <div class="form-grid payer-row">
+          <div class="form-group">
+            <label for="payerLast">Nom</label>
+            <input id="payerLast" type="text" placeholder="Nom">
+          </div>
+          <div class="form-group">
+            <label for="payerFirst">Prénom</label>
+            <input id="payerFirst" type="text" placeholder="Prénom">
+          </div>
+          <div class="form-group">
+            <label for="payerEmail">Email de contact</label>
+            <input id="payerEmail" type="email" placeholder="email@exemple.com">
+            <small class="hint">Le reçu et la confirmation seront envoyés à cet email.</small>
+          </div>
+        </div>
 
-        <section class="panel">
-          <h2>Paiement</h2>
-          <form id="renewForm" novalidate>
-            <div class="payer-grid">
-              <div class="field">
-                <label for="payerLastName">Nom</label>
-                <input id="payerLastName" type="text" placeholder="Nom">
-              </div>
-              <div class="field">
-                <label for="payerFirstName">Prénom</label>
-                <input id="payerFirstName" type="text" placeholder="Prénom">
-              </div>
+        <div class="form-grid pay-bottom-row">
+          <div class="form-group">
+            <label for="paySchedule">Échéancier</label>
+            <select id="paySchedule">
+              <option value="1">En 1 fois</option>
+              <option value="2">En 2 fois</option>
+              <option value="3">En 3 fois</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Échéance (estimation)</label>
+            <div id="schedulePreview" class="total-box">—</div>
+          </div>
+          <div class="form-group">
+            <label>Total</label>
+            <div id="totalBox" class="total-box">0,00 €</div>
+          </div>
+        </div>
 
-              <div class="field field-email">
-                <label for="orderEmail">Email</label>
-                <input id="orderEmail" type="email" placeholder="ex: jean.dupont@email.fr" required>
-              </div>
-              <div class="field field-inst">
-                <label for="installments">Échéancier</label>
-                <select id="installments" aria-label="Échéancier">
-                  <option value="1">En 1 fois</option>
-                  <option value="2">En 2 fois</option>
-                  <option value="3">En 3 fois</option>
-                </select>
-              </div>
-
-              <p class="hint">Le reçu et la confirmation seront envoyés à cet email.</p>
-            </div>
-
-            <div class="actions">
-              <button id="btn-submit" type="submit" class="primary">Procéder au paiement</button>
-              <span id="form-msg" class="msg"></span>
-            </div>
-          </form>
-        </section>
+        <div class="actions">
+          <button id="payBtn" class="pay-btn">Procéder au paiement</button>
+        </div>
       </div>
     </section>
   </main>
 
-  <script src="../views/renew/renew.js" defer></script>
+  <script defer src="../../views/renew/renew.js"></script>
+  <script defer src="views/renew/renew.js"></script>
 </body>
 </html>

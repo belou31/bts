@@ -33,4 +33,4 @@ async function getPriceFor({ seasonCode, seatId=null, zoneKey=null, tariffCode='
   return { unitPriceCents: amount, requiresJustification: !!p.requiresJustification, zone, table };
 }
 
-module.exports = { getPriceFor };
+export { getPriceFor };

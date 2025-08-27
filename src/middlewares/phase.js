@@ -16,4 +16,4 @@ function checkPhase(phaseName) {
   };
 }
 
-module.exports = { checkPhase };
+export { checkPhase };

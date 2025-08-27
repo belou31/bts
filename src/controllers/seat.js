@@ -24,4 +24,4 @@ async function holdSeat({ seatId, seasonCode, orderId, ttlMinutes = 10, subscrib
   return true;
 }
 
-module.exports = { holdSeat };
+exports default holdSeat;

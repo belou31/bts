@@ -1,15 +1,30 @@
 // src/routes/index.js
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
-import renewRoutes from './renew.js';
-import haRoutes from './ha.js';
+import renewApi from './renew.js';
+import haRouter from './ha.js';
 
-const router = express.Router();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const rootDir    = path.resolve(__dirname, '..');
 
-// Endpoints “renew” et HelloAsso
-router.use('/', renewRoutes);
-router.use('/', haRoutes);
+export default function routes(app) {
+  const router = express.Router();
 
-// petite racine
-router.get('/', (_req, res) => res.json({ app: 'BTS API', ok: true }));
+  // Page HTML
+  router.get('/renew', (_req, res) => {
+    res.sendFile(path.join(rootDir, 'views', 'renew', 'index.html'));
+  });
 
-export default router;
+  // API JSON sous /s (GET /s/renew, POST /s/renew)
+  router.use('/s', renewApi);
+
+  // Retour paiement HelloAsso
+  router.use('/', haRouter);
+
+  // Santé
+  router.get('/healthz', (_req, res) => res.json({ ok: true }));
+
+  app.use('/', router);
+}

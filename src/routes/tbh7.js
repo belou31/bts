@@ -1,9 +1,9 @@
 
 import express from 'express';
 
-import Campaign from '../models/Campaign.js';
-import Zone from '../models/Zone.js';
-import Order from '../models/Order.js';
+import { Campaign } from '../models/Campaign.js';
+import { Zone } from '../models/Zone.js';
+import { Order } from '../models/Order.js';
 import { splitInstallments } from '../utils/money.js';
 import { orderNo } from '../utils/ids.js';
 import { getPriceFor } from '../services/pricing.js';
@@ -71,4 +71,4 @@ router.post('/', checkPhase('tbh7'), async (req,res,next)=>{
   }catch(e){ next(e); }
 });
 
-module.exports = router;
+export default router;

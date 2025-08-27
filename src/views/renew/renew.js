@@ -1,298 +1,440 @@
 // src/views/renew/renew.js
-(async function(){
-  console.log('[renew] boot renewal-only v2025-08-21i');
+console.log('[renew] boot v2025-08-26 sync-css-html-js');
 
-  const qs      = new URLSearchParams(location.search);
+const $plan          = document.getElementById('venuePlan');
+const $planStatus    = document.getElementById('planStatus');
+const $seatsList     = document.getElementById('seatsList');
 
-  const $banner     = document.getElementById('renewBanner');
-  const $planObj    = document.getElementById('venuePlan');
-  const $rowsHost   = document.getElementById('participants');
-  const $orderEmail = document.getElementById('orderEmail');
-  const $payerLast  = document.getElementById('payerLastName');
-  const $payerFirst = document.getElementById('payerFirstName');
-  const $form       = document.getElementById('renewForm');
-  const $btnSubmit  = document.getElementById('btn-submit');
-  const $msg        = document.getElementById('form-msg');
-  const $rowTpl     = document.getElementById('participantRowTpl');
+const $payerFirst    = document.getElementById('payerFirst');
+const $payerLast     = document.getElementById('payerLast');
+const $payerEmail    = document.getElementById('payerEmail');
 
-  const CTX = {
-    seasonCode: null, venueSlug: null,
-    subscriber: null,
-    seats: [], tariffs: [], prices: [],
-    allowed: new Set(), seatById: new Map()
-  };
+const $paySchedule   = document.getElementById('paySchedule');
+const $schedulePrev  = document.getElementById('schedulePreview');
+const $totalBox      = document.getElementById('totalBox');
+const $payBtn        = document.getElementById('payBtn');
 
-  function showBanner(kind, html) {
-    if (!$banner) return;
-    $banner.className = `banner ${kind}`;
-    $banner.style.display = 'block';
-    $banner.innerHTML = html;
+const CSS_ESCAPE = (window.CSS && CSS.escape) ? CSS.escape : (s)=>String(s).replace(/[^a-zA-Z0-9_-]/g,'\\$&');
+
+const CTX = {
+  seasonCode: null,
+  venueSlug : null,
+  tokenSeats: [],
+  tariffs   : [],
+  prices    : [],
+  pricesIdx : null,
+  seatsById : new Map(),
+  // pan/zoom
+  svg: null, vb: { x:0, y:0, w:1000, h:1000 }, panning:false, last: {x:0,y:0}, minScale:0.25, maxScale:6
+};
+
+/* ---------- Utils ---------- */
+function formatEuro(cents) { return (Number(cents||0)/100).toLocaleString('fr-FR', { style:'currency', currency:'EUR' }); }
+function euroSplit(totalCents, n) {
+  n = Number(n||1);
+  if (n<=1) return formatEuro(totalCents);
+  const base = Math.floor(totalCents / n);
+  const last = totalCents - base*(n-1);
+  if (n===2) return `${formatEuro(base)} + ${formatEuro(last)}`;
+  if (n===3) return `${formatEuro(base)} + ${formatEuro(base)} + ${formatEuro(last)}`;
+  return `${n}× ${formatEuro(base)} (dern. ${formatEuro(last)})`;
+}
+function zoneKeyFromSeatId(sid) {
+  const s = String(sid||''); const i = s.indexOf('-');
+  return (i>0) ? s.slice(0,i) : s;
+}
+function buildPricesIndex(prices) {
+  const idx = new Map();
+  for (const p of (prices||[])) {
+    const z = p.zoneKey, t = String(p.tariffCode||'').toUpperCase();
+    if (!idx.has(z)) idx.set(z, new Map());
+    idx.get(z).set(t, Number(p.priceCents)||0);
   }
-  function zoneFromSeatId(seatId) {
-    const s = String(seatId||''); const i = s.indexOf('-'); return i>0 ? s.slice(0,i) : null;
+  return idx;
+}
+function priceFor(zoneKey, tariff) {
+  const t = String(tariff||'').toUpperCase();
+  const m = CTX.pricesIdx.get(zoneKey);
+  if (m && m.has(t)) return m.get(t);
+  const star = CTX.pricesIdx.get('*');
+  if (star && star.has(t)) return star.get(t);
+  return 0;
+}
+function tariffsForZone(zoneKey) {
+  const avail = new Set();
+  for (const p of CTX.prices) if (p.zoneKey===zoneKey || p.zoneKey==='*') avail.add(String(p.tariffCode||'').toUpperCase());
+  const order = CTX.tariffs.map(t => String(t.code||'').toUpperCase()).filter(Boolean);
+  const list = order.filter(c => avail.has(c));
+  for (const c of avail) if (!list.includes(c)) list.push(c);
+  return list;
+}
+
+/* ---------- SVG helpers (pan/zoom & highlight) ---------- */
+function svgSetViewBox(x,y,w,h) {
+  const el = CTX.svg;
+  if (!el) return;
+  CTX.vb = { x,y,w,h };
+  el.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+  $planStatus.textContent = `Zoom ${(1000/w*100).toFixed(0)}%`; // indicatif
+}
+function svgInitViewBox() {
+  const el = CTX.svg;
+  if (!el) return;
+  const vbAttr = el.getAttribute('viewBox');
+  if (vbAttr) {
+    const [x,y,w,h] = vbAttr.split(/\s+|,/).map(Number);
+    svgSetViewBox(x,y,w,h);
+  } else {
+    const w = Number(el.getAttribute('width'))  || 1000;
+    const h = Number(el.getAttribute('height')) || 1000;
+    svgSetViewBox(0,0,w,h);
   }
-  function priceFor(zoneKey, tariffCode) {
-    const tcode = String(tariffCode||'').toUpperCase();
-    let p = CTX.prices.find(p => p.zoneKey === zoneKey && p.tariffCode === tcode);
-    if (!p) p = CTX.prices.find(p => p.zoneKey === '*' && p.tariffCode === tcode);
-    return p ? Number(p.priceCents) : null;
+}
+function svgPointFromClient(clientX, clientY) {
+  const rect = $plan.getBoundingClientRect();
+  const mx = clientX - rect.left, my = clientY - rect.top;
+  const px = CTX.vb.x + (mx/rect.width)  * CTX.vb.w;
+  const py = CTX.vb.y + (my/rect.height) * CTX.vb.h;
+  return { px, py, mx, my, rect };
+}
+function svgOnWheel(e) {
+  e.preventDefault();
+  const { px, py, mx, my, rect } = svgPointFromClient(e.clientX, e.clientY);
+  const dir = Math.sign(e.deltaY);
+  const factor = (dir>0) ? 1.111 : 0.9;  // out / in
+  let w2 = CTX.vb.w * factor;
+  let h2 = CTX.vb.h * factor;
+
+  // bornes zoom
+  const w0 = CTX.svg.viewBox.baseVal ? CTX.svg.viewBox.baseVal.width : CTX.vb.w;
+  const minW = w0 / CTX.maxScale;
+  const maxW = w0 / CTX.minScale;
+  w2 = Math.max(minW, Math.min(maxW, w2));
+  h2 = w2 * (CTX.vb.h / CTX.vb.w);
+
+  const x2 = px - (mx/rect.width)*w2;
+  const y2 = py - (my/rect.height)*h2;
+  svgSetViewBox(x2,y2,w2,h2);
+}
+function svgOnDown(e) {
+  if (e.button!==0) return;
+  CTX.panning = true;
+  CTX.last.x = e.clientX;
+  CTX.last.y = e.clientY;
+  e.preventDefault();
+}
+function svgOnMove(e) {
+  if (!CTX.panning) return;
+  e.preventDefault();
+  const dx = e.clientX - CTX.last.x;
+  const dy = e.clientY - CTX.last.y;
+  CTX.last.x = e.clientX; CTX.last.y = e.clientY;
+
+  const rect = $plan.getBoundingClientRect();
+  const vx = - dx / rect.width  * CTX.vb.w;
+  const vy = - dy / rect.height * CTX.vb.h;
+  svgSetViewBox(CTX.vb.x + vx, CTX.vb.y + vy, CTX.vb.w, CTX.vb.h);
+}
+function svgOnUp()  { CTX.panning = false; }
+function svgInjectSeatStyle(doc) {
+  // pour éviter le scaling de stroke
+  const st = doc.createElementNS('http://www.w3.org/2000/svg','style');
+  st.textContent = '.seat{vector-effect:non-scaling-stroke}';
+  doc.documentElement.insertBefore(st, doc.documentElement.firstChild);
+}
+function applyAllowedStyle(el) {
+  el.classList.add('seat');
+  el.style.stroke = '#0ea5e9';
+  el.style.strokeWidth = '2';
+  el.style.fillOpacity = '0.15';
+  el.style.cursor = 'pointer';
+}
+function applySelectedStyle(el) {
+  el.classList.add('seat');
+  el.style.stroke = '#22c55e';
+  el.style.strokeWidth = '3';
+  el.style.fillOpacity = '0.25';
+  el.style.cursor = 'pointer';
+}
+function markAllowedSeats(ids) {
+  const doc = $plan.contentDocument; if (!doc) return;
+  (ids||[]).forEach(id => {
+    const el = doc.querySelector(`[data-seat-id="${CSS_ESCAPE(id)}"]`);
+    if (el) applyAllowedStyle(el);
+  });
+}
+function updateSelectedHighlights(selectedIds) {
+  const doc = $plan.contentDocument; if (!doc) return;
+  // 1) repasse tous les "allowed" en style allowed ( ça enlève l'ancien vert )
+  (CTX.tokenSeats||[]).forEach(id => {
+    const el = doc.querySelector(`[data-seat-id="${CSS_ESCAPE(id)}"]`);
+    if (el) applyAllowedStyle(el);
+  });
+  // 2) applique le style "selected" pour la sélection courante
+  (selectedIds||[]).forEach(id => {
+    const el = doc.querySelector(`[data-seat-id="${CSS_ESCAPE(id)}"]`);
+    if (el) applySelectedStyle(el);
+  });
+}
+function getSelectedSeatIdsFromForm() {
+  return Array.from(document.querySelectorAll('.seat-line input.seat-check:checked')).map(cb => cb.dataset.seatId);
+}
+
+/* ---------- Champs conditionnels ---------- */
+function updateConditionalFields(rowEl, tariffCode) {
+  const justifGroup = rowEl.querySelector('.justif-group');
+  const infoGroup   = rowEl.querySelector('.info-group');
+  const justifInput = rowEl.querySelector('.justif-input');
+  const infoInput   = rowEl.querySelector('.info-input');
+
+  const t = String(tariffCode||'').toUpperCase();
+
+  // reset
+  if (justifGroup) justifGroup.style.display = 'none';
+  if (infoGroup)   infoGroup.style.display   = 'none';
+  if (justifInput) { justifInput.required = false; justifInput.placeholder=''; }
+
+  if (!t || t==='NORMAL') {
+    // on vire les valeurs en NORMAL
+    if (justifInput) justifInput.value = '';
+    if (infoInput)   infoInput.value   = '';
+    return;
   }
-  function getTariffMeta(zoneKey, tariffCode){
-    const tcode = String(tariffCode||'').toUpperCase();
-    let p = CTX.prices.find(p => p.zoneKey === zoneKey && p.tariffCode === tcode);
-    if (!p) p = CTX.prices.find(p => p.zoneKey === '*' && p.tariffCode === tcode);
-    const t = CTX.tariffs.find(x => x.code === tcode);
-    return {
-      requiresField: !!(p?.requiresField),
-      fieldLabel: p?.fieldLabel || 'Justificatif',
-      requiresInfo: !!(p?.requiresInfo),
-      infoLabel: p?.infoLabel || 'Informations complémentaires',
-      label: t?.label || tcode
-    };
+
+  // info facultative pour tout sauf NORMAL
+  if (infoGroup) {
+    infoGroup.style.display = '';
+    if (infoInput && !infoInput.placeholder) infoInput.placeholder = 'Présentez le justificatif avec votre billet (facultatif)';
   }
-  function refreshSubmitState() {
-    const rows = Array.from($rowsHost.querySelectorAll('.row[data-seat]'));
-    const kept = rows.filter(r => r.querySelector('input[data-name="keep"]')?.checked);
-    const hasEmail = !!$orderEmail?.value?.trim();
-    $btnSubmit.disabled = !(kept.length > 0 && hasEmail);
+
+  if (t==='ETUDIANT') {
+    if (justifGroup) justifGroup.style.display = '';
+    if (justifInput) { justifInput.required = true; justifInput.placeholder = 'Numéro d’étudiant'; }
+  } else if (t==='LICENCIE' || t==='LICENCIÉ') {
+    if (justifGroup) justifGroup.style.display = '';
+    if (justifInput) { justifInput.required = true; justifInput.placeholder = 'Numéro de licence'; }
   }
-  function populateTariffSelect(sel, zoneKey) {
-    sel.innerHTML = '';
-    const tariffs = (CTX.tariffs||[]).slice().sort((a,b)=>{
-      const sa=+a.sortOrder||0, sb=+b.sortOrder||0; if (sa!==sb) return sa-sb;
-      return String(a.code).localeCompare(String(b.code));
+}
+
+/* ---------- Rendu lignes ---------- */
+function renderSeatLine(seatId, prefill) {
+  const zoneKey = zoneKeyFromSeatId(seatId);
+  const tariffs = tariffsForZone(zoneKey);
+  const row = document.createElement('div');
+  row.className = 'seat-line';
+  row.dataset.seatId = seatId;
+
+  row.innerHTML = `
+    <div class="form-group">
+      <input type="checkbox" class="seat-check" data-seat-id="${seatId}" checked>
+    </div>
+    <div class="seat-id">${seatId}</div>
+    <div class="form-group">
+      <label>Nom (titulaire)</label>
+      <input type="text" class="holder-last" placeholder="Nom" value="${(prefill?.lastName||'').replace(/"/g,'&quot;')}">
+    </div>
+    <div class="form-group">
+      <label>Prénom (titulaire)</label>
+      <input type="text" class="holder-first" placeholder="Prénom" value="${(prefill?.firstName||'').replace(/"/g,'&quot;')}">
+    </div>
+    <div class="form-group tariff-wrap">
+      <label>Tarif</label>
+      <select class="tariff-select"></select>
+      <div class="justif-group" style="display:none;margin-top:6px;">
+        <input type="text" class="justif-input" placeholder="">
+      </div>
+      <div class="info-group" style="display:none;margin-top:6px;">
+        <input type="text" class="info-input" placeholder="Présentez le justificatif avec votre billet (facultatif)">
+      </div>
+      <div class="line-total" style="margin-top:6px; text-align:right; color:#9ca3af;">0,00 €</div>
+    </div>
+  `;
+
+  const $sel = row.querySelector('.tariff-select');
+  $sel.innerHTML = tariffs.map(code => {
+    const t = CTX.tariffs.find(t => String(t.code||'').toUpperCase() === code);
+    const label = t?.name || code;
+    return `<option value="${code}">${label}</option>`;
+  }).join('');
+
+  // Choix par défaut
+  const def = tariffs.includes('NORMAL') ? 'NORMAL' : (tariffs[0]||'');
+  $sel.value = def;
+  updateConditionalFields(row, $sel.value);
+  updateLineTotal(row);
+
+  // events
+  row.querySelector('.seat-check').addEventListener('change', () => {
+    const enabled = row.querySelector('.seat-check').checked;
+    row.querySelectorAll('input, select').forEach(el => {
+      if (!el.classList.contains('seat-check')) el.disabled = !enabled;
     });
-    let first = null;
-    for (const t of tariffs) {
-      const code = String(t.code||'').toUpperCase();
-      const cents = priceFor(zoneKey, code);
-      if (cents == null) continue; // filtrage zone/* uniquement
-      const meta = getTariffMeta(zoneKey, code);
-      const opt = document.createElement('option');
-      opt.value = code;
-      opt.textContent = `${meta.label} — ${(cents/100).toFixed(2)} €`;
-      sel.appendChild(opt);
-      if (!first) first = code;
-    }
-    // défaut: ADULT ou NORMAL sinon premier
-    const opts = Array.from(sel.options);
-    if (opts.some(o => o.value === 'ADULT')) sel.value = 'ADULT';
-    else if (opts.some(o => o.value === 'NORMAL')) sel.value = 'NORMAL';
-    else sel.value = first || '';
-    return sel.value || null;
-  }
-
-  function addParticipantRow(seatId){
-    const seat = CTX.seatById.get(seatId) || {};
-    const zoneKey = seat.zoneKey || zoneFromSeatId(seatId) || '*';
-    let $row;
-    if ($rowTpl && 'content' in $rowTpl) {
-      const frag = $rowTpl.content.cloneNode(true);
-      $rowsHost.appendChild(frag);
-      $row = $rowsHost.querySelector('.row:last-child');
-    } else {
-      $row = document.createElement('div'); $row.className = 'row';
-      $row.innerHTML = `
-        <div class="cell seat">
-          <label class="keep">
-            <input type="checkbox" data-name="keep" checked>
-            <span class="seat-label" data-role="seatLabel"></span>
-          </label>
-        </div>
-        <div class="cell"><input type="text" data-name="firstName" placeholder="Prénom"></div>
-        <div class="cell"><input type="text" data-name="lastName"  placeholder="Nom"></div>
-        <div class="cell">
-          <select data-name="tariff"></select>
-          <input type="text" data-name="fieldValue" placeholder="Justificatif (si requis)" style="display:none; margin-top:6px">
-          <textarea data-name="info" placeholder="Informations complémentaires (si requis)" style="display:none; margin-top:6px"></textarea>
-        </div>`;
-      $rowsHost.appendChild($row);
-    }
-    $row.setAttribute('data-seat', seatId);
-    const $label  = $row.querySelector('[data-role="seatLabel"]');
-    const $keep   = $row.querySelector('input[data-name="keep"]');
-    const $tariff = $row.querySelector('select[data-name="tariff"]');
-    const $just   = $row.querySelector('input[data-name="fieldValue"]');
-    const $info   = $row.querySelector('textarea[data-name="info"]');
-
-    if ($label) $label.textContent = seatId;
-
-    // 1) Liste des tarifs de la zone (fallback * géré dans priceFor)
-    populateTariffSelect($tariff, zoneKey);
-
-    function applyTariffConds() {
-      const meta = getTariffMeta(zoneKey, $tariff.value);
-      if ($just) {
-        const show = !!meta.requiresField;
-        $just.style.display = show ? '' : 'none';
-        if (show) $just.placeholder = meta.fieldLabel || 'Justificatif';
-        if (!show) $just.value = '';
-      }
-      if ($info) {
-        const show = !!meta.requiresInfo;
-        $info.style.display = show ? '' : 'none';
-        if (show) $info.placeholder = meta.infoLabel || 'Informations complémentaires';
-        if (!show) $info.value = '';
-      }
-    }
-    $tariff.addEventListener('change', applyTariffConds);
-    applyTariffConds();
-
-    // 2) Pré-remplir nom/prénom PAR SIÈGE si fournis par le back
-    const fn = $row.querySelector('input[data-name="firstName"]');
-    const ln = $row.querySelector('input[data-name="lastName"]');
-    if (fn && !fn.value && seat.holderFirstName) fn.value = seat.holderFirstName;
-    if (ln && !ln.value && seat.holderLastName ) ln.value = seat.holderLastName;
-
-    $keep.addEventListener('change', refreshSubmitState);
-    refreshSubmitState();
-  }
-
-  function onPlanLoaded() {
-    try {
-      const doc = $planObj.contentDocument; if (!doc) return;
-      const $map = doc.getElementById('arena-map') || doc.documentElement;
-
-      // Style minimal
-      const style = doc.createElementNS('http://www.w3.org/2000/svg', 'style');
-      style.textContent = `
-        [data-seat-id][data-state="disabled"] { opacity: .25; pointer-events: none; }
-        [data-seat-id][data-state="allowed"] { opacity: 1; }
-        [data-seat-id].selected { stroke: #1a73e8; stroke-width: 2; }
-      `;
-      doc.documentElement.appendChild(style);
-
-      const seats = Array.from(doc.querySelectorAll('[data-seat-id]'));
-      for (const el of seats) {
-        const sid = el.getAttribute('data-seat-id') || el.id || '';
-        if (CTX.allowed.has(sid)) {
-          el.setAttribute('data-state', 'allowed');
-          el.classList.add('selected');  // sélection initiale
-          el.addEventListener('click', () => {
-            const row = $rowsHost.querySelector(`.row[data-seat="${CSS.escape(sid)}"]`);
-            const cb  = row?.querySelector('input[data-name="keep"]');
-            if (cb) { cb.checked = !cb.checked; }
-            el.classList.toggle('selected', cb?.checked);
-            refreshSubmitState();
-          });
-        } else {
-          el.setAttribute('data-state', 'disabled');
-          el.style.pointerEvents = 'none';
-        }
-      }
-
-      // Pan/Zoom
-      let scale=1, tx=0, ty=0;
-      function apply() { $map.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`); }
-      function toLocal(evt){
-        const svg = doc.documentElement, pt = svg.createSVGPoint();
-        pt.x = evt.clientX; pt.y = evt.clientY;
-        const m = $map.getScreenCTM(); if (!m) return {x:0,y:0};
-        const inv = m.inverse(), p = pt.matrixTransform(inv); return {x:p.x,y:p.y};
-      }
-      doc.addEventListener('wheel', (e)=>{
-        e.preventDefault();
-        const s0=scale, s1=Math.max(0.5, Math.min(4, s0 + (e.deltaY<0?0.1:-0.1)));
-        if (s1===s0) return;
-        const p=toLocal(e); tx=((p.x+tx)*s0/s1)-p.x; ty=((p.y+ty)*s0/s1)-p.y; scale=s1; apply();
-      }, {passive:false});
-      let dragging=false,lx=0,ly=0;
-      doc.addEventListener('mousedown',(e)=>{ dragging=true; lx=e.clientX; ly=e.clientY; });
-      doc.addEventListener('mouseup',  ()=>{ dragging=false; });
-      doc.addEventListener('mouseleave',()=>{ dragging=false; });
-      doc.addEventListener('mousemove',(e)=>{
-        if (!dragging) return;
-        tx += (e.clientX-lx)/scale; ty += (e.clientY-ly)/scale; lx=e.clientX; ly=e.clientY; apply();
-      });
-
-      console.log('[renew] plan ready. allowed seats:', CTX.allowed.size);
-    } catch(e) { console.warn('plan load failed:', e); }
-  }
-
-  async function loadData() {
-    const res = await fetch(location.href, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
-    if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
-    const data = await res.json();
-
-    CTX.seasonCode = data.seasonCode; CTX.venueSlug = data.venueSlug;
-    CTX.tariffs    = data.tariffs || []; CTX.prices = data.prices || [];
-    CTX.seats      = data.seats   || [];
-    CTX.subscriber = data.subscriber || (data.subscribers&&data.subscribers[0]) || null;
-
-    CTX.seatById.clear();
-    for (const s of CTX.seats) CTX.seatById.set(s.seatId, s);
-
-    (data.allowedSeats || data.tokenSeats || []).forEach(sid => CTX.allowed.add(String(sid)));
-
-    // Plan
-    $planObj.setAttribute('data', `../public/venues/${encodeURIComponent(CTX.venueSlug)}/plan.svg`);
-
-    // Pré-remplissage payeur
-    if ($orderEmail) {
-      if (data.email) $orderEmail.value = data.email;
-      else if (CTX.subscriber?.email) $orderEmail.value = CTX.subscriber.email;
-    }
-    if ($payerFirst && CTX.subscriber?.firstName) $payerFirst.value = CTX.subscriber.firstName;
-    if ($payerLast  && CTX.subscriber?.lastName ) $payerLast.value  = CTX.subscriber.lastName;
-
-    // Lignes par siège autorisé
-    CTX.allowed.forEach(sid => addParticipantRow(sid));
-
-    if (!CTX.allowed.size) showBanner('warn', 'Aucune place à renouveler pour ce lien.');
-
-    refreshSubmitState();
-    console.log('[renew] data:', { season:CTX.seasonCode, venue:CTX.venueSlug, tariffs:CTX.tariffs.length, prices:CTX.prices.length, seats:CTX.seats.length, allowed:CTX.allowed.size });
-  }
-
-  $planObj.addEventListener('load', onPlanLoaded);
-  $form.addEventListener('input', refreshSubmitState);
-
-  $form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    $btnSubmit.disabled = true; $msg.textContent = 'Validation…';
-    try {
-      const payerEmail = $orderEmail.value.trim();
-      if (!payerEmail) throw new Error('Merci de renseigner l’email du payeur.');
-      const rows = Array.from($rowsHost.querySelectorAll('.row[data-seat]'));
-      const kept = rows.filter(r => r.querySelector('input[data-name="keep"]')?.checked);
-      if (!kept.length) throw new Error('Sélectionnez au moins une place à renouveler.');
-
-      const items = kept.map(r => {
-        const seatId     = r.getAttribute('data-seat');
-        const zoneKey    = (CTX.seatById.get(seatId)?.zoneKey) || zoneFromSeatId(seatId) || '*';
-        const tariffSel  = r.querySelector('select[data-name="tariff"]');
-        const justifInp  = r.querySelector('input[data-name="fieldValue"]');
-        const infoArea   = r.querySelector('textarea[data-name="info"]');
-        const firstName  = r.querySelector('input[data-name="firstName"]')?.value || '';
-        const lastName   = r.querySelector('input[data-name="lastName"]')?.value  || '';
-        return {
-          seatId, zoneKey,
-          tariffCode: (tariffSel?.value || 'ADULT').toUpperCase(),
-          justification: justifInp?.value || '',
-          info: infoArea?.value || '',
-          firstName, lastName
-        };
-      });
-
-      const url = new URL(location.href);
-      const res = await fetch(`${url.pathname}?${url.searchParams.toString()}`, {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
-        body: JSON.stringify({
-          seasonCode: CTX.seasonCode, venueSlug: CTX.venueSlug,
-          items, payer: { email: payerEmail, firstName: $payerFirst?.value || '', lastName: $payerLast?.value || '' }
-        })
-      });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
-      const json = await res.json();
-      if (!json.redirectUrl) throw new Error('Réponse inattendue du serveur.');
-      location.href = json.redirectUrl;
-    } catch(err) {
-      alert(err.message || String(err));
-      $btnSubmit.disabled = false; $msg.textContent = '';
-    }
+    updateSelectedHighlights(getSelectedSeatIdsFromForm());
+    recalcTotal();
+  });
+  $sel.addEventListener('change', () => {
+    updateConditionalFields(row, $sel.value);
+    updateLineTotal(row);
+    recalcTotal();
   });
 
-  try { await loadData(); }
-  catch(e) { console.error('[renew] load error', e); showBanner('error', 'Erreur lors du chargement des données.'); }
-})();
+  $seatsList.appendChild(row);
+}
+
+function updateLineTotal(row) {
+  const sid = row.dataset.seatId;
+  const zone = zoneKeyFromSeatId(sid);
+  const tariff = row.querySelector('.tariff-select')?.value || '';
+  const v = priceFor(zone, tariff);
+  const box = row.querySelector('.line-total');
+  if (box) box.textContent = formatEuro(v);
+}
+
+function recalcTotal() {
+  let sum = 0;
+  document.querySelectorAll('.seat-line').forEach(row => {
+    const on = row.querySelector('.seat-check')?.checked;
+    if (!on) return;
+    const sid = row.dataset.seatId;
+    const zone = zoneKeyFromSeatId(sid);
+    const tariff = row.querySelector('.tariff-select')?.value || '';
+    sum += priceFor(zone, tariff);
+  });
+  $totalBox.textContent = formatEuro(sum);
+  const n = Number($paySchedule.value||1);
+  $schedulePrev.textContent = euroSplit(sum, n);
+}
+
+/* ---------- Chargement des données & plan ---------- */
+async function loadData() {
+  const apiUrl = 's/renew' + (location.search||'');
+  const res = await fetch(apiUrl, { headers: { 'Accept':'application/json' }, credentials:'same-origin' });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+
+  // Contexte
+  CTX.seasonCode = data.seasonCode || data.season;
+  CTX.venueSlug  = data.venueSlug  || data.venue;
+  CTX.tokenSeats = data.tokenSeats || [];
+  CTX.tariffs    = data.tariffs    || [];
+  CTX.prices     = data.prices     || [];
+  CTX.pricesIdx  = buildPricesIndex(CTX.prices);
+  (data.seats||[]).forEach(s => CTX.seatsById.set(String(s.seatId), s));
+
+  // payer
+  if (data.payer) {
+    $payerFirst.value = data.payer.firstName || '';
+    $payerLast.value  = data.payer.lastName  || '';
+    $payerEmail.value = data.payer.email     || '';
+  }
+
+  // Rendu des lignes (cochées par défaut)
+  $seatsList.innerHTML = '';
+  for (const sid of CTX.tokenSeats) {
+    renderSeatLine(sid, data.seatSubscribers?.[sid]);
+  }
+
+  // Plan SVG
+  const svgPath = `public/venues/${CTX.venueSlug}/plan.svg`;
+  $plan.data = svgPath;
+  $plan.addEventListener('load', () => {
+    const doc = $plan.contentDocument;
+    if (!doc) return;
+    CTX.svg = doc.querySelector('svg');
+    if (!CTX.svg) return;
+
+    svgInjectSeatStyle(doc);
+    svgInitViewBox();
+
+    // Interactions
+    doc.addEventListener('wheel', svgOnWheel, { passive:false });
+    doc.addEventListener('mousedown', svgOnDown);
+    doc.addEventListener('mousemove', svgOnMove);
+    doc.addEventListener('mouseup', svgOnUp);
+    doc.addEventListener('mouseleave', svgOnUp);
+
+    // Click pour (dé)cocher
+    doc.addEventListener('click', (e) => {
+      const target = e.target.closest('[data-seat-id]');
+      if (!target) return;
+      const sid = target.getAttribute('data-seat-id');
+      const cb = document.querySelector(`.seat-line input.seat-check[data-seat-id="${CSS_ESCAPE(sid)}"]`);
+      if (cb) {
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event('change', { bubbles:true }));
+      }
+    });
+
+    // Highlight
+    markAllowedSeats(CTX.tokenSeats);
+    updateSelectedHighlights(getSelectedSeatIdsFromForm());
+
+    $planStatus.textContent = 'Plan prêt';
+  }, { once:true });
+
+  recalcTotal();
+}
+
+/* ---------- Paiement ---------- */
+async function doPay() {
+  try {
+    const items = [];
+    document.querySelectorAll('.seat-line').forEach(row => {
+      const checked = row.querySelector('.seat-check')?.checked;
+      if (!checked) return;
+      const seatId = row.dataset.seatId;
+      const zoneKey = zoneKeyFromSeatId(seatId);
+      const tariffCode = row.querySelector('.tariff-select')?.value || '';
+      const firstName = row.querySelector('.holder-first')?.value || '';
+      const lastName  = row.querySelector('.holder-last')?.value || '';
+      const justification = row.querySelector('.justif-input')?.value || '';
+      const info = row.querySelector('.info-input')?.value || '';
+      items.push({ seatId, zoneKey, tariffCode, firstName, lastName, justification, info });
+    });
+    if (!items.length) return alert('Veuillez sélectionner au moins une place.');
+    if (!$payerEmail.value) return alert('Veuillez saisir un email de contact.');
+
+    $payBtn.disabled = true;
+    const res = await fetch('s/renew' + (location.search||''), {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
+      body: JSON.stringify({
+        items,
+        payer:{ firstName:$payerFirst.value||'', lastName:$payerLast.value||'', email:$payerEmail.value||'' },
+        schedule: Number($paySchedule.value||1)
+      })
+    });
+    const data = await res.json().catch(()=> ({}));
+    if (!res.ok) {
+      console.error('pay error', res.status, data);
+      alert(`Erreur serveur (${res.status}) : ${JSON.stringify(data)}`);
+      $payBtn.disabled = false; return;
+    }
+    if (data.redirectUrl) location.assign(data.redirectUrl);
+    else { alert('Réponse inattendue.'); $payBtn.disabled=false; }
+  } catch (e) {
+    console.error('pay catch:', e);
+    alert('Erreur : '+e.message);
+    $payBtn.disabled = false;
+  }
+}
+
+/* ---------- Bind global ---------- */
+$paySchedule.addEventListener('change', recalcTotal);
+$payBtn.addEventListener('click', doPay);
+
+// Update highlight si (dé)cochage dans la liste
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.matches('.seat-line input.seat-check')) {
+    updateSelectedHighlights(getSelectedSeatIdsFromForm());
+  }
+});
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.matches('.tariff-select')) recalcTotal();
+});
+
+/* ---------- Boot ---------- */
+loadData().catch(err => {
+  console.error('load error:', err);
+  $planStatus.textContent = 'Impossible de charger les données. Vérifiez votre lien.';
+});

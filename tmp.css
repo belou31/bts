@@ -1,0 +1,142 @@
+:root {
+  --bg: #0b0d10;
+  --fg: #e7edf4;
+  --muted: #99a3ad;
+  --accent: #3aa0ff;
+  --danger: #ff4d4f;
+  --ok: #22c55e;
+  --card: #14171b;
+  --line: #20252b;
+
+  --col-seat: 110px;
+  --col-name: 1fr;
+  --col-tariff: 150px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial;
+}
+
+.renew-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px; border-bottom: 1px solid var(--line);
+  background: #0d1116;
+}
+.renew-header .club-logo { width: 36px; height: 36px; object-fit: contain; }
+.renew-header h1 { font-size: 20px; margin: 0; font-weight: 600; }
+
+/* ===== Layout ===== */
+.renew-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* 50/50 desktop */
+  gap: 16px; padding: 16px;
+}
+.plan-col, .order-col {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px; min-height: 120px;
+}
+.plan-wrap { position: relative; }
+#venuePlan {
+  width: 100%; height: 64vh; border: 1px solid var(--line);
+  background: #0a0c0f; cursor: grab;
+}
+#venuePlan.grabbing { cursor: grabbing; }
+.plan-hint {
+  position: absolute; right: 8px; bottom: 8px;
+  font-size: 12px; color: var(--muted);
+  background: rgba(0,0,0,.3); padding: 4px 6px; border-radius: 6px;
+}
+
+.order-col h2 { margin: 10px 0 10px; font-size: 18px; }
+
+/* ===== Panier / lignes ===== */
+.grid-row, .cart-row {
+  display: grid;
+  grid-template-columns: 32px var(--col-seat) var(--col-name) var(--col-name) var(--col-tariff);
+  align-items: center; gap: 8px;
+}
+.cart-head {
+  font-size: 12px; color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px; margin-bottom: 6px;
+}
+.cart-rows { display: flex; flex-direction: column; gap: 6px; }
+.cart-row { padding: 6px 0; border-bottom: 1px dashed #1e232a; }
+.col.seat { font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+input[type="text"], input[type="email"], select, .total-box {
+  width: 100%; padding: 6px 8px; border: 1px solid #2a313a;
+  border-radius: 8px; background: #0f1216; color: var(--fg);
+  font-size: 14px;
+}
+select { min-width: 0; }
+.chk input { width: 16px; height: 16px; }
+
+/* Champs additionnels (justif/info) */
+.line-extras {
+  grid-column: 2 / -1;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px;
+}
+.line-extras .field { display: flex; flex-direction: column; gap: 4px; }
+.line-extras .field label { font-size: 12px; color: var(--muted); }
+.line-extras .field input { font-size: 14px; }
+
+/* ===== Paiement ===== */
+/* Grille 30 / 30 / 40 pour chaque ligne */
+.payer-form {
+  display: grid; gap: 10px; margin-top: 12px;
+  grid-template-columns: 30% 30% 40%;
+  grid-auto-rows: auto;
+}
+.payer-form .field { display: flex; flex-direction: column; gap: 6px; }
+.payer-form .field label { font-size: 13px; color: var(--fg); }
+
+/* Total + bouton */
+.pay-btn {
+  display: inline-block; width: 100%;
+  margin-top: 12px; padding: 10px 14px;
+  border: none; border-radius: 10px;
+  background: var(--accent); color: white; font-weight: 600; font-size: 16px;
+  cursor: pointer;
+}
+.pay-btn:disabled { opacity: .6; cursor: not-allowed; }
+.fine-print { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+.feedback { margin-top: 8px; min-height: 18px; font-size: 14px; color: var(--muted); }
+.feedback.ok { color: var(--ok); }
+.feedback.err { color: var(--danger); }
+
+/* Style pour highlight dans le SVG (au cas où le plan importe du CSS parent) */
+svg .token-seat, svg .token-seat * {
+  stroke: #fbbf24 !important; stroke-width: 2 !important; fill-opacity: 0.15 !important;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 960px) {
+  .renew-layout { grid-template-columns: 1fr; }
+  #venuePlan { height: 54vh; }
+  .payer-form { grid-template-columns: 1fr; }
+}
+
+/* Seats */
+.seat.is-allowed  { stroke-width: 2; stroke: #00b3ff; fill-opacity: 0.15; }
+.seat.is-selected { stroke-width: 3; stroke: #22c55e; fill-opacity: 0.25; }
+
+
+
+/* Forcer le thème sombre des champs payer */
+#payerFirstName, #payerLastName, #payerEmail {
+  background-color: #111827; /* gris très sombre */
+  color: #e5e7eb;            /* texte clair */
+  border: 1px solid #374151; /* contour gris */
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+#payerFirstName::placeholder, #payerLastName::placeholder, #payerEmail::placeholder {
+  color: #9ca3af;
+}
+
