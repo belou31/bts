@@ -181,40 +181,57 @@ function getSelectedSeatIdsFromForm() {
 }
 
 /* ---------- Champs conditionnels ---------- */
+
+function getTariffMeta(tariffCode) {
+  const code = String(tariffCode||'').toUpperCase();
+  return CTX.tariffs.find(t => String(t.code||'').toUpperCase() === code) || {};
+}
+
+
+function getTariffMeta(tariffCode) {
+  const code = String(tariffCode||'').toUpperCase();
+  return CTX.tariffs.find(t => String(t.code||'').toUpperCase() === code) || {};
+}
+
+function truthy(v) {
+  if (v === true) return true;
+  if (v === false || v == null) return false;
+  const s = String(v).trim().toLowerCase();
+  return s !== '' && s !== 'false' && s !== '0' && s !== 'no' && s !== 'non';
+}
+
 function updateConditionalFields(rowEl, tariffCode) {
   const justifGroup = rowEl.querySelector('.justif-group');
   const infoGroup   = rowEl.querySelector('.info-group');
   const justifInput = rowEl.querySelector('.justif-input');
   const infoInput   = rowEl.querySelector('.info-input');
 
-  const t = String(tariffCode||'').toUpperCase();
-
   // reset
   if (justifGroup) justifGroup.style.display = 'none';
   if (infoGroup)   infoGroup.style.display   = 'none';
-  if (justifInput) { justifInput.required = false; justifInput.placeholder=''; }
+  if (justifInput) { justifInput.required = false; justifInput.placeholder = ''; }
 
-  if (!t || t==='NORMAL') {
-    // on vire les valeurs en NORMAL
+  const meta = getTariffMeta(tariffCode);
+  const needField = truthy(meta.requiresField);
+  const fieldLabel = meta.fieldLabel || 'Justificatif';
+  const infoText   = truthy(meta.requiresInfo) ? (typeof meta.requiresInfo === 'string' ? meta.requiresInfo : 'Présentez le justificatif avec votre billet') : '';
+
+  if (infoText && infoGroup) {
+    infoGroup.style.display = '';
+    if (infoInput) infoInput.placeholder = infoText;
+  }
+  if (needField && justifGroup) {
+    justifGroup.style.display = '';
+    if (justifInput) { justifInput.required = true; justifInput.placeholder = fieldLabel; }
+  }
+
+  // En repassant sur NORMAL (no requirements), on efface
+  if (!needField && !infoText) {
     if (justifInput) justifInput.value = '';
     if (infoInput)   infoInput.value   = '';
-    return;
-  }
-
-  // info facultative pour tout sauf NORMAL
-  if (infoGroup) {
-    infoGroup.style.display = '';
-    if (infoInput && !infoInput.placeholder) infoInput.placeholder = 'Présentez le justificatif avec votre billet (facultatif)';
-  }
-
-  if (t==='ETUDIANT') {
-    if (justifGroup) justifGroup.style.display = '';
-    if (justifInput) { justifInput.required = true; justifInput.placeholder = 'Numéro d’étudiant'; }
-  } else if (t==='LICENCIE' || t==='LICENCIÉ') {
-    if (justifGroup) justifGroup.style.display = '';
-    if (justifInput) { justifInput.required = true; justifInput.placeholder = 'Numéro de licence'; }
   }
 }
+
 
 /* ---------- Rendu lignes ---------- */
 function renderSeatLine(seatId, prefill) {
@@ -224,38 +241,40 @@ function renderSeatLine(seatId, prefill) {
   row.className = 'seat-line';
   row.dataset.seatId = seatId;
 
-  row.innerHTML = `
-    <div class="form-group">
-      <input type="checkbox" class="seat-check" data-seat-id="${seatId}" checked>
-    </div>
-    <div class="seat-id">${seatId}</div>
-    <div class="form-group">
-      <label>Nom (titulaire)</label>
-      <input type="text" class="holder-last" placeholder="Nom" value="${(prefill?.lastName||'').replace(/"/g,'&quot;')}">
-    </div>
-    <div class="form-group">
-      <label>Prénom (titulaire)</label>
-      <input type="text" class="holder-first" placeholder="Prénom" value="${(prefill?.firstName||'').replace(/"/g,'&quot;')}">
-    </div>
-    <div class="form-group tariff-wrap">
-      <label>Tarif</label>
-      <select class="tariff-select"></select>
-      <div class="justif-group" style="display:none;margin-top:6px;">
-        <input type="text" class="justif-input" placeholder="">
-      </div>
-      <div class="info-group" style="display:none;margin-top:6px;">
-        <input type="text" class="info-input" placeholder="Présentez le justificatif avec votre billet (facultatif)">
-      </div>
-      <div class="line-total" style="margin-top:6px; text-align:right; color:#9ca3af;">0,00 €</div>
-    </div>
-  `;
+row.innerHTML = `
+  <div class="form-group">
+    <input type="checkbox" class="seat-check" data-seat-id="${seatId}" checked>
+  </div>
+  <div class="seat-id">${seatId}</div>
+  <div class="form-group">
+    <label>Nom (titulaire)</label>
+    <input type="text" class="holder-last" placeholder="Nom" value="${(prefill?.lastName || '').replace(/"/g,'&quot;')}">
+  </div>
+  <div class="form-group">
+    <label>Prénom (titulaire)</label>
+    <input type="text" class="holder-first" placeholder="Prénom" value="${(prefill?.firstName || '').replace(/"/g,'&quot;')}">
+  </div>
+  <div class="form-group tariff-wrap">
+    <label>Tarif</label>
+    <select class="tariff-select"></select>
+  </div>
+
+  <!-- Ligne supplémentaire, sous les trois colonnes de droite -->
+  <div class="extras-row">
+    <div class="justif-group"><input type="text" class="justif-input" placeholder=""></div>
+    <div class="info-group"><input type="text" class="info-input"  placeholder="Présentez le justificatif avec votre billet (facultatif)"></div>
+  </div>
+`;
 
   const $sel = row.querySelector('.tariff-select');
-  $sel.innerHTML = tariffs.map(code => {
-    const t = CTX.tariffs.find(t => String(t.code||'').toUpperCase() === code);
-    const label = t?.name || code;
-    return `<option value="${code}">${label}</option>`;
-  }).join('');
+
+  // 🔧 construire les options "Libellé (12,00 €)" selon la zone
+$sel.innerHTML = tariffs.map(code => {
+  const t = CTX.tariffs.find(t => String(t.code||'').toUpperCase() === code);
+  const label = t?.label || code;              // <-- label (PAS name)
+  const price = priceFor(zoneKey, code);
+  return `<option value="${code}">${label} (${formatEuro(price)})</option>`;
+}).join('');
 
   // Choix par défaut
   const def = tariffs.includes('NORMAL') ? 'NORMAL' : (tariffs[0]||'');
@@ -286,8 +305,8 @@ function updateLineTotal(row) {
   const zone = zoneKeyFromSeatId(sid);
   const tariff = row.querySelector('.tariff-select')?.value || '';
   const v = priceFor(zone, tariff);
-  const box = row.querySelector('.line-total');
-  if (box) box.textContent = formatEuro(v);
+  //const box = row.querySelector('.line-total');
+  //if (box) box.textContent = formatEuro(v);
 }
 
 function recalcTotal() {

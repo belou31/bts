@@ -54,6 +54,18 @@ function buildPricesIndex(prices) {
   }
   return idx;
 }
+
+
+async function findNotProvisionedSeats({ seasonCode, venueSlug, seatIds }) {
+  if (!seatIds?.length) return [];
+  const rows = await Seat.find(
+    { seasonCode, venueSlug, seatId: { $in: seatIds } },
+    { seatId: 1, status: 1, _id: 0 }
+  ).lean();
+  return rows.filter(r => String(r.status) !== 'provisioned');
+}
+
+
 function computePriceCents(pricesIdx, zoneKey, tariffCode) {
   const t = String(tariffCode || '').toUpperCase();
   const zMap = pricesIdx.get(zoneKey);
@@ -62,6 +74,7 @@ function computePriceCents(pricesIdx, zoneKey, tariffCode) {
   if (star && star.has(t)) return star.get(t);
   return 0;
 }
+
 
 /** GET /s/renew?id=<jwt> -> JSON */
 router.get('/renew', async (req, res) => {
@@ -115,6 +128,20 @@ router.get('/renew', async (req, res) => {
       payer.email     = payer.email     || pick.email     || '';
     }
 
+
+
+// tokenSeats contient les sièges autorisés par le lien
+const blocked = await findNotProvisionedSeats({
+  seasonCode, venueSlug, seatIds: seatIds
+});
+
+// expose au front
+const blockedSeats = blocked.map(b => ({ seatId: b.seatId, status: b.status }));
+const blockedAny = blockedSeats.length > 0;
+
+
+
+
     return res.json({
       ok: true,
       season: seasonCode, seasonCode,
@@ -123,6 +150,8 @@ router.get('/renew', async (req, res) => {
       tokenSeats: seatIds,
       seatSubscribers,
       payer,
+      blockedAny,
+      blockedSeats
     });
   } catch (e) {
     console.error('[GET /s/renew] error:', e);
@@ -155,6 +184,22 @@ router.post('/renew', async (req, res) => {
         return res.status(403).json({ error: 'seat_not_in_token', seatId: it.seatId });
       }
     }
+
+
+// Sièges réellement demandés au POST
+const seatIdsAsked = [...new Set((req.body.items || []).map(i => i.seatId))];
+
+// Re-vérification “atomique” des statuts
+const badNow = await findNotProvisionedSeats({
+  seasonCode, venueSlug, seatIds: seatIdsAsked
+});
+if (badNow.length) {
+  return res.status(409).json({
+    error: 'seats_not_available',
+    blockedSeats: badNow.map(b => ({ seatId: b.seatId, status: b.status }))
+  });
+}
+
 
     const prices = await TariffPrice.find({ seasonCode, venueSlug }).lean().exec();
     const pricesIdx = buildPricesIndex(prices);
