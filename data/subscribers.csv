@@ -1,3 +1,6 @@
-firstName,lastName,email,phone,previousSeasonSeats
-Alice,Durand,alice@example.com,0600000001,N1-H-001;N1-H-002
-Bruno,Martin,bruno@example.com,0600000002,S1-A-003
+firstName,lastName,email,phone,seasonCode,venueSlug,seatId,group
+Alice,Durand,alice@example.com,0600000001,2025-2026,patinoire-blagnac,S1-A-001,
+Bob,Durand,alice@example.com,0600000001,2025-2026,patinoire-blagnac,S1-A-002,
+Chloe,Martin,bruno@example.com,0600000002,2025-2026,patinoire-blagnac,N1-H-015,Martin
+Adrien,Moreau,eva.moreau@example.com,0600000005,2025-2026,patinoire-blagnac,S1-B-001,Moreau
+Eva,Moreau,eva.moreau@example.com,0600000005,2025-2026,patinoire-blagnac,S1-B-002,Moreau
