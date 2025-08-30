@@ -1,107 +1,183 @@
 // src/routes/ha.js
-const express = require('express');
-const Order = require('../models/Order');           // doit exister
-const Subscriber = require('../models/Subscriber'); // existe
-const { ensureSubscriberNo } = require('../services/subscribers');
-const { renderAttestationHtml } = require('../services/attestation');
-const { sendMail } = require('../services/mailer');
-const { getHelloAssoClient } = require('../services/helloasso'); // ton client HA existant
+import express from 'express';
+import { Order } from '../models/Order.js';
+import { Seat } from '../models/Seat.js';
+import { getCheckoutStatus, getCheckoutIntent } from '../services/helloasso.js';
+import { sendMail } from '../loaders/mailer.js';
 
 const router = express.Router();
 
+async function reserveSeatsForOrder(order) {
+  if (!order?.lines?.length) return;
+  const { seasonCode, venueSlug } = order;
+  for (const l of order.lines) {
+    if (!l.seatId) continue;
+    await Seat.updateOne(
+      { seasonCode, venueSlug, seatId: l.seatId },
+      { $set: { status: 'reserved', reservedByOrderId: order._id } }
+    );
+  }
+}
+
+function isPaidLike(status) {
+  return /paid|authorized|succeeded|success|ok/i.test(String(status||''));
+}
+
 /**
- * On attend que la création du checkout ait :
- * - créé un Order avec { checkoutIntentId, seasonCode, payer:{email}, totalCents, installments, lines:[{ seatId, zoneKey, tariffCode, priceCents, subscriberId }] }
- * - ajouté ?oid=<orderId>&ci=<checkoutIntentId> aux URLs de retour (voir route checkout ci-dessous)
- *
- * Ici, on vérifie l’état du checkout HelloAsso, on marque l’Order "paid",
- * on attribue des subscriberNo, puis on envoie l’attestation.
+ * GET /ha/return
+ * HelloAsso renvoie souvent ?checkoutIntentId=...&code=...
+ * NE PAS se fier à ?orderId=... (ID HelloAsso), on récupère l’orderId Mongo via metadata du checkout-intent.
  */
+router.get('/ha/return', async (req, res) => {
+  try {
+    const q  = req.query;
+    const ci = q.ci || q.checkoutIntentId || q.id || null;
 
-router.get('/ha/return', handleReturn('return'));
-router.get('/ha/back',   handleReturn('back'));
-router.get('/ha/error',  handleReturn('error'));
+    // On ignore q.orderId (côté HelloAsso), on n’accepte que q.oid si présent (notre MongoID)
+    let oid = q.oid || null;
+    let status = q.code || 'unknown';
 
-function handleReturn(kind) {
-  return async (req, res, next) => {
-    try {
-      const orderId = String(req.query.oid || '').trim();
-      const ci      = String(req.query.ci  || '').trim(); // checkoutIntentId
-      if (!orderId || !ci) {
-        return res.status(400).send(htmlMsg('Réception HelloAsso', 'Paramètres manquants (oid/ci).'));
-      }
-
-      const order = await Order.findById(orderId);
-      if (!order) return res.status(404).send(htmlMsg('Réception HelloAsso', 'Commande introuvable.'));
-
-      // Vérifie l’état HelloAsso (via ton client)
-      const ha = await getHelloAssoClient(); // suppose que tu gères token etc.
-      let paid = false, haPaymentRef = null;
-
+    // Si pas d'oid → on va le chercher dans la metadata du checkout-intent
+    if (!oid && ci) {
       try {
-        // Exemple générique (adapte à ton client): ha.getCheckout(ci)
-        const status = await ha.getCheckoutStatus(ci); // { status: 'Paid'|'Authorized'|..., paymentRef: '...' }
-        if (status && (status.status === 'Paid' || status.status === 'Authorized')) {
-          paid = true;
-          haPaymentRef = status.paymentRef || null;
-        }
+        const det = await getCheckoutIntent(ci);
+        oid = det?.metadata?.orderId || null;
+        status = det?.status || status;
       } catch (e) {
-        // Si l’API échoue, on ne marque pas payé
-        console.warn('[HA return] status fetch failed:', e.message);
+        // on continue, on tentera /status ci-dessous
       }
+    }
 
-      if (paid) {
+    if (!oid) return res.status(400).send('Missing order reference');
+    const order = await Order.findById(oid);
+    if (!order) return res.status(404).send('Order not found');
+
+    if (!isPaidLike(status) && ci) {
+      status = await getCheckoutStatus(ci);
+    }
+
+    if (isPaidLike(status)) {
+      if (order.status !== 'paid') {
         order.status = 'paid';
-        if (haPaymentRef) order.haPaymentRef = haPaymentRef;
         await order.save();
-
-        // Assigne subscriberNo pour tous les subscribers des lignes
-        const seasonCode = order.seasonCode;
-        const ids = [...new Set((order.lines||[]).map(l => String(l.subscriberId||'')).filter(Boolean))];
-        const subs = await Subscriber.find({ _id: { $in: ids } });
-        const subsById = new Map();
-        for (const s of subs) { 
-          const updated = await ensureSubscriberNo(s._id, seasonCode);
-          subsById.set(String(s._id), updated || s);
-        }
-
-        // Envoi attestation
-        const html = renderAttestationHtml({
-          seasonCode,
-          payerEmail: order?.payer?.email || '',
-          order,
-          subscribersById: subsById
-        });
-
-        const to = order?.payer?.email || (subs[0]?.email) || process.env.FROM_EMAIL;
-        await sendMail({ to, subject: `Attestation d’abonnement ${seasonCode}`, html });
+        await reserveSeatsForOrder(order);
+        try {
+          await sendMail({
+            to: order.payerEmail,
+            subject: 'Confirmation de paiement - Abonnement',
+            html: `<p>Bonjour ${order.payerFirstName || ''} ${order.payerLastName || ''},</p>
+                   <p>Votre commande <b>${order._id}</b> a été confirmée.</p>
+                   <p>Places :</p>
+                   <ul>${order.lines.map(l => `<li>${l.seatId} — ${l.tariffCode} (${(l.priceCents/100).toFixed(2)}€)</li>`).join('')}</ul>
+                   <p>Les billets (QR codes) seront envoyés match par match.</p>`
+          });
+        } catch {}
       }
+      return res.send(`<h1>Paiement confirmé ✅</h1><p>Commande ${order._id}</p>`);
+    } else {
+      order.status = 'failed';
+      await order.save();
+      return res.send(`<h1>Paiement non confirmé ❌</h1><p>Commande ${order._id} — statut: ${status}</p>`);
+    }
+  } catch (e) {
+    console.error('[GET /ha/return] error:', e);
+    res.status(500).send('Erreur interne');
+  }
+});
 
-      // Affichage UX
-      const msg = paid
-        ? 'Merci, votre paiement a été confirmé. Une attestation vous a été envoyée par e-mail.'
-        : (kind === 'error'
-            ? "Le paiement a été annulé ou n'a pas pu être confirmé."
-            : "Retour effectué. Vérification du paiement en cours.");
 
-      res.send(htmlMsg('Retour HelloAsso', msg, paid));
-    } catch (e) { next(e); }
-  };
-}
-
-function htmlMsg(title, msg, ok=false) {
-  return `<!doctype html><meta charset="utf-8"><title>${title}</title>
-  <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px;background:#0f172a;color:#e5e7eb}
-  .card{max-width:680px;margin:0 auto;background:#111827;border:1px solid #1f2937;border-radius:12px;padding:18px}
-  .ok{color:#34d399}.warn{color:#fbbf24}.err{color:#f87171}
-  a{color:#22d3ee}
-  </style>
+/**
+ * GET /ha/back
+ * Retour "annuler/revenir" depuis HelloAsso (navigateur).
+ * Affiche un message simple.
+ */
+router.get('/ha/back', (_req, res) => {
+  res
+    .status(200)
+    .send(`<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Paiement annulé</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif;background:#0b0f17;color:#e5e7eb;margin:0;padding:24px}
+  .card{max-width:720px;margin:0 auto;background:#0f1622;border:1px solid #111827;border-radius:12px;padding:18px}
+  a.btn{display:inline-block;margin-top:12px;padding:10px 14px;border-radius:10px;background:#111827;border:1px solid #1f2937;color:#e5e7eb;text-decoration:none}
+  a.btn:hover{background:#162233}
+</style>
+</head>
+<body>
   <div class="card">
-    <h1>${title}</h1>
-    <p class="${ok?'ok':'warn'}">${msg}</p>
-    <p><a href="${(process.env.APP_URL||'').replace(/\/$/,'')}/s/renew">Retour à la billetterie</a></p>
-  </div>`;
-}
+    <h1>Paiement annulé</h1>
+    <p>Vous avez quitté HelloAsso avant de confirmer le règlement.</p>
+    <p>Vous pouvez relancer la procédure si besoin.</p>
+  </div>
+</body>
+</html>`);
+});
 
-module.exports = router;
+/**
+ * GET /ha/error
+ * Page d'erreur simple si HelloAsso renvoie une redirection d'erreur.
+ */
+router.get('/ha/error', (_req, res) => {
+  res
+    .status(400)
+    .send(`<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Erreur de paiement</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif;background:#0b0f17;color:#e5e7eb;margin:0;padding:24px}
+  .card{max-width:720px;margin:0 auto;background:#0f1622;border:1px solid #111827;border-radius:12px;padding:18px}
+  a.btn{display:inline-block;margin-top:12px;padding:10px 14px;border-radius:10px;background:#111827;border:1px solid #1f2937;color:#e5e7eb;text-decoration:none}
+  a.btn:hover{background:#162233}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Erreur de paiement</h1>
+    <p>Une erreur est survenue pendant le paiement. Veuillez réessayer dans quelques minutes.</p>
+  </div>
+</body>
+</html>`);
+});
+
+
+// (optionnel) webhook serveur→serveur
+router.post('/webhook/helloasso', express.json({ type: '*/*' }), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const ci = body.id || body.checkoutIntentId || null;
+
+    let orderId = body?.metadata?.orderId || null;
+    let status  = body?.status || body?.code || '';
+
+    if (!orderId && ci) {
+      try {
+        const det = await getCheckoutIntent(ci);
+        orderId = det?.metadata?.orderId || null;
+        status  = status || det?.status;
+      } catch {}
+    }
+    if (!orderId) return res.status(400).json({ ok:false, error:'no orderId' });
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(200).json({ ok:true, note:'order not found (idempotent)' });
+
+    if (isPaidLike(status) && order.status !== 'paid') {
+      order.status = 'paid';
+      await order.save();
+      await reserveSeatsForOrder(order);
+    }
+    return res.json({ ok:true });
+  } catch (e) {
+    console.error('[POST /webhook/helloasso] error:', e);
+    res.status(500).json({ ok:false, error:'internal_error' });
+  }
+});
+
+export default router;

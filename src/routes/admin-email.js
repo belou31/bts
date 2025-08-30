@@ -1,10 +1,12 @@
 // src/routes/admin-email.js
-require('dotenv').config();
+import express from  'express';
+import { celebrate, Joi, Segments } from 'celebrate';
 
-const express = require('express');
-const { celebrate, Joi, Segments } = require('celebrate');
-const { requireAdmin } = require('../middlewares/authz');
-const { sendMail } = require('../services/mailer');
+import { requireAdmin } from '../middlewares/authz.js';
+import { sendMail } from '../services/mailer.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 const router = express.Router();
 
@@ -28,4 +30,4 @@ router.get(
   }
 );
 
-module.exports = router;
+export default router;

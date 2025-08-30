@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const SeatCatalogSchema = new mongoose.Schema({
   venueSlug: { type: String, index: true, required: true },
@@ -11,4 +11,4 @@ const SeatCatalogSchema = new mongoose.Schema({
 
 SeatCatalogSchema.index({ venueSlug:1, seatId:1 }, { unique:true });
 
-module.exports = mongoose.model('SeatCatalog', SeatCatalogSchema);
+export const SeatCatalog = mongoose.models.SeatCatalog || mongoose.model('SeatCatalog', SeatCatalogSchema);

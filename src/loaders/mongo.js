@@ -1,12 +1,20 @@
-// src/loaders/mongo.js
-const mongoose = require('mongoose');
+// src/loaders/mongoose.js
+import mongoose from 'mongoose';
 
-async function connectMongo() {
-  const uri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/bts';
-  if (!uri) throw new Error('Mongo URI not provided');
-  mongoose.set('strictQuery', true);
-  await mongoose.connect(uri, { autoIndex: true, maxPoolSize: 10 });
-  console.log(`[BTS] Mongo connected → db="${mongoose.connection.name}"`);
-}
+const URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/bts';
+const IS_PROD = (process.env.APP_ENV || '').toLowerCase() === 'production';
 
-module.exports = connectMongo;
+mongoose.set('strictQuery', true);
+
+(async () => {
+  try {
+    await mongoose.connect(URI, { autoIndex: !IS_PROD });
+    const db = mongoose.connection;
+    console.log(`[mongo] connected to ${db.host}:${db.port}/${db.name}`);
+  } catch (err) {
+    console.error('[mongo] connection error:', err.message);
+    process.exit(1);
+  }
+})();
+
+export default mongoose;

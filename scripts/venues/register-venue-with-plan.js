@@ -10,11 +10,12 @@
  * Exemple:
  *   node scripts/venues/register-venue-with-plan.js patinoire-blagnac "Patinoire de Blagnac" /tmp/plan-blagnac.svg
  */
-require('dotenv').config();
+import fs from 'fs';
+import path from 'path';
+import { spawnSync } from 'child_process';
 
-const fs = require('fs');
-const path = require('path');
-const { spawnSync } = require('child_process');
+import dotenv from 'dotenv';
+dotenv.config();
 
 function die(msg) { console.error(msg); process.exit(1); }
 

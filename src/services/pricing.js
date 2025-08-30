@@ -1,6 +1,8 @@
-const Seat = require('../models/Seat');
-const Zone = require('../models/Zone');
-const PriceTable = require('../models/PriceTable');
+
+import { Seat } from '../models/Seat.js';
+import { Zone } from '../models/Zone.js';
+import { PriceTable } from '../models/PriceTable.js';
+
 
 async function resolveZoneKey(seasonCode, seatId, zoneKey) {
   if (zoneKey) return zoneKey;
@@ -31,4 +33,4 @@ async function getPriceFor({ seasonCode, seatId=null, zoneKey=null, tariffCode='
   return { unitPriceCents: amount, requiresJustification: !!p.requiresJustification, zone, table };
 }
 
-module.exports = { getPriceFor };
+export { getPriceFor };

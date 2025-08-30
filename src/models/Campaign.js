@@ -1,5 +1,5 @@
 // src/models/Campaign.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const CampaignSchema = new mongoose.Schema({
   code: { type: String, unique: true },      // ex: RENEW-2025 ou TBH7-2025
@@ -12,4 +12,4 @@ const CampaignSchema = new mongoose.Schema({
   meta: Object
 },{timestamps:true});
 
-module.exports = mongoose.model('Campaign', CampaignSchema);
+export const Campaign = mongoose.models.Campaign || mongoose.model('Campaign', CampaignSchema);

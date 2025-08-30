@@ -6,9 +6,12 @@
 // Lit la collection de gabarits (issue de l'import SVG) quel que soit son nom,
 // puis instancie les sièges pour la saison/lieu dans la collection "seats".
 
-require('dotenv').config();
-const mongoose = require('mongoose');
-const Seat = require('../../src/models/Seat');
+import mongoose from 'mongoose';
+import { Seat } from '../../src/models/Seat.js';
+import { SeatCatalog } from '../../src/models/SeatCatalog.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 function zoneFromSeatId(seatId) {
   const s = String(seatId || '');

@@ -1,5 +1,5 @@
 // src/models/Subscriber.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const SubscriberSchema = new mongoose.Schema({
   // numéro d'abonné final (attribué après paiement/attestation)
@@ -45,4 +45,4 @@ SubscriberSchema.index(
   { unique: true, partialFilterExpression: { subscriberNo: { $exists: true, $type: 'string' } } }
 );
 
-module.exports = mongoose.model('Subscriber', SubscriberSchema);
+export const Subscriber = mongoose.models.Subscriber || mongoose.model('Subscriber', SubscriberSchema);

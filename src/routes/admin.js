@@ -1,8 +1,11 @@
 // src/routes/admin.js
-const router = require('express').Router();
-const { requireAdmin } = require('../middlewares/authz');
-const Season = require('../models/Season');
-const Seat = require('../models/Seat');
+import express from 'express';
+
+import { requireAdmin } from '../middlewares/authz.js';
+import { Season } from '../models/Season.js';
+import { Seat } from '../models/Seat.js';
+
+const router = express.Router();
 
 // (optionnel) ping admin
 router.get('/health', requireAdmin, (_req, res) => {
@@ -48,4 +51,4 @@ router.post('/renewal/release-provisioned', requireAdmin, async (_req, res, next
   } catch (e) { next(e); }
 });
 
-module.exports = router;
+export default router;

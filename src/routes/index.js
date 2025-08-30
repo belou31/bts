@@ -1,21 +1,30 @@
 // src/routes/index.js
-const express = require('express');
-const path = require('path');
-const renew = require('./renew');
-const admin = require('./admin');
+import path from 'path';
+import { fileURLToPath } from 'url';
+import express from 'express';
+import renewApi from './renew.js';
+import haRouter from './ha.js';
 
-const router = express.Router();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const rootDir    = path.resolve(__dirname, '..');
 
-// Health
-router.get('/health', (_req, res) => res.json({ ok: true }));
+export default function routes(app) {
+  const router = express.Router();
 
-// HelloAsso return (utile en STUB)
-router.get('/ha/return', (_req, res) => {
-  res.sendFile('ha-return.html', { root: path.join(__dirname, '..', 'public', 'html') });
-});
+  // Page HTML
+  router.get('/renew', (_req, res) => {
+    res.sendFile(path.join(rootDir, 'views', 'renew', 'index.html'));
+  });
 
-// Routes métier
-router.use(renew);
-router.use('/admin', admin);
+  // API JSON sous /s (GET /s/renew, POST /s/renew)
+  router.use('/s', renewApi);
 
-module.exports = router;
+  // Retour paiement HelloAsso
+  router.use('/', haRouter);
+
+  // Santé
+  router.get('/healthz', (_req, res) => res.json({ ok: true }));
+
+  app.use('/', router);
+}

@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const SeatHoldSchema = new mongoose.Schema({
   seatId: { type: String, index: true },
@@ -10,4 +10,4 @@ const SeatHoldSchema = new mongoose.Schema({
 // Index TTL unique (supprime le doc quand expiresAt est atteint)
 SeatHoldSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'ttl_expiresAt' });
 
-module.exports = mongoose.model('SeatHold', SeatHoldSchema);
+export const SeatHold = mongoose.models.SeatHold || mongoose.model('SeatHold', SeatHoldSchema);

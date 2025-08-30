@@ -2,10 +2,10 @@
 // STUB HelloAsso pour DEV + garde-fou "déjà renouvelé".
 // En PROD/SANDBOX: on laisse un fallback "not_implemented_here" (à remplacer par ton vrai flux HA).
 
-const Order = require('../models/Order');
-const Seat = require('../models/Seat');
-const Subscriber = require('../models/Subscriber');
-const PaymentIntent = require('../models/PaymentIntent');
+import { Order } from '../models/Order.js';
+import { Seat } from '../models/Seat.js';
+import { Subscriber } from '../models/Subscriber.js';
+import { PaymentIntent } from '../models/PaymentIntent.js';
 
 function appUrl() {
   return (process.env.APP_URL || 'http://localhost:8080').replace(/\/$/, '');
@@ -85,4 +85,4 @@ async function checkout(payload) {
   return { error: 'not_implemented_here' };
 }
 
-module.exports = { checkout };
+export { checkout };

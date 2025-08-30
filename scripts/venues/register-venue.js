@@ -1,7 +1,9 @@
-require('dotenv').config();
 
-const mongoose = require('mongoose');
-const Venue = require('../../src/models/Venue');
+import mongoose from 'mongoose';
+import { Venue } from '../../src/models/Venue.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 (async () => {
   const [slug, name, svgPath] = process.argv.slice(2);

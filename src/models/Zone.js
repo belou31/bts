@@ -1,5 +1,5 @@
 // src/models/Zone.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const ZoneSchema = new mongoose.Schema({
   key: { type: String, unique: true }, // ex: A1, B3, DEBOUT, TBH7_NORD, TBH7_SUD
@@ -14,4 +14,4 @@ const ZoneSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true }
 }, { timestamps:true });
 
-module.exports = mongoose.model('Zone', ZoneSchema);
+export const Zone = mongoose.models.Zone || mongoose.model('Zone', ZoneSchema);

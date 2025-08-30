@@ -8,14 +8,17 @@
 //
 // Effets : upsert des abonnés par email + mise à jour de previousSeasonSeats (nettoyé/dédupliqué).
 // Optionnel : vérifie que les seatId existent dans la collection "seats" pour la saison fournie.
-require('dotenv').config();
 
-const fs = require('fs');
-const path = require('path');
-const mongoose = require('mongoose');
+import fs from 'fs';
+import path from 'path';
+import mongoose from 'mongoose';
 
-const Subscriber = require('../src/models/Subscriber');
-const Seat = require('../src/models/Seat');
+import { Subscriber } from '../../src/models/Subscriber.js';
+import { Seat } from '../../src/models/Seat.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 function parseArgs() {
   const [csvPath, seasonCode, ...flags] = process.argv.slice(2);

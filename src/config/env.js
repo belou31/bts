@@ -1,8 +1,9 @@
 // src/config/env.js
-require('dotenv').config();
+import dotenv from 'dotenv';
+dotenv.config();
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 function loadEnv() {
   const appEnv = (process.env.APP_ENV || 'development').toLowerCase();
@@ -20,4 +21,4 @@ function loadEnv() {
     console.log(`[BTS] Loaded default .env (APP_ENV=${appEnv})`);
   }
 }
-module.exports = loadEnv;
+export default loadEnv;

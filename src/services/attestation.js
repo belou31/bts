@@ -1,5 +1,5 @@
 // src/services/attestation.js
-const { fmtEuros } = require('../utils/money'); // suppose que tu as ce helper (sinon remplace par (c)=> (c/100).toFixed(2)+' €')
+import { fmtEuros } from '../utils/money.js';
 
 function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById }) {
   const logoPath = (process.env.APP_URL || '').replace(/https?:\/\/[^/]+/, '') + '/static/img/logo.png';
@@ -67,4 +67,4 @@ function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById 
   </div>`;
 }
 
-module.exports = { renderAttestationHtml };
+exports { renderAttestationHtml };

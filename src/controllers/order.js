@@ -1,8 +1,8 @@
 
-const Order = require('../models/Order');
-const Seat = require('../models/Seat');
-const SeatHold = require('../models/SeatHold');
-const Subscriber = require('../models/Subscriber');
+import { Order } from '../models/Order';
+import { Seat } from '../models/Seat';
+import { SeatHold } from '../models/SeatHold';
+import { Subscriber } from '../models/Subscriber';
 
 async function markOrderPaid({ orderNo, haOrderId, checkoutIntentId }) {
   const order = await Order.findOne({ orderNo });
@@ -33,4 +33,4 @@ async function markOrderPaid({ orderNo, haOrderId, checkoutIntentId }) {
   return order;
 }
 
-module.exports = { markOrderPaid };
+export { markOrderPaid };

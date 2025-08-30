@@ -1,9 +1,10 @@
 
-const router = require('express').Router();
-const express = require('express');
-const PaymentIntent = require('../models/PaymentIntent');
-const { verifyHaSignature } = require('../services/helloasso');
-const { markOrderPaid } = require('../controllers/order');
+import express from 'express';
+import { PaymentIntent } from '../models/PaymentIntent.js';
+import { verifyHaSignature } from '../services/helloasso.js';
+import { markOrderPaid } from '../controllers/order.js';
+
+const router = express.Router();
 
 // raw body uniquement pour ce webhook
 router.post('/helloasso', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -53,4 +54,4 @@ router.post('/helloasso', express.raw({ type: 'application/json' }), async (req,
   }
 });
 
-module.exports = router;
+export default router;

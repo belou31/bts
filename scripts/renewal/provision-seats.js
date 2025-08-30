@@ -1,11 +1,14 @@
 // scripts/renewal/provision-seats.js
 // Usage: node scripts/renewal/provision-seats.js <seasonCode> [--venue=patinoire-blagnac] [--dry-run] [--verbose]
-require('dotenv').config();
 
-const mongoose = require('mongoose');
-const Season = require('../../src/models/Season');
-const Subscriber = require('../../src/models/Subscriber');
-const Seat = require('../../src/models/Seat');
+import mongoose from 'mongoose';
+
+import { Season } from '../../src/models/Season.js';
+import { Subscriber } from '../../src/models/Subscriber.js';
+import { Seat } from '../../src/models/Seat.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 function arg(name, def=null){ const m=process.argv.find(a=>a.startsWith(`--${name}=`)); return m?m.split('=')[1]:def; }
 (async()=>{

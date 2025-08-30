@@ -1,11 +1,13 @@
-require('dotenv').config();
 
-const fs = require('fs');
-const path = require('path');
-const cheerio = require('cheerio');
+import fs from 'fs';
+import path from 'path';
+import cheerio from 'cheerio';
+import mongoose from 'mongoose';
 
-const mongoose = require('mongoose');
-const SeatCatalog = require('../../src/models/SeatCatalog');
+import { SeatCatalog } from '../../src/models/SeatCatalog.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 (async () => {
   const [venueSlug, svgFile] = process.argv.slice(2);
@@ -27,7 +29,7 @@ const SeatCatalog = require('../../src/models/SeatCatalog');
     const seatId = $(el).attr('data-seat-id')?.trim();
     if (!seatId) return;
     const zoneAttr = $(el).attr('data-zone')?.trim();
-    const zoneKey = zoneAttr || (seatId.split('-')[0].replace(/[0-9]/g,'') || 'Z');
+    const zoneKey = zoneAttr || (seatId.split('-')[0] || 'Z');
     const row = $(el).attr('data-row')?.trim() || '';
     const number = $(el).attr('data-number')?.trim() || '';
     const selector = `[data-seat-id="${seatId.replace(/"/g,'&quot;')}"]`;

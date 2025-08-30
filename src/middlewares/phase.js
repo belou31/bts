@@ -1,4 +1,4 @@
-const Season = require('../models/Season');
+import { Season } from '../models/Season.js';
 
 function checkPhase(phaseName) {
   return async function (req, res, next) {
@@ -16,4 +16,4 @@ function checkPhase(phaseName) {
   };
 }
 
-module.exports = { checkPhase };
+export { checkPhase };

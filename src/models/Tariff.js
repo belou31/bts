@@ -1,5 +1,5 @@
 // src/models/Tariff.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const TariffSchema = new mongoose.Schema({
   code: { type: String, required: true, trim: true, uppercase: true, unique: true },
@@ -15,4 +15,4 @@ const TariffSchema = new mongoose.Schema({
 
 TariffSchema.index({ active: 1, sortOrder: 1 });
 
-module.exports = mongoose.model('Tariff', TariffSchema);
+export const Tariff = mongoose.models.Tariff || mongoose.model('Tariff', TariffSchema);

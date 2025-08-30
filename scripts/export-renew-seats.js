@@ -1,13 +1,16 @@
 // scripts/export-renew-seats.js
 // Usage:
 //   node scripts/export-renew-seats.js <seasonCode> [--base=http://localhost:8080] [--expires=30d] [--out=renew-seats.csv] [--sort=group|email] [--email=...] [--group=...]
-require('dotenv').config();
 
-const fs = require('fs');
-const path = require('path');
-const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose');
-const Subscriber = require('../src/models/Subscriber');
+import fs from 'fs';
+import path from 'path';
+import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
+
+import { Subscriber } from '../src/models/Subscriber.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 const csvEsc = (v) => {
   const s = String(v == null ? '' : v);

@@ -1,11 +1,15 @@
-const router = require('express').Router();
-const Campaign = require('../models/Campaign');
-const Zone = require('../models/Zone');
-const Order = require('../models/Order');
-const { splitInstallments } = require('../utils/money');
-const { orderNo } = require('../utils/ids');
-const { getPriceFor } = require('../services/pricing');
-const { checkPhase } = require('../middlewares/phase');
+
+import express from 'express';
+
+import { Campaign } from '../models/Campaign.js';
+import { Zone } from '../models/Zone.js';
+import { Order } from '../models/Order.js';
+import { splitInstallments } from '../utils/money.js';
+import { orderNo } from '../utils/ids.js';
+import { getPriceFor } from '../services/pricing.js';
+import { checkPhase } from '../middlewares/phase.js';
+
+const router = express.Router();
 
 router.get('/', checkPhase('tbh7'), async (req,res,next)=>{ /* ... */ });
 
@@ -67,4 +71,4 @@ router.post('/', checkPhase('tbh7'), async (req,res,next)=>{
   }catch(e){ next(e); }
 });
 
-module.exports = router;
+export default router;

@@ -10,13 +10,15 @@
  * - Upsert par (email, seasonCode, venueSlug, prefSeatId)
  */
 
-require('dotenv').config();
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import mongoose from 'mongoose';
 
-const fs = require('fs');
-const path = require('path');
-const readline = require('readline');
-const mongoose = require('mongoose');
-const Subscriber = require('../src/models/Subscriber');
+import { Subscriber } from '../src/models/Subscriber.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 function die(msg) { console.error(msg); process.exit(1); }
 

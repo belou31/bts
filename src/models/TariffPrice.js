@@ -1,5 +1,5 @@
 // src/models/TariffPrice.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const TariffPriceSchema = new mongoose.Schema({
   seasonCode: { type: String, index: true, required: true },   // ex: "2025-2026"
@@ -14,4 +14,4 @@ TariffPriceSchema.index(
   { unique: true, name: 'uniq_season_venue_zone_tariff' }
 );
 
-module.exports = mongoose.model('TariffPrice', TariffPriceSchema);
+export const TariffPrice = mongoose.models.TariffPrice || mongoose.model('TariffPrice', TariffPriceSchema);

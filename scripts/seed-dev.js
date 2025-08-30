@@ -1,12 +1,18 @@
 // scripts/seed-dev.js
-require('dotenv').config();
 
-const mongoose = require('mongoose');
-const Season = require('../src/models/Season');
-const Zone = require('../src/models/Zone');
-const Seat = require('../src/models/Seat');
-const PriceTable = require('../src/models/PriceTable');
-const Campaign = require('../src/models/Campaign');
+import fs from 'fs';
+import path from 'path';
+import mongoose from 'mongoose';
+
+import { Season } from '../../src/models/Season.js';
+import { Zone } from '../../src/models/Zone.js';
+import { Seat } from '../../src/models/Seat.js';
+import { PriceTable } from '../../src/models/PriceTable.js';
+import { Campaign } from '../../src/models/Campaign.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 async function upsert(model, where, data) {
   return model.findOneAndUpdate(where, { $set: data }, { upsert: true, new: true });

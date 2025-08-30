@@ -1,10 +1,13 @@
 // scripts/docs/build-docs.js
 // Génère les docs HTML Phase 1 dans le dossier /docs, prêtes pour GitHub Pages.
 // Usage: node scripts/docs/build-docs.js
-require('dotenv').config();
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 const OUT_DIR = path.resolve(process.cwd(), 'docs');
 fs.mkdirSync(OUT_DIR, { recursive: true });
