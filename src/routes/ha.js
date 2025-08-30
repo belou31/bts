@@ -13,19 +13,6 @@ function isPaidLike(status) {
 }
 
 
-// Si tu as une allocation TBH7, garde ta fonction allocateSeatsForZoneLines ici
-async function reserveSeatsForOrder(order) {
-  if (!order?.lines?.length) return;
-  const { seasonCode, venueSlug } = order;
-  for (const l of order.lines) {
-    if (!l.seatId) continue;
-    await Seat.updateOne(
-      { seasonCode, venueSlug, seatId: l.seatId },
-      { $set: { status: 'reserved', reservedByOrderId: order._id } }
-    );
-  }
-}
-
 // helper: persister info HelloAsso dans l’order
 async function persistHelloAssoInfo(order, { intentId, providerOrderId, rawStatus, raw }) {
   order.meta = order.meta || {};
