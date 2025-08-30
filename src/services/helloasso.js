@@ -89,9 +89,23 @@ export async function getCheckoutIntent(intentId) {
     status:   j.status || j.state || j.paymentStatus || '',
     metadata: j.metadata || {},
     payer:    j.payer || {},
+    providerOrderId: extractProviderOrderIdFromIntent(j),
     raw:      j
   };
 }
+
+// Normalise l’extraction d’un éventuel orderId coté HelloAsso
+function extractProviderOrderIdFromIntent(j) {
+  // couvrez plusieurs formes possibles
+  return (
+    j?.orderId ||
+    j?.order?.id ||
+    j?.payment?.orderId ||
+    j?.cart?.orderId ||
+    null
+  );
+}
+
 
 export async function getCheckoutStatus(intentId) {
   const { status } = await getCheckoutIntent(intentId);

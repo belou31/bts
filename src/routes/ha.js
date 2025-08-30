@@ -23,6 +23,39 @@ function isPaidLike(status) {
   return /paid|authorized|succeeded|success|ok/i.test(String(status||''));
 }
 
+
+// Si tu as une allocation TBH7, garde ta fonction allocateSeatsForZoneLines ici
+async function reserveSeatsForOrder(order) {
+  if (!order?.lines?.length) return;
+  const { seasonCode, venueSlug } = order;
+  for (const l of order.lines) {
+    if (!l.seatId) continue;
+    await Seat.updateOne(
+      { seasonCode, venueSlug, seatId: l.seatId },
+      { $set: { status: 'reserved', reservedByOrderId: order._id } }
+    );
+  }
+}
+
+// helper: persister info HelloAsso dans l’order
+async function persistHelloAssoInfo(order, { intentId, providerOrderId, rawStatus, raw }) {
+  order.meta = order.meta || {};
+  order.meta.helloasso = {
+    ...(order.meta.helloasso || {}),
+    intentId: intentId || (order.meta.helloasso?.intentId || null),
+    orderId: providerOrderId || (order.meta.helloasso?.orderId || null),
+    rawStatus: rawStatus || (order.meta.helloasso?.rawStatus || null),
+    raw: raw || (order.meta.helloasso?.raw || null),
+  };
+  // Champ dédié pour faciliter les exports / recherches
+  if (providerOrderId && !order.paymentProviderOrderId) {
+    order.paymentProviderOrderId = String(providerOrderId);
+  }
+  await order.save();
+}
+
+
+
 /**
  * GET /ha/return
  * HelloAsso renvoie souvent ?checkoutIntentId=...&code=...
@@ -56,6 +89,16 @@ router.get('/ha/return', async (req, res) => {
       status = await getCheckoutStatus(ci);
     }
 
+
+    // On persiste toujours l’info HelloAsso qu’on a pu récupérer
+    await persistHelloAssoInfo(order, {
+      intentId: ci || null,
+      providerOrderId: providerOrderId || null,
+      rawStatus: status || null,
+      raw: rawIntent || null
+    });
+
+    
     if (isPaidLike(status)) {
       if (order.status !== 'paid') {
         order.status = 'paid';
