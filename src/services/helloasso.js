@@ -71,6 +71,20 @@ export async function createCheckoutIntent({ orderId, order, itemName, returnUrl
   return { redirectUrl: j.redirectUrl || j.redirectUri || j.url || '' };
 }
 
+
+// Normalise l’extraction d’un éventuel orderId coté HelloAsso
+function extractProviderOrderIdFromIntent(j) {
+  // couvrez plusieurs formes possibles
+  return (
+    j?.orderId ||
+    j?.order?.id ||
+    j?.payment?.orderId ||
+    j?.cart?.orderId ||
+    null
+  );
+}
+
+
 // Tente d'abord /v5/checkout-intents/{id}, puis la route scoppée org si 404/403
 export async function getCheckoutIntent(intentId) {
   const token = await getAccessToken();
@@ -93,19 +107,6 @@ export async function getCheckoutIntent(intentId) {
     raw:      j
   };
 }
-
-// Normalise l’extraction d’un éventuel orderId coté HelloAsso
-function extractProviderOrderIdFromIntent(j) {
-  // couvrez plusieurs formes possibles
-  return (
-    j?.orderId ||
-    j?.order?.id ||
-    j?.payment?.orderId ||
-    j?.cart?.orderId ||
-    null
-  );
-}
-
 
 export async function getCheckoutStatus(intentId) {
   const { status } = await getCheckoutIntent(intentId);
