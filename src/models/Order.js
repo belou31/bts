@@ -23,7 +23,13 @@ paymentSplit:   { type: Number, default: 1 },
   totalCents: Number,
   status: { type: String, enum: ['pending','paid','failed'], default: 'pending', index: true },
   paymentProvider: { type: String, default: 'helloasso' },
-  providerRef: String
+  providerRef: String,
+
+  // NOUVEAU : id de commande côté prestataire (HelloAsso)
+  paymentProviderOrderId: { type: String, index: true, sparse: true }
+
+  meta: { type: Object, default: {} }, // on gardera meta.helloasso.intentId/orderId/raw
+
 }, { timestamps: true });
 
 // Unicité logique : un seul "paid" par (season, venue, groupKey)
