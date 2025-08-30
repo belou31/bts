@@ -200,6 +200,13 @@ router.post('/webhook/helloasso', express.json({ type: '*/*' }), async (req, res
     const order = await Order.findById(orderId);
     if (!order) return res.status(200).json({ ok:true, note:'order not found (idempotent)' });
 
+    await persistHelloAssoInfo(order, {
+      intentId: ci || null,
+      providerOrderId: providerOrderId || null,
+      rawStatus: status || null,
+      raw: rawIntent || body || null
+    });
+
     if (isPaidLike(status) && order.status !== 'paid') {
       order.status = 'paid';
       await order.save();
