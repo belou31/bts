@@ -7,6 +7,7 @@ import { sendMail } from '../loaders/mailer.js';
 
 const router = express.Router();
 
+
 function isPaidLike(status) {
   return /paid|authorized|succeeded|success|ok/i.test(String(status||''));
 }
@@ -22,7 +23,6 @@ async function reserveSeatsForOrder(order) {
     );
   }
 }
-
 
 // helper: persister info HelloAsso dans l’order
 async function persistHelloAssoInfo(order, { intentId, providerOrderId, rawStatus, raw }) {

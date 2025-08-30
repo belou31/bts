@@ -1,6 +1,7 @@
 *.log
 *.csv
 *.svg
+*.zip
 .env
 .env.*
 .ha-token.json
