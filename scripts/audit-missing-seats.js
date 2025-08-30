@@ -11,12 +11,16 @@
 // Objectif : lister les seatId présents dans subscribers.previousSeasonSeats mais absents de seats(seasonCode)
 //            et indiquer s'ils existent dans le SeatCatalog (si venueSlug connu).
 //
-require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
-const mongoose = require('mongoose');
 
-const Season = require('../src/models/Season');
+import fs from 'fs';
+import path from 'path';
+import mongoose from 'mongoose';
+
+import { Season } from '../src/models/Season.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 function parseArgs() {
   const args = process.argv.slice(2);

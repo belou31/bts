@@ -5,9 +5,12 @@
  *   node scripts/admin/upsert-season.js 2025-2026 --name="Saison 2025-2026" --renewal-open="2025-08-01T00:00:00Z" --renewal-close="2025-09-15T22:00:00Z"
  *   node scripts/admin/upsert-season.js 2025-2026 --enable-renewal --disable-public
  */
-require('dotenv').config();
-const mongoose = require('mongoose');
-const Season = require('../../src/models/Season');
+import mongoose from 'mongoose';
+
+import { Season } from '../../src/models/Season.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 function parseArgs(argv){
   const [,, seasonCode, ...rest] = argv;

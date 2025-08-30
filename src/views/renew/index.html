@@ -1,90 +1,92 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>BTS – Renouvellement d’abonnement</title>
-
-  <!-- Styles génériques du plan + spécifiques renouvellement -->
-  <link rel="stylesheet" href="/public/css/plan.css">
-  <link rel="stylesheet" href="/public/css/renew.css">
+  <meta charset="utf-8">
+  <title>Renouvellement d’abonnement — BTS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- IMPORTANT : tout est relatif à /bts/ -->
+  <base href="/bts/">
+  <link rel="icon" href="public/static/img/favicon.ico">
+  <link rel="stylesheet" href="public/static/styles/renew.css">
 </head>
 <body>
-  <header class="page-header">
-    <h1>Renouvellement d’abonnement</h1>
-    <p id="sub-info" class="muted"></p>
+  <header class="site-header">
+    <div class="brand">
+      <img src="public/static/img/logo.png" alt="Logo" class="logo">
+      <h1>Renouvellement d’abonnement 2025-2026</h1>
+    </div>
   </header>
 
-  <section class="legend">
-    <span><span class="dot dot-available"></span>Disponible</span>
-    <span><span class="dot dot-provisioned"></span>Provisionnée (pour vous)</span>
-    <span><span class="dot dot-held"></span>En cours (panier)</span>
-    <span><span class="dot dot-booked"></span>Réservée</span>
-  </section>
-
-  <main class="layout">
-    <section class="map-panel">
-      <!-- ⚠️ Idéalement, remplace ce SVG inline par ton vrai plan.
-           Si tu as un fichier /public/svg/arena.svg :
-           <object id="arena-obj" type="image/svg+xml" data="/public/svg/arena.svg"></object>
-           et dans renew.js on injectera les états après chargement de l'objet.
-           Pour l’exemple, on garde 3 “sièges” A1-001..003 :
-
-
-      <svg id="arena-map" viewBox="0 0 400 220" aria-label="Plan de la patinoire">
-        <rect x="10" y="10" width="380" height="200" rx="8" fill="#f7f7f7" stroke="#e0e0e0"/>
-        <g>
-          <rect data-seat-id="A1-001" class="seat" x="60" y="80" width="18" height="18" rx="2"/>
-          <rect data-seat-id="A1-002" class="seat" x="100" y="80" width="18" height="18" rx="2"/>
-          <rect data-seat-id="A1-003" class="seat" x="140" y="80" width="18" height="18" rx="2"/>
-        </g>
-      </svg>
-     -->
-<object id="arena-obj" type="image/svg+xml" data="/public/venues/patinoire-blagnac/plan.svg" aria-label="Plan de la patinoire" style="width:100%;height:auto;border:1px solid #e5e7eb;border-radius:8px;"></object>
-      <p class="hint">Cliquez vos places N-1 pour les renouveler. Les places non éligibles sont bloquées.</p>
+  <main class="page">
+    <!-- Colonne PLAN -->
+    <section class="col plan-col">
+      <div class="panel">
+        <h2>Votre plan</h2>
+        <div id="planWrap" class="plan-wrap">
+          <!-- le src est fixé dynamiquement en JS -->
+          <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="Plan de la salle"></object>
+          <div id="planStatus" class="plan-status">Chargement du plan…</div>
+        </div>
+        <div class="help">
+          <p>Molette pour zoomer, glisser pour déplacer. Les sièges autorisés sont surlignés.</p>
+        </div>
+      </div>
     </section>
 
-    <aside class="side-panel">
-      <h2>Votre sélection</h2>
-      <div id="selection-list" class="selection-list empty">
-        <p class="muted">Aucune place sélectionnée.</p>
+    <!-- Colonne FORM -->
+    <section class="col form-col">
+      <div class="panel">
+        <h2>Vos places</h2>
+        <div id="seatsList" class="seats-list">
+          <!-- lignes injectées par JS -->
+        </div>
       </div>
 
-      <form id="renew-form" class="renew-form">
-        <fieldset>
-          <legend>Coordonnées payeur</legend>
-          <div class="grid">
-            <label>Prénom
-              <input type="text" id="buyer-first" autocomplete="given-name" />
-            </label>
-            <label>Nom
-              <input type="text" id="buyer-last" autocomplete="family-name" />
-            </label>
-            <label>Email
-              <input type="email" id="buyer-email" autocomplete="email" />
-            </label>
+      <div class="panel">
+        <h2>Paiement</h2>
+            <p><small class="hint">Le reçu et la confirmation seront envoyés à l'email de contact.</small></p>
+        <div class="form-grid payer-row">
+          <div class="form-group">
+            <label for="payerLast">Nom</label>
+            <input id="payerLast" type="text" placeholder="Nom">
           </div>
-        </fieldset>
+          <div class="form-group">
+            <label for="payerFirst">Prénom</label>
+            <input id="payerFirst" type="text" placeholder="Prénom">
+          </div>
+          <div class="form-group">
+            <label for="payerEmail">Email de contact</label>
+            <input id="payerEmail" type="email" placeholder="email@exemple.com">
+          </div>
+        </div>
 
-        <fieldset>
-          <legend>Règlement</legend>
-          <label>Nombre d’échéances
-            <select id="installments">
-              <option value="1" selected>1 fois</option>
-              <option value="2">2 fois</option>
-              <option value="3">3 fois</option>
+        <div class="form-grid pay-bottom-row">
+          <div class="form-group">
+            <label for="paySchedule">Échéancier</label>
+            <select id="paySchedule">
+              <option value="1">En 1 fois</option>
+              <option value="2">En 2 fois</option>
+              <option value="3">En 3 fois</option>
             </select>
-          </label>
-        </fieldset>
+          </div>
+          <div class="form-group">
+            <label>Échéance (estimation)</label>
+            <div id="schedulePreview" class="total-box">—</div>
+          </div>
+          <div class="form-group">
+            <label>Total</label>
+            <div id="totalBox" class="total-box">0,00 €</div>
+          </div>
+        </div>
 
         <div class="actions">
-          <button id="btn-submit" type="submit" disabled>Continuer au paiement</button>
-          <div id="form-msg" class="form-msg" role="status" aria-live="polite"></div>
+          <button id="payBtn" class="pay-btn">Procéder au paiement</button>
         </div>
-      </form>
-    </aside>
+      </div>
+    </section>
   </main>
 
-  <script src="/views/renew/renew.js"></script>
+  <script defer src="../../views/renew/renew.js"></script>
+  <script defer src="views/renew/renew.js"></script>
 </body>
 </html>

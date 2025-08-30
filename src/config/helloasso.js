@@ -1,8 +1,4 @@
 
-const DEFAULTS = {
-  sandbox: { baseUri: 'https://api.helloasso-sandbox.com' },
-  prod:    { baseUri: 'https://api.helloasso.com' }
-};
 
 function normalizeEnv() {
   const v = String(process.env.HELLOASSO_ENV || '').trim().toLowerCase();
@@ -21,7 +17,7 @@ function pickPerEnv(baseKey, env) {
 function getHelloAssoConfig() {
   const env = normalizeEnv();
 
-  const baseUri = process.env.HELLOASSO_BASE_URI || DEFAULTS[env].baseUri;
+  const baseUri = process.env.HELLOASSO_BASE_URI || "api.helloasso.com";
   const tokenUri = process.env.HELLOASSO_TOKEN_URI || `${baseUri}/oauth2/token`;
   const apiBase  = process.env.HELLOASSO_API_BASE  || `${baseUri}/v5`;
 
@@ -37,4 +33,4 @@ function getHelloAssoConfig() {
   return { env, baseUri, tokenUri, apiBase, orgSlug, clientId, clientSecret, returnUrl, errorUrl, backUrl };
 }
 
-module.exports = { getHelloAssoConfig };
+export default getHelloAssoConfig;

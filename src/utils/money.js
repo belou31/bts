@@ -1,5 +1,5 @@
-
-function splitInstallments(totalCents, count, firstDue = new Date()) {
+// src/utils/money.js
+export function splitInstallments(totalCents, count, firstDue = new Date()) {
   if (![1,2,3].includes(count)) throw new Error('count must be 1|2|3');
   const base = Math.floor(totalCents / count);
   const remainder = totalCents - base * count;
@@ -14,11 +14,11 @@ function splitInstallments(totalCents, count, firstDue = new Date()) {
 }
 
 /** Version "montants seuls" (pour HelloAsso terms[]) */
-function splitInstallmentAmounts(totalCents, count) {
+export function splitInstallmentAmounts(totalCents, count) {
   if (![1,2,3].includes(count)) throw new Error('count must be 1|2|3');
   const base = Math.floor(totalCents / count);
   const remainder = totalCents - base * count;
   return Array.from({ length: count }, (_, i) => base + (i < remainder ? 1 : 0));
 }
 
-module.exports = { splitInstallments, splitInstallmentAmounts };
+export default { splitInstallments, splitInstallmentAmounts };

@@ -1,8 +1,14 @@
-require('dotenv').config();
 
-const mongoose = require('mongoose');
-const Subscriber = require('../src/models/Subscriber');
-const Seat = require('../src/models/Seat');
+import fs from 'fs';
+import path from 'path';
+import mongoose from 'mongoose';
+
+import { Subscriber } from '../../src/models/Subscriber.js';
+import { Seat } from '../../src/models/Seat.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 (async () => {
   const seasonCode = process.argv[2];

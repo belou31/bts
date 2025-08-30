@@ -5,9 +5,14 @@
 //    --dry           # pour dry-run (aucun envoi)
 //  dotenv_config_path=.env.int  # (conseillé en INT/PROD)
 
-const fs = require('fs');
-const path = require('path');
-const { sendMail, renderRenewInvite } = require('../../src/services/mailer');
+import fs from 'fs';
+import path from 'path';
+
+import { sendMail, renderRenewInvite } from '../../src/loaders/mailer.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 function parseArgs(argv) {
   const args = { _: [] };

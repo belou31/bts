@@ -1,8 +1,12 @@
 // scripts/migrate-subscriber-index.js
-require('dotenv').config();
 
-const mongoose = require('mongoose');
-const Subscriber = require('../src/models/Subscriber');
+import mongoose from 'mongoose';
+
+import { Subscriber } from '../../src/models/Subscriber.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 (async () => {
   const uri = process.env.MONGO_URI || process.env.MONGODB_URI;

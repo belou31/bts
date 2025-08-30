@@ -1,6 +1,7 @@
 
-const Seat = require('../models/Seat');
-const SeatHold = require('../models/SeatHold');
+import { Seat } from '../models/Seat.js';
+import { SeatHold } from '../models/SeatHold.js';
+
 
 async function holdSeat({ seatId, seasonCode, orderId, ttlMinutes = 10, subscriberId = null }) {
   const seat = await Seat.findOne({ seatId, seasonCode });
@@ -23,4 +24,4 @@ async function holdSeat({ seatId, seasonCode, orderId, ttlMinutes = 10, subscrib
   return true;
 }
 
-module.exports = { holdSeat };
+exports default holdSeat;

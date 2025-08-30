@@ -1,10 +1,15 @@
 // scripts/tariffs/export-catalog.js
 // Usage: node scripts/tariffs/export-catalog.js [--out=tariff_catalog.csv]
-require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
-const mongoose = require('mongoose');
-const Tariff = require('../../src/models/Tariff');
+
+import fs from 'fs';
+import path from 'path';
+import mongoose from 'mongoose';
+
+import { Tariff } from '../../src/models/Tariff.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 (async () => {
   const outArg = (process.argv.slice(2).find(a => a.startsWith('--out=')) || '--out=tariff_catalog.csv');

@@ -22,12 +22,15 @@
 //  - Gère BOM UTF-8 éventuel.
 //  - Cellules prix : "180", "180.00", "180,00" → OK (euros) ; "18000" → centimes directs.
 
-require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
-const readline = require('readline');
-const mongoose = require('mongoose');
-const TariffPrice = require('../../src/models/TariffPrice');
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import mongoose from 'mongoose';
+
+import { TariffPrice } from '../../src/models/TariffPrice.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 function die(msg) { console.error(msg); process.exit(1); }
 

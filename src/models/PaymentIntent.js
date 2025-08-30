@@ -1,5 +1,5 @@
 // src/models/PaymentIntent.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const PaymentIntentSchema = new mongoose.Schema({
   seasonCode: { type: String, index: true },
@@ -14,4 +14,4 @@ const PaymentIntentSchema = new mongoose.Schema({
   providerRef: String
 }, { timestamps: true });
 
-module.exports = mongoose.model('PaymentIntent', PaymentIntentSchema);
+export const PaymentIntent = mongoose.models.PaymentIntent || mongoose.model('PaymentIntent', PaymentIntentSchema);

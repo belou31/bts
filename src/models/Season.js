@@ -1,5 +1,5 @@
 // src/models/Season.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const PhaseSchema = new mongoose.Schema({
   name: { type: String, enum: ['renewal','tbh7','public'], required: true },
@@ -17,4 +17,4 @@ const SeasonSchema = new mongoose.Schema({
   phases: [PhaseSchema]
 }, { timestamps: true });
 
-module.exports = mongoose.model('Season', SeasonSchema);
+export const Season = mongoose.models.Season || mongoose.model('Season', SeasonSchema);

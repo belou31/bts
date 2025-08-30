@@ -1,6 +1,6 @@
 // src/services/subscribers.js
-const Counter = require('../models/Counter');
-const Subscriber = require('../models/Subscriber');
+import { Counter } from '../models/Counter.js';
+import { Subscriber } from '../models/Subscriber.js';
 
 async function nextSeq(key) {
   const doc = await Counter.findOneAndUpdate(
@@ -10,14 +10,14 @@ async function nextSeq(key) {
   return doc.seq;
 }
 
-function seasonToShort(seasonCode = '') {
+export function seasonToShort(seasonCode = '') {
   // "2025-2026" -> "2526"
   const m = String(seasonCode).match(/(\d{4})-(\d{4})/);
   if (!m) return 'XXXX';
   return m[1].slice(2) + m[2].slice(2);
 }
 
-async function ensureSubscriberNo(subscriberId, seasonCode) {
+export async function ensureSubscriberNo(subscriberId, seasonCode) {
   const sub = await Subscriber.findById(subscriberId);
   if (!sub) return null;
   if (sub.subscriberNo && typeof sub.subscriberNo === 'string') return sub;
@@ -31,4 +31,4 @@ async function ensureSubscriberNo(subscriberId, seasonCode) {
   return sub;
 }
 
-module.exports = { ensureSubscriberNo, seasonToShort };
+export default { ensureSubscriberNo, seasonToShort };

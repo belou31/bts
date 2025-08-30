@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-require('dotenv').config();
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 (async () => {
   const uri = process.env.MONGO_URI;

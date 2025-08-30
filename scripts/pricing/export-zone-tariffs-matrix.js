@@ -11,11 +11,15 @@
 //
 // Les prix sont exportés en euros (nombre sans décimales si plein, sinon 2 décimales).
 
-require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
-const mongoose = require('mongoose');
-const TariffPrice = require('../../src/models/TariffPrice');
+import fs from 'fs';
+import path from 'path';
+import mongoose from 'mongoose';
+
+import { TariffPrice } from '../../src/models/TariffPrice.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 function die(msg){ console.error(msg); process.exit(1); }
 

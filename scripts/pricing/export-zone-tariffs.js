@@ -1,12 +1,16 @@
 // scripts/pricing/export-zone-tariffs.js
 // Usage:
 //   node scripts/pricing/export-zone-tariffs.js <seasonCode> <venueSlug> [--out=prices.csv]
-require('dotenv').config();
 
-const fs = require('fs');
-const path = require('path');
-const mongoose = require('mongoose');
-const TariffPrice = require('../../src/models/TariffPrice');
+import fs from 'fs';
+import path from 'path';
+import mongoose from 'mongoose';
+
+import { TariffPrice } from '../../src/models/TariffPrice.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 function euro(cents) {
   return (Number(cents || 0) / 100).toFixed(2);

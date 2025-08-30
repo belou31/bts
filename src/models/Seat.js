@@ -1,5 +1,5 @@
 // src/models/Seat.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const SeatSchema = new mongoose.Schema({
   // Identifiant fonctionnel du siège, ex: "A1-001"
@@ -45,4 +45,4 @@ SeatSchema.index(
 SeatSchema.index({ seasonCode: 1, zoneKey: 1 });
 SeatSchema.index({ seasonCode: 1, status: 1 });
 
-module.exports = mongoose.model('Seat', SeatSchema);
+export const Seat = mongoose.models.Seat || mongoose.model('Seat', SeatSchema);

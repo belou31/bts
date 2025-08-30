@@ -1,55 +1,42 @@
 // src/loaders/express.js
-const express = require('express');
-const path = require('path');
-const helmet = require('helmet');
-const cors = require('cors');
-const rateLimit = require('express-rate-limit');
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import compression from 'compression';
+import cors from 'cors';
 
-// Ton index de routes doit faire: module.exports = router;
-const routes = require('../routes');
+// 👉 IMPORTANT : chemin racine du repo (pas /src)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const rootDir    = path.resolve(__dirname, '..');  // /src → racine projet
 
-function buildApp() {
+import routes from '../routes/index.js';           // ← depuis /src/loaders vers /src/routes
+
+export async function buildApp() {
   const app = express();
 
-  // Sécurité / parsing
-  // Helmet global par défaut
-  app.use(helmet());
+  app.use(compression());
+  app.use(cors({ origin: '*', credentials: true }));
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: false }));
 
-  // CSP spécifique pour /s/renew : autorise <object> local
-  const baseDirectives = helmet.contentSecurityPolicy.getDefaultDirectives();
-  const renewDirectives = { ...baseDirectives, "object-src": ["'self'"] };
-  app.use('/s/renew', helmet({
-    contentSecurityPolicy: { directives: renewDirectives }
-  }));
+  // --- Statics ---
+  app.use('/public', express.static(path.join(rootDir, 'public'), { fallthrough: true }));
+  app.use('/views',  express.static(path.join(rootDir, 'views'),  { fallthrough: true }));
 
-  // Rate limit basique sur l'API publique
-  app.use('/api', rateLimit({ windowMs: 60_000, max: 300 }));
+  // --- Routes applicatives ---
+  routes(app);  // monte /renew (HTML) + /s/renew (JSON) etc.
 
-  // Health
-  app.get('/health', (_req, res) => res.json({ ok: true }));
-
-  // Statique (CSS/JS), plans SVG et HTML
-  app.use('/static', express.static(path.join(__dirname, '..', 'public', 'static')));
-  app.use('/venues', express.static(path.join(__dirname, '..', 'public', 'venues')));
-  app.use('/html',   express.static(path.join(__dirname, '..', 'public', 'html')));
-
-  // Routes applicatives (API + pages /s/renew etc.)
-  app.use('/', routes);
-
-  // 404
+  // 404 JSON par défaut
   app.use((req, res) => {
-    res.status(404).json({ error: 'not_found', path: req.originalUrl });
+    res.status(404).json({ error: 'Not found', path: req.originalUrl });
   });
 
-  // Handler d'erreurs
-  // eslint-disable-next-line no-unused-vars
+  // Handler erreurs
   app.use((err, req, res, _next) => {
-    console.error('[API ERROR]', err);
-    res.status(err.status || 500).json({ error: err.message || 'internal_error' });
+    console.error('[error]', err);
+    res.status(500).json({ error: err.message || 'Internal error' });
   });
 
   return app;
 }
-
-// 👉 export par défaut : server.js peut faire `const buildApp = require('./loaders/express');`
-module.exports = buildApp;

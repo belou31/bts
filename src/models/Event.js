@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const EventSchema = new mongoose.Schema({
   slug:       { type: String, unique: true, index: true },     // ex: "match-2025-09-15-bts-vs-xxx"
@@ -10,4 +10,4 @@ const EventSchema = new mongoose.Schema({
   isOnSale:   { type: Boolean, default: false }
 }, { timestamps: true });
 
-module.exports = mongoose.model('Event', EventSchema);
+export const Event = mongoose.models.Event || mongoose.model('Event', EventSchema);

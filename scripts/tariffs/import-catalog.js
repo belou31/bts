@@ -1,12 +1,15 @@
 // scripts/tariffs/import-catalog.js
 // Usage: node scripts/tariffs/import-catalog.js data/tariff_catalog.csv
-require('dotenv').config();
 
-const fs = require('fs');
-const path = require('path');
-const readline = require('readline');
-const mongoose = require('mongoose');
-const Tariff = require('../../src/models/Tariff');
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import mongoose from 'mongoose';
+
+import { Tariff } from '../../src/models/Tariff.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
 
 function parseBool(v, def=true) {
   if (v == null || v === '') return def;

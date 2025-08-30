@@ -1,86 +1,46 @@
+// src/routes/payments.js
+import express from 'express';
+import { splitInstallmentAmounts } from '../utils/money.js';
 
-const router = require('express').Router();
-const { celebrate, Joi, Segments } = require('celebrate');
-const PaymentIntent = require('../models/PaymentIntent');
-const { initCheckoutIntent } = require('../services/helloasso');
-const { splitInstallmentAmounts } = require('../utils/money');
-const { getHelloAssoConfig } = require('../config/helloasso');
+const router = express.Router();
 
-function addMonthsISO(date, months) {
-  const d = new Date(date);
-  d.setMonth(d.getMonth() + months);
-  return d.toISOString().slice(0,10);
-}
+/**
+ * GET /api/payments/health
+ */
+router.get('/api/payments/health', (_req, res) => {
+  res.json({ ok: true, provider: 'helloasso' });
+});
 
-router.post(
-  '/helloasso/checkout',
-  celebrate({
-    [Segments.BODY]: Joi.object({
-      orderNo: Joi.string().allow('', null),          // <-- nouveau
-      subscriberId: Joi.string().allow('', null),
-      seasonCode: Joi.string().required(),
-      totalCents: Joi.number().integer().min(100).required(),
-      itemName: Joi.string().default('Abonnement'),
-      installments: Joi.number().valid(1,2,3).default(1),
-      payer: Joi.object({
-        firstName: Joi.string().allow('', null),
-        lastName: Joi.string().allow('', null),
-        email: Joi.string().email().allow('', null),
-        dateOfBirth: Joi.string().allow('', null),
-        address: Joi.string().allow('', null),
-        city: Joi.string().allow('', null),
-        zipCode: Joi.string().allow('', null),
-        country: Joi.string().allow('', null),
-      }).default({})
-    })
-  }),
-  async (req, res, next) => {
-    try {
-      const cfg = getHelloAssoConfig();
-      if (!cfg.returnUrl || !cfg.errorUrl || !cfg.backUrl) {
-        const miss = ['returnUrl','errorUrl','backUrl'].filter(k => !cfg[k]).join(', ');
-        throw new Error(`[BTS] URLs HelloAsso manquantes (${miss}) pour l'environnement ${cfg.env}`);
-      }
-
-      const { orderNo, subscriberId, seasonCode, totalCents, itemName, installments, payer } = req.body;
-
-      const amounts = splitInstallmentAmounts(totalCents, installments);
-      const terms = amounts.slice(1).map((amt, i) => ({ amount: amt, date: addMonthsISO(new Date(), i + 1) }));
-
-      const haPayload = {
-        totalAmount: totalCents,
-        initialAmount: amounts[0],
-        itemName: `${itemName} ${seasonCode}`,
-        backUrl: cfg.backUrl,
-        errorUrl: cfg.errorUrl,
-        returnUrl: cfg.returnUrl,
-        containsDonation: false,
-        ...(terms.length ? { terms } : {}),
-        payer: {
-          firstName: payer.firstName || undefined,
-          lastName: payer.lastName || undefined,
-          email: payer.email || undefined,
-          dateOfBirth: payer.dateOfBirth || undefined,
-          address: payer.address || undefined,
-          city: payer.city || undefined,
-          zipCode: payer.zipCode || undefined,
-          country: payer.country || undefined,
-        },
-        metadata: { source: 'BTS', seasonCode, subscriberId, orderNo }  // <-- orderNo ici
-      };
-
-      const { id: checkoutIntentId, redirectUrl } = await initCheckoutIntent(haPayload);
-
-      await PaymentIntent.create({
-        subscriberId, seasonCode, checkoutIntentId,
-        totalAmount: totalCents,
-        installments: terms,
-        metadata: haPayload.metadata
-      });
-
-      res.json({ redirectUrl, checkoutIntentId });
-    } catch (e) { next(e); }
+/**
+ * POST /api/payments/split
+ * Body: { totalCents: number, count: 1|2|3 }
+ * → { terms: number[] }
+ */
+router.post('/api/payments/split', (req, res) => {
+  const totalCents = Number(req.body?.totalCents || 0);
+  const count = Number(req.body?.count || 1);
+  try {
+    const terms = splitInstallmentAmounts(totalCents, count);
+    res.json({ terms, totalCents });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'invalid split' });
   }
-);
+});
 
-module.exports = router;
+/**
+ * Exemple générique de payload HelloAsso (si tu veux construire côté front)
+ * POST /api/payments/checkout-payload
+ * Body: { totalCents: number, terms?: number[] }
+ */
+router.post('/api/payments/checkout-payload', (req, res) => {
+  const totalCents = Number(req.body?.totalCents || 0);
+  const terms = Array.isArray(req.body?.terms) ? req.body.terms.map(Number) : [];
+  const payload = {
+    totalAmount: totalCents,
+    // ✅ correction du bug :
+    ...(terms.length ? { terms } : {})
+  };
+  res.json(payload);
+});
+
+export default router;

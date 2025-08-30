@@ -1,7 +1,11 @@
-require('dotenv').config();
 
-const mongoose = require('mongoose');
-const SeatHold = require('../src/models/SeatHold');
+import mongoose from 'mongoose';
+
+import { SeatHold } from '../../src/models/SeatHold.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 (async () => {
   const uri = process.env.MONGO_URI || process.env.MONGODB_URI;

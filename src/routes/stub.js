@@ -1,7 +1,8 @@
 // src/routes/stub.js
-require('dotenv').config();
+import express from 'express';
+import dotenv from 'dotenv';
+dotenv.config();
 
-const express = require('express');
 const router = express.Router();
 
 function isStubEnabled() {
@@ -39,4 +40,4 @@ router.get('/stub/helloasso', (req, res) => {
   res.send(html);
 });
 
-module.exports = router;
+export default router;

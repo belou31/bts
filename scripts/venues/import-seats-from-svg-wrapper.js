@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 // scripts/venues/import-seats-from-svg-wrapper.js
-require('dotenv').config();
-const fs = require('fs');
-const path = require('path');
-const { spawnSync } = require('child_process');
+
+import fs from 'fs';
+import path from 'path';
+import mongoose from 'mongoose';
+import { spawnSync } from 'child_process';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
 
 const [, , slug, svgPath] = process.argv;
 if (!slug || !svgPath) {

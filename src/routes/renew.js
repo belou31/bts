@@ -1,155 +1,270 @@
 // src/routes/renew.js
-const express = require('express');
-const path = require('path');
-const jwt = require('jsonwebtoken');
+import express from 'express';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import { Subscriber }  from '../models/Subscriber.js';
+import { Seat }        from '../models/Seat.js';
+import { Tariff }      from '../models/Tariff.js';
+import { TariffPrice } from '../models/TariffPrice.js';
+import { Order }       from '../models/Order.js';
+import { createCheckoutIntent } from '../services/helloasso.js';
 
-const Seat = require('../models/Seat');
-const Subscriber = require('../models/Subscriber');
-const Season = require('../models/Season');
-const Tariff = require('../models/Tariff');
-const TariffPrice = require('../models/TariffPrice');
-const Order = require('../models/Order');
-
-const payments = require('../payments/helloasso'); // STUB/HA
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET;
+const APP_URL = process.env.APP_URL || '';
+const HELLOASSO_STUB = String(process.env.HELLOASSO_STUB || 'false').toLowerCase() === 'true';
+const STUB_RESULT = (process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
 
-function bad(res, msg = 'bad_request', code = 400) {
-  return res.status(code).json({ error: msg });
+const HA_RETURN_URL = process.env.HELLOASSO_RETURN_URL || (APP_URL ? `${APP_URL}/ha/return` : '/ha/return');
+const HA_BACK_URL   = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/back');
+const HA_ERR_URL    = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/error');
+
+function zoneKeyFromSeatId(seatId) {
+  const s = String(seatId || '');
+  const i = s.indexOf('-');
+  return i > 0 ? s.slice(0, i) : s;
 }
-function decodeToken(t) {
-  try { return jwt.verify(t, process.env.JWT_SECRET); }
-  catch { return null; }
-}
-
-// Déduit un zoneKey cohérent depuis un seatId du type "S1-A-001", "N1-H-015", etc.
-function zoneFromSeatId(seatId) {
-  if (!seatId) return null;
-  return String(seatId).split('-')[0].toUpperCase(); // tout ce qui est avant le 1er '-'
-}
-
-router.get('/s/renew', async (req, res) => {
-  const { id: token, seat } = req.query;
-  if (!token) return bad(res, 'invalid_or_expired_token', 401);
-
-  const payload = decodeToken(token);
-  if (!payload) return bad(res, 'invalid_or_expired_token', 401);
-
-  const { seasonCode, venueSlug, groupKey, email, seatIds = [] } = payload;
-
-  // Saison / phase renewal
-  const season = await Season.findOne({ code: seasonCode }).lean();
-  if (!season) return bad(res, 'season_not_found', 404);
-  const renewalPhase = (season.phases || []).find(p => p.name === 'renewal' && p.enabled !== false);
-  if (!renewalPhase) return bad(res, 'renewal_phase_closed', 403);
-
-  const focusSeatId = seat && typeof seat === 'string' ? seat : null;
-
-  // Abonnés du groupe
-  const subs = await Subscriber.find({ seasonCode, venueSlug, groupKey }).lean();
-  const subsOrEmail = subs.length ? subs : await Subscriber.find({ seasonCode, venueSlug, email }).lean();
-
-  // Sièges de la saison/lieu
-  const seats = await Seat.find({ seasonCode, venueSlug }).lean();
-
-  // Zones distinctes (au cas où certains sièges aient encore "S" → on le garde tel quel pour l’affichage brut)
-  const zones = Array.from(new Set(seats.map(s => s.zoneKey).filter(Boolean))).sort();
-
-  // Tarifs actifs + prix
-  const activeTariffs = await Tariff.find({ active: true }).sort({ sortOrder: 1, code: 1 }).lean();
-  const prices = await TariffPrice.find({ seasonCode, venueSlug }).lean();
-  const priceMap = new Map(prices.map(p => [`${p.zoneKey}:${p.tariffCode}`, p.priceCents]));
-
-  const tokenSeatIds = (seatIds || []).filter(Boolean);
-
-  // JSON → données brutes pour le front
-  if (req.get('Accept')?.includes('application/json')) {
-    return res.json({
-      ok: true,
-      seasonCode, venueSlug, groupKey, email,
-      tokenSeats: tokenSeatIds,
-      focusSeatId,
-      subscribers: subsOrEmail.map(s => ({
-        firstName: s.firstName, lastName: s.lastName, prefSeatId: s.prefSeatId,
-        previousSeasonSeats: s.previousSeasonSeats || []
-      })),
-      seats: seats.map(s => ({ seatId: s.seatId, zoneKey: s.zoneKey, status: s.status })),
-      tariffs: activeTariffs.map(t => ({
-        code: t.code, label: t.label,
-        requiresField: !!t.requiresField, fieldLabel: t.fieldLabel || '',
-        requiresInfo: !!t.requiresInfo
-      })),
-      prices: Array.from(priceMap.entries()).map(([k,v]) => {
-        const [zoneKey, tariffCode] = k.split(':'); return { zoneKey, tariffCode, priceCents: v };
-      })
-    });
-  }
-
-  // Sinon HTML
-  return res.sendFile('renew.html', { root: path.join(__dirname, '..', 'public', 'html') });
-});
-
-// POST: checkout (STUB/HA) + fallback zoneKey si incohérence
-router.post('/s/renew', async (req, res) => {
+function decodeToken(id) {
+  if (!JWT_SECRET) { console.error('[renew] JWT_SECRET manquant'); return null; }
+  if (!id || id === 'ping') return null;
   try {
-    const { id: token } = req.query;
-    if (!token) return bad(res, 'invalid_or_expired_token', 401);
-    const payload = decodeToken(token);
-    if (!payload) return bad(res, 'invalid_or_expired_token', 401);
+    const p = jwt.verify(id, JWT_SECRET);
+    return {
+      seasonCode: p.seasonCode || p.season,
+      venueSlug : p.venueSlug  || p.venue,
+      email     : (p.email || '').trim(),
+      groupKey  : p.groupKey || p.email || null,
+      seatIds   : Array.isArray(p.seatIds) ? p.seatIds.map(x => String(x).trim()) : [],
+    };
+  } catch (e) {
+    console.error('[renew] jwt.verify failed:', e.message);
+    return null;
+  }
+}
+function hashToken(id) {
+  return crypto.createHash('sha256').update(String(id || ''), 'utf8').digest('hex');
+}
+function buildPricesIndex(prices) {
+  const idx = new Map();
+  for (const p of (prices || [])) {
+    const z = p.zoneKey;
+    const t = String(p.tariffCode || '').toUpperCase();
+    if (!idx.has(z)) idx.set(z, new Map());
+    idx.get(z).set(t, Number(p.priceCents) || 0);
+  }
+  return idx;
+}
 
-    const { seasonCode, venueSlug, groupKey, email } = payload;
 
-    // déjà payé ?
-    const already = await Order.exists({ seasonCode, venueSlug, groupKey, status: 'paid' });
-    if (already) return bad(res, 'already_renewed', 409);
+async function findNotProvisionedSeats({ seasonCode, venueSlug, seatIds }) {
+  if (!seatIds?.length) return [];
+  const rows = await Seat.find(
+    { seasonCode, venueSlug, seatId: { $in: seatIds } },
+    { seatId: 1, status: 1, _id: 0 }
+  ).lean();
+  return rows.filter(r => String(r.status) !== 'provisioned');
+}
 
-    const { lines = [], installments = 1, payer = {} } = req.body || {};
-    if (!Array.isArray(lines) || lines.length === 0) return bad(res, 'empty_cart');
 
-    const seatIds = lines.map(l => l.seatId).filter(Boolean);
-    const seats = await Seat.find({ seasonCode, venueSlug, seatId: { $in: seatIds } });
-    if (seats.length !== seatIds.length) return bad(res, 'unknown_seat', 400);
+function computePriceCents(pricesIdx, zoneKey, tariffCode) {
+  const t = String(tariffCode || '').toUpperCase();
+  const zMap = pricesIdx.get(zoneKey);
+  if (zMap && zMap.has(t)) return zMap.get(t);
+  const star = pricesIdx.get('*');
+  if (star && star.has(t)) return star.get(t);
+  return 0;
+}
 
-    // prix
-    const prices = await TariffPrice.find({ seasonCode, venueSlug }).lean();
-    const priceMap = new Map(prices.map(p => [`${p.zoneKey}:${p.tariffCode}`, p.priceCents]));
 
-    let totalCents = 0;
-    for (const l of lines) {
-      const seatId = l.seatId;
-      const tcode = String(l.tariffCode || '').toUpperCase();
+/** GET /s/renew?id=<jwt> -> JSON */
+router.get('/renew', async (req, res) => {
+  try {
+    const { id } = req.query;
+    if (id === 'ping') return res.json({ ok: true, route: '/s/renew', ts: new Date().toISOString() });
 
-      const s = seats.find(x => x.seatId === seatId);
-      if (!s) return bad(res, `unknown_seat:${seatId}`, 400);
+    const tok = decodeToken(id);
+    if (!tok || !tok.seasonCode || !tok.venueSlug || !tok.seatIds?.length) {
+      return res.status(400).json({ error: 'missing_or_invalid_token' });
+    }
+    const { seasonCode, venueSlug, seatIds } = tok;
 
-      // 1) essaie avec zoneKey stocké
-      let z = s.zoneKey;
-      let pc = priceMap.get(`${z}:${tcode}`);
+    const [tariffs, prices] = await Promise.all([
+      Tariff.find({}).lean().exec(),
+      TariffPrice.find({ seasonCode, venueSlug }).lean().exec(),
+    ]);
 
-      // 2) fallback: déduire depuis seatId (S1-A-001 → S1) si pas trouvé
-      if (!Number.isFinite(pc)) {
-        const derived = zoneFromSeatId(seatId);
-        if (derived && derived !== z) {
-          z = derived;
-          pc = priceMap.get(`${z}:${tcode}`);
-        }
+    const seats = await Seat.find({
+      seasonCode, venueSlug, seatId: { $in: seatIds },
+    }).lean().exec();
+
+    const subs = await Subscriber.find({
+      seasonCode,
+      $or: [
+        { prefSeatId: { $in: seatIds } },
+        { previousSeasonSeats: { $in: seatIds } },
+      ],
+    }).lean().exec();
+
+    const seatSubscribers = {};
+    for (const sid of seatIds) {
+      let rec = subs.find(s => String(s.prefSeatId || '').trim() === sid);
+      if (!rec) rec = subs.find(s => Array.isArray(s.previousSeasonSeats) && s.previousSeasonSeats.includes(sid));
+      if (rec) {
+        seatSubscribers[sid] = {
+          firstName: rec.firstName || '',
+          lastName : rec.lastName  || '',
+          email    : rec.email     || '',
+        };
       }
-
-      if (!Number.isFinite(pc)) {
-        return bad(res, `no_price_for:${z || 'unknown'}:${tcode}`, 400);
-      }
-      totalCents += pc;
     }
 
-    const result = await payments.checkout({
-      seasonCode, venueSlug, groupKey, email,
-      lines, totalCents, installments, payer
-    });
+    const tokenEmail = (tok.email || '').toLowerCase();
+    let payer = { firstName:'', lastName:'', email: tok.email || '' };
+    if (subs.length) {
+      const match = tokenEmail ? subs.find(s => (s.email || '').toLowerCase() === tokenEmail) : null;
+      const pick = match || subs[0];
+      payer.firstName = payer.firstName || pick.firstName || '';
+      payer.lastName  = payer.lastName  || pick.lastName  || '';
+      payer.email     = payer.email     || pick.email     || '';
+    }
 
-    return res.json(result);
+
+
+// tokenSeats contient les sièges autorisés par le lien
+const blocked = await findNotProvisionedSeats({
+  seasonCode, venueSlug, seatIds: seatIds
+});
+
+// expose au front
+const blockedSeats = blocked.map(b => ({ seatId: b.seatId, status: b.status }));
+const blockedAny = blockedSeats.length > 0;
+
+
+
+
+    return res.json({
+      ok: true,
+      season: seasonCode, seasonCode,
+      venue : venueSlug,  venueSlug,
+      tariffs, prices, seats,
+      tokenSeats: seatIds,
+      seatSubscribers,
+      payer,
+      blockedAny,
+      blockedSeats
+    });
   } catch (e) {
-    console.error('[renew POST] error', e);
-    return bad(res, 'internal_error', 500);
+    console.error('[GET /s/renew] error:', e);
+    res.status(500).json({ error: 'internal_error' });
   }
 });
 
-module.exports = router;
+/** POST /s/renew?id=<jwt> -> { redirectUrl } */
+router.post('/renew', async (req, res) => {
+  try {
+    const id = req.query.id || '';
+    const tok = decodeToken(id);
+    if (!tok || !tok.seasonCode || !tok.venueSlug || !tok.seatIds?.length) {
+      return res.status(400).json({ error: 'missing_or_invalid_token' });
+    }
+
+    const tokenHash = hashToken(id);
+    const { seasonCode, venueSlug, seatIds: allowedSeatIds } = tok;
+
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+    const payer = req.body.payer || {};
+    const schedule = Number(req.body.schedule || 1);
+
+    if (!items.length) return res.status(400).json({ error: 'empty_items' });
+    if (!payer?.email) return res.status(400).json({ error: 'payer_email_required' });
+    if (![1,2,3].includes(schedule)) return res.status(400).json({ error: 'invalid_schedule' });
+
+    for (const it of items) {
+      if (!allowedSeatIds.includes(String(it.seatId))) {
+        return res.status(403).json({ error: 'seat_not_in_token', seatId: it.seatId });
+      }
+    }
+
+
+// Sièges réellement demandés au POST
+const seatIdsAsked = [...new Set((req.body.items || []).map(i => i.seatId))];
+
+// Re-vérification “atomique” des statuts
+const badNow = await findNotProvisionedSeats({
+  seasonCode, venueSlug, seatIds: seatIdsAsked
+});
+if (badNow.length) {
+  return res.status(409).json({
+    error: 'seats_not_available',
+    blockedSeats: badNow.map(b => ({ seatId: b.seatId, status: b.status }))
+  });
+}
+
+
+    const prices = await TariffPrice.find({ seasonCode, venueSlug }).lean().exec();
+    const pricesIdx = buildPricesIndex(prices);
+
+    const valuedLines = items.map(it => {
+      const zoneKey = it.zoneKey || zoneKeyFromSeatId(it.seatId);
+      const tariff = String(it.tariffCode || '').toUpperCase();
+      const amount = computePriceCents(pricesIdx, zoneKey, tariff);
+      return {
+        seatId: String(it.seatId),
+        tariffCode: tariff,
+        priceCents: amount,
+        holderFirstName: it.firstName || '',
+        holderLastName:  it.lastName  || '',
+        justificationField: it.justification || '',
+        info: it.info || ''
+      };
+    });
+
+    const totalAmount = valuedLines.reduce((s, l) => s + (l.priceCents || 0), 0);
+    if (totalAmount <= 0) return res.status(400).json({ error: 'invalid_total' });
+
+    const existingPaid = await Order.findOne({ 'meta.tokenHash': tokenHash, status: { $in: ['paid','authorized'] } }).lean().exec();
+    if (existingPaid) return res.status(409).json({ error: 'already_paid' });
+
+    const order = await Order.create({
+      seasonCode,
+      venueSlug,
+      groupKey: tok.groupKey || tok.email || null,
+      payerEmail: String(payer.email || '').trim(),
+      payerFirstName: payer.firstName || '',
+      payerLastName:  payer.lastName  || '',
+      paymentSplit: schedule,
+      lines: valuedLines,
+      totalCents: totalAmount,
+      status: 'pending',
+      paymentProvider: 'helloasso',
+      meta: { tokenHash }
+    });
+
+    if (HELLOASSO_STUB) {
+      const intentId = `stub-${Date.now()}`;
+      const result = (STUB_RESULT === 'failure') ? 'failure' : 'success';
+      const redirectUrl = `${HA_RETURN_URL}?oid=${order._id}&ci=${intentId}&stub=1&result=${result}`;
+      return res.json({ redirectUrl });
+    }
+
+    const intent = await createCheckoutIntent({
+      orderId: order._id,
+      order,
+      itemName: `Abonnement ${seasonCode} — ${order.lines.length} place(s)`,
+      returnUrl: HA_RETURN_URL,
+      backUrl:   HA_BACK_URL,
+      errorUrl:  HA_ERR_URL,
+    });
+    if (!intent?.redirectUrl) {
+      console.error('[renew] createCheckoutIntent returned:', intent);
+      return res.status(502).json({ error: 'checkout_intent_failed' });
+    }
+    return res.json({ redirectUrl: intent.redirectUrl });
+
+  } catch (e) {
+    console.error('[POST /s/renew] error:', e);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+export default router;

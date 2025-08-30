@@ -1,5 +1,3 @@
-<!-- src/views/public/public.js -->
-<script>
 (async function(){
   const seasonCode = new URLSearchParams(location.search).get('season') || '2025-2026';
   const map = document.getElementById('arena-map');        // ton <svg id="arena-map"> existe déjà
@@ -90,4 +88,3 @@
   // (facultatif) rafraîchit toutes les 15s pour refléter les holds
   setInterval(loadAndRender, 15000);
 })();
-</script>

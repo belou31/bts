@@ -1,8 +1,10 @@
-
 // src/middlewares/authz.js
-function requireAdmin(req, res, next) {
-  const token = req.get('x-admin-token') || '';
-  if (token && process.env.JWT_SECRET && token === process.env.JWT_SECRET) return next();
-  return res.status(401).json({ error: 'admin auth required' });
+
+// très simple pour l’instant : header X-Admin: 1 (à remplacer par JWT si besoin)
+export function requireAdmin(req, res, next) {
+  const isAdmin = req.headers['x-admin'] === '1';
+  if (!isAdmin) return res.status(403).json({ error: 'forbidden' });
+  next();
 }
-module.exports = { requireAdmin };
+
+export default { requireAdmin };
