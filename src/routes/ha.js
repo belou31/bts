@@ -7,17 +7,6 @@ import { sendMail } from '../loaders/mailer.js';
 
 const router = express.Router();
 
-async function reserveSeatsForOrder(order) {
-  if (!order?.lines?.length) return;
-  const { seasonCode, venueSlug } = order;
-  for (const l of order.lines) {
-    if (!l.seatId) continue;
-    await Seat.updateOne(
-      { seasonCode, venueSlug, seatId: l.seatId },
-      { $set: { status: 'reserved', reservedByOrderId: order._id } }
-    );
-  }
-}
 
 function isPaidLike(status) {
   return /paid|authorized|succeeded|success|ok/i.test(String(status||''));
