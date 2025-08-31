@@ -12,7 +12,7 @@ const router = express.Router();
  */
 router.get('/ha/return', async (req, res) => {
   try {
-    const { oid, ci, stub, result, order: haOrderId } = req.query;
+    const { oid, ci, stub, result } = req.query;
     const order = await Order.findById(oid);
     if (!order) return res.status(404).send('Order not found');
 
@@ -25,14 +25,6 @@ router.get('/ha/return', async (req, res) => {
 
     if (/paid|authorized|ok|success/i.test(status)) {
       order.status = 'paid';
-
-   if (haOrderId) {
-     order.paymentProvider = {
-       name: 'helloasso',
-       haOrderId,
-       checkoutIntentId: order.paymentProvider?.checkoutIntentId || ci || null
-     };
-
       await order.save();
 
       // Email attestation (STUB écrit un .eml si EMAIL_STUB=true)
