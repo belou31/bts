@@ -1,62 +1,62 @@
-<!-- src/templates/email/renew-confirmation.html -->
 <!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <title>Confirmation de paiement — {{clubName}}</title>
-  <meta name="color-scheme" content="light only">
+  <title>Confirmation de paiement — BTS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;margin:0;padding:0;background:#f6f7fb;color:#222;}
-    .wrap{max-width:640px;margin:0 auto;padding:24px;}
-    .card{background:#fff;border:1px solid #e9ecf1;border-radius:12px;padding:24px;}
-    h1{font-size:20px;margin:0 0 12px 0;}
-    p{margin:.5rem 0;}
-    .muted{color:#666;font-size:14px;}
-    .table{width:100%;border-collapse:collapse;margin-top:12px;}
-    .table th,.table td{border:1px solid #e5e7eb;padding:8px;text-align:left;font-size:14px;}
-    .table th{background:#f3f4f6;}
-    .footer{margin-top:16px;color:#666;font-size:13px;}
-    .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:600;font-size:12px;}
+  body{margin:0;padding:0;background:#0b0f17;color:#e5e7eb;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif}
+  .wrap{max-width:680px;margin:0 auto;padding:24px}
+  .card{background:#0f1622;border:1px solid #111827;border-radius:12px;padding:20px}
+  h1{margin:0 0 12px 0;font-size:20px}
+  h2{margin:16px 0 6px 0;font-size:16px}
+  p{margin:0 0 10px 0;line-height:1.5}
+  .muted{color:#9ca3af}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .row{display:flex;justify-content:space-between;gap:12px}
+  .badge{display:inline-block;padding:3px 8px;border-radius:999px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;font-size:12px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{padding:8px;border-bottom:1px solid #1f2937;text-align:left}
+  .total{font-weight:600}
+  .note{margin-top:12px;padding:10px;border:1px dashed #1f2937;border-radius:8px;background:#0b1220}
+  a{color:#93c5fd}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Confirmation de paiement</h1>
+      <h1>Confirmation de paiement ✅</h1>
       <p>Bonjour {{payerFirstName}} {{payerLastName}},</p>
-      <p>Nous confirmons la réception de votre paiement pour votre renouvellement d’abonnement <span class="badge">{{seasonCode}}</span>.</p>
+      <p>Votre commande <b>{{orderId}}</b> a été confirmée.</p>
+      {{haOrderBlock}}
+      <div class="grid">
+        <div>
+          <h2>Détails</h2>
+          <p class="muted">Saison : <b>{{seasonCode}}</b></p>
+          <p class="muted">Lieu : <b>{{venueSlug}}</b></p>
+        </div>
+        <div>
+          <h2>Paiement</h2>
+          <p class="muted">{{installmentsInfo}}</p>
+          <p class="muted">Total réglé : <b>{{totalEuro}} €</b></p>
+        </div>
+      </div>
 
-      <p><strong>Détails de la commande</strong></p>
-      <p class="muted">
-        N° commande : <strong>{{orderId}}</strong><br>
-        Email de contact : <strong>{{payerEmail}}</strong><br>
-        Montant total : <strong>{{totalEuros}} €</strong> — Échéancier : <strong>{{paymentSplit}} fois</strong>
-      </p>
-
-      <table class="table" role="table" aria-label="Récapitulatif des places">
-        <thead>
-          <tr>
-            <th>Place</th>
-            <th>Nom</th>
-            <th>Prénom</th>
-            <th>Tarif</th>
-            <th>Conditions</th>
-            <th>Prix</th>
-          </tr>
-        </thead>
+      <h2>Places</h2>
+      <table role="table" aria-label="Places">
+        <thead><tr><th>Place / Zone</th><th>Tarif</th><th>Prix</th></tr></thead>
         <tbody>
-          {{LINES}}
+          {{linesRows}}
         </tbody>
       </table>
 
-      <p class="muted" style="margin-top:12px;">
-        Les billets avec QR code seront envoyés par email avant chaque match. Merci de conserver cet email de confirmation.
-      </p>
+      {{extraInfo}}
 
-      <p class="footer">
-        {{clubName}} — Billetterie<br>
-        Ceci est un message automatique, merci de ne pas y répondre directement.
-      </p>
+      <div class="note">
+        Les billets (QR codes) seront envoyés <b>match par match</b> à l’adresse <b>{{payerEmail}}</b>.
+      </div>
+
+      <p class="muted" style="margin-top:12px">Club : {{clubName}} — Merci pour votre soutien 💙</p>
     </div>
   </div>
 </body>

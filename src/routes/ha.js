@@ -4,6 +4,8 @@ import { Order } from '../models/Order.js';
 import { Seat } from '../models/Seat.js';
 import { getCheckoutStatus, getCheckoutIntent } from '../services/helloasso.js';
 import { sendMail } from '../loaders/mailer.js';
+import { renderEmailTemplate } from '../utils/email-template.js';
+
 
 const router = express.Router();
 
@@ -119,18 +121,55 @@ router.get('/ha/return', async (req, res) => {
         // réservation des sièges seatId (renew) / déjà alloué (TBH7 après allocation)
         await reserveSeatsForOrder(order);
 
-        try {
-          await sendMail({
-            to: order.payerEmail,
-            subject: 'Confirmation de paiement - Abonnement',
-            html: `<p>Bonjour ${order.payerFirstName || ''} ${order.payerLastName || ''},</p>
-                   <p>Votre commande <b>${order._id}</b> a été confirmée.</p>
-                   ${order.paymentProviderOrderId ? `<p>Référence HelloAsso : <b>${order.paymentProviderOrderId}</b></p>` : ''}
-                   <p>Places :</p>
-                   <ul>${(order.lines||[]).map(l => `<li>${l.seatId || l.zoneKey} — ${l.tariffCode} (${(l.priceCents/100).toFixed(2)}€)</li>`).join('')}</ul>
-                   <p>Les billets (QR codes) seront envoyés match par match.</p>`
-          });
-        } catch {}
+// — Prépare les variables pour le template —
+const totalEuro = (Number(order.totalCents || 0) / 100).toFixed(2);
+const installments = Number(order.installments || order.paymentSplit || 1);
+const installmentsInfo = installments > 1
+  ? `Règlement en ${installments} échéances.`
+  : `Règlement en une fois.`;
+
+const lines = Array.isArray(order.lines) ? order.lines : [];
+const linesRows = lines.map(l =>
+  `<tr><td>${l.seatId || l.zoneKey || ''}</td><td>${l.tariffCode || ''}</td><td>${(Number(l.priceCents||0)/100).toFixed(2)} €</td></tr>`
+).join('');
+
+const linesHtml = lines.map(l =>
+  `<li>${l.seatId || l.zoneKey || ''} — ${l.tariffCode || ''} (${(Number(l.priceCents||0)/100).toFixed(2)} €)</li>`
+).join('');
+
+// bloc HelloAsso (si dispo)
+let haOrderBlock = '';
+if (order.paymentProviderOrderId) {
+  haOrderBlock = `<p>Référence HelloAsso : <b>${order.paymentProviderOrderId}</b></p>`;
+}
+
+// infos club optionnelles
+const clubName = process.env.CLUB_NAME || 'Bélougas Toulouse-Blagnac';
+
+const tplName = process.env.EMAIL_TEMPLATE_RENEW || 'renew-confirmation';
+const html = await renderEmailTemplate(tplName, {
+  orderId: String(order._id),
+  seasonCode: order.seasonCode || '',
+  venueSlug: order.venueSlug || '',
+  payerFirstName: order.payerFirstName || '',
+  payerLastName:  order.payerLastName  || '',
+  payerEmail:     order.payerEmail     || '',
+  totalEuro,
+  installmentsInfo,
+  linesRows,     // pour <table>
+  linesHtml,     // pour <ul> de secours (dans le default template)
+  haOrderBlock,  // bloc référence HA, éventuellement vide
+  clubName,
+  extraInfo: ''  // tu peux injecter des consignes supplémentaires ici
+});
+
+// — Envoi de l’email (le loader gère déjà EMAIL_STUB=true → .eml) —
+await sendMail({
+  to: order.payerEmail,
+  subject: process.env.EMAIL_SUBJECT_RENEW || 'Confirmation de paiement - Abonnement',
+  html
+});        
+
       }
       return res
         .status(200)
@@ -139,6 +178,7 @@ router.get('/ha/return', async (req, res) => {
           <p>Commande ${order._id}</p>
           ${order.paymentProviderOrderId ? `<p>Référence HelloAsso : <b>${order.paymentProviderOrderId}</b></p>` : ''}
         </body></html>`);
+        
     } else {
       order.status = 'failed';
       await order.save();
