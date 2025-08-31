@@ -43,7 +43,7 @@ function getOffsetDate(inDate, inMthShift) {
   myDate.setDate(1);
   myDate.setMonth(inDate.getMonth() + inMthShift + 1);
   myDate.setDate(0);
-  const myLocal = Math.min(inDate.getDate(), myDate.getDate());
+  const myLocal = Math.min(inDate.getDate(), myDate.getDate(), 27);
   myDate.setMonth(inDate.getMonth() + inMthShift);
   myDate.setDate(myLocal);
   return myDate;
