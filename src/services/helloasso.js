@@ -37,6 +37,37 @@ export async function createCheckoutIntent({ orderId, order, itemName, returnUrl
   const title = String(itemName || `Commande ${orderId || order?._id || ''}`);
   const totalCents = Number(order?.totalCents || 0);
 
+ const n = Math.max(1, Number(order.installments || order.paymentSplit || 1));
+
+  const total = Number(order.totalCents || 0);
+  if (!total || total < 0) throw new Error('totalAmount invalid');
+
+  // === Répartition des montants ===
+  // On met le "reste" sur l’acompte (initialAmount)
+  const base = Math.floor(total / n);
+  const remainder = total - base * n;
+  const initialAmount = base + remainder;        // prélevé maintenant
+  let terms = [];
+  if (n > 1) {
+    const today = new Date();
+    for (let i = 1; i < n; i++) {
+      const d = new Date(today);
+      d.setMonth(d.getMonth() + i);              // +1M, +2M, ...
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      terms.push({
+        amount: base,                             // parts égales restantes
+        date: `${yyyy}-${mm}-${dd}`
+      });
+    }
+    // garde-fou: chaque échéance ≥ 1000 (10€) sinon on retombe en 1x
+    if (terms.some(t => t.amount < 1000)) {
+      terms = [];
+    }
+  }
+
+
   const payload = {
     totalAmount: totalCents,
     initialAmount: totalCents,
@@ -58,6 +89,8 @@ export async function createCheckoutIntent({ orderId, order, itemName, returnUrl
       orderId: String(orderId || order?._id || '') // on garde pour compat
     }
   };
+
+  if (terms.length) payload.terms = terms;
 
   const url = `${API_V5}/organizations/${encodeURIComponent(ORG_SLUG)}/checkout-intents`;
   const r = await fetch(url, {
