@@ -1,64 +1,116 @@
-// scripts/reports/export-orders.js
-// Usage: node scripts/reports/export-orders.js <seasonCode> [--venue=slug] [--out=path.csv]
-import mongoose from 'mongoose';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+#!/usr/bin/env node
+import 'dotenv/config';
 import fs from 'fs';
-import { Order } from '../../src/models/index.js';
+import path from 'path';
+import mongoose from 'mongoose';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+// importe les modèles depuis le code app
+import { Order } from '../../src/models/Order.js';
 
-function arg(name, def=null) {
-  const p = process.argv.find(a => a.startsWith(`--${name}=`));
-  return p ? p.split('=').slice(1).join('=') : def;
+function die(msg, code=1){ console.error(msg); process.exit(code); }
+
+function esc(v){ const s=String(v ?? ''); return `"${s.replace(/"/g,'""')}"`; }
+function toISO(d){ try{ return new Date(d).toISOString(); }catch{ return ''; } }
+
+async function connect() {
+  const uri = process.env.MONGO_URI;
+  if (!uri) die('MONGO_URI manquant dans .env');
+  mongoose.set('strictQuery', true);
+  await mongoose.connect(uri, { directConnection:true, serverSelectionTimeoutMS:5000, retryWrites:false });
 }
-function toCsvCell(v) {
-  if (v === null || v === undefined) return '';
-  const s = String(v);
-  if (/[",;\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
-  return s;
-}
-function csvLine(arr){ return arr.map(toCsvCell).join(';')+'\n'; }
 
-async function main() {
-  const seasonCode = process.argv[2];
-  if (!seasonCode) {
-    console.error('Usage: node scripts/reports/export-orders.js <seasonCode> [--venue=slug] [--out=path.csv]');
-    process.exit(1);
+function parseArgs(argv){
+  const args = {};
+  for (const a of argv.slice(2)) {
+    const m = a.match(/^--([^=]+)=(.*)$/);
+    if (m) args[m[1]] = m[2];
+    else if (a.startsWith('--')) args[a.slice(2)] = true;
   }
-  const venueSlug = arg('venue', null);
-  const outPath   = arg('out', `orders_${seasonCode}${venueSlug?`_${venueSlug}`:''}.csv`);
+  return args;
+}
 
-  const uri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/bts';
-  await mongoose.connect(uri, {});
+async function exportCsv({from, to, status, season, venue, out, onlyPaid=true}){
+  const q = {};
+  if (from || to) {
+    q.createdAt = {};
+    if (from) q.createdAt.$gte = new Date(from);
+    if (to)   q.createdAt.$lte = new Date(to);
+  }
+  if (season) q.seasonCode = season;
+  if (venue)  q.venueSlug  = venue;
+  if (status) q.status     = status;
+  else if (onlyPaid) q.status = { $in: ['paid','completed'] };
 
-  const filter = { seasonCode };
-  if (venueSlug) filter.venueSlug = venueSlug;
+  const orders = await Order.find(q).sort({ createdAt:1 }).lean();
 
-  const cursor = Order.find(filter).cursor();
-  const out = fs.createWriteStream(outPath, { encoding: 'utf8' });
-  out.write(csvLine(['orderId','createdAt','status','payerEmail','seatId','tariffCode','priceCents','totalCents','seasonCode','venueSlug']));
+  const headers = [
+    'orderId','orderNo','createdAt','status','seasonCode','venueSlug',
+    'payerFirstName','payerLastName','payerEmail',
+    'installments','totalCents','paymentProvider','haOrderId','checkoutIntentId',
+    'seatId','zoneKey','tariffCode','priceCents','justification','info'
+  ];
 
-  for await (const o of cursor) {
-    const base = [String(o._id), o.createdAt?.toISOString() || '', o.status || '', o.payerEmail || '', '', '', '', o.totalCents||0, o.seasonCode||'', o.venueSlug||''];
-    if (Array.isArray(o.lines) && o.lines.length) {
-      for (const l of o.lines) {
-        const row = [...base];
-        row[4] = l.seatId || '';
-        row[5] = l.tariffCode || '';
-        row[6] = l.priceCents || 0;
-        out.write(csvLine(row));
-      }
-    } else {
-      out.write(csvLine(base));
+  const rows = [];
+  for (const o of orders) {
+    const base = {
+      orderId:          o._id ?? '',
+      orderNo:          o.orderNo ?? '',
+      createdAt:        toISO(o.createdAt),
+      status:           o.status ?? '',
+      seasonCode:       o.seasonCode ?? '',
+      venueSlug:        o.venueSlug ?? '',
+      payerFirstName:   o.payerFirstName ?? '',
+      payerLastName:    o.payerLastName ?? '',
+      payerEmail:       o.payerEmail ?? '',
+      installments:     o.installments ?? o.paymentSplit ?? '',
+      totalCents:       o.totalCents ?? '',
+      paymentProvider:  o.paymentProvider?.name ?? '',
+      haOrderId:        o.paymentProvider?.haOrderId ?? o.paymentProviderOrderId ?? '',
+      checkoutIntentId: o.paymentProvider?.checkoutIntentId ?? o.checkoutIntentId ?? '',
+    };
+
+    const lines = Array.isArray(o.lines) ? o.lines : [];
+    if (!lines.length) {
+      rows.push({...base, seatId:'', zoneKey:'', tariffCode:'', priceCents:'', justification:'', info:''});
+      continue;
+    }
+    for (const ln of lines) {
+      rows.push({
+        ...base,
+        seatId:        ln.seatId ?? '',
+        zoneKey:       ln.zoneKey ?? '',
+        tariffCode:    ln.tariffCode ?? '',
+        priceCents:    ln.priceCents ?? '',
+        justification: ln.justification ?? ln.requiredField ?? '',
+        info:          ln.info ?? ln.requiredInfo ?? '',
+      });
     }
   }
-  out.end();
-  await new Promise(r => out.on('finish', r));
-  await mongoose.disconnect();
-  console.log(`Export OK: ${outPath}`);
+
+  const csv = [ headers.join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(',')) ].join('\n');
+
+  if (out) {
+    fs.writeFileSync(path.resolve(out), csv, 'utf8');
+    console.log(`OK: ${rows.length} ligne(s) -> ${out}`);
+  } else {
+    process.stdout.write(csv);
+  }
 }
-main().catch(e => { console.error(e); process.exit(1); });
+
+(async function main(){
+  try {
+    const args = parseArgs(process.argv);
+    await connect();
+    await exportCsv({
+      from: args.from, to: args.to,
+      status: args.status,
+      season: args.season, venue: args.venue,
+      out: args.out,
+      onlyPaid: args.onlyPaid !== 'false'
+    });
+    await mongoose.disconnect();
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+  }
+})();

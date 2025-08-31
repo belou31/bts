@@ -23,11 +23,18 @@ paymentSplit:   { type: Number, default: 1 },
   totalCents: Number,
   status: { type: String, enum: ['pending','paid','failed'], default: 'pending', index: true },
   paymentProvider: { type: String, default: 'helloasso' },
-  providerRef: String
+  providerRef: String,
+
+  // NOUVEAU : id de commande côté prestataire (HelloAsso)
+  paymentProviderOrderId: { type: String, index: true, sparse: true },
+
+  meta: { type: Object, default: {} }, // on gardera meta.helloasso.intentId/orderId/raw
+
 }, { timestamps: true });
 
 // Unicité logique : un seul "paid" par (season, venue, groupKey)
 OrderSchema.index(
+  { 'meta.tokenHash': 1 },
   { seasonCode: 1, venueSlug: 1, groupKey: 1, status: 1 },
   { unique: true, partialFilterExpression: { status: 'paid' }, name: 'uniq_paid_per_group' }
 );
