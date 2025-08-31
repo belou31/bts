@@ -12,7 +12,7 @@
   h2{margin:16px 0 6px 0;font-size:16px;color:#FFFFFF}
   p{margin:0 0 10px 0;line-height:1.5;color:#FFFFFF}
   .muted{color:#FFFFFF}
-  .btn{display:inline-block;background:#2563eb;color:#FFFFFF;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:600}
+  .btn{display:inline-block;background:#5080aa;color:#000000;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:600}
   .note{margin-top:12px;padding:10px;border:1px dashed #1f2937;border-radius:8px;background:#0b1220;color:#FFFFFF}
   ul{margin:8px 0 0 20px}
   </style>
@@ -20,7 +20,7 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Renouvelez votre abonnement {{seasonCode}}</h1>
+      <h1>Renouvelez votre abonnement pour {{seasonCode}}</h1>
       <p>Bonjour {{firstName}} {{lastName}},</p>
       <p>Vous pouvez <b>renouveler votre abonnement</b> pour {{seasonCode}} à l’aide de votre lien personnel&nbsp;:</p>
       <p><a class="btn" href="{{renewUrl}}">Je renouvelle maintenant</a></p>
@@ -28,6 +28,7 @@
       {{seatsBlock}}
 
       {{deadlineBlock}}
+      <p class="note">Sans réservation de votre part, les places seront libérées à la date limite.</p>
 
       <p class="note">Le paiement est sécurisé. Les billets (QR codes) seront envoyés match par match à l’adresse <b>{{email}}</b>.</p>
 
