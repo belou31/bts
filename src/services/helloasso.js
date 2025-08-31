@@ -69,7 +69,7 @@ export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl
   // Intitulé
   const itemName =
     order.itemName ||
-    `Abonnement ${order.seasonCode || ''} ${order.venueSlug || ''}`.trim();
+    `Abonnement ${order.seasonCode || ''}`.trim();
 
   // Répartition des montants (reste sur l’acompte)
   const base = Math.floor(total / n);
