@@ -53,7 +53,10 @@ export async function createCheckoutIntent({ orderId, order, itemName, returnUrl
       quantity: 1
     })) : [],
     returnUrl, backUrl, errorUrl,
-    metadata: { orderId: String(orderId || order?._id || '') }
+    metadata: {
+      orderNo: String(orderId || order?.orderNo || order?._id || ''),
+      orderId: String(orderId || order?._id || '') // on garde pour compat
+    }
   };
 
   const url = `${API_V5}/organizations/${encodeURIComponent(ORG_SLUG)}/checkout-intents`;

@@ -1,64 +1,103 @@
-// scripts/reports/export-orders.js
-// Usage: node scripts/reports/export-orders.js <seasonCode> [--venue=slug] [--out=path.csv]
-import mongoose from 'mongoose';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
-import { Order } from '../../src/models/index.js';
+// src/reports/export-orders.js
+import { Order } from '../models/index.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+/**
+ * Exporte les commandes en CSV (1 ligne par "line" d'une commande).
+ *
+ * @param {Object} opts
+ * @param {Date|String} [opts.from]         - Début d'intervalle (createdAt >=)
+ * @param {Date|String} [opts.to]           - Fin d'intervalle   (createdAt <=)
+ * @param {String}      [opts.status]       - Filtre status ('paid','completed', etc.)
+ * @param {String}      [opts.seasonCode]   - Filtre saison
+ * @param {String}      [opts.venueSlug]    - Filtre lieu
+ * @param {Boolean}     [opts.onlyPaid=true]- Si true et !status, force paid/completed
+ * @returns {Promise<string>}               - Contenu CSV
+ */
+export async function exportOrdersToCsv(opts = {}) {
+  const {
+    from,
+    to,
+    status,
+    seasonCode,
+    venueSlug,
+    onlyPaid = true,
+  } = opts;
 
-function arg(name, def=null) {
-  const p = process.argv.find(a => a.startsWith(`--${name}=`));
-  return p ? p.split('=').slice(1).join('=') : def;
-}
-function toCsvCell(v) {
-  if (v === null || v === undefined) return '';
-  const s = String(v);
-  if (/[",;\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
-  return s;
-}
-function csvLine(arr){ return arr.map(toCsvCell).join(';')+'\n'; }
-
-async function main() {
-  const seasonCode = process.argv[2];
-  if (!seasonCode) {
-    console.error('Usage: node scripts/reports/export-orders.js <seasonCode> [--venue=slug] [--out=path.csv]');
-    process.exit(1);
+  const q = {};
+  if (from || to) {
+    q.createdAt = {};
+    if (from) q.createdAt.$gte = new Date(from);
+    if (to)   q.createdAt.$lte = new Date(to);
   }
-  const venueSlug = arg('venue', null);
-  const outPath   = arg('out', `orders_${seasonCode}${venueSlug?`_${venueSlug}`:''}.csv`);
+  if (seasonCode) q.seasonCode = seasonCode;
+  if (venueSlug)  q.venueSlug  = venueSlug;
+  if (status)     q.status     = status;
+  else if (onlyPaid) q.status  = { $in: ['paid', 'completed'] };
 
-  const uri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/bts';
-  await mongoose.connect(uri, {});
+  const orders = await Order.find(q).sort({ createdAt: 1 }).lean();
 
-  const filter = { seasonCode };
-  if (venueSlug) filter.venueSlug = venueSlug;
+  const rows = [];
+  for (const o of orders) {
+    const base = {
+      orderId:            o._id ?? '',
+      orderNo:            o.orderNo ?? '',                 // si présent
+      createdAt:          o.createdAt ? new Date(o.createdAt).toISOString() : '',
+      status:             o.status ?? '',
+      seasonCode:         o.seasonCode ?? '',
+      venueSlug:          o.venueSlug ?? '',
+      payerFirstName:     o.payerFirstName ?? '',
+      payerLastName:      o.payerLastName ?? '',
+      payerEmail:         o.payerEmail ?? '',
+      installments:       o.installments ?? '',
+      totalCents:         o.totalCents ?? '',
+      haOrderId:          o.paymentProvider?.haOrderId ?? o.haPaymentRef ?? '',
+      checkoutIntentId:   o.paymentProvider?.checkoutIntentId ?? o.checkoutIntentId ?? '',
+    };
 
-  const cursor = Order.find(filter).cursor();
-  const out = fs.createWriteStream(outPath, { encoding: 'utf8' });
-  out.write(csvLine(['orderId','createdAt','status','payerEmail','seatId','tariffCode','priceCents','totalCents','seasonCode','venueSlug']));
+    const lines = Array.isArray(o.lines) ? o.lines : [];
+    if (!lines.length) {
+      // ligne "commande" seule si pas de détail
+      rows.push({
+        ...base,
+        seatId: '', zoneKey: '', tariffCode: '',
+        priceCents: '', justification: '', info: ''
+      });
+      continue;
+    }
 
-  for await (const o of cursor) {
-    const base = [String(o._id), o.createdAt?.toISOString() || '', o.status || '', o.payerEmail || '', '', '', '', o.totalCents||0, o.seasonCode||'', o.venueSlug||''];
-    if (Array.isArray(o.lines) && o.lines.length) {
-      for (const l of o.lines) {
-        const row = [...base];
-        row[4] = l.seatId || '';
-        row[5] = l.tariffCode || '';
-        row[6] = l.priceCents || 0;
-        out.write(csvLine(row));
-      }
-    } else {
-      out.write(csvLine(base));
+    for (const ln of lines) {
+      rows.push({
+        ...base,
+        seatId:        ln.seatId ?? '',
+        zoneKey:       ln.zoneKey ?? '',
+        tariffCode:    ln.tariffCode ?? '',
+        priceCents:    ln.priceCents ?? '',
+        justification: ln.justification ?? '',
+        info:          ln.info ?? '',
+      });
     }
   }
-  out.end();
-  await new Promise(r => out.on('finish', r));
-  await mongoose.disconnect();
-  console.log(`Export OK: ${outPath}`);
+
+  // CSV
+  const headers = [
+    'orderId','orderNo','createdAt','status','seasonCode','venueSlug',
+    'payerFirstName','payerLastName','payerEmail',
+    'installments','totalCents','haOrderId','checkoutIntentId',
+    'seatId','zoneKey','tariffCode','priceCents','justification','info'
+  ];
+
+  const esc = (v) => {
+    const s = String(v ?? '');
+    return `"${s.replace(/"/g, '""')}"`;
+    // toujours delimiter par " pour simplicité
+  };
+
+  const lines = [
+    headers.join(','), // header
+    ...rows.map(r => headers.map(h => esc(r[h])).join(','))
+  ];
+
+  return lines.join('\n');
 }
-main().catch(e => { console.error(e); process.exit(1); });
+
+export default { exportOrdersToCsv };
