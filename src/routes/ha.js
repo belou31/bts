@@ -146,7 +146,7 @@ if (order.paymentProviderOrderId) {
 // infos club optionnelles
 const clubName = process.env.CLUB_NAME || 'Les Bélougas';
 
-const tplName = process.env.EMAIL_TEMPLATE_RENEW || 'renew-confirmation';
+const tplName = process.env.EMAIL_TEMPLATE_RENEW_CONFIRM || 'renew-confirmation';
 const html = await renderEmailTemplate(tplName, {
   orderId: String(order._id),
   seasonCode: order.seasonCode || '',
@@ -166,7 +166,7 @@ const html = await renderEmailTemplate(tplName, {
 // — Envoi de l’email (le loader gère déjà EMAIL_STUB=true → .eml) —
 await sendMail({
   to: order.payerEmail,
-  subject: process.env.EMAIL_SUBJECT_RENEW || 'Confirmation de paiement - Abonnement',
+  subject: process.env.EMAIL_SUBJECT_RENEW_CONFIRM || 'Confirmation de paiement - Abonnement',
   html
 });        
 
