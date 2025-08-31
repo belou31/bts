@@ -1,108 +1,174 @@
-// scripts/email/send-renew-invites.js
-// Usage:
-//  node -r dotenv/config scripts/email/send-renew-invites.js path/to/renew-groups.csv \
-//    --season=2025-2026 --venue=patinoire-blagnac --fromName="TBHC Billetterie" \
-//    --dry           # pour dry-run (aucun envoi)
-//  dotenv_config_path=.env.int  # (conseillé en INT/PROD)
-
+#!/usr/bin/env node
+// ESM
+import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
+import readline from 'readline';
+import { fileURLToPath } from 'url';
 
-import { sendMail, renderRenewInvite } from '../../src/loaders/mailer.js';
+import { renderEmailTemplate } from '../../src/utils/email-template.js';
+import { sendMail } from '../../src/loaders/mailer.js';
 
-import dotenv from 'dotenv';
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const ROOT       = path.resolve(__dirname, '../..'); // projet
+const SRC        = path.join(ROOT, 'src');
 
+function die(msg, code=1){ console.error(msg); process.exit(code); }
 
-function parseArgs(argv) {
-  const args = { _: [] };
+function parseArgs(argv){
+  const args = {};
   for (const a of argv.slice(2)) {
-    if (a.startsWith('--')) {
-      const [k, v] = a.replace(/^--/, '').split('=');
-      args[k] = v == null ? true : v;
-    } else {
-      args._.push(a);
-    }
+    const m = a.match(/^--([^=]+)=(.*)$/);
+    if (m) args[m[1]] = m[2];
+    else if (a.startsWith('--')) args[a.slice(2)] = true;
   }
   return args;
 }
 
-function parseCsv(text) {
-  const lines = text.replace(/\r/g, '').split('\n').filter(Boolean);
-  if (!lines.length) return [];
-  const headers = splitCsvLine(lines[0]).map(h => h.trim());
-  return lines.slice(1).map(ln => {
-    const cells = splitCsvLine(ln);
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = cells[i] ?? '');
-    return obj;
-  });
-}
+// CSV minimaliste (séparateur ',' ; guillemets "...")
 function splitCsvLine(line) {
-  const out = []; let cur = ''; let q = false;
-  for (let i=0; i<line.length; i++) {
+  const out = [];
+  let cur = '', inq = false;
+  for (let i=0;i<line.length;i++){
     const c = line[i];
-    if (q) {
-      if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
-      else if (c === '"') { q = false; }
-      else cur += c;
+    if (c === '"') {
+      if (inq && line[i+1] === '"') { cur+='"'; i++; }
+      else inq = !inq;
+    } else if (c === ',' && !inq) {
+      out.push(cur); cur='';
     } else {
-      if (c === '"') q = true;
-      else if (c === ',') { out.push(cur); cur = ''; }
-      else cur += c;
+      cur += c;
     }
   }
   out.push(cur);
-  return out;
+  return out.map(s => s.trim());
 }
 
-async function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+function indexHeaders(hdrs) {
+  const map = {};
+  hdrs.forEach((h,i) => { map[h.trim().toLowerCase()] = i; });
+  return (nameArr) => {
+    for (const n of nameArr) {
+      const idx = map[n.toLowerCase()];
+      if (idx != null) return idx;
+    }
+    return -1;
+  };
+}
 
-(async () => {
+function isEmail(s=''){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s).trim()); }
+
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+function buildSeatsBlock(seatIdsStr) {
+  const seats = String(seatIdsStr||'').split(/[;|,]/).map(s=>s.trim()).filter(Boolean);
+  if (!seats.length) return '';
+  const lis = seats.map(s => `<li>${s}</li>`).join('');
+  return `<h2>Vos sièges concernés</h2><ul>${lis}</ul>`;
+}
+
+function buildDeadlineBlock(deadline) {
+  if (!deadline) return '';
+  return `<p><b>Date limite :</b> ${deadline}</p>`;
+}
+
+async function main() {
   const args = parseArgs(process.argv);
-  const csvPath = args._[0];
-  if (!csvPath) {
-    console.error('Usage: node scripts/email/send-renew-invites.js <renew-groups.csv> [--season=2025-2026] [--venue=patinoire-blagnac] [--fromName="TBHC Billetterie"] [--dry]');
-    process.exit(1);
+  const csvPath = args.csv || args.file || 'renew-groups.csv';
+  const subject = args.subject || process.env.EMAIL_SUBJECT_RENEW_INVITE || 'Renouvellement d’abonnement';
+  const limit   = args.limit ? Number(args.limit) : Infinity;
+  const offset  = args.offset ? Number(args.offset) : 0;
+  const delayMs = args.delay  ? Number(args.delay)  : 800;  // anti-throttle Gmail
+  const dryRun  = String(args.dryRun || args['dry-run'] || '').toLowerCase() === 'true' || false;
+
+  const templateName = process.env.EMAIL_TEMPLATE_RENEW_INVITE || 'renew-invite';
+  const seasonCode = process.env.SEASON_CODE || '';
+  const venueSlug  = process.env.VENUE_SLUG || '';
+  const clubName   = process.env.CLUB_NAME || 'Bélougas Toulouse-Blagnac';
+  const deadline   = process.env.RENEW_DEADLINE || '';
+
+  if (!fs.existsSync(csvPath)) {
+    die(`CSV introuvable: ${csvPath}`);
   }
-  const DRY = !!args.dry;
-  const seasonCode = args.season || '';
-  const venueSlug  = args.venue  || '';
-  const fromName   = args.fromName || process.env.FROM_NAME || 'TBHC Billetterie';
 
-  const raw = fs.readFileSync(path.resolve(csvPath), 'utf8');
-  const rows = parseCsv(raw);
-  if (!rows.length) {
-    console.error('CSV vide ou illisible.');
-    process.exit(2);
-  }
+  // Lecture CSV en streaming
+  const rl = readline.createInterface({
+    input: fs.createReadStream(csvPath, 'utf8'),
+    crlfDelay: Infinity
+  });
 
-  let sent = 0, skipped = 0, errors = 0;
-  for (const row of rows) {
-    const email = row.email || row.Email || row.to || '';
-    const link  = row.link  || row.Link  || '';
-    const seats = (row.seats || row.Seats || row.seatIds || '').split(/[;,]\s*/).filter(Boolean);
+  let lineNum = 0, sent = 0, skipped = 0;
+  let headers = [];
+  let getIdx = null;
 
-    if (!email || !link) { skipped++; continue; }
+  for await (const raw of rl) {
+    const line = raw.trim();
+    if (!line) continue;
 
-    const html = renderRenewInvite({ seasonCode, venueSlug, link, seats, clubName: fromName });
-    const subject = `Renouvellement abonnement ${seasonCode || ''}`.trim();
+    lineNum++;
+    const cols = splitCsvLine(line);
 
-    if (DRY) {
-      console.log(`[DRY] to=${email} subject="${subject}" link=${link}`);
+    if (!headers.length) {
+      headers = cols;
+      getIdx = indexHeaders(headers);
+      continue;
+    }
+
+    if (lineNum-1 <= offset) { skipped++; continue; }
+    if (sent >= limit) break;
+
+    // Champs possibles dans renew-groups.csv (on couvre large)
+    const idxEmail = getIdx(['email','payerEmail','contact','mail']);
+    const idxUrl   = getIdx(['link','url','renewUrl','renew_link','renew','base']);
+    const idxFN    = getIdx(['firstName','first_name','payerFirstName']);
+    const idxLN    = getIdx(['lastName','last_name','payerLastName']);
+    const idxSeats = getIdx(['seats','seatIds','seats_list','seat_ids']);
+
+    const email = idxEmail>=0 ? cols[idxEmail] : '';
+    const renewUrl = idxUrl>=0 ? cols[idxUrl] : '';
+    const firstName = idxFN>=0 ? cols[idxFN] : '';
+    const lastName  = idxLN>=0 ? cols[idxLN] : '';
+    const seatsRaw  = idxSeats>=0 ? cols[idxSeats] : '';
+
+    if (!isEmail(email)) { 
+      console.warn(`[skip L${lineNum}] email invalide: "${email}"`);
+      continue;
+    }
+    if (!renewUrl) {
+      console.warn(`[skip L${lineNum}] renewUrl manquant pour ${email}`);
+      continue;
+    }
+
+    const html = await renderEmailTemplate(templateName, {
+      firstName, lastName, email,
+      seasonCode, venueSlug, clubName,
+      renewUrl,
+      seatsBlock: buildSeatsBlock(seatsRaw),
+      deadlineBlock: buildDeadlineBlock(deadline)
+    });
+
+    const mail = {
+      to: email,
+      subject,
+      html
+    };
+
+    if (dryRun) {
+      console.log(`[dry-run] ${email} <- ${subject}`);
     } else {
       try {
-        const r = await sendMail({ to: email, subject, html });
-        if (r.skipped) { skipped++; }
-        else { sent++; }
+        await sendMail(mail);
+        console.log(`[ok] ${email}`);
       } catch (e) {
-        errors++;
-        console.error('[ERR]', email, e.message);
+        console.error(`[ERR] ${email}:`, e.message || e);
       }
-      // Rate limit (évite le throttle Gmail)
-      await delay(1500);
+      await sleep(delayMs);
     }
+    sent++;
   }
 
-  console.log(`Done. sent=${sent} skipped=${skipped} errors=${errors} dry=${DRY}`);
-})();
+  console.log(`Done. sent=${sent} skipped=${skipped}, from CSV=${csvPath}`);
+}
+
+main().catch(e => { console.error(e); process.exit(1); });
