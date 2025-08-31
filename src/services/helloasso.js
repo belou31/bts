@@ -1,4 +1,7 @@
-// src/services/helloasso.js (ESM)
+// src/services/helloasso.js
+// ESM
+
+// --- Config endpoints dynamiques ---
 const API_BASE  = (process.env.HELLOASSO_API_URL || 'https://api.helloasso.com').replace(/\/+$/,'');
 const OAUTH_URL = `${API_BASE}/oauth2/token`;
 const API_V5    = `${API_BASE}/v5`;
@@ -15,6 +18,7 @@ function assertEnv() {
   if (miss.length) throw new Error('HelloAsso env manquant: ' + miss.join(', '));
 }
 
+// --- Auth ---
 async function getAccessToken() {
   assertEnv();
   const body = new URLSearchParams({
@@ -32,65 +36,90 @@ async function getAccessToken() {
   return j.access_token;
 }
 
-export async function createCheckoutIntent({ orderId, order, itemName, returnUrl, backUrl, errorUrl }) {
+// --- Helpers échéancier (LOCAL TIME, ta fonction intégrée) ---
+function getOffsetDate(inDate, inMthShift) {
+  const myDate = new Date();
+  myDate.setFullYear(inDate.getFullYear());
+  myDate.setDate(1);
+  myDate.setMonth(inDate.getMonth() + inMthShift + 1);
+  myDate.setDate(0);
+  const myLocal = Math.min(inDate.getDate(), myDate.getDate());
+  myDate.setMonth(inDate.getMonth() + inMthShift);
+  myDate.setDate(myLocal);
+  return myDate;
+}
+function ymdLocal(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// --- API v5: create intent ---
+export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const token = await getAccessToken();
-  const title = String(itemName || `Commande ${orderId || order?._id || ''}`);
-  const totalCents = Number(order?.totalCents || 0);
 
- const n = Math.max(1, Number(order.installments || order.paymentSplit || 1));
+  // Nombre d’échéances
+  const n = Math.max(1, Number(order.installments || order.paymentSplit || 1));
 
+  // Montant total
   const total = Number(order.totalCents || 0);
   if (!total || total < 0) throw new Error('totalAmount invalid');
 
-  // === Répartition des montants ===
-  // On met le "reste" sur l’acompte (initialAmount)
+  // Intitulé
+  const itemName =
+    order.itemName ||
+    `Abonnement ${order.seasonCode || ''} ${order.venueSlug || ''}`.trim();
+
+  // Répartition des montants (reste sur l’acompte)
   const base = Math.floor(total / n);
   const remainder = total - base * n;
-  const initialAmount = base + remainder;        // prélevé maintenant
+  const initialAmount = base + remainder;
+
+  // Échéances futures (local time) avec clamp du jour
   let terms = [];
   if (n > 1) {
-    const today = new Date();
+    const start = new Date(); // aujourd’hui (local)
     for (let i = 1; i < n; i++) {
-      const d = new Date(today);
-      d.setMonth(d.getMonth() + i);              // +1M, +2M, ...
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      terms.push({
-        amount: base,                             // parts égales restantes
-        date: `${yyyy}-${mm}-${dd}`
-      });
+      const due = getOffsetDate(start, i); // +i mois, clamp DOM
+      terms.push({ amount: base, date: ymdLocal(due) });
     }
-    // garde-fou: chaque échéance ≥ 1000 (10€) sinon on retombe en 1x
+    // Garde-fou : min 10€ (1000 cts) par échéance, sinon on repasse en 1x
     if (terms.some(t => t.amount < 1000)) {
       terms = [];
     }
   }
 
-
+  // Payload conforme
   const payload = {
-    totalAmount: totalCents,
-    initialAmount: initialAmount,
+    totalAmount: total,
+    initialAmount,
     containsDonation: false,
-    itemName: title,
+    itemName,
     payer: {
-      firstName: order?.payerFirstName || '',
-      lastName:  order?.payerLastName  || '',
-      email:     order?.payerEmail     || ''
+      firstName: order.payerFirstName || '',
+      lastName:  order.payerLastName  || '',
+      email:     order.payerEmail     || ''
     },
-    items: Array.isArray(order?.lines) ? order.lines.map(l => ({
-      name: `${l.seatId} • ${l.tariffCode}`,
+    items: Array.isArray(order.lines) ? order.lines.map(l => ({
+      name: `${l.seatId || l.zoneKey || ''} • ${l.tariffCode}`,
       amount: Number(l.priceCents || 0),
       quantity: 1
     })) : [],
-    returnUrl, backUrl, errorUrl,
+    returnUrl: returnUrl || process.env.HELLOASSO_RETURN_URL,
+    backUrl:   backUrl   || process.env.HELLOASSO_BACK_URL   || `${process.env.APP_URL}/ha/back`,
+    errorUrl:  errorUrl  || process.env.HELLOASSO_ERROR_URL  || `${process.env.APP_URL}/ha/error`,
+    // métadonnées pour le rapprochement webhook/return
     metadata: {
-      orderNo: String(orderId || order?.orderNo || order?._id || ''),
-      orderId: String(orderId || order?._id || '') // on garde pour compat
+      orderNo: String(order.orderNo || order._id || ''),
+      orderId: String(order._id || '')
     }
   };
-
   if (terms.length) payload.terms = terms;
+
+  if ((process.env.HELLOASSO_ENV || '').includes('sandbox')) {
+    console.log('[helloasso] payload', JSON.stringify(payload));
+  }
 
   const url = `${API_V5}/organizations/${encodeURIComponent(ORG_SLUG)}/checkout-intents`;
   const r = await fetch(url, {
@@ -98,19 +127,20 @@ export async function createCheckoutIntent({ orderId, order, itemName, returnUrl
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     console.error('[helloasso] payload sent:', JSON.stringify(payload));
     throw new Error(`HelloAsso checkout ${r.status} ${JSON.stringify(j)}`);
   }
-  return { redirectUrl: j.redirectUrl || j.redirectUri || j.url || '' };
+  // On renvoie au moins redirectUrl/Uri si dispo
+  return {
+    redirectUrl: j.redirectUrl || j.redirectUri || j.url || '',
+    raw: j
+  };
 }
 
-
-// Normalise l’extraction d’un éventuel orderId coté HelloAsso
+// --- API v5: read intent/status ---
 function extractProviderOrderIdFromIntent(j) {
-  // couvrez plusieurs formes possibles
   return (
     j?.orderId ||
     j?.order?.id ||
@@ -120,16 +150,14 @@ function extractProviderOrderIdFromIntent(j) {
   );
 }
 
-
-// Tente d'abord /v5/checkout-intents/{id}, puis la route scoppée org si 404/403
 export async function getCheckoutIntent(intentId) {
   const token = await getAccessToken();
   const headers = { 'Authorization': `Bearer ${token}` };
 
-  // 1) global
+  // global
   let r = await fetch(`${API_V5}/checkout-intents/${encodeURIComponent(intentId)}`, { headers });
   if (r.status === 404 || r.status === 403) {
-    // 2) scoped
+    // scoped org
     r = await fetch(`${API_V5}/organizations/${encodeURIComponent(ORG_SLUG)}/checkout-intents/${encodeURIComponent(intentId)}`, { headers });
   }
   const j = await r.json().catch(() => ({}));
