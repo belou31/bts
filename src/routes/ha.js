@@ -50,34 +50,38 @@ async function persistHelloAssoInfo(order, { intentId, providerOrderId, rawStatu
  */
 router.get('/ha/return', async (req, res) => {
   try {
-    const q  = req.query;
-    const ci = q.ci || q.checkoutIntentId || q.id || null;
+    const q = req.query || {};
+    const ci = q.ci || q.checkoutIntentId || q.id || null; // checkoutIntentId côté HA
+    let   oid = q.oid || null;                              // _id (BTS) de la commande
+    let status = q.code || 'unknown';                       // code=succeeded|...
+    // 👇 Surtout ne pas oublier d'initialiser :
+    let providerOrderId = q.order || q.orderId || null;     // n° commande HelloAsso
+    let rawIntent = null;
 
-    // On ignore q.orderId (côté HelloAsso), on n’accepte que q.oid si présent (notre MongoID)
-    let oid = q.oid || null;
-    let status = q.code || 'unknown';
-
-    // Si pas d'oid → on va le chercher dans la metadata du checkout-intent
-    if (!oid && ci) {
+    // Si on a l'intent, on complète via l'API HelloAsso
+    if (ci) {
       try {
         const det = await getCheckoutIntent(ci);
-        oid = det?.metadata?.orderId || null;
+        rawIntent = det.raw || null;
+        if (!oid) {
+          // BTS stocke en metadata.orderNo ou orderId suivant les versions
+          oid = det?.metadata?.orderNo || det?.metadata?.orderId || null;
+        }
         status = det?.status || status;
+        if (!providerOrderId) {
+          providerOrderId = det?.providerOrderId || det?.orderId || null;
+        }
       } catch (e) {
-        // on continue, on tentera /status ci-dessous
+        console.warn('[ha/return] getCheckoutIntent failed:', e.message);
       }
     }
 
     if (!oid) return res.status(400).send('Missing order reference');
+
     const order = await Order.findById(oid);
     if (!order) return res.status(404).send('Order not found');
 
-    if (!isPaidLike(status) && ci) {
-      status = await getCheckoutStatus(ci);
-    }
-
-
-    // On persiste toujours l’info HelloAsso qu’on a pu récupérer
+    // on sauvegarde ce qu’on sait déjà (intentId / orderId HA / statut brut)
     await persistHelloAssoInfo(order, {
       intentId: ci || null,
       providerOrderId: providerOrderId || null,
@@ -85,29 +89,59 @@ router.get('/ha/return', async (req, res) => {
       raw: rawIntent || null
     });
 
-    
+    // si le statut est incertain, on le redemande
+    if (!isPaidLike(status) && ci) {
+      try { status = await getCheckoutStatus(ci); } catch {}
+    }
+
     if (isPaidLike(status)) {
       if (order.status !== 'paid') {
+        // (si tu as une allocation TBH7, appelle-la ici avant)
         order.status = 'paid';
+        // si providerOrderId a été découvert après coup, on le garde aussi
+        if (providerOrderId) {
+          order.paymentProvider = {
+            ...(order.paymentProvider || {}),
+            name: 'helloasso',
+            haOrderId: providerOrderId,
+            checkoutIntentId: order.paymentProvider?.checkoutIntentId || ci || null
+          };
+          order.paymentProviderOrderId = order.paymentProviderOrderId || String(providerOrderId);
+        }
         await order.save();
+
+        // réservation des sièges seatId (renew) / déjà alloué (TBH7 après allocation)
         await reserveSeatsForOrder(order);
+
         try {
           await sendMail({
             to: order.payerEmail,
             subject: 'Confirmation de paiement - Abonnement',
             html: `<p>Bonjour ${order.payerFirstName || ''} ${order.payerLastName || ''},</p>
                    <p>Votre commande <b>${order._id}</b> a été confirmée.</p>
+                   ${order.paymentProviderOrderId ? `<p>Référence HelloAsso : <b>${order.paymentProviderOrderId}</b></p>` : ''}
                    <p>Places :</p>
-                   <ul>${order.lines.map(l => `<li>${l.seatId} — ${l.tariffCode} (${(l.priceCents/100).toFixed(2)}€)</li>`).join('')}</ul>
+                   <ul>${(order.lines||[]).map(l => `<li>${l.seatId || l.zoneKey} — ${l.tariffCode} (${(l.priceCents/100).toFixed(2)}€)</li>`).join('')}</ul>
                    <p>Les billets (QR codes) seront envoyés match par match.</p>`
           });
         } catch {}
       }
-      return res.send(`<h1>Paiement confirmé ✅</h1><p>Commande ${order._id}</p>`);
+      return res
+        .status(200)
+        .send(`<!doctype html><html lang="fr"><meta charset="utf-8"><title>OK</title><body>
+          <h1>Paiement confirmé ✅</h1>
+          <p>Commande ${order._id}</p>
+          ${order.paymentProviderOrderId ? `<p>Référence HelloAsso : <b>${order.paymentProviderOrderId}</b></p>` : ''}
+        </body></html>`);
     } else {
       order.status = 'failed';
       await order.save();
-      return res.send(`<h1>Paiement non confirmé ❌</h1><p>Commande ${order._id} — statut: ${status}</p>`);
+      return res
+        .status(200)
+        .send(`<!doctype html><html lang="fr"><meta charset="utf-8"><title>KO</title><body>
+          <h1>Paiement non confirmé ❌</h1>
+          <p>Commande ${order._id} — statut: ${status}</p>
+        </body></html>`);
     }
   } catch (e) {
     console.error('[GET /ha/return] error:', e);
