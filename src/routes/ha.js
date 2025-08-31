@@ -144,7 +144,7 @@ if (order.paymentProviderOrderId) {
 }
 
 // infos club optionnelles
-const clubName = process.env.CLUB_NAME || 'Bélougas Toulouse-Blagnac';
+const clubName = process.env.CLUB_NAME || 'Les Bélougas';
 
 const tplName = process.env.EMAIL_TEMPLATE_RENEW || 'renew-confirmation';
 const html = await renderEmailTemplate(tplName, {

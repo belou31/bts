@@ -5,21 +5,21 @@
   <title>Confirmation de paiement — BTS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-  body{margin:0;padding:0;background:#0b0f17;color:#e5e7eb;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif}
+  body{margin:0;padding:0;background:#0b0f17;color:white;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif}
   .wrap{max-width:680px;margin:0 auto;padding:24px}
   .card{background:#0f1622;border:1px solid #111827;border-radius:12px;padding:20px}
   h1{margin:0 0 12px 0;font-size:20px}
   h2{margin:16px 0 6px 0;font-size:16px}
   p{margin:0 0 10px 0;line-height:1.5}
-  .muted{color:#9ca3af}
+  .muted{color: white}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .row{display:flex;justify-content:space-between;gap:12px}
-  .badge{display:inline-block;padding:3px 8px;border-radius:999px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;font-size:12px}
+  .badge{display:inline-block;padding:3px 8px;border-radius:999px;border:1px solid #1f2937;background:#111827;color:white;font-size:12px}
   table{width:100%;border-collapse:collapse;margin-top:8px}
   th,td{padding:8px;border-bottom:1px solid #1f2937;text-align:left}
   .total{font-weight:600}
   .note{margin-top:12px;padding:10px;border:1px dashed #1f2937;border-radius:8px;background:#0b1220}
-  a{color:#93c5fd}
+  a{color:white}
   </style>
 </head>
 <body>
@@ -33,7 +33,7 @@
         <div>
           <h2>Détails</h2>
           <p class="muted">Saison : <b>{{seasonCode}}</b></p>
-          <p class="muted">Lieu : <b>{{venueSlug}}</b></p>
+          <p class="muted">Lieu : <b>Les patinoires de Bélougas</b></p> <!--<b>{{venueSlug}}</b></p> -->
         </div>
         <div>
           <h2>Paiement</h2>
@@ -56,7 +56,7 @@
         Les billets (QR codes) seront envoyés <b>match par match</b> à l’adresse <b>{{payerEmail}}</b>.
       </div>
 
-      <p class="muted" style="margin-top:12px">Club : {{clubName}} — Merci pour votre soutien 💙</p>
+      <p class="muted" style="margin-top:12px">{{clubName}} — Merci pour votre soutien 💙</p>
     </div>
   </div>
 </body>
