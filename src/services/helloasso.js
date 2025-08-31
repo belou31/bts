@@ -70,7 +70,7 @@ export async function createCheckoutIntent({ orderId, order, itemName, returnUrl
 
   const payload = {
     totalAmount: totalCents,
-    initialAmount: totalCents,
+    initialAmount: initialAmount,
     containsDonation: false,
     itemName: title,
     payer: {
