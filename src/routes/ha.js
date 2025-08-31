@@ -79,6 +79,9 @@ router.get('/ha/return', async (req, res) => {
     if (!oid) return res.status(400).send('Missing order reference');
 
     const order = await Order.findById(oid);
+
+
+
     if (!order) return res.status(404).send('Order not found');
 
     // on sauvegarde ce qu’on sait déjà (intentId / orderId HA / statut brut)
@@ -100,13 +103,16 @@ router.get('/ha/return', async (req, res) => {
         order.status = 'paid';
         // si providerOrderId a été découvert après coup, on le garde aussi
         if (providerOrderId) {
-          order.paymentProvider = {
+          order.paymentProvider = "helloasso";
+          order.meta.helloasso =
+          {
             ...(order.paymentProvider || {}),
-            name: 'helloasso',
-            haOrderId: providerOrderId,
-            checkoutIntentId: order.paymentProvider?.checkoutIntentId || ci || null
+            orderId: providerOrderId || order.meta.helloasso?.orderId || null,
+            intentId: ci || order.meta.helloasso?.intentId || null,
+            rawStatus: status || order.meta.helloasso?.rawStatus || null,
+            raw: rawIntent || order.meta.helloasso?.raw || null
           };
-          order.paymentProviderOrderId = order.paymentProviderOrderId || String(providerOrderId);
+          //order.paymentProviderOrderId = order.paymentProviderOrderId || String(providerOrderId);
         }
         await order.save();
 
