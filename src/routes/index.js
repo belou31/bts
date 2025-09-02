@@ -1,35 +1,23 @@
 // src/routes/index.js
+import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import express from 'express';
-
-import renewApi    from './renew.js';
-import haRouter    from './ha.js';
-import debugRouter from './debug.js';
+import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-const SRC_DIR    = path.resolve(__dirname, '..'); // pointe sur /src
+const VIEWS_DIR  = path.resolve(__dirname, '..', 'views');
 
-export default function routes(r) {
-  const router = r instanceof express.Router ? r : express.Router();
-
-  // HEAD pour les checks (curl -I)
-  router.head('/renew', (_req, res) => res.status(200).end());
-
-  // Page HTML renew
-  router.get('/renew', (_req, res) => {
-    res.sendFile(path.join(SRC_DIR, 'views', 'renew', 'index.html'));
+export default function routes(router) {
+  // Page HTML "renew"
+  router.get('/renew', (req, res) => {
+    const filePath = path.join(VIEWS_DIR, 'renew', 'index.html');
+    res.sendFile(filePath);
   });
 
-  // API JSON sous /s
+  // API sous /s
   router.use('/s', renewApi);
 
-  // HelloAsso (retours)
-  router.use('/', haRouter);
-
-  // Debug
-  if (debugRouter) router.use('/', debugRouter);
-
-  return router;
+  // Page racine -> redirige vers /renew (optionnel)
+  router.get('/', (_req, res) => res.redirect('./renew'));
 }
