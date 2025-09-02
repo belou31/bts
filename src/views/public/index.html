@@ -264,7 +264,7 @@ function updateTotalsAndInstallment() {
 
   // Plan SVG
   const $planObj = $('#venuePlan');
-  $planObj.setAttribute('data', `public/venues/${CTX.venueSlug}/plan.svg`);
+  $planObj.setAttribute('data', `static/venues/${CTX.venueSlug}/plan.svg`);
   $planObj.addEventListener('load', () => {
     try { onPlanReady($planObj); } catch(e){ console.warn('plan init failed:', e); }
   }, { once:true });

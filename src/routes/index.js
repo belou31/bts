@@ -2,29 +2,34 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
-import renewApi from './renew.js';
-import haRouter from './ha.js';
+
+import renewApi    from './renew.js';
+import haRouter    from './ha.js';
+import debugRouter from './debug.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-const rootDir    = path.resolve(__dirname, '..');
+const SRC_DIR    = path.resolve(__dirname, '..'); // pointe sur /src
 
-export default function routes(app) {
-  const router = express.Router();
+export default function routes(r) {
+  const router = r instanceof express.Router ? r : express.Router();
 
-  // Page HTML
+  // HEAD pour les checks (curl -I)
+  router.head('/renew', (_req, res) => res.status(200).end());
+
+  // Page HTML renew
   router.get('/renew', (_req, res) => {
-    res.sendFile(path.join(rootDir, 'views', 'renew', 'index.html'));
+    res.sendFile(path.join(SRC_DIR, 'views', 'renew', 'index.html'));
   });
 
-  // API JSON sous /s (GET /s/renew, POST /s/renew)
+  // API JSON sous /s
   router.use('/s', renewApi);
 
-  // Retour paiement HelloAsso
+  // HelloAsso (retours)
   router.use('/', haRouter);
 
-  // Santé
-  router.get('/healthz', (_req, res) => res.json({ ok: true }));
+  // Debug
+  if (debugRouter) router.use('/', debugRouter);
 
-  app.use('/', router);
+  return router;
 }

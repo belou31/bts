@@ -84,4 +84,3 @@ body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarel
 .actions { display:flex; justify-content:flex-end; margin-top:14px; }
 .pay-btn { appearance:none; border:0; background:#22c55e; color:#0b0f17; font-weight:700; padding:10px 16px; border-radius:10px; cursor:pointer; }
 .pay-btn:disabled { opacity:.5; cursor:not-allowed; }
-
