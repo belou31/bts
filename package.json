@@ -8,10 +8,13 @@
     "node": ">=20"
   },
   "scripts": {
-    "server": "nodemon src/server.js",
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+
     "seed": "node scripts/seed-dev.js",
     "test": "jest --runInBand",
     "lint": "eslint .",
+    
     "0_resetDb": "node scripts/admin/reset-db.js --force",
     "1_registerVenue": "node scripts/venues/register-venue-with-plan.js patinoire-blagnac 'Patinoire de Blagnac' data/patinoire-blagnac.svg",
     "2_importSeats": "node scripts/venues/import-seats-from-svg.js patinoire-blagnac src/public/venues/patinoire-blagnac/plan.svg",
