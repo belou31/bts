@@ -35,7 +35,7 @@ if (path.extname(absSrc).toLowerCase() !== '.svg') {
 }
 
 // Dossier de destination: src/public/venues/<slug>/plan.svg
-const destDir = path.resolve('src/public/venues', slug);
+const destDir = path.resolve('src/public/static/venues', slug);
 const destSvg = path.join(destDir, 'plan.svg');
 fs.mkdirSync(destDir, { recursive: true });
 
@@ -52,4 +52,4 @@ const res = spawnSync(process.execPath, ['scripts/venues/register-venue.js', slu
 if (res.status !== 0) process.exit(res.status);
 
 console.log('✓ Lieu enregistré et plan en place.');
-console.log(`→ Le plan sera servi à: /venues/${slug}/plan.svg`);
+console.log(`→ Le plan sera servi à: static/venues/${slug}/plan.svg`);
