@@ -10,11 +10,9 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-
     "seed": "node scripts/seed-dev.js",
     "test": "jest --runInBand",
     "lint": "eslint .",
-    
     "0_resetDb": "node scripts/admin/reset-db.js --force",
     "1_registerVenue": "node scripts/venues/register-venue-with-plan.js patinoire-blagnac 'Patinoire de Blagnac' data/patinoire-blagnac.svg",
     "2_importSeats": "node scripts/venues/import-seats-from-svg.js patinoire-blagnac src/public/venues/patinoire-blagnac/plan.svg",
@@ -25,12 +23,12 @@
     "7_importSubscribers": "node scripts/import-subscribers-flat.js data/subscribers.csv 2025-2026 --venue=patinoire-blagnac",
     "8_provisionSeatsForRenewal": "node scripts/renewal/provision-seats.js 2025-2026 --venue=patinoire-blagnac",
     "9_exportRenewGroups": "node scripts/export-renew-groups.js 2025-2026 --venue=patinoire-blagnac  --out=renew-groups.csv --base=http://localhost:8080/",
-
     "db:sync-indexes": "node scripts/sync-indexes.mjs",
     "db:verify-models": "node scripts/verify-models.mjs",
     "docs:build": "node scripts/docs/build-docs.js"
   },
   "dependencies": {
+    "bts": "^1.0.3",
     "celebrate": "^15.0.3",
     "compression": "^1.8.1",
     "cors": "^2.8.5",

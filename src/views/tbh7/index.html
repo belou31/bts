@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>BTS · Abonnement TBH7</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="../static/styles/tbh7.css" rel="stylesheet" />
+</head>
+<body>
+  <header class="hdr">
+    <h1>Abonnement Fan Club TBH7</h1>
+    <p class="muted">Choisissez une zone sur le plan ou via le sélecteur, puis ajoutez les abonnés et les tarifs.</p>
+  </header>
+
+  <main class="grid">
+    <!-- Colonne gauche : PLAN -->
+    <section class="plan card">
+      <div class="plan-head">
+        <span>Plan</span>
+        <div class="plan-actions">
+          <button id="btnZoomOut" title="Zoom -">−</button>
+          <button id="btnZoomIn"  title="Zoom +">+</button>
+          <button id="btnReset"   title="Réinitialiser">Reset</button>
+        </div>
+      </div>
+      <div class="plan-viewport">
+        <object id="venuePlan" type="image/svg+xml" aria-label="Plan de la patinoire"></object>
+        <div class="plan-help muted">Molette = zoom (centré curseur) · Cliquer-glisser = déplacer</div>
+      </div>
+    </section>
+
+    <!-- Colonne droite : ZONES + COMMANDE -->
+    <section class="right-col">
+      <section class="card">
+        <div class="field">
+          <label>Zone</label>
+          <select id="zoneSelect"></select>
+        </div>
+
+        <div class="table-head">
+          <div>Abonnés</div>
+          <div class="actions">
+            <button id="btnAdd">+ Ajouter</button>
+            <button id="btnRemove" class="muted">− Retirer</button>
+          </div>
+        </div>
+
+        <table class="people">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Prénom</th>
+              <th>Nom</th>
+              <th>Tarif (montant)</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Commande & Paiement</h2>
+
+        <div class="field half">
+          <label>Prénom (contact)</label>
+          <input id="payerFirstName" type="text" />
+        </div>
+        <div class="field half">
+          <label>Nom (contact)</label>
+          <input id="payerLastName" type="text" />
+        </div>
+        <div class="field">
+          <label>Email (contact)</label>
+          <input id="payerEmail" type="email" />
+        </div>
+
+        <div class="field">
+          <label>Échéancier</label>
+          <select id="installments">
+            <option value="1">1 fois</option>
+            <option value="2">2 fois</option>
+            <option value="3">3 fois</option>
+          </select>
+          <p id="splitInfo" class="muted"></p>
+        </div>
+
+        <div class="total">
+          <span>Total</span>
+          <strong id="totalEuro">—</strong>
+        </div>
+
+        <button id="payBtn" class="primary">Payer</button>
+        <p id="msg" class="muted"></p>
+      </section>
+    </section>
+  </main>
+
+  <script type="module" src="../static/js/tbh7.js"></script>
+</body>
+</html>

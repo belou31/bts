@@ -3,6 +3,7 @@ import express from 'express';
 import { Order, Seat } from '../models/index.js';
 import { getCheckoutStatus } from '../services/helloasso.js';
 import { sendMail } from '../loaders/mailer.js';
+import { renderEmailTemplate } from '../utils/email-template.js';
 
 const router = express.Router();
 
@@ -110,16 +111,66 @@ router.get('/ha/return', async (req, res) => {
 
       // Email de confirmation
       try {
-        await sendMail({
-          to: order.payerEmail,
-          subject: process.env.EMAIL_SUBJECT_RENEW_CONFIRM || 'Confirmation de paiement',
-          template: process.env.EMAIL_TEMPLATE_RENEW_CONFIRM || 'renew-confirmation',
-          context: {
-            order,
-            clubName: process.env.CLUB_NAME || 'Votre club',
-            season: order.seasonCode
-          }
-        });
+
+const TEMPLATE_BY_KIND = {
+  renew:   process.env.EMAIL_TEMPLATE_RENEW_CONFIRM   || 'renew-confirmation',
+  fanclub: process.env.EMAIL_TEMPLATE_TBH7_CONFIRM || 'tbh7-confirmation',
+  public:  process.env.EMAIL_TEMPLATE_PUBLIC_CONFIRM  || 'public-confirmation',
+  unknown: process.env.EMAIL_TEMPLATE_DEFAULT         || 'renew-confirmation'
+};
+
+const SUBJECT_BY_KIND = {
+  renew:   process.env.EMAIL_SUBJECT_RENEW_CONFIRM   || 'Confirmation de paiement – Abonnement (Renouvellement)',
+  fanclub: process.env.EMAIL_SUBJECT_TBH7_CONFIRM    || 'Confirmation de paiement – Fan Club TBH7',
+  public:  process.env.EMAIL_SUBJECT_PUBLIC_CONFIRM  || 'Confirmation de paiement – Abonnement (Grand public)',
+  unknown: process.env.EMAIL_SUBJECT_DEFAULT         || 'Confirmation de paiement – Abonnement'
+};
+
+function resolveOrderKind(order) {
+  // priorité aux champs persistés
+  if (order.mailTemplateKind) return String(order.mailTemplateKind).toLowerCase();
+  if (order.origin?.flow)     return String(order.origin.flow).toLowerCase();
+
+  // fallback doux (au cas où)
+  const phase = String(order.phase || '').toLowerCase();
+  if (['renew','fanclub','public','tbh7','grandpublic'].includes(phase)) {
+    return phase === 'tbh7' ? 'fanclub' : (phase === 'grandpublic' ? 'public' : phase);
+  }
+  return 'unknown';
+}
+        
+// ...
+const kind    = resolveOrderKind(order);
+const tplName = TEMPLATE_BY_KIND[kind];
+const subject = SUBJECT_BY_KIND[kind];
+
+const linesRows = (Array.isArray(order.lines) ? order.lines : [])
+  .map(l => `<tr><td>${l.seatId || l.zoneKey || ''}</td><td>${l.tariffCode || ''}</td><td>${(Number(l.priceCents||0)/100).toFixed(2)} €</td></tr>`)
+  .join('');
+
+const ctx = {
+  order,
+  orderId: String(order._id),
+  seasonCode: order.seasonCode || '',
+  venueSlug: order.venueSlug || '',
+  payerFirstName: order.payerFirstName || '',
+  payerLastName:  order.payerLastName  || '',
+  payerEmail:     order.payerEmail     || '',
+  totalEuro: ((Number(order.totalCents || 0) / 100).toFixed(2)),
+  installmentsInfo: (Number(order.installments || order.paymentSplit || 1) > 1)
+    ? `Règlement en ${Number(order.installments || order.paymentSplit)} échéances.`
+    : `Règlement en une fois.`,
+  linesRows,
+  haOrderBlock: order.paymentProviderOrderId ? `<p>Référence HelloAsso : <b>${order.paymentProviderOrderId}</b></p>` : '',
+  clubName: process.env.CLUB_NAME || 'Les Bélougas',
+  extraInfo: ''
+};
+
+const html = await renderEmailTemplate(tplName, ctx);
+console.log(html);
+
+await sendMail({ to: order.payerEmail, subject, html });
+
       } catch (e) {
         console.warn('sendMail failed:', e.message);
       }
