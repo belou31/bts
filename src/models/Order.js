@@ -39,4 +39,19 @@ OrderSchema.index(
   { unique: true, partialFilterExpression: { status: 'paid' }, name: 'uniq_paid_per_group' }
 );
 
+
+// Petit sous-schéma (pas d’_id)
+const OriginSchema = new mongoose.Schema({
+  flow:   { type: String, enum: ['renew','fanclub','public'], default: null }, // nature du flux
+  uiPath: { type: String, default: null },  // ex: "/tbh7" ou "/renew"
+  apiPath:{ type: String, default: null }   // ex: "/api/tbh7/checkout"
+}, { _id:false });
+
+// Ajouts optionnels au schéma Order
+OrderSchema.add({
+  origin:           { type: OriginSchema, default: undefined },
+  mailTemplateKind: { type: String, default: null } // sur-couche explicite pour l’email si besoin
+});
+
+
 export const Order = mongoose.models.Order || mongoose.model('Order', OrderSchema);
