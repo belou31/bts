@@ -2,7 +2,9 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
+import haRoutes from './ha.js';              // 👈 AJOUT
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -17,6 +19,10 @@ export default function routes(router) {
 
   // API sous /s
   router.use('/s', renewApi);
+
+
+  // ✨ Routes HelloAsso (retour, back, error)
+  router.use('/', haRoutes);                 // 👈 AJOUT : expose /ha/return, /ha/back, /ha/error
 
   // Page racine -> redirige vers /renew (optionnel)
   router.get('/', (_req, res) => res.redirect('./renew'));
