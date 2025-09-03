@@ -29,6 +29,8 @@ export async function buildApp() {
 
   // Statiques (toujours sous /static, préfixés par BASE_PATH côté frontal)
   const STATIC_DIR = path.resolve(__dirname, '..', 'public', 'static');
+  //const STATIC_DIR = path.resolve(process.cwd(), 'public', 'static');
+  
   app.use(path.posix.join(BASE_PATH, '/static'), express.static(STATIC_DIR, {
     fallthrough: false,
     maxAge: '1h',
@@ -59,12 +61,12 @@ export async function buildApp() {
   });
 
   // Démarrage si appelé directement
-  if (import.meta.url === `file://${__filename}`) {
-    app.listen(PORT, HOST, () => {
-      console.log(`[server] basePath = "${BASE_PATH}"`);
-      console.log(`[server] listening on http://${HOST}:${PORT}`);
-    });
-  }
+  //if (import.meta.url === `file://${__filename}`) {
+  //  app.listen(PORT, HOST, () => {
+  //    console.log(`[server] basePath = "${BASE_PATH}"`);
+  //    console.log(`[server] listening on http://${HOST}:${PORT}`);
+  //  });
+  //}
 
   return app;
 }
