@@ -47,7 +47,7 @@ window.BTS_VIEW = {
 
 // Classes SVG utilisées (tu peux les surcharger via window.BTS_VIEW_CONFIG.svgSeatClasses)
 const CLASSES = Object.assign({
-  allowed:   'seat-available',    // sièges "autorisés" par le token (highlight doux)
+  allowed:   'seat-allowed',    // sièges "autorisés" par le token (highlight doux)
   selected:  'seat-selected',   // sièges présents dans le panier
   booked:    'seat-booked',     // déjà vendus
   busy:      'seat-busy',       // provisionnés / bloqués
@@ -592,9 +592,18 @@ if (Array.isArray(CTX.seatSubscribers)) {
   $planObj.setAttribute('data', planPath);
   $planObj.addEventListener('load', () => { try { onPlanReady($planObj); } catch(e){ console.warn('plan init failed:', e); } }, { once:true });
 
-  // Lignes (renew = sièges connus)
-  const $rows = $('#cartRows'); $rows.innerHTML = '';
-  for (const seat of CTX.seats) $rows.appendChild(makeRowForSeat(seat));
+// Lignes (renew = sièges connus) — activable/désactivable par config
+const $rows = $('#cartRows'); $rows.innerHTML = '';
+const BUILD_ROWS = (CONFIG.buildRowsFromData !== false);
+if (BUILD_ROWS) {
+  // Ne pas remettre dans le panier les sièges déjà "booked" (ou "sold")
+  const initialSeats = Array.isArray(CTX.seats) ? CTX.seats : [];
+  for (const seat of initialSeats) {
+    const st = String(seat?.status || '').toLowerCase();
+    if (st === 'booked' || st === 'sold') continue; // ⛔ déjà réservés → ignorés
+    $rows.appendChild(makeRowForSeat(seat));        // ✅ sièges encore à renouveler
+  }
+}
 
   // Payer
   $('#payerFirst').value = CTX.payer.firstName || '';

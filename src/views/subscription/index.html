@@ -8,6 +8,7 @@
   <!-- IMPORTANT : chemins relatifs à /bts/ -->
   <link rel="icon" href="static/img/favicon.ico">
   <link rel="stylesheet" href="static/styles/generic-view.css">
+  <link rel="stylesheet" href="static/styles/tbh7-view.css">
 </head>
 <body>
   <header class="site-header">
@@ -36,6 +37,12 @@
         <!-- Bloc LIGNES -->
         <div id="linesPanel" class="block">
           <h2>Vos places</h2>
+  <div class="zone-toolbar">
+  <label for="zoneSelect">Cliquer sur le plan ou Choisir une Zone ici :</label>
+  <select id="zoneSelect"></select>
+  <button type="button" id="addZoneBtn">Ajouter</button>
+  <span id="zoneRemain" class="remain"></span>
+</div>
           <div class="lines-head">
             <div></div>
             <div>Place</div>
@@ -94,19 +101,22 @@
     </section>
   </main>
 
-  <!-- Config spécifique RENEW : on garde l’API GET/POST unique "s/renew" + query -->
-  <script>
-    window.BTS_VIEW_CONFIG = {
-      title: 'Les Bélougas - Renouvellement 2025-2026',
-      pageTitle: 'Les Bélougas - Renouvellement 2025-2026',
-      api: {
-        status: 's/renew' + (location.search || ''),
-        checkout: 's/renew' + (location.search || '')
-      },
-      selection: { type: 'seats' },
-      venuePlanPath: (slug) => `static/venues/${slug}/plan.svg`
-    };
-  </script>
-  <script defer src="static/js/generic-view.js"></script>
+  <!-- Config spécifique TBH7 : on garde l’API GET/POST unique "s/tbh7" + query -->
+<script>
+window.BTS_VIEW_CONFIG = {
+  title: 'Les Bélougas - Abonnements 2025-2026',
+  pageTitle: 'Les Bélougas - Abonnements 2025-2026',
+  api: {
+    status:  '/api/sub/status',
+    checkout:'/api/sub/checkout'
+  },
+  selection: { type: 'seats' },
+  buildRowsFromData: false,          // ⬅️ empêche le pré-remplissage
+  svgSeatClasses: { allowed: 'seat-allowed' } // ⬅️ décorrèle "allowed" de "available"
+
+};
+</script>
+<script defer src="static/js/generic-view.js"></script>
+<script defer src="static/js/subscription.js"></script>
 </body>
 </html>

@@ -11,14 +11,28 @@ const router = express.Router();
 const isStub = () => String(process.env.HELLOASSO_STUB || '').toLowerCase() === 'true';
 const stubResultEnv = () => String(process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
 
-async function markSeatsReserved(order) {
+// Marque en "booked" tous les SIÈGES réels de la commande (renew/subscription).
+// - Ignore les lignes "zone" (ex: TBH7-Z001)
+// - Idempotent: on remet "booked" même si l'état précédent n'était pas "available"
+async function markSeatsBooked(order) {
   try {
-    const seatIds = (order?.lines || []).map(l => l.seatId).filter(Boolean);
-    if (!seatIds.length) return;
-    await Seat.updateMany(
-      { _id: { $in: seatIds } },
-      { $set: { status: 'reserved' } }
+    const lines = Array.isArray(order?.lines) ? order.lines : [];
+    const realSeatIds = Array.from(new Set(
+      lines.map(l => String(l.seatId || '').trim())
+           // Ignore les pseudo-IDs de zone (ex: TBH7-Z001)
+           .filter(s => s && !/-Z\d{3,}$/i.test(s))
+    ));
+
+    if (!realSeatIds.length) return;
+    // ⚙️ Mise à jour inconditionnelle par seatId (sans filtre d'état) pour couvrir "Provisioned", "Held", etc.
+    const r = await Seat.updateMany(
+      { seasonCode: order.seasonCode, venueSlug: order.venueSlug, seatId: { $in: realSeatIds } },
+      { $set: { status: 'booked' } },
+      { runValidators: false }
     );
+    console.log('[ha/return] seats → booked',
+      { count: realSeatIds.length, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0, ids: realSeatIds });
+    
   } catch (e) {
     console.warn('[ha/return] seat update failed:', e.message);
   }
@@ -100,8 +114,7 @@ router.get('/ha/return', async (req, res) => {
     if (isPaidLike(status)) {
       order.status = 'paid';
       await order.save();
-      await markSeatsReserved(order);
-
+      await markSeatsBooked(order);
       // --- EMAIL ---
       try {
         const html    = await renderOrderEmail(order);

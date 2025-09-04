@@ -101,11 +101,16 @@ export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl
       lastName:  order.payerLastName  || '',
       email:     order.payerEmail     || ''
     },
-    items: Array.isArray(order.lines) ? order.lines.map(l => ({
-      name: `${l.seatId || l.zoneKey || ''} • ${l.tariffCode}`,
-      amount: Number(l.priceCents || 0),
-      quantity: 1
-    })) : [],
+    items: Array.isArray(order.lines) ? order.lines.map(l => {
+      const isVirtual = /-Z\d{3,}$/i.test(String(l.seatId || ''));
+      const place = isVirtual ? (l.zoneKey || '') : (l.seatId || l.zoneKey || '');
+      return {
+        name: `${place} • ${l.tariffCode}`,
+        amount: Number(l.priceCents || 0),
+        quantity: 1
+      };
+    }) : [],
+
     returnUrl: returnUrl || process.env.HELLOASSO_RETURN_URL,
     backUrl:   backUrl   || process.env.HELLOASSO_BACK_URL   || `${process.env.APP_URL}/ha/back`,
     errorUrl:  errorUrl  || process.env.HELLOASSO_ERROR_URL  || `${process.env.APP_URL}/ha/error`,

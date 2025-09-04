@@ -20,7 +20,7 @@ const LineSchema = new mongoose.Schema({
 
 /* ----- Optional sub-schema for origin ----- */
 const OriginSchema = new mongoose.Schema({
-  flow:   { type: String, enum: ['renew','tbh7','fanclub','public','vip'], default: null },
+  flow:   { type: String, enum: ['renew','tbh7','vip','subscription','vip'], default: null },
   uiPath: { type: String, default: null },
   apiPath:{ type: String, default: null }
 }, { _id:false });
@@ -55,7 +55,7 @@ const OrderSchema = new mongoose.Schema({
 
   // Email/template routing
   origin:           { type: OriginSchema, default: undefined },
-  mailTemplateKind: { type: String, enum: ['renew','tbh7','public','vip','invite','generic'], default:'generic' }
+  mailTemplateKind: { type: String, enum: ['renew','tbh7','subscription','vip','invite','generic'], default:'generic' }
 }, { timestamps: true, strict: true });
 
 /* ----- Indexes ----- */
