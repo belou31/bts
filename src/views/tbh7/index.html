@@ -1,100 +1,119 @@
+<!-- views/renew/index.html -->
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <title>BTS · Abonnement TBH7</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link href="../static/styles/tbh7.css" rel="stylesheet" />
+  <meta charset="utf-8">
+  <title>Renouvellement d’abonnement — BTS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- IMPORTANT : chemins relatifs à /bts/ -->
+  <link rel="icon" href="static/img/favicon.ico">
+  <link rel="stylesheet" href="static/styles/generic-view.css">
+  <link rel="stylesheet" href="static/styles/tbh7-view.css">
 </head>
 <body>
-  <header class="hdr">
-    <h1>Abonnement Fan Club TBH7</h1>
-    <p class="muted">Choisissez une zone sur le plan ou via le sélecteur, puis ajoutez les abonnés et les tarifs.</p>
+  <header class="site-header">
+    <div class="brand">
+      <img src="static/img/logo.png" alt="Logo" class="logo">
+      <h1 id="pageTitle">Renouvellement d’abonnement</h1>
+    </div>
   </header>
 
-  <main class="grid">
-    <!-- Colonne gauche : PLAN -->
-    <section class="plan card">
-      <div class="plan-head">
-        <span>Plan</span>
-        <div class="plan-actions">
-          <button id="btnZoomOut" title="Zoom -">−</button>
-          <button id="btnZoomIn"  title="Zoom +">+</button>
-          <button id="btnReset"   title="Réinitialiser">Reset</button>
+  <main class="page">
+    <!-- Colonne PLAN -->
+    <section class="col plan-col">
+      <div id="plan" class="panel">
+        <h2 class="panel-title">Plan</h2>
+        <div class="plan-wrap">
+          <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="Plan de la salle"></object>
+          <div class="plan-status">Molette pour zoomer, cliquer-glisser pour déplacer.</div>
         </div>
-      </div>
-      <div class="plan-viewport">
-        <object id="venuePlan" type="image/svg+xml" aria-label="Plan de la patinoire"></object>
-        <div class="plan-help muted">Molette = zoom (centré curseur) · Cliquer-glisser = déplacer</div>
+        <div class="help">Les sièges autorisés sont surlignés.</div>
       </div>
     </section>
 
-    <!-- Colonne droite : ZONES + COMMANDE -->
-    <section class="right-col">
-      <section class="card">
-        <div class="field">
-          <label>Zone</label>
-          <select id="zoneSelect"></select>
-        </div>
-
-        <div class="table-head">
-          <div>Abonnés</div>
-          <div class="actions">
-            <button id="btnAdd">+ Ajouter</button>
-            <button id="btnRemove" class="muted">− Retirer</button>
+    <!-- Colonne COMMANDE -->
+    <section class="col form-col">
+      <div id="order" class="panel">
+        <!-- Bloc LIGNES -->
+        <div id="linesPanel" class="block">
+          <h2>Vos places</h2>
+  <div class="zone-toolbar">
+  <label for="zoneSelect">Cliquer sur le plan ou Choisir une Zone ici :</label>
+  <select id="zoneSelect"></select>
+  <button type="button" id="addZoneBtn">Ajouter</button>
+  <span id="zoneRemain" class="remain"></span>
+</div>
+          <div class="lines-head">
+            <div></div>
+            <div>Place</div>
+            <div>Nom</div>
+            <div>Prénom</div>
+            <div>Tarif (montant)</div>
           </div>
+          <div id="cartRows"></div>
         </div>
 
-        <table class="people">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Prénom</th>
-              <th>Nom</th>
-              <th>Tarif (montant)</th>
-            </tr>
-          </thead>
-          <tbody id="rows"></tbody>
-        </table>
-      </section>
+        <!-- Bloc PAIEMENT -->
+        <div id="payPanel" class="block">
+          <h2>Paiement</h2>
+          <p><small class="help">Le reçu et la confirmation seront envoyés à l'email de contact.</small></p>
 
-      <section class="card">
-        <h2 class="card-title">Commande & Paiement</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="payerLast">Nom</label>
+              <input id="payerLast" type="text" placeholder="Nom">
+            </div>
+            <div class="form-group">
+              <label for="payerFirst">Prénom</label>
+              <input id="payerFirst" type="text" placeholder="Prénom">
+            </div>
+            <div class="form-group">
+              <label for="payerEmail">Email de contact</label>
+              <input id="payerEmail" type="email" placeholder="email@exemple.com">
+            </div>
+          </div>
 
-        <div class="field half">
-          <label>Prénom (contact)</label>
-          <input id="payerFirstName" type="text" />
-        </div>
-        <div class="field half">
-          <label>Nom (contact)</label>
-          <input id="payerLastName" type="text" />
-        </div>
-        <div class="field">
-          <label>Email (contact)</label>
-          <input id="payerEmail" type="email" />
-        </div>
+          <div class="pay-bottom">
+            <div class="form-group">
+              <label for="paySchedule">Échéancier</label>
+              <select id="paySchedule">
+                <option value="1">En 1 fois</option>
+                <option value="2">En 2 fois</option>
+                <option value="3">En 3 fois</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Échéance (estimation)</label>
+              <div id="schedulePreview" class="total-box">—</div>
+            </div>
+            <div class="form-group">
+              <label>Total</label>
+              <div id="totalBox" class="total-box">0,00 €</div>
+            </div>
+          </div>
 
-        <div class="field">
-          <label>Échéancier</label>
-          <select id="installments">
-            <option value="1">1 fois</option>
-            <option value="2">2 fois</option>
-            <option value="3">3 fois</option>
-          </select>
-          <p id="splitInfo" class="muted"></p>
+          <div class="actions">
+            <button id="payBtn" class="pay-btn">Procéder au paiement</button>
+          </div>
+          <p id="feedback" class="feedback"></p>
         </div>
-
-        <div class="total">
-          <span>Total</span>
-          <strong id="totalEuro">—</strong>
-        </div>
-
-        <button id="payBtn" class="primary">Payer</button>
-        <p id="msg" class="muted"></p>
-      </section>
+      </div>
     </section>
   </main>
 
-  <script type="module" src="../static/js/tbh7.js"></script>
+  <!-- Config spécifique TBH7 : on garde l’API GET/POST unique "s/tbh7" + query -->
+  <script>
+window.BTS_VIEW_CONFIG = {
+  title: 'TBH7 — Abonnements 2025-2026',
+  pageTitle: 'TBH7 — Abonnements',
+  api: {
+    status:  '/api/tbh7/status',
+    checkout:'/api/tbh7/checkout'
+  },
+  selection: { type: 'zones' } // si tu as le sélecteur de zone côté TBH7
+};
+</script>
+  <script defer src="/static/js/generic-view.js"></script>
+  <script defer src="/static/js/tbh7-view.js"></script>
 </body>
 </html>

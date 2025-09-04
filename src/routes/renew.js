@@ -3,13 +3,13 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
-import { Subscriber }  from './models/Subscriber.js';
-import { Seat }        from './models/Seat.js';
-import { Tariff }      from './models/Tariff.js';
-import { TariffPrice } from './models/TariffPrice.js';
-import { Order }       from './models/Order.js';
+import { Subscriber }  from '../models/Subscriber.js';
+import { Seat }        from '../models/Seat.js';
+import { Tariff }      from '../models/Tariff.js';
+import { TariffPrice } from '../models/TariffPrice.js';
+import { Order }       from '../models/Order.js';
 
-import { createCheckoutIntent } from './services/helloasso.js';
+import { createCheckoutIntent } from '../services/helloasso.js';
 import { makeTokenHash } from '../utils/ha-token.js';
 
 const router = express.Router();
@@ -35,6 +35,27 @@ function decodeToken(id) {
   catch { return null; }
 }
 function normSeatId(s) { return String(s || '').trim(); }
+
+function buildSeatSubscribersFromSeats(seats, existing = {}) {
+  const out = { ...existing };
+  for (const s of seats || []) {
+    const sid = normSeatId(
+      (typeof s === 'string') ? s : (s.seatId || s.id || s.label || '')
+    );
+    if (!sid) continue;
+
+    if (!out[sid]) {
+      // essaie différentes conventions de champs
+      const firstName = s.holderFirstName || s.firstName || s.subscriber?.firstName || '';
+      const lastName  = s.holderLastName  || s.lastName  || s.subscriber?.lastName  || '';
+      const email     = s.holderEmail     || s.email     || s.subscriber?.email     || '';
+      if (firstName || lastName || email) {
+        out[sid] = { firstName, lastName, email };
+      }
+    }
+  }
+  return out;
+}
 
 // Construit un index (zoneKey|tariffCode -> priceCents)
 function buildPricesIndex(prices) {
@@ -66,42 +87,78 @@ router.get('/renew', async (req, res) => {
       return res.status(400).json({ error: 'missing_or_invalid_token' });
     }
     const { seasonCode, venueSlug, seatIds } = tok;
+    const tokenSet = new Set(seatIds.map(normSeatId));
 
-    // Tarifs & prix (catalogue)
+    // Tarifs & prix
     const tariffs = await Tariff.find({ seasonCode, venueSlug, isActive: true }).lean();
     const prices  = await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean();
 
-    // Sièges concernés par le token (typiquement "provisioned" pour Renew)
+    // Sièges du token (dans la salle)
     const seats = await Seat.find({ seasonCode, venueSlug, seatId: { $in: seatIds } }).lean();
 
-    // Abonnés liés aux sièges (pré-remplissage nom/prénom/email côté front)
-    const subs = await Subscriber.find({ seasonCode, venueSlug, seatId: { $in: seatIds } }).lean();
-    const seatSubscribers = {};
-    for (const s of subs) seatSubscribers[s.seatId] = {
-      firstName: s.firstName || '',
-      lastName:  s.lastName  || '',
-      email:     s.email     || ''
-    };
+    // Abonnés liés aux sièges du token
+    // (NB: pas de champ seatId dans le modèle; on matche sur prefSeatId et previousSeasonSeats)
+    const subs = await Subscriber.find(
+      {
+        seasonCode, venueSlug,
+        $or: [
+          { prefSeatId: { $in: seatIds } },
+          { previousSeasonSeats: { $in: seatIds } }
+        ]
+      },
+      // projection minimale utile
+      'firstName lastName email prefSeatId previousSeasonSeats'
+    ).lean();
 
-    // Payer par défaut (si dispo)
-    const payer = {
+    // Map { seatIdDuToken -> {firstName,lastName,email} }
+    const seatSubscribersRaw = {};
+    for (const s of subs || []) {
+      const pref = normSeatId(s.prefSeatId);
+      let match = pref && tokenSet.has(pref) ? pref : null;
+      if (!match && Array.isArray(s.previousSeasonSeats)) {
+        match = s.previousSeasonSeats.map(normSeatId).find(x => tokenSet.has(x)) || null;
+      }
+      if (!match) continue;
+      seatSubscribersRaw[match] = {
+        firstName: s.firstName || '',
+        lastName:  s.lastName  || '',
+        email:     s.email     || ''
+      };
+    }
+
+    // Compléter depuis seats (au cas où certains holders seraient recopiés côté Seat)
+    const seatSubscribers = buildSeatSubscribersFromSeats(seats, seatSubscribersRaw);
+
+    // Payer par défaut : d'abord celui du premier seatId du token, sinon le premier dispo, sinon vide
+    let payer = {
       firstName: seatSubscribers?.[seatIds[0]]?.firstName || '',
-      lastName:  seatSubscribers?.[seatIds[0]]?.lastName  || '',
-      email:     seatSubscribers?.[seatIds[0]]?.email     || ''
+      lastName : seatSubscribers?.[seatIds[0]]?.lastName  || '',
+      email    : seatSubscribers?.[seatIds[0]]?.email     || ''
     };
+    if (!(payer.firstName || payer.lastName || payer.email)) {
+      const any = Object.values(seatSubscribers)[0];
+      if (any) {
+        payer = {
+          firstName: any.firstName || '',
+          lastName : any.lastName  || '',
+          email    : any.email     || ''
+        };
+      }
+    }
 
-    // Statuts bloqués éventuels (info UI)
-    const blockedSeats = seats.filter(s => s.status && String(s.status).toLowerCase() !== 'available').map(s => s.seatId);
-    const blockedAny   = blockedSeats.length > 0;
+    // Statuts bloqués (info UI)
+    const blockedSeats = seats
+      .filter(s => s.status && String(s.status).toLowerCase() !== 'available')
+      .map(s => s.seatId);
+    const blockedAny = blockedSeats.length > 0;
 
-    // ⚠️ Champs alignés avec le front existant
-    res.json({
+    return res.json({
       season: seasonCode, seasonCode,
       venue : venueSlug,  venueSlug,
       tariffs, prices, seats,
       tokenSeats: seatIds,
-      seatSubscribers,
-      payer,
+      seatSubscribers,   // ← rempli à partir de prefSeatId / previousSeasonSeats
+      payer,             // ← renseigné si possible
       blockedAny,
       blockedSeats
     });
@@ -110,6 +167,7 @@ router.get('/renew', async (req, res) => {
     res.status(500).json({ error: 'internal_error' });
   }
 });
+
 
 // ---------- POST /s/renew?id=<jwt> ----------
 /**

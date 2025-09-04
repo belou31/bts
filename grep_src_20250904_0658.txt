@@ -1,0 +1,1908 @@
+src/routes/renew.js:// src/routes/renew.js
+src/routes/renew.js:import express from 'express';
+src/routes/renew.js:import jwt from 'jsonwebtoken';
+src/routes/renew.js:import crypto from 'crypto';
+src/routes/renew.js:
+src/routes/renew.js:import { Subscriber }  from './models/Subscriber.js';
+src/routes/renew.js:import { Seat }        from './models/Seat.js';
+src/routes/renew.js:import { Tariff }      from './models/Tariff.js';
+src/routes/renew.js:import { TariffPrice } from './models/TariffPrice.js';
+src/routes/renew.js:import { Order }       from './models/Order.js';
+src/routes/renew.js:
+src/routes/renew.js:import { createCheckoutIntent } from './services/helloasso.js';
+src/routes/renew.js:import { makeTokenHash } from '../utils/ha-token.js';
+src/routes/renew.js:
+src/routes/renew.js:const router = express.Router();
+src/routes/renew.js:
+src/routes/renew.js:const JWT_SECRET = process.env.JWT_SECRET;
+src/routes/renew.js:const APP_URL = process.env.APP_URL || '';
+src/routes/renew.js:const HELLOASSO_STUB = String(process.env.HELLOASSO_STUB || 'false').toLowerCase() === 'true';
+src/routes/renew.js:const STUB_RESULT = (process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
+src/routes/renew.js:
+src/routes/renew.js:const HA_RETURN_URL = process.env.HELLOASSO_RETURN_URL || (APP_URL ? `${APP_URL}/ha/return` : '/ha/return');
+src/routes/renew.js:const HA_BACK_URL   = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/back');
+src/routes/renew.js:const HA_ERR_URL    = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/error');
+src/routes/renew.js:
+src/routes/renew.js:// ---------- Helpers ----------
+src/routes/renew.js:function zoneKeyFromSeatId(seatId) {
+src/routes/renew.js:  const s = String(seatId || '');
+src/routes/renew.js:  const i = s.indexOf('-');
+src/routes/renew.js:  return i > 0 ? s.slice(0, i) : s;
+src/routes/renew.js:}
+src/routes/renew.js:function decodeToken(id) {
+src/routes/renew.js:  if (!id || !JWT_SECRET) return null;
+src/routes/renew.js:  try { return jwt.verify(id, JWT_SECRET); }
+src/routes/renew.js:  catch { return null; }
+src/routes/renew.js:}
+src/routes/renew.js:function normSeatId(s) { return String(s || '').trim(); }
+src/routes/renew.js:
+src/routes/renew.js:// Construit un index (zoneKey|tariffCode -> priceCents)
+src/routes/renew.js:function buildPricesIndex(prices) {
+src/routes/renew.js:  const idx = new Map();
+src/routes/renew.js:  for (const p of prices || []) {
+src/routes/renew.js:    const z = String(p.zoneKey || p.zone || '').toUpperCase();
+src/routes/renew.js:    const t = String(p.tariffCode || p.tariff || '').toUpperCase();
+src/routes/renew.js:    if (!z || !t) continue;
+src/routes/renew.js:    idx.set(`${z}|${t}`, Number(p.priceCents || 0));
+src/routes/renew.js:  }
+src/routes/renew.js:  return idx;
+src/routes/renew.js:}
+src/routes/renew.js:function getPriceCents(pricesIdx, zoneKey, tariffCode) {
+src/routes/renew.js:  const z = String(zoneKey || '').toUpperCase();
+src/routes/renew.js:  const t = String(tariffCode || '').toUpperCase();
+src/routes/renew.js:  return pricesIdx.get(`${z}|${t}`) ?? 0;
+src/routes/renew.js:}
+src/routes/renew.js:
+src/routes/renew.js:// ---------- GET /s/renew?id=<jwt> ----------
+src/routes/renew.js:/**
+src/routes/renew.js: * Répond au front avec les données nécessaires pour l’écran Renew.
+src/routes/renew.js: * Sortie: { season, seasonCode, venue, venueSlug, tariffs, prices, seats, tokenSeats, seatSubscribers, payer, blockedAny, blockedSeats }
+src/routes/renew.js: */
+src/routes/renew.js:router.get('/renew', async (req, res) => {
+src/routes/renew.js:  try {
+src/routes/renew.js:    const id  = req.query.id || '';
+src/routes/renew.js:    const tok = decodeToken(id);
+src/routes/renew.js:    if (!tok || !tok.seasonCode || !tok.venueSlug || !tok.seatIds?.length) {
+src/routes/renew.js:      return res.status(400).json({ error: 'missing_or_invalid_token' });
+src/routes/renew.js:    }
+src/routes/renew.js:    const { seasonCode, venueSlug, seatIds } = tok;
+src/routes/renew.js:
+src/routes/renew.js:    // Tarifs & prix (catalogue)
+src/routes/renew.js:    const tariffs = await Tariff.find({ seasonCode, venueSlug, isActive: true }).lean();
+src/routes/renew.js:    const prices  = await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean();
+src/routes/renew.js:
+src/routes/renew.js:    // Sièges concernés par le token (typiquement "provisioned" pour Renew)
+src/routes/renew.js:    const seats = await Seat.find({ seasonCode, venueSlug, seatId: { $in: seatIds } }).lean();
+src/routes/renew.js:
+src/routes/renew.js:    // Abonnés liés aux sièges (pré-remplissage nom/prénom/email côté front)
+src/routes/renew.js:    const subs = await Subscriber.find({ seasonCode, venueSlug, seatId: { $in: seatIds } }).lean();
+src/routes/renew.js:    const seatSubscribers = {};
+src/routes/renew.js:    for (const s of subs) seatSubscribers[s.seatId] = {
+src/routes/renew.js:      firstName: s.firstName || '',
+src/routes/renew.js:      lastName:  s.lastName  || '',
+src/routes/renew.js:      email:     s.email     || ''
+src/routes/renew.js:    };
+src/routes/renew.js:
+src/routes/renew.js:    // Payer par défaut (si dispo)
+src/routes/renew.js:    const payer = {
+src/routes/renew.js:      firstName: seatSubscribers?.[seatIds[0]]?.firstName || '',
+src/routes/renew.js:      lastName:  seatSubscribers?.[seatIds[0]]?.lastName  || '',
+src/routes/renew.js:      email:     seatSubscribers?.[seatIds[0]]?.email     || ''
+src/routes/renew.js:    };
+src/routes/renew.js:
+src/routes/renew.js:    // Statuts bloqués éventuels (info UI)
+src/routes/renew.js:    const blockedSeats = seats.filter(s => s.status && String(s.status).toLowerCase() !== 'available').map(s => s.seatId);
+src/routes/renew.js:    const blockedAny   = blockedSeats.length > 0;
+src/routes/renew.js:
+src/routes/renew.js:    // ⚠️ Champs alignés avec le front existant
+src/routes/renew.js:    res.json({
+src/routes/renew.js:      season: seasonCode, seasonCode,
+src/routes/renew.js:      venue : venueSlug,  venueSlug,
+src/routes/renew.js:      tariffs, prices, seats,
+src/routes/renew.js:      tokenSeats: seatIds,
+src/routes/renew.js:      seatSubscribers,
+src/routes/renew.js:      payer,
+src/routes/renew.js:      blockedAny,
+src/routes/renew.js:      blockedSeats
+src/routes/renew.js:    });
+src/routes/renew.js:  } catch (e) {
+src/routes/renew.js:    console.error('[GET /s/renew] error:', e);
+src/routes/renew.js:    res.status(500).json({ error: 'internal_error' });
+src/routes/renew.js:  }
+src/routes/renew.js:});
+src/routes/renew.js:
+src/routes/renew.js:// ---------- POST /s/renew?id=<jwt> ----------
+src/routes/renew.js:/**
+src/routes/renew.js: * Reçoit le panier Renew et crée l’Order + intent HelloAsso.
+src/routes/renew.js: * Body: { items:[{seatId, lastName, firstName, tariffCode, justif?, info?}, ...], payer:{firstName,lastName,email}, schedule:1|2|3 }
+src/routes/renew.js: * Réponse: { ok:true, orderId, totalCents, redirectUrl }
+src/routes/renew.js: */
+src/routes/renew.js:router.post('/renew', async (req, res) => {
+src/routes/renew.js:  try {
+src/routes/renew.js:    const id  = req.query.id || '';
+src/routes/renew.js:    const tok = decodeToken(id);
+src/routes/renew.js:    if (!tok || !tok.seasonCode || !tok.venueSlug || !tok.seatIds?.length) {
+src/routes/renew.js:      return res.status(400).json({ error: 'missing_or_invalid_token' });
+src/routes/renew.js:    }
+src/routes/renew.js:
+src/routes/renew.js:    const { seasonCode, venueSlug, seatIds: allowedSeatIds } = tok;
+src/routes/renew.js:    const items    = Array.isArray(req.body.items) ? req.body.items : [];
+src/routes/renew.js:    const payer    = req.body.payer || {};
+src/routes/renew.js:    const schedule = Number(req.body.schedule || 1);
+src/routes/renew.js:
+src/routes/renew.js:    if (!items.length)        return res.status(400).json({ error: 'empty_items' });
+src/routes/renew.js:    if (!payer?.email)        return res.status(400).json({ error: 'payer_email_required' });
+src/routes/renew.js:    if (![1,2,3].includes(schedule)) return res.status(400).json({ error: 'invalid_schedule' });
+src/routes/renew.js:
+src/routes/renew.js:    // Sièges vraiment demandés
+src/routes/renew.js:    const seatIdsAsked = [...new Set(items.map(i => normSeatId(i.seatId)))];
+src/routes/renew.js:    // Chaque siège demandé doit être dans le token
+src/routes/renew.js:    for (const sid of seatIdsAsked) {
+src/routes/renew.js:      if (!allowedSeatIds.includes(sid)) {
+src/routes/renew.js:        return res.status(403).json({ error: 'seat_not_in_token', seatId: sid });
+src/routes/renew.js:      }
+src/routes/renew.js:    }
+src/routes/renew.js:
+src/routes/renew.js:    // Prix (index)
+src/routes/renew.js:    const prices   = await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean();
+src/routes/renew.js:    const pricesIx = buildPricesIndex(prices);
+src/routes/renew.js:
+src/routes/renew.js:    // Construire les lignes + total
+src/routes/renew.js:    const lines = [];
+src/routes/renew.js:    let totalCents = 0;
+src/routes/renew.js:    for (const it of items) {
+src/routes/renew.js:      const seatId = normSeatId(it.seatId);
+src/routes/renew.js:      const zoneKey = zoneKeyFromSeatId(seatId);
+src/routes/renew.js:      const tariffCode = String(it.tariffCode || '').toUpperCase();
+src/routes/renew.js:      const priceCents = getPriceCents(pricesIx, zoneKey, tariffCode);
+src/routes/renew.js:
+src/routes/renew.js:      lines.push({
+src/routes/renew.js:        seatId,
+src/routes/renew.js:        zoneKey,
+src/routes/renew.js:        holderFirstName: String(it.firstName || ''),
+src/routes/renew.js:        holderLastName:  String(it.lastName  || ''),
+src/routes/renew.js:        tariffCode,
+src/routes/renew.js:        priceCents,
+src/routes/renew.js:        justif: String(it.justif || ''),
+src/routes/renew.js:        info:   String(it.info   || '')
+src/routes/renew.js:      });
+src/routes/renew.js:      totalCents += Number(priceCents || 0);
+src/routes/renew.js:    }
+src/routes/renew.js:
+src/routes/renew.js:    // Créer la commande (pending)
+src/routes/renew.js:    const order = await Order.create({
+src/routes/renew.js:      seasonCode,
+src/routes/renew.js:      venueSlug,
+src/routes/renew.js:      phase: 'renew',
+src/routes/renew.js:      groupKey: `RENEW-${seasonCode}`, // regroupement fonctionnel
+src/routes/renew.js:      payerFirstName: String(payer.firstName || ''),
+src/routes/renew.js:      payerLastName:  String(payer.lastName  || ''),
+src/routes/renew.js:      payerEmail:     String(payer.email     || ''),
+src/routes/renew.js:      paymentSplit:   schedule,
+src/routes/renew.js:      lines,
+src/routes/renew.js:      totalCents,
+src/routes/renew.js:      status: 'pending',
+src/routes/renew.js:      paymentProvider: 'helloasso',
+src/routes/renew.js:      paymentProviderMeta: {},               // ← standard HELLOASSO
+src/routes/renew.js:      origin: {
+src/routes/renew.js:        flow:   'renew',
+src/routes/renew.js:        uiPath: '/renew',
+src/routes/renew.js:        apiPath:`${req.baseUrl || ''}${req.path}`
+src/routes/renew.js:      },
+src/routes/renew.js:      mailTemplateKind: 'renew'
+src/routes/renew.js:    });
+src/routes/renew.js:
+src/routes/renew.js:    // STUB (DEV) : pas d'appel réseau, on génère un intentId local + tokenHash
+src/routes/renew.js:    if (HELLOASSO_STUB) {
+src/routes/renew.js:      const intentId  = `stub-${Date.now()}`;
+src/routes/renew.js:      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: intentId });
+src/routes/renew.js:
+src/routes/renew.js:      order.paymentProviderMeta = {
+src/routes/renew.js:        ...(order.paymentProviderMeta || {}),
+src/routes/renew.js:        checkoutIntentId: intentId,
+src/routes/renew.js:        tokenHash
+src/routes/renew.js:      };
+src/routes/renew.js:      await order.save();
+src/routes/renew.js:
+src/routes/renew.js:      const ok = STUB_RESULT === 'success' || STUB_RESULT === 'ok' || STUB_RESULT === 'true' || STUB_RESULT === '1';
+src/routes/renew.js:      const redirectUrl = `${HA_RETURN_URL}?oid=${order._id}&ci=${intentId}&h=${tokenHash}&stub=1&result=${ok ? 'success' : 'failure'}`;
+src/routes/renew.js:      return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
+src/routes/renew.js:    }
+src/routes/renew.js:
+src/routes/renew.js:    // SANDBOX/PROD : crée un CheckoutIntent HelloAsso
+src/routes/renew.js:    const { redirectUrl, raw, error } = await createCheckoutIntent({
+src/routes/renew.js:      order,
+src/routes/renew.js:      returnUrl: HA_RETURN_URL,
+src/routes/renew.js:      backUrl:   HA_BACK_URL,
+src/routes/renew.js:      errorUrl:  HA_ERR_URL
+src/routes/renew.js:    });
+src/routes/renew.js:    if (error || !redirectUrl) {
+src/routes/renew.js:      console.error('[renew] createCheckoutIntent failed:', error);
+src/routes/renew.js:      return res.status(502).json({ error: 'helloasso_unavailable' });
+src/routes/renew.js:    }
+src/routes/renew.js:
+src/routes/renew.js:    // Persist intent + tokenHash pour le retour /ha/return
+src/routes/renew.js:    if (raw?.id) {
+src/routes/renew.js:      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: raw.id });
+src/routes/renew.js:      order.paymentProviderMeta = {
+src/routes/renew.js:        ...(order.paymentProviderMeta || {}),
+src/routes/renew.js:        checkoutIntentId: raw.id,
+src/routes/renew.js:        tokenHash
+src/routes/renew.js:      };
+src/routes/renew.js:      await order.save();
+src/routes/renew.js:    }
+src/routes/renew.js:
+src/routes/renew.js:    return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
+src/routes/renew.js:  } catch (e) {
+src/routes/renew.js:    console.error('[POST /s/renew] error:', e);
+src/routes/renew.js:    res.status(500).json({ error: 'internal_error' });
+src/routes/renew.js:  }
+src/routes/renew.js:});
+src/routes/renew.js:
+src/routes/renew.js:export default router;
+src/views/public/index.html:console.log('[renew] boot v2025-08-24d');
+src/views/public/index.html:
+src/views/public/index.html:const $ = (sel, root=document) => root.querySelector(sel);
+src/views/public/index.html:const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+src/views/public/index.html:
+src/views/public/index.html:let CTX = {
+src/views/public/index.html:  seasonCode: null,
+src/views/public/index.html:  venueSlug: null,
+src/views/public/index.html:  tariffs: [],
+src/views/public/index.html:  prices: [],
+src/views/public/index.html:  seats: [],
+src/views/public/index.html:  tokenSeats: [],
+src/views/public/index.html:  seatSubscribers: {}, // { seatId: {firstName,lastName,email} }
+src/views/public/index.html:  payer: { firstName:'', lastName:'', email:'' },
+src/views/public/index.html:  currentTotal: 0
+src/views/public/index.html:};
+src/views/public/index.html:
+src/views/public/index.html:function markAllowedSeats(seatIds) {
+src/views/public/index.html:  (seatIds || []).forEach(id => {
+src/views/public/index.html:    const el = document.querySelector(`[data-seat-id="${CSS.escape(id)}"]`);
+src/views/public/index.html:    if (el) el.classList.add('is-allowed');
+src/views/public/index.html:  });
+src/views/public/index.html:}
+src/views/public/index.html:function updateSelectedHighlights(selectedSeatIds) {
+src/views/public/index.html:  document.querySelectorAll('.seat.is-selected').forEach(el => el.classList.remove('is-selected'));
+src/views/public/index.html:  (selectedSeatIds || []).forEach(id => {
+src/views/public/index.html:    const el = document.querySelector(`[data-seat-id="${CSS.escape(id)}"]`);
+src/views/public/index.html:    if (el) el.classList.add('is-selected');
+src/views/public/index.html:  });
+src/views/public/index.html:}
+src/views/public/index.html:function getSelectedSeatIdsFromForm() {
+src/views/public/index.html:  return Array.from(document.querySelectorAll('.seat-line input[type="checkbox"]:checked'))
+src/views/public/index.html:    .map(cb => cb.dataset.seatId);
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:/* ============== Utils ============== */
+src/views/public/index.html:
+src/views/public/index.html:const fmtEuro = cents => (cents/100).toLocaleString('fr-FR', { style:'currency', currency:'EUR' });
+src/views/public/index.html:const normSeatId = s => String(s || '').trim();
+src/views/public/index.html:const zoneKeyFromSeatId = seatId => String(seatId || '').split('-')[0] || '';
+src/views/public/index.html:const seatIdOf = seat => normSeatId(seat?.seatId || seat?.id || seat?.label || '');
+src/views/public/index.html:
+src/views/public/index.html:function normalizeSubscribersMap(data) {
+src/views/public/index.html:  const map = {};
+src/views/public/index.html:  if (data && typeof data === 'object' && !Array.isArray(data)) {
+src/views/public/index.html:    for (const [k, v] of Object.entries(data)) map[normSeatId(k)] = { ...v };
+src/views/public/index.html:  }
+src/views/public/index.html:  if (Array.isArray(data)) {
+src/views/public/index.html:    for (const s of data) {
+src/views/public/index.html:      const key = normSeatId(s.seatId || s.seat || s.id);
+src/views/public/index.html:      if (!key) continue;
+src/views/public/index.html:      map[key] = { firstName: s.firstName || '', lastName: s.lastName || '', email: s.email || '' };
+src/views/public/index.html:    }
+src/views/public/index.html:  }
+src/views/public/index.html:  return map;
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:function buildPricesIndex(prices) {
+src/views/public/index.html:  const idx = new Map(); // zoneKey -> (tariffCode -> priceCents)
+src/views/public/index.html:  for (const p of prices) {
+src/views/public/index.html:    const z = p.zoneKey; const t = String(p.tariffCode||'').toUpperCase();
+src/views/public/index.html:    if (!idx.has(z)) idx.set(z, new Map());
+src/views/public/index.html:    idx.get(z).set(t, Number(p.priceCents)||0);
+src/views/public/index.html:  }
+src/views/public/index.html:  return idx;
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:function tariffsForZone(tariffs, pricesIdx, zoneKey) {
+src/views/public/index.html:  const zMap = pricesIdx.get(zoneKey) || new Map();
+src/views/public/index.html:  const star = pricesIdx.get('*') || new Map();
+src/views/public/index.html:  const codes = new Set([...zMap.keys(), ...star.keys()]);
+src/views/public/index.html:  const list = tariffs.filter(t => codes.has(String(t.code||'').toUpperCase()));
+src/views/public/index.html:  list.sort((a,b) => (a.code==='NORMAL'?-1:0) + (b.code==='NORMAL'?1:0));
+src/views/public/index.html:  return list;
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:const pickDefaultTariff = list => list.find(t => t.code==='NORMAL') || list[0] || null;
+src/views/public/index.html:
+src/views/public/index.html:function computeLineAmount(pricesIdx, zoneKey, tariffCode) {
+src/views/public/index.html:  const t = String(tariffCode||'').toUpperCase();
+src/views/public/index.html:  const zMap = pricesIdx.get(zoneKey);
+src/views/public/index.html:  if (zMap && zMap.has(t)) return zMap.get(t);
+src/views/public/index.html:  const star = pricesIdx.get('*');
+src/views/public/index.html:  if (star && star.has(t)) return star.get(t);
+src/views/public/index.html:  return 0;
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:/* Champs conditionnels selon le tarif (heuristique) */
+src/views/public/index.html:function getTariffExtras(tariffCode) {
+src/views/public/index.html:  const code = String(tariffCode || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+src/views/public/index.html:  if (code === 'NORMAL') return { needsJustif:false, justifLabel:'', infoLabel:'', infoPlaceholder:'' };
+src/views/public/index.html:  if (code.includes('ETU')) {
+src/views/public/index.html:    return { needsJustif:true,  justifLabel:'Numéro d’étudiant', infoLabel:'Information (optionnel)', infoPlaceholder:'Présentez le justificatif avec votre billet' };
+src/views/public/index.html:  }
+src/views/public/index.html:  if (code.includes('LICEN') || code.includes('FFHG') || code === 'LIC') {
+src/views/public/index.html:    return { needsJustif:true,  justifLabel:'Numéro de licence', infoLabel:'Information (optionnel)', infoPlaceholder:'Présentez le justificatif avec votre billet' };
+src/views/public/index.html:  }
+src/views/public/index.html:  return { needsJustif:false, justifLabel:'', infoLabel:'Information (optionnel)', infoPlaceholder:'Présentez le justificatif avec votre billet' };
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:/* ============== Panier DOM ============== */
+src/views/public/index.html:
+src/views/public/index.html:function applyTariffExtrasOnRow(row) {
+src/views/public/index.html:  const code = $('.tariff-select', row).value;
+src/views/public/index.html:  const extras = getTariffExtras(code);
+src/views/public/index.html:  const $wrap = $('.line-extras', row);
+src/views/public/index.html:  const $just = $('.line-extras .justif', row);
+src/views/public/index.html:  const $info = $('.line-extras .info', row);
+src/views/public/index.html:
+src/views/public/index.html:  if (extras.needsJustif) {
+src/views/public/index.html:    $just.hidden = false;
+src/views/public/index.html:    $('.justif-label', $just).textContent = extras.justifLabel || 'Justificatif';
+src/views/public/index.html:    $('.justif-input', $just).placeholder = extras.justifLabel || '';
+src/views/public/index.html:  } else {
+src/views/public/index.html:    $just.hidden = true;
+src/views/public/index.html:    $('.justif-input', $just).value = '';
+src/views/public/index.html:  }
+src/views/public/index.html:
+src/views/public/index.html:  if (extras.infoLabel) {
+src/views/public/index.html:    $info.hidden = false;
+src/views/public/index.html:    $('.info-label', $info).textContent = extras.infoLabel;
+src/views/public/index.html:    $('.info-input', $info).placeholder = extras.infoPlaceholder || '';
+src/views/public/index.html:  } else {
+src/views/public/index.html:    $info.hidden = true;
+src/views/public/index.html:    $('.info-input', $info).value = '';
+src/views/public/index.html:  }
+src/views/public/index.html:
+src/views/public/index.html:  $wrap.hidden = ($just.hidden && $info.hidden); // masque si rien
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:function makeCartRow(seat, pricesIdx, tariffs) {
+src/views/public/index.html:  const seatId = seatIdOf(seat);
+src/views/public/index.html:  const z = zoneKeyFromSeatId(seatId);
+src/views/public/index.html:  const subs = CTX.seatSubscribers[seatId] || { firstName:'', lastName:'', email:'' };
+src/views/public/index.html:  const list = tariffsForZone(tariffs, pricesIdx, z);
+src/views/public/index.html:  const def  = pickDefaultTariff(list);
+src/views/public/index.html:
+src/views/public/index.html:  const row = document.createElement('div');
+src/views/public/index.html:  row.className = 'cart-row grid-row';
+src/views/public/index.html:  row.dataset.seatId = seatId;
+src/views/public/index.html:
+src/views/public/index.html:  row.innerHTML = `
+src/views/public/index.html:    <div class="col chk"><input type="checkbox" class="keep-checkbox" checked></div>
+src/views/public/index.html:    <div class="col seat"><span class="seat-label" title="${seatId}">${seatId}</span></div>
+src/views/public/index.html:    <div class="col name"><input type="text" class="holder-last"  placeholder="Nom"></div>
+src/views/public/index.html:    <div class="col name"><input type="text" class="holder-first" placeholder="Prénom"></div>
+src/views/public/index.html:    <div class="col tariff">
+src/views/public/index.html:      <select class="tariff-select"></select>
+src/views/public/index.html:    </div>
+src/views/public/index.html:    <div class="line-extras" hidden>
+src/views/public/index.html:      <div class="field justif" hidden>
+src/views/public/index.html:        <label class="justif-label">Justificatif</label>
+src/views/public/index.html:        <input type="text" class="justif-input" placeholder="">
+src/views/public/index.html:      </div>
+src/views/public/index.html:      <div class="field info" hidden>
+src/views/public/index.html:        <label class="info-label">Information</label>
+src/views/public/index.html:        <input type="text" class="info-input" placeholder="">
+src/views/public/index.html:      </div>
+src/views/public/index.html:    </div>
+src/views/public/index.html:  `;
+src/views/public/index.html:
+src/views/public/index.html:  // Préremplir nom/prénom
+src/views/public/index.html:  $('.holder-first', row).value = subs.firstName || '';
+src/views/public/index.html:  $('.holder-last',  row).value = subs.lastName  || '';
+src/views/public/index.html:
+src/views/public/index.html:  // Tarifs pour la zone
+src/views/public/index.html:  const $sel = $('.tariff-select', row);
+src/views/public/index.html:  for (const t of list) {
+src/views/public/index.html:    const opt = document.createElement('option');
+src/views/public/index.html:    opt.value = t.code;
+src/views/public/index.html:    opt.textContent = `${t.name || t.code} — ${fmtEuro(computeLineAmount(pricesIdx, z, t.code))}`;
+src/views/public/index.html:    $sel.appendChild(opt);
+src/views/public/index.html:  }
+src/views/public/index.html:  if (def) $sel.value = def.code;
+src/views/public/index.html:
+src/views/public/index.html:  applyTariffExtrasOnRow(row);
+src/views/public/index.html:
+src/views/public/index.html:  $sel.addEventListener('change', () => { applyTariffExtrasOnRow(row); updateTotalsAndInstallment(); });
+src/views/public/index.html:  $('.keep-checkbox', row).addEventListener('change', updateTotalsAndInstallment);
+src/views/public/index.html:  $('.holder-first', row).addEventListener('input', syncPayerMaybe);
+src/views/public/index.html:  $('.holder-last',  row).addEventListener('input', syncPayerMaybe);
+src/views/public/index.html:
+src/views/public/index.html:  return row;
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:function syncPayerMaybe() {
+src/views/public/index.html:  const pf = $('#payerFirstName'), pl = $('#payerLastName'), pe = $('#payerEmail');
+src/views/public/index.html:  if (!pf.value && !pl.value) {
+src/views/public/index.html:    const firstChecked = $('.cart-row .keep-checkbox:checked')?.closest('.cart-row');
+src/views/public/index.html:    if (firstChecked) {
+src/views/public/index.html:      const fn = $('.holder-first', firstChecked).value;
+src/views/public/index.html:      const ln = $('.holder-last',  firstChecked).value;
+src/views/public/index.html:      if (fn) pf.value = fn;
+src/views/public/index.html:      if (ln) pl.value = ln;
+src/views/public/index.html:      const sid = firstChecked.dataset.seatId;
+src/views/public/index.html:      const sub = CTX.seatSubscribers[sid];
+src/views/public/index.html:      if (sub?.email && !pe.value) pe.value = sub.email;
+src/views/public/index.html:    }
+src/views/public/index.html:  }
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:/* ============== Totaux ============== */
+src/views/public/index.html:
+src/views/public/index.html:function updateTotal() {
+src/views/public/index.html:  const pricesIdx = buildPricesIndex(CTX.prices);
+src/views/public/index.html:  let total = 0;
+src/views/public/index.html:  $$('.cart-row').forEach(row => {
+src/views/public/index.html:    if (!$('.keep-checkbox', row).checked) return;
+src/views/public/index.html:    const seatId = row.dataset.seatId;
+src/views/public/index.html:    const z = zoneKeyFromSeatId(seatId);
+src/views/public/index.html:    const tariff = $('.tariff-select', row).value;
+src/views/public/index.html:    total += computeLineAmount(pricesIdx, z, tariff);
+src/views/public/index.html:  });
+src/views/public/index.html:  CTX.currentTotal = total;
+src/views/public/index.html:  $('#totalAmount').textContent = fmtEuro(total);
+src/views/public/index.html:  $('#payBtn').disabled = (total <= 0);
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:function updateInstallmentBox() {
+src/views/public/index.html:  const schedule = Number($('#schedule').value || 1);
+src/views/public/index.html:  const total = CTX.currentTotal || 0;
+src/views/public/index.html:  const per = (schedule > 1) ? Math.round(total / schedule) : 0;
+src/views/public/index.html:  $('#installmentAmount').textContent = (schedule > 1) ? fmtEuro(per) : '—';
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:function updateTotalsAndInstallment() {
+src/views/public/index.html:  updateTotal();
+src/views/public/index.html:  updateInstallmentBox();
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:/* ============== Fetch + Render ============== */
+src/views/public/index.html:
+src/views/public/index.html:  async function loadData() {
+src/views/public/index.html:    const apiUrl = 's/renew' + (location.search || '');
+src/views/public/index.html:    const res = await fetch(apiUrl, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+src/views/public/index.html:
+src/views/public/index.html:  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text().catch(()=>res.status)}`);
+src/views/public/index.html:
+src/views/public/index.html:  const data = await res.json();
+src/views/public/index.html:  console.log('[renew] data:', data);
+src/views/public/index.html:
+src/views/public/index.html:  CTX.seasonCode = data.seasonCode || data.season || null;
+src/views/public/index.html:  CTX.venueSlug  = data.venueSlug  || data.venue  || null;
+src/views/public/index.html:  CTX.tariffs    = Array.isArray(data.tariffs) ? data.tariffs : [];
+src/views/public/index.html:  CTX.prices     = Array.isArray(data.prices)  ? data.prices  : [];
+src/views/public/index.html:  CTX.seats      = Array.isArray(data.seats)   ? data.seats   : [];
+src/views/public/index.html:  CTX.tokenSeats = Array.isArray(data.tokenSeats) ? data.tokenSeats.map(normSeatId) : [];
+src/views/public/index.html:  CTX.seatSubscribers = normalizeSubscribersMap(data.seatSubscribers || data.subscribers || {});
+src/views/public/index.html:  CTX.payer = data.payer || { firstName:'', lastName:'', email:'' };
+src/views/public/index.html:
+src/views/public/index.html:  // Préremplir payeur (serveur) ou fallback (1er siège)
+src/views/public/index.html:  $('#payerFirstName').value = CTX.payer.firstName || '';
+src/views/public/index.html:  $('#payerLastName').value  = CTX.payer.lastName  || '';
+src/views/public/index.html:  $('#payerEmail').value     = CTX.payer.email     || '';
+src/views/public/index.html:  if (!$('#payerFirstName').value && CTX.seats.length) {
+src/views/public/index.html:    const sid0 = seatIdOf(CTX.seats[0]);
+src/views/public/index.html:    const s0 = CTX.seatSubscribers[sid0];
+src/views/public/index.html:    if (s0) {
+src/views/public/index.html:      $('#payerFirstName').value = s0.firstName || '';
+src/views/public/index.html:      $('#payerLastName').value  = s0.lastName  || '';
+src/views/public/index.html:      if (s0.email && !$('#payerEmail').value) $('#payerEmail').value = s0.email;
+src/views/public/index.html:    }
+src/views/public/index.html:  }
+src/views/public/index.html:
+src/views/public/index.html:  // Plan SVG
+src/views/public/index.html:  const $planObj = $('#venuePlan');
+src/views/public/index.html:  $planObj.setAttribute('data', `static/venues/${CTX.venueSlug}/plan.svg`);
+src/views/public/index.html:  $planObj.addEventListener('load', () => {
+src/views/public/index.html:    try { onPlanReady($planObj); } catch(e){ console.warn('plan init failed:', e); }
+src/views/public/index.html:  }, { once:true });
+src/views/public/index.html:
+src/views/public/index.html:  // Lignes du panier
+src/views/public/index.html:  const pricesIdx = buildPricesIndex(CTX.prices);
+src/views/public/index.html:  const $rows = $('#cartRows'); $rows.innerHTML = '';
+src/views/public/index.html:  for (const seat of CTX.seats) $rows.appendChild(makeCartRow(seat, pricesIdx, CTX.tariffs));
+src/views/public/index.html:
+src/views/public/index.html:  updateTotalsAndInstallment();
+src/views/public/index.html:  $('#schedule').addEventListener('change', updateInstallmentBox);
+src/views/public/index.html:
+src/views/public/index.html:markAllowedSeats(data.tokenSeats);
+src/views/public/index.html:updateSelectedHighlights(getSelectedSeatIdsFromForm());
+src/views/public/index.html:
+src/views/public/index.html:document.addEventListener('change', (e) => {
+src/views/public/index.html:  if (e.target && e.target.matches('.seat-line input[type="checkbox"]')) {
+src/views/public/index.html:    updateSelectedHighlights(getSelectedSeatIdsFromForm());
+src/views/public/index.html:    recalcTotal();
+src/views/public/index.html:  }
+src/views/public/index.html:});
+src/views/public/index.html:
+src/views/public/index.html:
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:/* ============== Plan (zoom + pan + highlight) ============== */
+src/views/public/index.html:
+src/views/public/index.html:function onPlanReady($obj) {
+src/views/public/index.html:  const doc = $obj.contentDocument;
+src/views/public/index.html:  const svg = doc?.querySelector('svg');
+src/views/public/index.html:  if (!svg) { console.warn('SVG not found'); return; }
+src/views/public/index.html:
+src/views/public/index.html:  // Style interne pour token-seat
+src/views/public/index.html:  const style = doc.createElementNS('http://www.w3.org/2000/svg','style');
+src/views/public/index.html:  style.textContent = `
+src/views/public/index.html:    .token-seat, .token-seat * { stroke: #fbbf24 !important; stroke-width: 2 !important; fill-opacity: .15 !important; }
+src/views/public/index.html:  `;
+src/views/public/index.html:  svg.insertBefore(style, svg.firstChild);
+src/views/public/index.html:
+src/views/public/index.html:  // Wrap dans <g id="zoomHost">
+src/views/public/index.html:  let host = svg.querySelector('#zoomHost');
+src/views/public/index.html:  if (!host) {
+src/views/public/index.html:    host = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+src/views/public/index.html:    host.setAttribute('id', 'zoomHost');
+src/views/public/index.html:    while (svg.firstChild) host.appendChild(svg.firstChild);
+src/views/public/index.html:    svg.appendChild(host);
+src/views/public/index.html:  }
+src/views/public/index.html:
+src/views/public/index.html:  let scale = 1, tx = 0, ty = 0;
+src/views/public/index.html:  let dragging = false, last = { x:0, y:0 };
+src/views/public/index.html:
+src/views/public/index.html:  function applyTransform() { host.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`); }
+src/views/public/index.html:
+src/views/public/index.html:  function svgPoint(evt) {
+src/views/public/index.html:    const pt = svg.createSVGPoint();
+src/views/public/index.html:    pt.x = evt.clientX; pt.y = evt.clientY;
+src/views/public/index.html:    const m = svg.getScreenCTM().inverse();
+src/views/public/index.html:    return pt.matrixTransform(m);
+src/views/public/index.html:  }
+src/views/public/index.html:
+src/views/public/index.html:  function onWheel(evt) {
+src/views/public/index.html:    evt.preventDefault();
+src/views/public/index.html:    const delta = -(evt.deltaY || evt.wheelDelta || 0);
+src/views/public/index.html:    const factor = Math.exp(delta * 0.0015);
+src/views/public/index.html:    const p = svgPoint(evt);
+src/views/public/index.html:    const newScale = Math.min(10, Math.max(0.25, scale * factor));
+src/views/public/index.html:    const k = newScale / scale;
+src/views/public/index.html:    tx = p.x - (p.x - tx) * k;
+src/views/public/index.html:    ty = p.y - (p.y - ty) * k;
+src/views/public/index.html:    scale = newScale;
+src/views/public/index.html:    applyTransform();
+src/views/public/index.html:  }
+src/views/public/index.html:
+src/views/public/index.html:  function onMouseDown(evt) {
+src/views/public/index.html:    dragging = true;
+src/views/public/index.html:    $('#venuePlan').classList.add('grabbing');
+src/views/public/index.html:    last = svgPoint(evt);
+src/views/public/index.html:  }
+src/views/public/index.html:  function onMouseMove(evt) {
+src/views/public/index.html:    if (!dragging) return;
+src/views/public/index.html:    const p = svgPoint(evt);
+src/views/public/index.html:    tx += (p.x - last.x);
+src/views/public/index.html:    ty += (p.y - last.y);
+src/views/public/index.html:    last = p;
+src/views/public/index.html:    applyTransform();
+src/views/public/index.html:  }
+src/views/public/index.html:  function onMouseUp() {
+src/views/public/index.html:    dragging = false;
+src/views/public/index.html:    $('#venuePlan').classList.remove('grabbing');
+src/views/public/index.html:  }
+src/views/public/index.html:
+src/views/public/index.html:  svg.addEventListener('wheel', onWheel, { passive:false });
+src/views/public/index.html:  svg.addEventListener('mousedown', onMouseDown);
+src/views/public/index.html:  svg.addEventListener('mousemove', onMouseMove);
+src/views/public/index.html:  svg.addEventListener('mouseup', onMouseUp);
+src/views/public/index.html:  svg.addEventListener('mouseleave', onMouseUp);
+src/views/public/index.html:
+src/views/public/index.html:  // Highlight (tolérant)
+src/views/public/index.html:  if (Array.isArray(CTX.tokenSeats)) {
+src/views/public/index.html:    for (const sid of CTX.tokenSeats) {
+src/views/public/index.html:      const el = doc.getElementById(sid) || doc.querySelector(`[id="${sid}"]`);
+src/views/public/index.html:      if (el) el.classList.add('token-seat');
+src/views/public/index.html:    }
+src/views/public/index.html:  }
+src/views/public/index.html:
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:
+src/views/public/index.html:
+src/views/public/index.html:
+src/views/public/index.html:/* ============== Soumission paiement ============== */
+src/views/public/index.html:
+src/views/public/index.html:async function submitPayment() {
+src/views/public/index.html:  const feedback = $('#feedback'); feedback.className = 'feedback'; feedback.textContent = '';
+src/views/public/index.html:
+src/views/public/index.html:  const items = [];
+src/views/public/index.html:  $$('.cart-row').forEach(row => {
+src/views/public/index.html:    if (!$('.keep-checkbox', row).checked) return;
+src/views/public/index.html:    const seatId = row.dataset.seatId;
+src/views/public/index.html:    const seatLabel = $('.seat-label', row).textContent;
+src/views/public/index.html:    const holderFirst = $('.holder-first', row).value.trim();
+src/views/public/index.html:    const holderLast  = $('.holder-last',  row).value.trim();
+src/views/public/index.html:    const tariffCode  = $('.tariff-select', row).value;
+src/views/public/index.html:    const zoneKey = zoneKeyFromSeatId(seatId);
+src/views/public/index.html:    const justif = $('.justif-input', row)?.value?.trim() || '';
+src/views/public/index.html:    const info   = $('.info-input', row)?.value?.trim() || '';
+src/views/public/index.html:    items.push({ seatId, seatLabel, zoneKey, tariffCode, firstName: holderFirst, lastName: holderLast, justification: justif, info });
+src/views/public/index.html:  });
+src/views/public/index.html:
+src/views/public/index.html:  if (!items.length) { feedback.classList.add('err'); feedback.textContent = 'Sélectionnez au moins une place.'; return; }
+src/views/public/index.html:
+src/views/public/index.html:  const payer = {
+src/views/public/index.html:    firstName: $('#payerFirstName').value.trim(),
+src/views/public/index.html:    lastName : $('#payerLastName').value.trim(),
+src/views/public/index.html:    email    : $('#payerEmail').value.trim(),
+src/views/public/index.html:  };
+src/views/public/index.html:  if (!payer.email) { feedback.classList.add('err'); feedback.textContent = 'Renseignez un email de contact.'; return; }
+src/views/public/index.html:  const schedule = Number($('#schedule').value || 1);
+src/views/public/index.html:
+src/views/public/index.html:  const totalAmount = CTX.currentTotal || 0;
+src/views/public/index.html:
+src/views/public/index.html:  $('#payBtn').disabled = true;
+src/views/public/index.html:
+src/views/public/index.html:  try {
+src/views/public/index.html:      const postUrl = 's/renew' + (location.search || '');
+src/views/public/index.html:      const res = await fetch(postUrl, { 
+src/views/public/index.html:      method: 'POST',
+src/views/public/index.html:      headers: { 'Content-Type':'application/json', 'Accept':'application/json' },
+src/views/public/index.html:      credentials: 'same-origin',
+src/views/public/index.html:      body: JSON.stringify({ items, payer, schedule, totalAmount })
+src/views/public/index.html:    });
+src/views/public/index.html:    if (!res.ok) throw new Error(`Erreur serveur (${res.status}) : ${await res.text()}`);
+src/views/public/index.html:    const out = await res.json();
+src/views/public/index.html:    if (out.redirectUrl) {
+src/views/public/index.html:      feedback.classList.add('ok');
+src/views/public/index.html:      feedback.textContent = 'Redirection vers le paiement…';
+src/views/public/index.html:      location.href = out.redirectUrl;
+src/views/public/index.html:    } else {
+src/views/public/index.html:      throw new Error('Réponse inattendue.');
+src/views/public/index.html:    }
+src/views/public/index.html:  } catch (e) {
+src/views/public/index.html:    console.error('pay error:', e);
+src/views/public/index.html:    feedback.classList.add('err');
+src/views/public/index.html:    feedback.textContent = e.message || 'Erreur au démarrage du paiement.';
+src/views/public/index.html:    $('#payBtn').disabled = false;
+src/views/public/index.html:  }
+src/views/public/index.html:}
+src/views/public/index.html:
+src/views/public/index.html:/* ============== Boot ============== */
+src/views/public/index.html:
+src/views/public/index.html:document.addEventListener('DOMContentLoaded', async () => {
+src/views/public/index.html:  try { await loadData(); }
+src/views/public/index.html:  catch (e) {
+src/views/public/index.html:    console.error('load error:', e);
+src/views/public/index.html:    $('#feedback').classList.add('err');
+src/views/public/index.html:    $('#feedback').textContent = 'Impossible de charger les données. Vérifiez votre lien.';
+src/views/public/index.html:  }
+src/views/public/index.html:  $('#payBtn').addEventListener('click', submitPayment);
+src/views/public/index.html:});
+src/views/public/public.js:(async function(){
+src/views/public/public.js:  const seasonCode = new URLSearchParams(location.search).get('season') || '2025-2026';
+src/views/public/public.js:  const map = document.getElementById('arena-map');        // ton <svg id="arena-map"> existe déjà
+src/views/public/public.js:  if (!map) { console.warn('SVG #arena-map non trouvé'); return; }
+src/views/public/public.js:
+src/views/public/public.js:  // util: badge "P" pour provisionné (dans l'espace SVG)
+src/views/public/public.js:  function addBadgeFor(elem, label='P') {
+src/views/public/public.js:    const svg = map; // parent <svg>
+src/views/public/public.js:    const bb = elem.getBBox();
+src/views/public/public.js:    const r = Math.max(6, Math.min(bb.width, bb.height) * 0.20);
+src/views/public/public.js:    const cx = bb.x + bb.width - r - 1;
+src/views/public/public.js:    const cy = bb.y + r + 1;
+src/views/public/public.js:
+src/views/public/public.js:    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+src/views/public/public.js:    g.setAttribute('class','badge');
+src/views/public/public.js:
+src/views/public/public.js:    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+src/views/public/public.js:    c.setAttribute('cx', cx);
+src/views/public/public.js:    c.setAttribute('cy', cy);
+src/views/public/public.js:    c.setAttribute('r', r);
+src/views/public/public.js:
+src/views/public/public.js:    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+src/views/public/public.js:    t.setAttribute('x', cx);
+src/views/public/public.js:    t.setAttribute('y', cy);
+src/views/public/public.js:    t.textContent = label;
+src/views/public/public.js:
+src/views/public/public.js:    g.appendChild(c); g.appendChild(t);
+src/views/public/public.js:    // on insère juste après l’élément pour rester au-dessus
+src/views/public/public.js:    elem.parentNode.insertBefore(g, elem.nextSibling);
+src/views/public/public.js:    return g;
+src/views/public/public.js:  }
+src/views/public/public.js:
+src/views/public/public.js:  // nettoie d’anciennes pastilles
+src/views/public/public.js:  function clearBadges() {
+src/views/public/public.js:    map.querySelectorAll('g.badge').forEach(n => n.remove());
+src/views/public/public.js:  }
+src/views/public/public.js:
+src/views/public/public.js:  // pose les états et les pastilles
+src/views/public/public.js:  function applySeatStates(apiSeats) {
+src/views/public/public.js:    clearBadges();
+src/views/public/public.js:    const byId = new Map(apiSeats.map(s => [s.seatId, s]));
+src/views/public/public.js:    const seatElems = map.querySelectorAll('[data-seat-id]'); // chaque siège dans le SVG doit avoir data-seat-id="A1-001"
+src/views/public/public.js:    seatElems.forEach(el => {
+src/views/public/public.js:      const sid = el.getAttribute('data-seat-id');
+src/views/public/public.js:      const rec = byId.get(sid);
+src/views/public/public.js:      const state = rec ? rec.status : 'available';
+src/views/public/public.js:      el.dataset.state = state;
+src/views/public/public.js:      el.classList.add('seat');
+src/views/public/public.js:
+src/views/public/public.js:      if (state === 'provisioned') addBadgeFor(el, 'P');       // pastille Provisionné
+src/views/public/public.js:      else if (state === 'held')    addBadgeFor(el, 'H');       // optionnel
+src/views/public/public.js:      else if (state === 'booked')  addBadgeFor(el, 'X');       // optionnel
+src/views/public/public.js:    });
+src/views/public/public.js:  }
+src/views/public/public.js:
+src/views/public/public.js:  // blocage au clic si non disponible
+src/views/public/public.js:  function bindClicks() {
+src/views/public/public.js:    map.addEventListener('click', (e) => {
+src/views/public/public.js:      const target = e.target.closest('[data-seat-id]');
+src/views/public/public.js:      if (!target) return;
+src/views/public/public.js:      const state = target.dataset.state || 'available';
+src/views/public/public.js:      const seatId = target.getAttribute('data-seat-id');
+src/views/public/public.js:      if (state !== 'available') {
+src/views/public/public.js:        const msg = state === 'provisioned'
+src/views/public/public.js:          ? `Place ${seatId} provisonnée (renouvellement N-1) — non réservable.`
+src/views/public/public.js:          : `Place ${seatId} indisponible (${state}).`;
+src/views/public/public.js:        alert(msg);
+src/views/public/public.js:        e.preventDefault();
+src/views/public/public.js:        e.stopPropagation();
+src/views/public/public.js:        return;
+src/views/public/public.js:      }
+src/views/public/public.js:      // logique de sélection normale (ajoute/retire du panier)
+src/views/public/public.js:      target.classList.toggle('selected');
+src/views/public/public.js:    });
+src/views/public/public.js:  }
+src/views/public/public.js:
+src/views/public/public.js:  // charge les états depuis l’API publique
+src/views/public/public.js:  async function loadAndRender() {
+src/views/public/public.js:    const res = await fetch(`/api/v1/public/seats?seasonCode=${encodeURIComponent(seasonCode)}`);
+src/views/public/public.js:    if (!res.ok) { console.error('API seats error', await res.text()); return; }
+src/views/public/public.js:    const json = await res.json();
+src/views/public/public.js:    applySeatStates(json.seats || []);
+src/views/public/public.js:  }
+src/views/public/public.js:
+src/views/public/public.js:  bindClicks();
+src/views/public/public.js:  await loadAndRender();
+src/views/public/public.js:
+src/views/public/public.js:  // (facultatif) rafraîchit toutes les 15s pour refléter les holds
+src/views/public/public.js:  setInterval(loadAndRender, 15000);
+src/views/public/public.js:})();
+src/views/renew/index.html:<!doctype html>
+src/views/renew/index.html:<html lang="fr">
+src/views/renew/index.html:<head>
+src/views/renew/index.html:  <meta charset="utf-8">
+src/views/renew/index.html:  <title>Renouvellement d’abonnement — BTS</title>
+src/views/renew/index.html:  <meta name="viewport" content="width=device-width, initial-scale=1">
+src/views/renew/index.html:  <!-- IMPORTANT : tout est relatif à /bts/ -->
+src/views/renew/index.html:  <link rel="icon" href="static/img/favicon.ico">
+src/views/renew/index.html:  <link rel="stylesheet" href="static/styles/renew.css">
+src/views/renew/index.html:</head>
+src/views/renew/index.html:<body>
+src/views/renew/index.html:  <header class="site-header">
+src/views/renew/index.html:    <div class="brand">
+src/views/renew/index.html:      <img src="static/img/logo.png" alt="Logo" class="logo">
+src/views/renew/index.html:      <h1>Renouvellement d’abonnement 2025-2026</h1>
+src/views/renew/index.html:    </div>
+src/views/renew/index.html:  </header>
+src/views/renew/index.html:
+src/views/renew/index.html:  <main class="page">
+src/views/renew/index.html:    <!-- Colonne PLAN -->
+src/views/renew/index.html:    <section class="col plan-col">
+src/views/renew/index.html:      <div class="panel">
+src/views/renew/index.html:        <h2>Votre plan</h2>
+src/views/renew/index.html:        <div id="planWrap" class="plan-wrap">
+src/views/renew/index.html:          <!-- le src est fixé dynamiquement en JS -->
+src/views/renew/index.html:          <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="Plan de la salle"></object>
+src/views/renew/index.html:          <div id="planStatus" class="plan-status">Chargement du plan…</div>
+src/views/renew/index.html:        </div>
+src/views/renew/index.html:        <div class="help">
+src/views/renew/index.html:          <p>Molette pour zoomer, glisser pour déplacer. Les sièges autorisés sont surlignés.</p>
+src/views/renew/index.html:        </div>
+src/views/renew/index.html:      </div>
+src/views/renew/index.html:    </section>
+src/views/renew/index.html:
+src/views/renew/index.html:    <!-- Colonne FORM -->
+src/views/renew/index.html:    <section class="col form-col">
+src/views/renew/index.html:      <div class="panel">
+src/views/renew/index.html:        <h2>Vos places</h2>
+src/views/renew/index.html:        <div id="seatsList" class="seats-list">
+src/views/renew/index.html:          <!-- lignes injectées par JS -->
+src/views/renew/index.html:        </div>
+src/views/renew/index.html:      </div>
+src/views/renew/index.html:
+src/views/renew/index.html:      <div class="panel">
+src/views/renew/index.html:        <h2>Paiement</h2>
+src/views/renew/index.html:            <p><small class="hint">Le reçu et la confirmation seront envoyés à l'email de contact.</small></p>
+src/views/renew/index.html:        <div class="form-grid payer-row">
+src/views/renew/index.html:          <div class="form-group">
+src/views/renew/index.html:            <label for="payerLast">Nom</label>
+src/views/renew/index.html:            <input id="payerLast" type="text" placeholder="Nom">
+src/views/renew/index.html:          </div>
+src/views/renew/index.html:          <div class="form-group">
+src/views/renew/index.html:            <label for="payerFirst">Prénom</label>
+src/views/renew/index.html:            <input id="payerFirst" type="text" placeholder="Prénom">
+src/views/renew/index.html:          </div>
+src/views/renew/index.html:          <div class="form-group">
+src/views/renew/index.html:            <label for="payerEmail">Email de contact</label>
+src/views/renew/index.html:            <input id="payerEmail" type="email" placeholder="email@exemple.com">
+src/views/renew/index.html:          </div>
+src/views/renew/index.html:        </div>
+src/views/renew/index.html:
+src/views/renew/index.html:        <div class="form-grid pay-bottom-row">
+src/views/renew/index.html:          <div class="form-group">
+src/views/renew/index.html:            <label for="paySchedule">Échéancier</label>
+src/views/renew/index.html:            <select id="paySchedule">
+src/views/renew/index.html:              <option value="1">En 1 fois</option>
+src/views/renew/index.html:              <option value="2">En 2 fois</option>
+src/views/renew/index.html:              <option value="3">En 3 fois</option>
+src/views/renew/index.html:            </select>
+src/views/renew/index.html:          </div>
+src/views/renew/index.html:          <div class="form-group">
+src/views/renew/index.html:            <label>Échéance (estimation)</label>
+src/views/renew/index.html:            <div id="schedulePreview" class="total-box">—</div>
+src/views/renew/index.html:          </div>
+src/views/renew/index.html:          <div class="form-group">
+src/views/renew/index.html:            <label>Total</label>
+src/views/renew/index.html:            <div id="totalBox" class="total-box">0,00 €</div>
+src/views/renew/index.html:          </div>
+src/views/renew/index.html:        </div>
+src/views/renew/index.html:
+src/views/renew/index.html:        <div class="actions">
+src/views/renew/index.html:          <button id="payBtn" class="pay-btn">Procéder au paiement</button>
+src/views/renew/index.html:        </div>
+src/views/renew/index.html:      </div>
+src/views/renew/index.html:    </section>
+src/views/renew/index.html:  </main>
+src/views/renew/index.html:
+src/views/renew/index.html:  <script defer src="static/js/renew.js"></script>
+src/views/renew/index.html:</body>
+src/views/renew/index.html:</html>
+src/views/admin/pricing.html:<!doctype html>
+src/views/admin/pricing.html:<html lang="fr">
+src/views/admin/pricing.html:<head>
+src/views/admin/pricing.html:  <meta charset="utf-8" />
+src/views/admin/pricing.html:  <title>BTS · Admin Tarifs</title>
+src/views/admin/pricing.html:  <meta name="viewport" content="width=device-width, initial-scale=1" />
+src/views/admin/pricing.html:  <link rel="stylesheet" href="/assets/admin.css" />
+src/views/admin/pricing.html:</head>
+src/views/admin/pricing.html:<body>
+src/views/admin/pricing.html:  <header class="topbar">
+src/views/admin/pricing.html:    <div class="brand">BTS · Admin Tarifs</div>
+src/views/admin/pricing.html:    <div class="auth">
+src/views/admin/pricing.html:      <label>Auth header:
+src/views/admin/pricing.html:        <input id="authHeader" type="text" placeholder="Bearer <token> ou x-admin-key: <secret>" />
+src/views/admin/pricing.html:      </label>
+src/views/admin/pricing.html:      <button id="saveAuth">Enregistrer</button>
+src/views/admin/pricing.html:    </div>
+src/views/admin/pricing.html:  </header>
+src/views/admin/pricing.html:
+src/views/admin/pricing.html:  <main class="container">
+src/views/admin/pricing.html:    <nav class="tabs">
+src/views/admin/pricing.html:      <button class="tab active" data-tab="catalog">Catalogue des tarifs</button>
+src/views/admin/pricing.html:      <button class="tab" data-tab="prices">Prix par zone</button>
+src/views/admin/pricing.html:    </nav>
+src/views/admin/pricing.html:
+src/views/admin/pricing.html:    <!-- CATALOG -->
+src/views/admin/pricing.html:    <section id="tab-catalog" class="panel active">
+src/views/admin/pricing.html:      <div class="panel-head">
+src/views/admin/pricing.html:        <div>
+src/views/admin/pricing.html:          <button id="btnCatReload">Recharger</button>
+src/views/admin/pricing.html:          <button id="btnCatAdd">Ajouter une ligne</button>
+src/views/admin/pricing.html:        </div>
+src/views/admin/pricing.html:        <div>
+src/views/admin/pricing.html:          <input type="file" id="catCsvFile" accept=".csv" />
+src/views/admin/pricing.html:          <button id="btnCatImport">Importer CSV</button>
+src/views/admin/pricing.html:          <button id="btnCatExport">Exporter CSV</button>
+src/views/admin/pricing.html:        </div>
+src/views/admin/pricing.html:      </div>
+src/views/admin/pricing.html:      <div class="table-wrap">
+src/views/admin/pricing.html:        <table id="catTable">
+src/views/admin/pricing.html:          <thead>
+src/views/admin/pricing.html:            <tr>
+src/views/admin/pricing.html:              <th>code</th><th>label</th><th>requiresField</th><th>fieldLabel</th>
+src/views/admin/pricing.html:              <th>requiresInfo</th><th>active</th><th>sortOrder</th><th>Actions</th>
+src/views/admin/pricing.html:            </tr>
+src/views/admin/pricing.html:          </thead>
+src/views/admin/pricing.html:          <tbody></tbody>
+src/views/admin/pricing.html:        </table>
+src/views/admin/pricing.html:      </div>
+src/views/admin/pricing.html:    </section>
+src/views/admin/pricing.html:
+src/views/admin/pricing.html:    <!-- PRICES -->
+src/views/admin/pricing.html:    <section id="tab-prices" class="panel">
+src/views/admin/pricing.html:      <div class="panel-head">
+src/views/admin/pricing.html:        <div class="row">
+src/views/admin/pricing.html:          <label>Saison: <input id="pSeason" placeholder="2025-2026" /></label>
+src/views/admin/pricing.html:          <label>Lieu (venueSlug): <input id="pVenue" placeholder="patinoire-blagnac" /></label>
+src/views/admin/pricing.html:          <button id="btnPriceReload">Recharger</button>
+src/views/admin/pricing.html:          <button id="btnPriceAdd">Ajouter une ligne</button>
+src/views/admin/pricing.html:        </div>
+src/views/admin/pricing.html:        <div>
+src/views/admin/pricing.html:          <input type="file" id="priceCsvFile" accept=".csv" />
+src/views/admin/pricing.html:          <button id="btnPriceImport">Importer CSV</button>
+src/views/admin/pricing.html:          <button id="btnPriceExport">Exporter CSV</button>
+src/views/admin/pricing.html:        </div>
+src/views/admin/pricing.html:      </div>
+src/views/admin/pricing.html:      <div class="table-wrap">
+src/views/admin/pricing.html:        <table id="priceTable">
+src/views/admin/pricing.html:          <thead>
+src/views/admin/pricing.html:            <tr>
+src/views/admin/pricing.html:              <th>zoneKey</th><th>tariffCode</th><th>priceCents</th><th>Actions</th>
+src/views/admin/pricing.html:            </tr>
+src/views/admin/pricing.html:          </thead>
+src/views/admin/pricing.html:          <tbody></tbody>
+src/views/admin/pricing.html:        </table>
+src/views/admin/pricing.html:      </div>
+src/views/admin/pricing.html:    </section>
+src/views/admin/pricing.html:  </main>
+src/views/admin/pricing.html:
+src/views/admin/pricing.html:  <script src="/assets/admin-pricing.js"></script>
+src/views/admin/pricing.html:</body>
+src/views/admin/pricing.html:</html>
+src/views/admin/admin-pricing.js:(function () {
+src/views/admin/admin-pricing.js:  // ---------- Helpers ----------
+src/views/admin/admin-pricing.js:  const $ = sel => document.querySelector(sel);
+src/views/admin/admin-pricing.js:  const $$ = sel => Array.from(document.querySelectorAll(sel));
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  function loadAuthHeader() {
+src/views/admin/admin-pricing.js:    return localStorage.getItem('bts_admin_auth_header') || '';
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:  function saveAuthHeader(v) {
+src/views/admin/admin-pricing.js:    localStorage.setItem('bts_admin_auth_header', v || '');
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:  function makeHeaders() {
+src/views/admin/admin-pricing.js:    const h = { 'Content-Type': 'application/json' };
+src/views/admin/admin-pricing.js:    const raw = loadAuthHeader().trim();
+src/views/admin/admin-pricing.js:    if (!raw) return h;
+src/views/admin/admin-pricing.js:    if (raw.includes(':')) {
+src/views/admin/admin-pricing.js:      const i = raw.indexOf(':');
+src/views/admin/admin-pricing.js:      const k = raw.slice(0, i).trim();
+src/views/admin/admin-pricing.js:      const v = raw.slice(i + 1).trim();
+src/views/admin/admin-pricing.js:      if (k && v) h[k] = v;
+src/views/admin/admin-pricing.js:    } else {
+src/views/admin/admin-pricing.js:      h['Authorization'] = raw; // ex: "Bearer xxxxx"
+src/views/admin/admin-pricing.js:    }
+src/views/admin/admin-pricing.js:    return h;
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:  async function fetchJson(url, opts = {}) {
+src/views/admin/admin-pricing.js:    const res = await fetch(url, { ...opts, headers: { ...makeHeaders(), ...(opts.headers || {}) } });
+src/views/admin/admin-pricing.js:    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+src/views/admin/admin-pricing.js:    return res.json();
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:  function toCsv(rows) {
+src/views/admin/admin-pricing.js:    const esc = s => `"${String(s ?? '').replace(/"/g,'""')}"`;
+src/views/admin/admin-pricing.js:    return rows.map(r => Object.values(r).map(esc).join(',')).join('\n');
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:  async function downloadCsv(url, filename) {
+src/views/admin/admin-pricing.js:    const res = await fetch(url, { headers: makeHeaders() });
+src/views/admin/admin-pricing.js:    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+src/views/admin/admin-pricing.js:    const blob = await res.blob();
+src/views/admin/admin-pricing.js:    const a = document.createElement('a');
+src/views/admin/admin-pricing.js:    a.href = URL.createObjectURL(blob);
+src/views/admin/admin-pricing.js:    a.download = filename;
+src/views/admin/admin-pricing.js:    a.click();
+src/views/admin/admin-pricing.js:    URL.revokeObjectURL(a.href);
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  // ---------- Tabs ----------
+src/views/admin/admin-pricing.js:  $$('.tab').forEach(btn => {
+src/views/admin/admin-pricing.js:    btn.addEventListener('click', () => {
+src/views/admin/admin-pricing.js:      $$('.tab').forEach(b => b.classList.remove('active'));
+src/views/admin/admin-pricing.js:      btn.classList.add('active');
+src/views/admin/admin-pricing.js:      const tab = btn.dataset.tab;
+src/views/admin/admin-pricing.js:      $$('.panel').forEach(p => p.classList.remove('active'));
+src/views/admin/admin-pricing.js:      $('#tab-' + tab).classList.add('active');
+src/views/admin/admin-pricing.js:    });
+src/views/admin/admin-pricing.js:  });
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  // ---------- Auth header ----------
+src/views/admin/admin-pricing.js:  $('#authHeader').value = loadAuthHeader();
+src/views/admin/admin-pricing.js:  $('#saveAuth').addEventListener('click', () => {
+src/views/admin/admin-pricing.js:    saveAuthHeader($('#authHeader').value);
+src/views/admin/admin-pricing.js:    alert('Auth header enregistré.');
+src/views/admin/admin-pricing.js:  });
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  // ---------- CATALOG ----------
+src/views/admin/admin-pricing.js:  async function loadCatalog() {
+src/views/admin/admin-pricing.js:    const data = await fetchJson('/api/admin/tariff-catalog?all=1');
+src/views/admin/admin-pricing.js:    const tbody = $('#catTable tbody');
+src/views/admin/admin-pricing.js:    tbody.innerHTML = '';
+src/views/admin/admin-pricing.js:    for (const it of data.items) {
+src/views/admin/admin-pricing.js:      tbody.appendChild(renderCatRow(it));
+src/views/admin/admin-pricing.js:    }
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  function renderCatRow(it = {}) {
+src/views/admin/admin-pricing.js:    const tr = document.createElement('tr');
+src/views/admin/admin-pricing.js:    tr.innerHTML = `
+src/views/admin/admin-pricing.js:      <td><input class="cell" data-k="code" value="${it.code || ''}" ${it._id ? 'readonly' : ''}></td>
+src/views/admin/admin-pricing.js:      <td><input class="cell" data-k="label" value="${it.label || ''}"></td>
+src/views/admin/admin-pricing.js:      <td><input class="cell" data-k="requiresField" value="${it.requiresField || ''}"></td>
+src/views/admin/admin-pricing.js:      <td><input class="cell" data-k="fieldLabel" value="${it.fieldLabel || ''}"></td>
+src/views/admin/admin-pricing.js:      <td><input class="cell" data-k="requiresInfo" value="${it.requiresInfo || ''}"></td>
+src/views/admin/admin-pricing.js:      <td><input class="cell" data-k="active" value="${it.active ? 'true' : 'false'}"></td>
+src/views/admin/admin-pricing.js:      <td><input class="cell" data-k="sortOrder" value="${it.sortOrder ?? 100}"></td>
+src/views/admin/admin-pricing.js:      <td>
+src/views/admin/admin-pricing.js:        <button class="btn ok">Enregistrer</button>
+src/views/admin/admin-pricing.js:        ${it._id ? '<button class="btn danger">Supprimer</button>' : ''}
+src/views/admin/admin-pricing.js:      </td>
+src/views/admin/admin-pricing.js:    `;
+src/views/admin/admin-pricing.js:    const btns = tr.querySelectorAll('button');
+src/views/admin/admin-pricing.js:    btns[0].addEventListener('click', async () => {
+src/views/admin/admin-pricing.js:      const row = readRow(tr);
+src/views/admin/admin-pricing.js:      row.code = String(row.code || '').toUpperCase().trim();
+src/views/admin/admin-pricing.js:      row.active = String(row.active || '').toLowerCase() !== 'false';
+src/views/admin/admin-pricing.js:      row.sortOrder = Number(row.sortOrder || 100);
+src/views/admin/admin-pricing.js:      await fetchJson('/api/admin/tariff-catalog', {
+src/views/admin/admin-pricing.js:        method: 'PUT',
+src/views/admin/admin-pricing.js:        body: JSON.stringify(row)
+src/views/admin/admin-pricing.js:      });
+src/views/admin/admin-pricing.js:      await loadCatalog();
+src/views/admin/admin-pricing.js:    });
+src/views/admin/admin-pricing.js:    if (btns[1]) {
+src/views/admin/admin-pricing.js:      btns[1].addEventListener('click', async () => {
+src/views/admin/admin-pricing.js:        if (!confirm('Supprimer ce tarif ?')) return;
+src/views/admin/admin-pricing.js:        const code = tr.querySelector('[data-k="code"]').value.toUpperCase();
+src/views/admin/admin-pricing.js:        await fetchJson('/api/admin/tariff-catalog', {
+src/views/admin/admin-pricing.js:          method: 'DELETE',
+src/views/admin/admin-pricing.js:          body: JSON.stringify({ code })
+src/views/admin/admin-pricing.js:        });
+src/views/admin/admin-pricing.js:        tr.remove();
+src/views/admin/admin-pricing.js:      });
+src/views/admin/admin-pricing.js:    }
+src/views/admin/admin-pricing.js:    return tr;
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  function readRow(tr) {
+src/views/admin/admin-pricing.js:    const obj = {};
+src/views/admin/admin-pricing.js:    tr.querySelectorAll('input.cell').forEach(inp => obj[inp.dataset.k] = inp.value);
+src/views/admin/admin-pricing.js:    return obj;
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  $('#btnCatReload').addEventListener('click', loadCatalog);
+src/views/admin/admin-pricing.js:  $('#btnCatAdd').addEventListener('click', () => {
+src/views/admin/admin-pricing.js:    $('#catTable tbody').prepend(renderCatRow({}));
+src/views/admin/admin-pricing.js:  });
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  $('#btnCatExport').addEventListener('click', async () => {
+src/views/admin/admin-pricing.js:    await downloadCsv('/api/admin/tariff-catalog/export.csv', 'tariff_catalog.csv');
+src/views/admin/admin-pricing.js:  });
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  $('#btnCatImport').addEventListener('click', async () => {
+src/views/admin/admin-pricing.js:    const f = $('#catCsvFile').files[0];
+src/views/admin/admin-pricing.js:    if (!f) return alert('Choisis un fichier CSV.');
+src/views/admin/admin-pricing.js:    const text = await f.text();
+src/views/admin/admin-pricing.js:    const rows = parseCsv(text); // array of objects
+src/views/admin/admin-pricing.js:    if (!rows.length) return alert('CSV vide ?');
+src/views/admin/admin-pricing.js:    // normaliser
+src/views/admin/admin-pricing.js:    const items = rows.map(r => ({
+src/views/admin/admin-pricing.js:      code: String(r.code || r.CODE || '').toUpperCase(),
+src/views/admin/admin-pricing.js:      label: r.label || r.LABEL || '',
+src/views/admin/admin-pricing.js:      requiresField: r.requiresField || r.REQUIRESFIELD || '',
+src/views/admin/admin-pricing.js:      fieldLabel: r.fieldLabel || r.FIELDLABEL || '',
+src/views/admin/admin-pricing.js:      requiresInfo: r.requiresInfo || r.REQUIRESINFO || '',
+src/views/admin/admin-pricing.js:      active: parseBool(r.active ?? r.ACTIVE, true),
+src/views/admin/admin-pricing.js:      sortOrder: Number(r.sortOrder ?? r.SORTORDER ?? 100)
+src/views/admin/admin-pricing.js:    })).filter(x => x.code && x.label);
+src/views/admin/admin-pricing.js:    await fetchJson('/api/admin/tariff-catalog/batch', {
+src/views/admin/admin-pricing.js:      method: 'POST',
+src/views/admin/admin-pricing.js:      body: JSON.stringify({ items })
+src/views/admin/admin-pricing.js:    });
+src/views/admin/admin-pricing.js:    await loadCatalog();
+src/views/admin/admin-pricing.js:    alert(`Import OK (${items.length} lignes)`);
+src/views/admin/admin-pricing.js:  });
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  // ---------- PRICES ----------
+src/views/admin/admin-pricing.js:  async function loadPrices() {
+src/views/admin/admin-pricing.js:    const season = $('#pSeason').value.trim();
+src/views/admin/admin-pricing.js:    const venue  = $('#pVenue').value.trim();
+src/views/admin/admin-pricing.js:    if (!season || !venue) return alert('Saison et venue requis.');
+src/views/admin/admin-pricing.js:    const data = await fetchJson(`/api/admin/tariffs?season=${encodeURIComponent(season)}&venue=${encodeURIComponent(venue)}`);
+src/views/admin/admin-pricing.js:    const tbody = $('#priceTable tbody');
+src/views/admin/admin-pricing.js:    tbody.innerHTML = '';
+src/views/admin/admin-pricing.js:    for (const it of data.items) {
+src/views/admin/admin-pricing.js:      tbody.appendChild(renderPriceRow(it));
+src/views/admin/admin-pricing.js:    }
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  function renderPriceRow(it = {}) {
+src/views/admin/admin-pricing.js:    const tr = document.createElement('tr');
+src/views/admin/admin-pricing.js:    tr.innerHTML = `
+src/views/admin/admin-pricing.js:      <td><input class="cell" data-k="zoneKey" value="${it.zoneKey || ''}"></td>
+src/views/admin/admin-pricing.js:      <td><input class="cell" data-k="tariffCode" value="${it.tariffCode || ''}"></td>
+src/views/admin/admin-pricing.js:      <td><input class="cell" data-k="priceCents" value="${it.priceCents ?? ''}"></td>
+src/views/admin/admin-pricing.js:      <td>
+src/views/admin/admin-pricing.js:        <button class="btn ok">Enregistrer</button>
+src/views/admin/admin-pricing.js:      </td>
+src/views/admin/admin-pricing.js:    `;
+src/views/admin/admin-pricing.js:    tr.querySelector('.btn.ok').addEventListener('click', async () => {
+src/views/admin/admin-pricing.js:      const season = $('#pSeason').value.trim();
+src/views/admin/admin-pricing.js:      const venue  = $('#pVenue').value.trim();
+src/views/admin/admin-pricing.js:      const row = readRow(tr);
+src/views/admin/admin-pricing.js:      row.tariffCode = String(row.tariffCode || '').toUpperCase().trim();
+src/views/admin/admin-pricing.js:      row.priceCents = Number(row.priceCents || 0);
+src/views/admin/admin-pricing.js:      await fetchJson('/api/admin/tariffs', {
+src/views/admin/admin-pricing.js:        method: 'PUT',
+src/views/admin/admin-pricing.js:        body: JSON.stringify({
+src/views/admin/admin-pricing.js:          seasonCode: season,
+src/views/admin/admin-pricing.js:          venueSlug: venue,
+src/views/admin/admin-pricing.js:          zoneKey: row.zoneKey,
+src/views/admin/admin-pricing.js:          tariffCode: row.tariffCode,
+src/views/admin/admin-pricing.js:          priceCents: row.priceCents
+src/views/admin/admin-pricing.js:        })
+src/views/admin/admin-pricing.js:      });
+src/views/admin/admin-pricing.js:      alert('Enregistré.');
+src/views/admin/admin-pricing.js:    });
+src/views/admin/admin-pricing.js:    return tr;
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  $('#btnPriceReload').addEventListener('click', loadPrices);
+src/views/admin/admin-pricing.js:  $('#btnPriceAdd').addEventListener('click', () => {
+src/views/admin/admin-pricing.js:    $('#priceTable tbody').prepend(renderPriceRow({}));
+src/views/admin/admin-pricing.js:  });
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  $('#btnPriceExport').addEventListener('click', async () => {
+src/views/admin/admin-pricing.js:    const season = $('#pSeason').value.trim();
+src/views/admin/admin-pricing.js:    const venue  = $('#pVenue').value.trim();
+src/views/admin/admin-pricing.js:    if (!season || !venue) return alert('Saison et venue requis.');
+src/views/admin/admin-pricing.js:    await downloadCsv(`/api/admin/tariffs/export.csv?season=${encodeURIComponent(season)}&venue=${encodeURIComponent(venue)}`, `tariffs_${season}_${venue}.csv`);
+src/views/admin/admin-pricing.js:  });
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  $('#btnPriceImport').addEventListener('click', async () => {
+src/views/admin/admin-pricing.js:    const season = $('#pSeason').value.trim();
+src/views/admin/admin-pricing.js:    const venue  = $('#pVenue').value.trim();
+src/views/admin/admin-pricing.js:    if (!season || !venue) return alert('Saison et venue requis.');
+src/views/admin/admin-pricing.js:    const f = $('#priceCsvFile').files[0];
+src/views/admin/admin-pricing.js:    if (!f) return alert('Choisis un fichier CSV.');
+src/views/admin/admin-pricing.js:    const text = await f.text();
+src/views/admin/admin-pricing.js:    const rows = parseCsv(text);
+src/views/admin/admin-pricing.js:    if (!rows.length) return alert('CSV vide ?');
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:    const items = rows.map(r => {
+src/views/admin/admin-pricing.js:      let cents = Number(r.priceCents ?? r.PRICECENTS);
+src/views/admin/admin-pricing.js:      if (!Number.isFinite(cents)) {
+src/views/admin/admin-pricing.js:        const euro = (r.priceEuro ?? r.PRICEEURO ?? '').toString().replace(',', '.');
+src/views/admin/admin-pricing.js:        const n = Number(euro);
+src/views/admin/admin-pricing.js:        cents = Number.isFinite(n) ? Math.round(n * 100) : NaN;
+src/views/admin/admin-pricing.js:      }
+src/views/admin/admin-pricing.js:      return {
+src/views/admin/admin-pricing.js:        zoneKey: r.zoneKey ?? r.ZONEKEY ?? r.zone ?? r.ZONE,
+src/views/admin/admin-pricing.js:        tariffCode: String(r.tariffCode ?? r.TARIFFCODE ?? r.tariff ?? r.TARIFF || '').toUpperCase(),
+src/views/admin/admin-pricing.js:        priceCents: cents
+src/views/admin/admin-pricing.js:      };
+src/views/admin/admin-pricing.js:    }).filter(x => x.zoneKey && x.tariffCode && Number.isFinite(x.priceCents));
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:    await fetchJson('/api/admin/tariffs/batch', {
+src/views/admin/admin-pricing.js:      method: 'POST',
+src/views/admin/admin-pricing.js:      body: JSON.stringify({ seasonCode: season, venueSlug: venue, items })
+src/views/admin/admin-pricing.js:    });
+src/views/admin/admin-pricing.js:    await loadPrices();
+src/views/admin/admin-pricing.js:    alert(`Import OK (${items.length} lignes)`);
+src/views/admin/admin-pricing.js:  });
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  // ---------- CSV parser simple ----------
+src/views/admin/admin-pricing.js:  function parseCsv(text) {
+src/views/admin/admin-pricing.js:    const lines = text.replace(/\r/g,'').split('\n').filter(Boolean);
+src/views/admin/admin-pricing.js:    if (!lines.length) return [];
+src/views/admin/admin-pricing.js:    const headers = splitCsvLine(lines[0]).map(h => h.trim());
+src/views/admin/admin-pricing.js:    const rows = [];
+src/views/admin/admin-pricing.js:    for (let i = 1; i < lines.length; i++) {
+src/views/admin/admin-pricing.js:      const cells = splitCsvLine(lines[i]);
+src/views/admin/admin-pricing.js:      const obj = {};
+src/views/admin/admin-pricing.js:      headers.forEach((h, idx) => obj[h] = cells[idx] ?? '');
+src/views/admin/admin-pricing.js:      rows.push(obj);
+src/views/admin/admin-pricing.js:    }
+src/views/admin/admin-pricing.js:    return rows;
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:  function splitCsvLine(line) {
+src/views/admin/admin-pricing.js:    const out = [];
+src/views/admin/admin-pricing.js:    let cur = '', q = false;
+src/views/admin/admin-pricing.js:    for (let i=0; i<line.length; i++) {
+src/views/admin/admin-pricing.js:      const c = line[i];
+src/views/admin/admin-pricing.js:      if (q) {
+src/views/admin/admin-pricing.js:        if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+src/views/admin/admin-pricing.js:        else if (c === '"') { q = false; }
+src/views/admin/admin-pricing.js:        else cur += c;
+src/views/admin/admin-pricing.js:      } else {
+src/views/admin/admin-pricing.js:        if (c === '"') q = true;
+src/views/admin/admin-pricing.js:        else if (c === ',') { out.push(cur); cur = ''; }
+src/views/admin/admin-pricing.js:        else cur += c;
+src/views/admin/admin-pricing.js:      }
+src/views/admin/admin-pricing.js:    }
+src/views/admin/admin-pricing.js:    out.push(cur);
+src/views/admin/admin-pricing.js:    return out;
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:  function parseBool(v, def=true) {
+src/views/admin/admin-pricing.js:    if (v == null || v === '') return def;
+src/views/admin/admin-pricing.js:    const s = String(v).trim().toLowerCase();
+src/views/admin/admin-pricing.js:    if (['1','true','yes','y','on'].includes(s)) return true;
+src/views/admin/admin-pricing.js:    if (['0','false','no','n','off'].includes(s)) return false;
+src/views/admin/admin-pricing.js:    return def;
+src/views/admin/admin-pricing.js:  }
+src/views/admin/admin-pricing.js:
+src/views/admin/admin-pricing.js:  // init
+src/views/admin/admin-pricing.js:  $('#pSeason').value = (new Date().getFullYear()) + '-' + (new Date().getFullYear()+1);
+src/views/admin/admin-pricing.js:  loadCatalog().catch(err => console.error(err));
+src/views/admin/admin-pricing.js:})();
+src/views/tbh7/index.html:<!doctype html>
+src/views/tbh7/index.html:<html lang="fr">
+src/views/tbh7/index.html:<head>
+src/views/tbh7/index.html:  <meta charset="utf-8" />
+src/views/tbh7/index.html:  <title>BTS · Abonnement TBH7</title>
+src/views/tbh7/index.html:  <meta name="viewport" content="width=device-width, initial-scale=1" />
+src/views/tbh7/index.html:  <link href="../static/styles/tbh7.css" rel="stylesheet" />
+src/views/tbh7/index.html:</head>
+src/views/tbh7/index.html:<body>
+src/views/tbh7/index.html:  <header class="hdr">
+src/views/tbh7/index.html:    <h1>Abonnement Fan Club TBH7</h1>
+src/views/tbh7/index.html:    <p class="muted">Choisissez une zone sur le plan ou via le sélecteur, puis ajoutez les abonnés et les tarifs.</p>
+src/views/tbh7/index.html:  </header>
+src/views/tbh7/index.html:
+src/views/tbh7/index.html:  <main class="grid">
+src/views/tbh7/index.html:    <!-- Colonne gauche : PLAN -->
+src/views/tbh7/index.html:    <section class="plan card">
+src/views/tbh7/index.html:      <div class="plan-head">
+src/views/tbh7/index.html:        <span>Plan</span>
+src/views/tbh7/index.html:        <div class="plan-actions">
+src/views/tbh7/index.html:          <button id="btnZoomOut" title="Zoom -">−</button>
+src/views/tbh7/index.html:          <button id="btnZoomIn"  title="Zoom +">+</button>
+src/views/tbh7/index.html:          <button id="btnReset"   title="Réinitialiser">Reset</button>
+src/views/tbh7/index.html:        </div>
+src/views/tbh7/index.html:      </div>
+src/views/tbh7/index.html:      <div class="plan-viewport">
+src/views/tbh7/index.html:        <object id="venuePlan" type="image/svg+xml" aria-label="Plan de la patinoire"></object>
+src/views/tbh7/index.html:        <div class="plan-help muted">Molette = zoom (centré curseur) · Cliquer-glisser = déplacer</div>
+src/views/tbh7/index.html:      </div>
+src/views/tbh7/index.html:    </section>
+src/views/tbh7/index.html:
+src/views/tbh7/index.html:    <!-- Colonne droite : ZONES + COMMANDE -->
+src/views/tbh7/index.html:    <section class="right-col">
+src/views/tbh7/index.html:      <section class="card">
+src/views/tbh7/index.html:        <div class="field">
+src/views/tbh7/index.html:          <label>Zone</label>
+src/views/tbh7/index.html:          <select id="zoneSelect"></select>
+src/views/tbh7/index.html:        </div>
+src/views/tbh7/index.html:
+src/views/tbh7/index.html:        <div class="table-head">
+src/views/tbh7/index.html:          <div>Abonnés</div>
+src/views/tbh7/index.html:          <div class="actions">
+src/views/tbh7/index.html:            <button id="btnAdd">+ Ajouter</button>
+src/views/tbh7/index.html:            <button id="btnRemove" class="muted">− Retirer</button>
+src/views/tbh7/index.html:          </div>
+src/views/tbh7/index.html:        </div>
+src/views/tbh7/index.html:
+src/views/tbh7/index.html:        <table class="people">
+src/views/tbh7/index.html:          <thead>
+src/views/tbh7/index.html:            <tr>
+src/views/tbh7/index.html:              <th>#</th>
+src/views/tbh7/index.html:              <th>Prénom</th>
+src/views/tbh7/index.html:              <th>Nom</th>
+src/views/tbh7/index.html:              <th>Tarif (montant)</th>
+src/views/tbh7/index.html:            </tr>
+src/views/tbh7/index.html:          </thead>
+src/views/tbh7/index.html:          <tbody id="rows"></tbody>
+src/views/tbh7/index.html:        </table>
+src/views/tbh7/index.html:      </section>
+src/views/tbh7/index.html:
+src/views/tbh7/index.html:      <section class="card">
+src/views/tbh7/index.html:        <h2 class="card-title">Commande & Paiement</h2>
+src/views/tbh7/index.html:
+src/views/tbh7/index.html:        <div class="field half">
+src/views/tbh7/index.html:          <label>Prénom (contact)</label>
+src/views/tbh7/index.html:          <input id="payerFirstName" type="text" />
+src/views/tbh7/index.html:        </div>
+src/views/tbh7/index.html:        <div class="field half">
+src/views/tbh7/index.html:          <label>Nom (contact)</label>
+src/views/tbh7/index.html:          <input id="payerLastName" type="text" />
+src/views/tbh7/index.html:        </div>
+src/views/tbh7/index.html:        <div class="field">
+src/views/tbh7/index.html:          <label>Email (contact)</label>
+src/views/tbh7/index.html:          <input id="payerEmail" type="email" />
+src/views/tbh7/index.html:        </div>
+src/views/tbh7/index.html:
+src/views/tbh7/index.html:        <div class="field">
+src/views/tbh7/index.html:          <label>Échéancier</label>
+src/views/tbh7/index.html:          <select id="installments">
+src/views/tbh7/index.html:            <option value="1">1 fois</option>
+src/views/tbh7/index.html:            <option value="2">2 fois</option>
+src/views/tbh7/index.html:            <option value="3">3 fois</option>
+src/views/tbh7/index.html:          </select>
+src/views/tbh7/index.html:          <p id="splitInfo" class="muted"></p>
+src/views/tbh7/index.html:        </div>
+src/views/tbh7/index.html:
+src/views/tbh7/index.html:        <div class="total">
+src/views/tbh7/index.html:          <span>Total</span>
+src/views/tbh7/index.html:          <strong id="totalEuro">—</strong>
+src/views/tbh7/index.html:        </div>
+src/views/tbh7/index.html:
+src/views/tbh7/index.html:        <button id="payBtn" class="primary">Payer</button>
+src/views/tbh7/index.html:        <p id="msg" class="muted"></p>
+src/views/tbh7/index.html:      </section>
+src/views/tbh7/index.html:    </section>
+src/views/tbh7/index.html:  </main>
+src/views/tbh7/index.html:
+src/views/tbh7/index.html:  <script type="module" src="../static/js/tbh7.js"></script>
+src/views/tbh7/index.html:</body>
+src/views/tbh7/index.html:</html>
+src/routes/ha.js:// src/routes/ha.js
+src/routes/ha.js:import express from 'express';
+src/routes/ha.js:import { Order, Seat } from '../models/index.js';
+src/routes/ha.js:import { getCheckoutStatus } from '../services/helloasso.js';
+src/routes/ha.js:import { sendMail } from '../loaders/mailer.js';
+src/routes/ha.js:import { renderEmailTemplate } from '../utils/email-template.js';
+src/routes/ha.js:
+src/routes/ha.js:const router = express.Router();
+src/routes/ha.js:
+src/routes/ha.js:// Helpers
+src/routes/ha.js:const isStub = () => String(process.env.HELLOASSO_STUB || '').toLowerCase() === 'true';
+src/routes/ha.js:const stubResultEnv = () => String(process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
+src/routes/ha.js:
+src/routes/ha.js:async function markSeatsReserved(order) {
+src/routes/ha.js:  try {
+src/routes/ha.js:    const seatIds = (order?.lines || []).map(l => l.seatId).filter(Boolean);
+src/routes/ha.js:    if (!seatIds.length) return;
+src/routes/ha.js:    await Seat.updateMany(
+src/routes/ha.js:      { _id: { $in: seatIds } },
+src/routes/ha.js:      { $set: { status: 'reserved' } }
+src/routes/ha.js:    );
+src/routes/ha.js:  } catch (e) {
+src/routes/ha.js:    console.warn('[ha/return] seat update failed:', e.message);
+src/routes/ha.js:  }
+src/routes/ha.js:}
+src/routes/ha.js:
+src/routes/ha.js:function isPaidLike(status) {
+src/routes/ha.js:  return /^(paid|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(status || '').trim());
+src/routes/ha.js:}
+src/routes/ha.js:
+src/routes/ha.js:/**
+src/routes/ha.js: * GET /ha/return
+src/routes/ha.js: * Scénarios:
+src/routes/ha.js: *  - STUB (HELLOASSO_STUB=true OU ?stub=1): pas d’appel réseau, succès/échec via result/env.
+src/routes/ha.js: *  - SANDBOX/PROD: vérif via HelloAsso (getCheckoutStatus).
+src/routes/ha.js: *
+src/routes/ha.js: * Query attendue (selon le flow):
+src/routes/ha.js: *   - STUB:   ?oid=<OrderId>&ci=<intentId>&stub=1&result=success|failure
+src/routes/ha.js: *   - HA:     ?checkoutIntentId=<id>&code=succeeded|canceled&orderId=<haOrderId>
+src/routes/ha.js: */
+src/routes/ha.js:router.get('/ha/return', async (req, res) => {
+src/routes/ha.js:  try {
+src/routes/ha.js:    const {
+src/routes/ha.js:      oid, ci, stub, result,
+src/routes/ha.js:      checkoutIntentId, code, orderId
+src/routes/ha.js:    } = req.query;
+src/routes/ha.js:
+src/routes/ha.js:    const inStub = isStub() || String(stub) === '1' || typeof result !== 'undefined';
+src/routes/ha.js:    let order = null;
+src/routes/ha.js:
+src/routes/ha.js:    // Récupère la commande
+src/routes/ha.js:    if (oid) {
+src/routes/ha.js:      order = await Order.findById(oid);
+src/routes/ha.js:    } else if (checkoutIntentId) {
+src/routes/ha.js:      order = await Order.findOne({ 'paymentProviderMeta.checkoutIntentId': checkoutIntentId });
+src/routes/ha.js:    } else if (ci) {
+src/routes/ha.js:      order = await Order.findOne({ 'paymentProviderMeta.checkoutIntentId': ci });
+src/routes/ha.js:    }
+src/routes/ha.js:
+src/routes/ha.js:    if (!order) {
+src/routes/ha.js:      return res.status(404).send('<h1>Order not found</h1>');
+src/routes/ha.js:    }
+src/routes/ha.js:
+src/routes/ha.js:    if (order.status === 'paid') {
+src/routes/ha.js:      return res.send(`<h1>Paiement déjà confirmé ✅</h1><p>Commande ${order._id}</p>`);
+src/routes/ha.js:    }
+src/routes/ha.js:
+src/routes/ha.js:    let status;
+src/routes/ha.js:
+src/routes/ha.js:    if (inStub) {
+src/routes/ha.js:      // 🔒 STUB: pas d’appel HelloAsso, on décide localement
+src/routes/ha.js:      const desired = String(result || stubResultEnv());
+src/routes/ha.js:      status = (desired === 'success') ? 'success' : 'failure';
+src/routes/ha.js:
+src/routes/ha.js:      // trace minimale “provider”
+src/routes/ha.js:      order.paymentProvider = 'helloasso'; // on garde helloasso pour homogénéité
+src/routes/ha.js:      order.paymentProviderMeta = {
+src/routes/ha.js:        ...(order.paymentProviderMeta || {}),
+src/routes/ha.js:        name: 'stub',
+src/routes/ha.js:        checkoutIntentId: ci || `stub-${Date.now()}`,
+src/routes/ha.js:        stubResult: status
+src/routes/ha.js:      };
+src/routes/ha.js:    } else {
+src/routes/ha.js:      // 🌐 PROD/SANDBOX: on vérifie via l’API (nécessite les creds)
+src/routes/ha.js:      const resolvedIntentId = checkoutIntentId || ci;
+src/routes/ha.js:      if (!resolvedIntentId) {
+src/routes/ha.js:        return res.status(400).send('<h1>Bad Request</h1><p>checkoutIntentId manquant</p>');
+src/routes/ha.js:      }
+src/routes/ha.js:      try {
+src/routes/ha.js:        status = await getCheckoutStatus(resolvedIntentId); // doit renvoyer 'succeeded' / 'failed' / ...
+src/routes/ha.js:      } catch (e) {
+src/routes/ha.js:        console.error('[ha/return] getCheckoutIntent failed:', e.message || e);
+src/routes/ha.js:        return res.status(500).send('<h1>Erreur interne</h1>');
+src/routes/ha.js:      }
+src/routes/ha.js:
+src/routes/ha.js:      // enrichit la commande avec les infos HelloAsso
+src/routes/ha.js:      order.paymentProvider = 'helloasso';
+src/routes/ha.js:      order.paymentProviderMeta = {
+src/routes/ha.js:        ...(order.paymentProviderMeta || {}),
+src/routes/ha.js:        name: 'helloasso',
+src/routes/ha.js:        haOrderId: orderId || order.paymentProviderMeta?.haOrderId || null,
+src/routes/ha.js:        checkoutIntentId: resolvedIntentId,
+src/routes/ha.js:        code: code || null
+src/routes/ha.js:      };
+src/routes/ha.js:    }
+src/routes/ha.js:
+src/routes/ha.js:    if (isPaidLike(status)) {
+src/routes/ha.js:      order.status = 'paid';
+src/routes/ha.js:      await order.save();
+src/routes/ha.js:      await markSeatsReserved(order);
+src/routes/ha.js:
+src/routes/ha.js:      // Email de confirmation
+src/routes/ha.js:      try {
+src/routes/ha.js:
+src/routes/ha.js:const TEMPLATE_BY_KIND = {
+src/routes/ha.js:  renew:   process.env.EMAIL_TEMPLATE_RENEW_CONFIRM   || 'renew-confirmation',
+src/routes/ha.js:  fanclub: process.env.EMAIL_TEMPLATE_TBH7_CONFIRM || 'tbh7-confirmation',
+src/routes/ha.js:  public:  process.env.EMAIL_TEMPLATE_PUBLIC_CONFIRM  || 'public-confirmation',
+src/routes/ha.js:  unknown: process.env.EMAIL_TEMPLATE_DEFAULT         || 'renew-confirmation'
+src/routes/ha.js:};
+src/routes/ha.js:
+src/routes/ha.js:const SUBJECT_BY_KIND = {
+src/routes/ha.js:  renew:   process.env.EMAIL_SUBJECT_RENEW_CONFIRM   || 'Confirmation de paiement – Abonnement (Renouvellement)',
+src/routes/ha.js:  fanclub: process.env.EMAIL_SUBJECT_TBH7_CONFIRM    || 'Confirmation de paiement – Fan Club TBH7',
+src/routes/ha.js:  public:  process.env.EMAIL_SUBJECT_PUBLIC_CONFIRM  || 'Confirmation de paiement – Abonnement (Grand public)',
+src/routes/ha.js:  unknown: process.env.EMAIL_SUBJECT_DEFAULT         || 'Confirmation de paiement – Abonnement'
+src/routes/ha.js:};
+src/routes/ha.js:
+src/routes/ha.js:function resolveOrderKind(order) {
+src/routes/ha.js:  // priorité aux champs persistés
+src/routes/ha.js:  if (order.mailTemplateKind) return String(order.mailTemplateKind).toLowerCase();
+src/routes/ha.js:  if (order.origin?.flow)     return String(order.origin.flow).toLowerCase();
+src/routes/ha.js:
+src/routes/ha.js:  // fallback doux (au cas où)
+src/routes/ha.js:  const phase = String(order.phase || '').toLowerCase();
+src/routes/ha.js:  if (['renew','fanclub','public','tbh7','grandpublic'].includes(phase)) {
+src/routes/ha.js:    return phase === 'tbh7' ? 'fanclub' : (phase === 'grandpublic' ? 'public' : phase);
+src/routes/ha.js:  }
+src/routes/ha.js:  return 'unknown';
+src/routes/ha.js:}
+src/routes/ha.js:        
+src/routes/ha.js:// ...
+src/routes/ha.js:const kind    = resolveOrderKind(order);
+src/routes/ha.js:const tplName = TEMPLATE_BY_KIND[kind];
+src/routes/ha.js:const subject = SUBJECT_BY_KIND[kind];
+src/routes/ha.js:
+src/routes/ha.js:const linesRows = (Array.isArray(order.lines) ? order.lines : [])
+src/routes/ha.js:  .map(l => `<tr><td>${l.seatId || l.zoneKey || ''}</td><td>${l.tariffCode || ''}</td><td>${(Number(l.priceCents||0)/100).toFixed(2)} €</td></tr>`)
+src/routes/ha.js:  .join('');
+src/routes/ha.js:
+src/routes/ha.js:const ctx = {
+src/routes/ha.js:  order,
+src/routes/ha.js:  orderId: String(order._id),
+src/routes/ha.js:  seasonCode: order.seasonCode || '',
+src/routes/ha.js:  venueSlug: order.venueSlug || '',
+src/routes/ha.js:  payerFirstName: order.payerFirstName || '',
+src/routes/ha.js:  payerLastName:  order.payerLastName  || '',
+src/routes/ha.js:  payerEmail:     order.payerEmail     || '',
+src/routes/ha.js:  totalEuro: ((Number(order.totalCents || 0) / 100).toFixed(2)),
+src/routes/ha.js:  installmentsInfo: (Number(order.installments || order.paymentSplit || 1) > 1)
+src/routes/ha.js:    ? `Règlement en ${Number(order.installments || order.paymentSplit)} échéances.`
+src/routes/ha.js:    : `Règlement en une fois.`,
+src/routes/ha.js:  linesRows,
+src/routes/ha.js:  haOrderBlock: order.paymentProviderOrderId ? `<p>Référence HelloAsso : <b>${order.paymentProviderOrderId}</b></p>` : '',
+src/routes/ha.js:  clubName: process.env.CLUB_NAME || 'Les Bélougas',
+src/routes/ha.js:  extraInfo: ''
+src/routes/ha.js:};
+src/routes/ha.js:
+src/routes/ha.js:const html = await renderEmailTemplate(tplName, ctx);
+src/routes/ha.js:console.log(html);
+src/routes/ha.js:
+src/routes/ha.js:await sendMail({ to: order.payerEmail, subject, html });
+src/routes/ha.js:
+src/routes/ha.js:      } catch (e) {
+src/routes/ha.js:        console.warn('sendMail failed:', e.message);
+src/routes/ha.js:      }
+src/routes/ha.js:
+src/routes/ha.js:      return res.send(`<h1>Paiement confirmé ✅</h1><p>Commande ${order._id}</p>`);
+src/routes/ha.js:    } else {
+src/routes/ha.js:      order.status = 'failed';
+src/routes/ha.js:      await order.save();
+src/routes/ha.js:      return res.send(`<h1>Paiement non confirmé ❌</h1><p>Commande ${order._id} — statut: ${status}</p>`);
+src/routes/ha.js:    }
+src/routes/ha.js:  } catch (e) {
+src/routes/ha.js:    console.error('[GET /ha/return] error:', e);
+src/routes/ha.js:    res.status(500).send('<h1>Erreur interne</h1>');
+src/routes/ha.js:  }
+src/routes/ha.js:});
+src/routes/ha.js:
+src/routes/ha.js:router.get('/ha/back', (_req, res) => {
+src/routes/ha.js:  res.send('<h1>Paiement abandonné</h1><p>Vous pouvez reprendre votre commande ultérieurement.</p>');
+src/routes/ha.js:});
+src/routes/ha.js:
+src/routes/ha.js:router.get('/ha/error', (_req, res) => {
+src/routes/ha.js:  res.status(400).send('<h1>Erreur de paiement</h1><p>Une erreur est survenue. Réessayez plus tard.</p>');
+src/routes/ha.js:});
+src/routes/ha.js:
+src/routes/ha.js:export default router;
+src/models/Campaign.js:// src/models/Campaign.js
+src/models/Campaign.js:import mongoose from 'mongoose';
+src/models/Campaign.js:
+src/models/Campaign.js:const CampaignSchema = new mongoose.Schema({
+src/models/Campaign.js:  code: { type: String, unique: true },      // ex: RENEW-2025 ou TBH7-2025
+src/models/Campaign.js:  phase: { type: String, enum: ['renewal','tbh7'] },
+src/models/Campaign.js:  seasonCode: String,
+src/models/Campaign.js:  // "tokens" pour liens personnalisés (renouvellement) ou code partagé (TBH7)
+src/models/Campaign.js:  // pour TBH7 on peut générer un lien avec ?id=TBH7-2025 et contrôler les quotas
+src/models/Campaign.js:  maxUses: { type: Number, default: 0 },  // 0 = illimité
+src/models/Campaign.js:  used: { type: Number, default: 0 },
+src/models/Campaign.js:  meta: Object
+src/models/Campaign.js:},{timestamps:true});
+src/models/Campaign.js:
+src/models/Campaign.js:export const Campaign = mongoose.models.Campaign || mongoose.model('Campaign', CampaignSchema);
+src/models/Order.js:// src/models/Order.js
+src/models/Order.js:import mongoose from 'mongoose';
+src/models/Order.js:
+src/models/Order.js:const LineSchema = new mongoose.Schema({
+src/models/Order.js:  seatId: String,
+src/models/Order.js:  tariffCode: String,
+src/models/Order.js:  priceCents: Number,            // optionnel si tu stockes le détail
+src/models/Order.js:  holderFirstName: String,       // optionnel (porteur de la place)
+src/models/Order.js:  holderLastName: String,
+src/models/Order.js:  justificationField: String,    // ex: Numéro INE / licence
+src/models/Order.js:  info: String                   // info complémentaire
+src/models/Order.js:}, { _id: false });
+src/models/Order.js:
+src/models/Order.js:const OrderSchema = new mongoose.Schema({
+src/models/Order.js:  seasonCode: { type: String, index: true },
+src/models/Order.js:  venueSlug:  { type: String, index: true },
+src/models/Order.js:  groupKey:   { type: String, index: true },
+src/models/Order.js:payerFirstName: String,
+src/models/Order.js:payerLastName:  String,
+src/models/Order.js:paymentSplit:   { type: Number, default: 1 },
+src/models/Order.js:  payerEmail: String,
+src/models/Order.js:  lines: [LineSchema],
+src/models/Order.js:  totalCents: Number,
+src/models/Order.js:  status: { type: String, enum: ['pending','paid','failed'], default: 'pending', index: true },
+src/models/Order.js:  paymentProvider: { type: String, default: 'helloasso' },
+src/models/Order.js:  providerRef: String,
+src/models/Order.js:
+src/models/Order.js:  // NOUVEAU : id de commande côté prestataire (HelloAsso)
+src/models/Order.js:  paymentProviderOrderId: { type: String, index: true, sparse: true },
+src/models/Order.js:
+src/models/Order.js:  meta: { type: Object, default: {} }, // on gardera meta.helloasso.intentId/orderId/raw
+src/models/Order.js:
+src/models/Order.js:}, { timestamps: true });
+src/models/Order.js:
+src/models/Order.js:// Unicité logique : un seul "paid" par (season, venue, groupKey)
+src/models/Order.js:OrderSchema.index(
+src/models/Order.js:  { 'meta.tokenHash': 1 },
+src/models/Order.js:  { seasonCode: 1, venueSlug: 1, groupKey: 1, status: 1 },
+src/models/Order.js:  { unique: true, partialFilterExpression: { status: 'paid' }, name: 'uniq_paid_per_group' }
+src/models/Order.js:);
+src/models/Order.js:
+src/models/Order.js:
+src/models/Order.js:// Petit sous-schéma (pas d’_id)
+src/models/Order.js:const OriginSchema = new mongoose.Schema({
+src/models/Order.js:  flow:   { type: String, enum: ['renew','fanclub','public'], default: null }, // nature du flux
+src/models/Order.js:  uiPath: { type: String, default: null },  // ex: "/tbh7" ou "/renew"
+src/models/Order.js:  apiPath:{ type: String, default: null }   // ex: "/api/tbh7/checkout"
+src/models/Order.js:}, { _id:false });
+src/models/Order.js:
+src/models/Order.js:// Ajouts optionnels au schéma Order
+src/models/Order.js:OrderSchema.add({
+src/models/Order.js:  origin:           { type: OriginSchema, default: undefined },
+src/models/Order.js:  mailTemplateKind: { type: String, default: null } // sur-couche explicite pour l’email si besoin
+src/models/Order.js:});
+src/models/Order.js:
+src/models/Order.js:
+src/models/Order.js:export const Order = mongoose.models.Order || mongoose.model('Order', OrderSchema);
+src/models/PaymentIntent.js:// src/models/PaymentIntent.js
+src/models/PaymentIntent.js:import mongoose from 'mongoose';
+src/models/PaymentIntent.js:
+src/models/PaymentIntent.js:const PaymentIntentSchema = new mongoose.Schema({
+src/models/PaymentIntent.js:  seasonCode: { type: String, index: true },
+src/models/PaymentIntent.js:  venueSlug:  { type: String, index: true },
+src/models/PaymentIntent.js:  groupKey:   { type: String, index: true },
+src/models/PaymentIntent.js:  payerEmail: String,
+src/models/PaymentIntent.js:  lines: [{ type: Object }],
+src/models/PaymentIntent.js:  totalCents: Number,
+src/models/PaymentIntent.js:  provider: { type: String, default: 'helloasso' },
+src/models/PaymentIntent.js:  installments: { type: Number, default: 1 },
+src/models/PaymentIntent.js:  status: { type: String, default: 'created' },
+src/models/PaymentIntent.js:  providerRef: String
+src/models/PaymentIntent.js:}, { timestamps: true });
+src/models/PaymentIntent.js:
+src/models/PaymentIntent.js:export const PaymentIntent = mongoose.models.PaymentIntent || mongoose.model('PaymentIntent', PaymentIntentSchema);
+src/models/SeatCatalog.js:import mongoose from 'mongoose';
+src/models/SeatCatalog.js:
+src/models/SeatCatalog.js:const SeatCatalogSchema = new mongoose.Schema({
+src/models/SeatCatalog.js:  venueSlug: { type: String, index: true, required: true },
+src/models/SeatCatalog.js:  seatId:    { type: String, required: true },            // ex: "A1-001"
+src/models/SeatCatalog.js:  zoneKey:   { type: String, required: true },
+src/models/SeatCatalog.js:  row:       { type: String, default: '' },               // optionnel
+src/models/SeatCatalog.js:  number:    { type: String, default: '' },               // optionnel
+src/models/SeatCatalog.js:  svgSelector:{ type: String, default: null }             // ex: [data-seat-id="A1-001"]
+src/models/SeatCatalog.js:}, { timestamps: true });
+src/models/SeatCatalog.js:
+src/models/SeatCatalog.js:SeatCatalogSchema.index({ venueSlug:1, seatId:1 }, { unique:true });
+src/models/SeatCatalog.js:
+src/models/SeatCatalog.js:export const SeatCatalog = mongoose.models.SeatCatalog || mongoose.model('SeatCatalog', SeatCatalogSchema);
+src/models/SeatHold.js:import mongoose from 'mongoose';
+src/models/SeatHold.js:
+src/models/SeatHold.js:const SeatHoldSchema = new mongoose.Schema({
+src/models/SeatHold.js:  seatId: { type: String, index: true },
+src/models/SeatHold.js:  orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
+src/models/SeatHold.js:  // IMPORTANT: pas d'index inline ici pour éviter le doublon
+src/models/SeatHold.js:  expiresAt: { type: Date }
+src/models/SeatHold.js:}, { timestamps: true });
+src/models/SeatHold.js:
+src/models/SeatHold.js:// Index TTL unique (supprime le doc quand expiresAt est atteint)
+src/models/SeatHold.js:SeatHoldSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'ttl_expiresAt' });
+src/models/SeatHold.js:
+src/models/SeatHold.js:export const SeatHold = mongoose.models.SeatHold || mongoose.model('SeatHold', SeatHoldSchema);
+src/models/index.js:// ⚠️ FICHIER UNIQUE D’AGRÉGATION — imports nommés pour tous les modèles
+src/models/index.js:export { Campaign }      from './Campaign.js';
+src/models/index.js:export { SeatHold }      from './SeatHold.js';
+src/models/index.js:export { Tariff }        from './Tariff.js';
+src/models/index.js:export { Zone }          from './Zone.js';
+src/models/index.js:export { Counter }       from './Counter.js';
+src/models/index.js:export { Order }         from './Order.js';
+src/models/index.js:export { Season }        from './Season.js';
+src/models/index.js:export { Seat }          from './Seat.js';
+src/models/index.js:export { TariffPrice }   from './TariffPrice.js';
+src/models/index.js:export { Event }         from './Event.js';
+src/models/index.js:export { PaymentIntent } from './PaymentIntent.js';
+src/models/index.js:export { SeatCatalog }   from './SeatCatalog.js';
+src/models/index.js:export { Subscriber }    from './Subscriber.js';
+src/models/index.js:export { Venue }         from './Venue.js';
+src/models/index.js:export { ZoneHold }      from './ZoneHold.js';
+src/models/Event.js:import mongoose from 'mongoose';
+src/models/Event.js:
+src/models/Event.js:const EventSchema = new mongoose.Schema({
+src/models/Event.js:  slug:       { type: String, unique: true, index: true },     // ex: "match-2025-09-15-bts-vs-xxx"
+src/models/Event.js:  name:       { type: String, required: true },
+src/models/Event.js:  startsAt:   { type: Date, required: true },
+src/models/Event.js:  seasonCode: { type: String, index: true, required: true },
+src/models/Event.js:  venueSlug:  { type: String, index: true, required: true },
+src/models/Event.js:  priceTableKey: { type: String, default: null },              // table tarifs dédiée
+src/models/Event.js:  isOnSale:   { type: Boolean, default: false }
+src/models/Event.js:}, { timestamps: true });
+src/models/Event.js:
+src/models/Event.js:export const Event = mongoose.models.Event || mongoose.model('Event', EventSchema);
+src/models/Tariff.js:// src/models/Tariff.js
+src/models/Tariff.js:import mongoose from 'mongoose';
+src/models/Tariff.js:
+src/models/Tariff.js:const TariffSchema = new mongoose.Schema({
+src/models/Tariff.js:  code: { type: String, required: true, trim: true, uppercase: true, unique: true },
+src/models/Tariff.js:  label: { type: String, required: true },
+src/models/Tariff.js:  // Champ additionnel à fournir par l’utilisateur (optionnel)
+src/models/Tariff.js:  // ex: "ine", "licence", "justification", etc. (on ne contraint pas la valeur)
+src/models/Tariff.js:  requiresField: { type: String, default: null },
+src/models/Tariff.js:  fieldLabel: { type: String, default: null },   // libellé à afficher pour requiresField
+src/models/Tariff.js:  requiresInfo: { type: String, default: null }, // texte d’info (ex: "carte étudiante à présenter")
+src/models/Tariff.js:  active: { type: Boolean, default: true },
+src/models/Tariff.js:  sortOrder: { type: Number, default: 100 }      // ordre d’affichage
+src/models/Tariff.js:}, { timestamps: true });
+src/models/Tariff.js:
+src/models/Tariff.js:TariffSchema.index({ active: 1, sortOrder: 1 });
+src/models/Tariff.js:
+src/models/Tariff.js:export const Tariff = mongoose.models.Tariff || mongoose.model('Tariff', TariffSchema);
+src/models/TariffPrice.js:// src/models/TariffPrice.js
+src/models/TariffPrice.js:import mongoose from 'mongoose';
+src/models/TariffPrice.js:
+src/models/TariffPrice.js:const TariffPriceSchema = new mongoose.Schema({
+src/models/TariffPrice.js:  seasonCode: { type: String, index: true, required: true },   // ex: "2025-2026"
+src/models/TariffPrice.js:  venueSlug:  { type: String, index: true, required: true },   // ex: "patinoire-blagnac"
+src/models/TariffPrice.js:  zoneKey:    { type: String, index: true, required: true },   // ex: "N1", "S1", "DEBOUT"
+src/models/TariffPrice.js:  tariffCode: { type: String, required: true },                 // ex: "NORMAL", "ETUDIANT"
+src/models/TariffPrice.js:  priceCents: { type: Number, required: true }                  // ex: 18000
+src/models/TariffPrice.js:}, { timestamps: true });
+src/models/TariffPrice.js:
+src/models/TariffPrice.js:TariffPriceSchema.index(
+src/models/TariffPrice.js:  { seasonCode: 1, venueSlug: 1, zoneKey: 1, tariffCode: 1 },
+src/models/TariffPrice.js:  { unique: true, name: 'uniq_season_venue_zone_tariff' }
+src/models/TariffPrice.js:);
+src/models/TariffPrice.js:
+src/models/TariffPrice.js:export const TariffPrice = mongoose.models.TariffPrice || mongoose.model('TariffPrice', TariffPriceSchema);
+src/models/Season.js:// src/models/Season.js
+src/models/Season.js:import mongoose from 'mongoose';
+src/models/Season.js:
+src/models/Season.js:const PhaseSchema = new mongoose.Schema({
+src/models/Season.js:  name: { type: String, enum: ['renewal','tbh7','public'], required: true },
+src/models/Season.js:  openAt: Date,
+src/models/Season.js:  closeAt: Date,
+src/models/Season.js:  enabled: { type: Boolean, default: true }
+src/models/Season.js:}, { _id: false });
+src/models/Season.js:
+src/models/Season.js:const SeasonSchema = new mongoose.Schema({
+src/models/Season.js:  code: { type: String, unique: true }, // ex: 2025-2026
+src/models/Season.js:  name: String,
+src/models/Season.js:  active: { type: Boolean, default: true },
+src/models/Season.js:  // 🔴 Nouveau : associe la saison à un lieu (plan SVG, zones, tarifs)
+src/models/Season.js:  venueSlug: { type: String, default: null }, // ex: "patinoire-blagnac"
+src/models/Season.js:  phases: [PhaseSchema]
+src/models/Season.js:}, { timestamps: true });
+src/models/Season.js:
+src/models/Season.js:export const Season = mongoose.models.Season || mongoose.model('Season', SeasonSchema);
+src/models/Venue.js:import mongoose from 'mongoose';
+src/models/Venue.js:
+src/models/Venue.js:const VenueZoneSchema = new mongoose.Schema({
+src/models/Venue.js:  key: { type: String, required: true },              // ex: "A", "B", "DEBOUT"
+src/models/Venue.js:  name: { type: String, required: true },
+src/models/Venue.js:  type: { type: String, enum: ['seated','standing'], default: 'seated' },
+src/models/Venue.js:  standingQuota: { type: Number, default: 0 },        // utile si type=standing
+src/models/Venue.js:  svgSelector: { type: String, default: null }        // ex: [data-zone="A"]
+src/models/Venue.js:}, { _id: false });
+src/models/Venue.js:
+src/models/Venue.js:const VenueSchema = new mongoose.Schema({
+src/models/Venue.js:  slug:   { type: String, unique: true, index: true }, // ex: "patinoire-bdl"
+src/models/Venue.js:  name:   { type: String, required: true },
+src/models/Venue.js:  svgPath:{ type: String, required: true },            // ex: /public/venues/patinoire-bdl/plan.svg
+src/models/Venue.js:  zones:  { type: [VenueZoneSchema], default: [] }
+src/models/Venue.js:}, { timestamps: true });
+src/models/Venue.js:
+src/models/Venue.js:export const Venue = mongoose.models.Venue || mongoose.model('Venue', VenueSchema);
+src/models/Counter.js:// src/models/Counter.js
+src/models/Counter.js:import mongoose from 'mongoose';
+src/models/Counter.js:
+src/models/Counter.js:const CounterSchema = new mongoose.Schema({
+src/models/Counter.js:  key: { type: String, unique: true },
+src/models/Counter.js:  seq: { type: Number, default: 0 }
+src/models/Counter.js:}, { timestamps: true });
+src/models/Counter.js:
+src/models/Counter.js:export const Counter = mongoose.models.Counter || mongoose.model('Counter', CounterSchema);
+src/models/ZoneHold.js:// src/models/ZoneHold.js
+src/models/ZoneHold.js:import mongoose from 'mongoose';
+src/models/ZoneHold.js:
+src/models/ZoneHold.js:const ZoneHoldSchema = new mongoose.Schema({
+src/models/ZoneHold.js:  seasonCode: { type: String, index: true, required: true },
+src/models/ZoneHold.js:  venueSlug:  { type: String, index: true, required: true },
+src/models/ZoneHold.js:  zoneKey:    { type: String, index: true, required: true },
+src/models/ZoneHold.js:  qty:        { type: Number, default: 1, min: 1 },
+src/models/ZoneHold.js:  orderId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
+src/models/ZoneHold.js:  expiresAt:  { type: Date } // TTL
+src/models/ZoneHold.js:}, { timestamps: true });
+src/models/ZoneHold.js:
+src/models/ZoneHold.js:// TTL (document supprimé quand expiresAt est atteint)
+src/models/ZoneHold.js:ZoneHoldSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'ttl_zonehold_expiresAt' });
+src/models/ZoneHold.js:
+src/models/ZoneHold.js:export const ZoneHold = mongoose.models.ZoneHold || mongoose.model('ZoneHold', ZoneHoldSchema);
+src/models/Subscriber.js:// src/models/Subscriber.js
+src/models/Subscriber.js:import mongoose from 'mongoose';
+src/models/Subscriber.js:
+src/models/Subscriber.js:const SubscriberSchema = new mongoose.Schema({
+src/models/Subscriber.js:  // numéro d'abonné final (attribué après paiement/attestation)
+src/models/Subscriber.js:  subscriberNo: { type: String },
+src/models/Subscriber.js:
+src/models/Subscriber.js:  // identité de la personne pour CE siège
+src/models/Subscriber.js:  firstName: String,
+src/models/Subscriber.js:  lastName: String,
+src/models/Subscriber.js:
+src/models/Subscriber.js:  // contact
+src/models/Subscriber.js:  email: { type: String, index: true },
+src/models/Subscriber.js:  phone: String,
+src/models/Subscriber.js:
+src/models/Subscriber.js:  // regroupement (famille, commande…) — clé logique
+src/models/Subscriber.js:  groupKey: { type: String, index: true, default: null },
+src/models/Subscriber.js:
+src/models/Subscriber.js:  // (legacy) ancien champ "group" — conservé pour compat éventuelle
+src/models/Subscriber.js:  group: { type: String, default: null, select: false },
+src/models/Subscriber.js:
+src/models/Subscriber.js:  // siège “préféré” / ciblé sur la ligne (renouvellement)
+src/models/Subscriber.js:  prefSeatId: { type: String, index: true },
+src/models/Subscriber.js:
+src/models/Subscriber.js:  // historique sièges
+src/models/Subscriber.js:  previousSeasonSeats: { type: [String], default: [] },
+src/models/Subscriber.js:
+src/models/Subscriber.js:  // contexte
+src/models/Subscriber.js:  seasonCode: { type: String, index: true },
+src/models/Subscriber.js:  venueSlug:  { type: String, index: true },
+src/models/Subscriber.js:
+src/models/Subscriber.js:  status: {
+src/models/Subscriber.js:    type: String,
+src/models/Subscriber.js:    enum: ['none', 'invited', 'pending', 'active', 'partial', 'canceled'],
+src/models/Subscriber.js:    default: 'none'
+src/models/Subscriber.js:  }
+src/models/Subscriber.js:}, {
+src/models/Subscriber.js:  timestamps: true,
+src/models/Subscriber.js:  strict: true
+src/models/Subscriber.js:});
+src/models/Subscriber.js:
+src/models/Subscriber.js:// subscriberNo unique seulement s'il est présent
+src/models/Subscriber.js:SubscriberSchema.index(
+src/models/Subscriber.js:  { subscriberNo: 1 },
+src/models/Subscriber.js:  { unique: true, partialFilterExpression: { subscriberNo: { $exists: true, $type: 'string' } } }
+src/models/Subscriber.js:);
+src/models/Subscriber.js:
+src/models/Subscriber.js:export const Subscriber = mongoose.models.Subscriber || mongoose.model('Subscriber', SubscriberSchema);
+src/models/Zone.js:// src/models/Zone.js
+src/models/Zone.js:import mongoose from 'mongoose';
+src/models/Zone.js:
+src/models/Zone.js:const ZoneSchema = new mongoose.Schema({
+src/models/Zone.js:  // ex: A1, B3, DEBOUT, TBH7_NORD, TBH7_SUD
+src/models/Zone.js:  // IMPORTANT: on enlève "unique: true" pour passer à un index composé (key+seasonCode)
+src/models/Zone.js:  key: { type: String, index: true },
+src/models/Zone.js:
+src/models/Zone.js:  name: { type: String },
+src/models/Zone.js:  type: { type: String, enum: ['seated', 'standing', 'fanclub'], default: 'seated' },
+src/models/Zone.js:
+src/models/Zone.js:  // standing/fanclub : info de capacité "physique" indicative
+src/models/Zone.js:  capacity: { type: Number, default: 0 },
+src/models/Zone.js:
+src/models/Zone.js:  // pour mapper l’ID / sélecteur CSS dans le SVG (ex: "#zone-tbh7-nord")
+src/models/Zone.js:  svgSelector: { type: String },
+src/models/Zone.js:
+src/models/Zone.js:  // plafond d'abonnés pour la saison (anti-survente)
+src/models/Zone.js:  quota: { type: Number, default: 0 },
+src/models/Zone.js:
+src/models/Zone.js:  // prix de base éventuel (non utilisé si TariffPrice est la source de vérité)
+src/models/Zone.js:  basePriceCents: { type: Number },
+src/models/Zone.js:
+src/models/Zone.js:  // ATTENTION: unique par saison désormais
+src/models/Zone.js:  seasonCode: { type: String, required: true, index: true },
+src/models/Zone.js:
+src/models/Zone.js:  isActive: { type: Boolean, default: true }
+src/models/Zone.js:}, { timestamps: true });
+src/models/Zone.js:
+src/models/Zone.js:// ---- Index composé unique par saison ----
+src/models/Zone.js:ZoneSchema.index(
+src/models/Zone.js:  { key: 1, seasonCode: 1 },
+src/models/Zone.js:  { unique: true, name: 'uniq_zone_key_season' }
+src/models/Zone.js:);
+src/models/Zone.js:
+src/models/Zone.js:export const Zone = mongoose.models.Zone || mongoose.model('Zone', ZoneSchema);
+src/models/Seat.js:// src/models/Seat.js
+src/models/Seat.js:import mongoose from 'mongoose';
+src/models/Seat.js:
+src/models/Seat.js:const SeatSchema = new mongoose.Schema({
+src/models/Seat.js:  // Identifiant fonctionnel du siège, ex: "A1-001"
+src/models/Seat.js:  seatId: { type: String, required: true },
+src/models/Seat.js:
+src/models/Seat.js:  // Zone tarifaire/tribune (clé courte), ex: "A", "B", "DEBOUT"
+src/models/Seat.js:  zoneKey: { type: String, index: true },
+src/models/Seat.js:
+src/models/Seat.js:  // Contexte saisonnier
+src/models/Seat.js:  seasonCode: { type: String, index: true },
+src/models/Seat.js:
+src/models/Seat.js:  // 🔗 Lieu (venue) auquel appartient ce siège pour cette saison
+src/models/Seat.js:  venueSlug: { type: String, index: true },
+src/models/Seat.js:
+src/models/Seat.js:  // État de réservation pour la saison
+src/models/Seat.js:  status: {
+src/models/Seat.js:    type: String,
+src/models/Seat.js:    enum: ['available', 'held', 'booked', 'provisioned'],
+src/models/Seat.js:    default: 'available',
+src/models/Seat.js:    index: true
+src/models/Seat.js:  },
+src/models/Seat.js:
+src/models/Seat.js:  // Siège provisionné pour un abonné (renouvellement)
+src/models/Seat.js:  provisionedFor: {
+src/models/Seat.js:    type: mongoose.Schema.Types.ObjectId,
+src/models/Seat.js:    ref: 'Subscriber',
+src/models/Seat.js:    default: null,
+src/models/Seat.js:    index: true
+src/models/Seat.js:  }
+src/models/Seat.js:}, { timestamps: true });
+src/models/Seat.js:
+src/models/Seat.js:/**
+src/models/Seat.js: * ⚠️ Important :
+src/models/Seat.js: * - On NE met plus "unique: true" sur seatId tout seul.
+src/models/Seat.js: * - On garantit l'unicité PAR saison + lieu + seatId.
+src/models/Seat.js: */
+src/models/Seat.js:SeatSchema.index(
+src/models/Seat.js:  { seasonCode: 1, venueSlug: 1, seatId: 1 },
+src/models/Seat.js:  { unique: true, name: 'uniq_seat_per_season_venue' }
+src/models/Seat.js:);
+src/models/Seat.js:
+src/models/Seat.js:// Index utiles pour les filtres fréquents
+src/models/Seat.js:SeatSchema.index({ seasonCode: 1, zoneKey: 1 });
+src/models/Seat.js:SeatSchema.index({ seasonCode: 1, status: 1 });
+src/models/Seat.js:
+src/models/Seat.js:export const Seat = mongoose.models.Seat || mongoose.model('Seat', SeatSchema);

@@ -1,0 +1,120 @@
+/* static/styles/generic-view.css */
+:root{
+  --bg:#0b0f14; --fg:#e8eef5; --muted:#a6b3c2;
+  --card:#121a22; --line:#213040; --accent:#3ba0ff; --ok:#10b981; --err:#ef4444;
+  --radius:12px;
+  --font: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{ margin:0; font-family:var(--font); background:var(--bg); color:var(--fg); }
+
+.site-header{ padding:16px; border-bottom:1px solid var(--line); background:#0d141c; }
+.site-header .brand{display:flex; align-items:center; gap:12px}
+.site-header .brand .logo{height:40px}
+.site-header h1{margin:0; font-size:20px; font-weight:700}
+
+.page{ display:grid; gap:16px; grid-template-columns: 1fr 1fr; padding:16px; align-items:start; }
+@media (max-aspect-ratio: 1/1) { .page{ grid-template-columns: 1fr; } }
+.col{ min-width:0; }
+.panel{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px; box-shadow: 0 8px 20px rgba(0,0,0,.25); }
+
+/* PLAN */
+#plan .panel-title{margin:0 0 8px 0; font-size:18px}
+.plan-wrap{ position:relative; background:#0b131a; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.plan-object{ width:100%; height:60vh; display:block; background:#0a1118; }
+#venuePlan.grabbing{ cursor:grabbing; }
+.plan-status{ position:absolute; left:8px; bottom:8px; font-size:12px; color:var(--muted); }
+
+/* ORDER */
+#order .block{ margin-bottom:16px; }
+#order .block h2{ margin:0 0 8px 0; font-size:18px }
+
+/* LIGNES — master */
+.lines-head, .cart-row{
+  display:grid; grid-template-columns: 44px 1.2fr 1fr 1fr 1.2fr; gap:8px;
+  align-items:center; border-bottom:1px dashed var(--line); padding:8px 4px;
+}
+.lines-head{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+
+.cart-row .trash{
+  width:34px; height:34px; border-radius:8px; border:1px solid var(--line);
+  background:#0d141c; color:#90a4b8; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.cart-row .trash:hover{ border-color:#36506b; color:#c7d5e4; background:#0f1720; }
+.cart-row input[type="text"], .cart-row select{
+  width:100%; padding:8px 10px; background:#0f1720; color:var(--fg);
+  border:1px solid var(--line); border-radius:8px; outline:none;
+}
+.cart-row select{ cursor:pointer; }
+
+/* LIGNES — sous-ligne compacte (une seule ligne, masquée par défaut) */
+.line-extra-inline{
+  grid-column: 2 / span 4;
+  display:flex; align-items:center; gap:10px;
+  justify-content: flex-end;     /* ⬅️ aligne toute la sous-ligne à droite */
+  padding:8px 4px 12px;
+}
+.line-extra-inline .extra-info{ text-align:right; }
+.line-extra-inline .extra-justif{ display:flex; align-items:center; gap:8px; min-width: 45%; }
+.line-extra-inline .extra-label{ color:var(--muted); font-size:12px; }
+.line-extra-inline .extra-input{
+  flex:1; min-width: 220px; padding:8px 10px; background:#0f1720; color:var(--fg);
+  border:1px solid var(--line); border-radius:8px; outline:none;
+}
+.line-extra-inline .extra-sep{ color:#5f748c; }
+.line-extra-inline .extra-info{ color:var(--muted); }
+
+/* Paiement — 2 lignes : headers puis valeurs parfaitement alignées */
+.pay-grid{
+  display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-top:8px;
+}
+.pay-hdr{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+.total-box{
+  background:#0f1720; border:1px solid var(--line); border-radius:8px; padding:10px 12px; min-height: 42px; display:flex; align-items:center;
+}
+#paySchedule{
+  width:100%; padding:10px 12px; background:#0f1720; color:var(--fg); border:1px solid var(--line); border-radius:8px; outline:none;
+}
+.actions{ display:flex; justify-content:flex-end; margin-top:12px; }
+button.pay-btn{ background:linear-gradient(180deg, #3ba0ff, #2a7bd1); color:white; border:none; border-radius:10px; padding:12px 18px; font-weight:700; cursor:pointer; }
+button.pay-btn:disabled{ opacity:.6; cursor:not-allowed; }
+
+.feedback{ margin-top:8px; font-size:14px; }
+.feedback.err{ color:var(--err); }
+.feedback.ok{ color:var(--ok); }
+
+/* Highlights seats (au cas où CSS inline du SVG soit agressif) */
+.seat.is-allowed, .token-seat{ outline: 2px solid #fbbf24 !important; outline-offset: 1px; }
+.seat.is-selected{ outline: 2px solid #3ba0ff !important; outline-offset: 1px; }
+
+.help{ margin-top:8px; color:var(--muted); font-size:12px }
+
+
+/* --- Contacts: grille et style des inputs (retour à l'ancien rendu) --- */
+.form-grid{
+  display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px;
+}
+.form-grid .form-group{
+  display:flex; flex-direction:column; gap:6px;
+}
+.form-grid input, .form-grid select{
+  width:100%;
+  padding:10px 12px;
+  background:#0f1720; color:var(--fg);
+  border:1px solid var(--line); border-radius:8px; outline:none;
+}
+
+/* --- Paiement: sélecteur d'échéancier SOUS le libellé, aligné avec les 2 autres colonnes --- */
+.pay-bottom{
+  display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-top:8px;
+}
+.pay-bottom .form-group{
+  display:flex; flex-direction:column; gap:6px;
+}
+.pay-bottom select, .pay-bottom input{
+  width:100%;
+  padding:10px 12px;
+  background:#0f1720; color:var(--fg);
+  border:1px solid var(--line); border-radius:8px; outline:none;
+}

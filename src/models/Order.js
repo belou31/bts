@@ -42,7 +42,7 @@ OrderSchema.index(
 
 // Petit sous-schéma (pas d’_id)
 const OriginSchema = new mongoose.Schema({
-  flow:   { type: String, enum: ['renew','fanclub','public'], default: null }, // nature du flux
+  flow:   { type: String, enum: ['renew','tbh7','fanclub','public','vip'], default: null }, // nature du flux
   uiPath: { type: String, default: null },  // ex: "/tbh7" ou "/renew"
   apiPath:{ type: String, default: null }   // ex: "/api/tbh7/checkout"
 }, { _id:false });
@@ -50,7 +50,7 @@ const OriginSchema = new mongoose.Schema({
 // Ajouts optionnels au schéma Order
 OrderSchema.add({
   origin:           { type: OriginSchema, default: undefined },
-  mailTemplateKind: { type: String, default: null } // sur-couche explicite pour l’email si besoin
+mailTemplateKind: { type: String, enum: ['renew','tbh7','public','vip','invite','generic'], default:'generic' }
 });
 
 
