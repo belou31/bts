@@ -7,15 +7,22 @@ const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
 
 async function getSeasonCode() {
   if (process.env.SEASON) return process.env.SEASON;
-  const s = await Season.findOne({ active: true }).lean();
-  if (!s?.code) throw new Error('No active season and no SEASON env provided');
-  return s.code;
+  // le modèle utilise isActive (et parfois seasonCode)
+  const s = await Season.findOne({ isActive: true }).lean();
+  const code = s?.code || s?.seasonCode;
+  if (!code) throw new Error('No active season (isActive=true) and no SEASON env provided');
+  return code;
 }
 
 (async () => {
   try {
-    await mongoose.connect(uri);
-  
+    // ➜ En INT, mets les identifiants dans MONGODB_URI (ex : mongodb://bts:***@127.0.0.1:27017/bts?authSource=bts)
+    // Si MONGODB_DB est défini, on l’utilise ; sinon on laisse Mongoose prendre le db de l’URI.
+    const opts = {};
+    if (process.env.MONGODB_DB) opts.dbName = process.env.MONGODB_DB;
+    await mongoose.connect(uri, opts);
+
+
     const seasonCode = await getSeasonCode();
 
     const zones = [
