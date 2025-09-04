@@ -7,6 +7,44 @@ import { renderOrderEmail, subjectForOrder } from '../services/mailer.js';
 
 const router = express.Router();
 
+// helpers
+const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
+const isOkCode = v => new Set(['success','succeeded','paid','ok']).has(String(v||'').toLowerCase());
+
+
+
+async function findOrderFromQuery(q) {
+  const oid = q.oid || q._id; // flux STUB (DEV)
+  const h   = q.h;            // éventuel token hash si tu l'ajoutes un jour
+  const ci  = q.checkoutIntentId || q.ci; // SANDBOX / STUB
+  const haOrderId = q.orderId;            // ID HelloAsso (numérique)
+
+  // 1) ID local Mongo (si fourni)
+  if (oid) {
+    try {
+      const o = await Order.findById(String(oid));
+      if (o) return o;
+    } catch { /* ignore cast */ }
+  }
+  // 2) Token hash (si utilisé)
+  if (h) {
+    const o = await Order.findOne({ 'paymentProviderMeta.tokenHash': String(h) });
+    if (o) return o;
+  }
+  // 3) checkoutIntentId (SANDBOX/PROD)
+  if (ci) {
+    const o = await Order.findOne({ 'paymentProviderMeta.checkoutIntentId': String(ci) });
+    if (o) return o;
+  }
+  // 4) HelloAsso orderId (si on l’a déjà enregistré dans meta, voir plus bas)
+  if (haOrderId) {
+    const o = await Order.findOne({ 'paymentProviderMeta.haOrderId': String(haOrderId) });
+    if (o) return o;
+  }
+  return null;
+}
+
+
 // Helpers
 const isStub = () => String(process.env.HELLOASSO_STUB || '').toLowerCase() === 'true';
 const stubResultEnv = () => String(process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
@@ -49,29 +87,23 @@ function isPaidLike(status) {
  */
 router.get('/ha/return', async (req, res) => {
   try {
-    const {
-      oid, ci, stub, result,
-      checkoutIntentId, code, orderId
-    } = req.query;
-
+    const q = req.query || {};
+    const { oid, ci, stub, result, checkoutIntentId, code, orderId } = q;
     const inStub = isStub() || String(stub) === '1' || typeof result !== 'undefined';
-    let order = null;
 
-    // Find order
-    if (oid) {
-      order = await Order.findById(oid);
-    } else if (checkoutIntentId) {
-      order = await Order.findOne({ 'paymentProviderMeta.checkoutIntentId': checkoutIntentId });
-    } else if (ci) {
-      order = await Order.findOne({ 'paymentProviderMeta.checkoutIntentId': ci });
-    }
+    // Trouver la commande via tous les indices possibles
+    const order = await findOrderFromQuery(q);
 
     if (!order) {
-      return res.status(404).send('<h1>Order not found</h1>');
+      return res.status(404).send(`<!doctype html><meta charset="utf-8">
+        <link rel="icon" href="/bts/static/img/favicon.ico">
+        <h1>Order not found</h1>`);
     }
 
     if (order.status === 'paid') {
-      return res.send(`<h1>Paiement déjà confirmé ✅</h1><p>Commande ${order._id}</p>`);
+      return res.send(`<!doctype html><meta charset="utf-8">
+        <link rel="icon" href="/bts/static/img/favicon.ico">
+        <h1>Paiement déjà confirmé ✅</h1><p>Commande ${order._id}</p>`);
     }
 
     let status;
@@ -85,20 +117,24 @@ router.get('/ha/return', async (req, res) => {
       order.paymentProviderMeta = {
         ...(order.paymentProviderMeta || {}),
         name: 'stub',
-        checkoutIntentId: ci || `stub-${Date.now()}`,
+        checkoutIntentId: ci || checkoutIntentId || `stub-${Date.now()}`,
         stubResult: status
       };
     } else {
       // PROD/SANDBOX: verify via HelloAsso
       const resolvedIntentId = checkoutIntentId || ci;
       if (!resolvedIntentId) {
-        return res.status(400).send('<h1>Bad Request</h1><p>checkoutIntentId manquant</p>');
+        return res.status(400).send(`<!doctype html><meta charset="utf-8">
+          <link rel="icon" href="/bts/static/img/favicon.ico">
+          <h1>Bad Request</h1><p>checkoutIntentId manquant</p>`);
       }
       try {
         status = await getCheckoutStatus(resolvedIntentId); // 'succeeded' / 'failed' / ...
       } catch (e) {
         console.error('[ha/return] getCheckoutIntent failed:', e.message || e);
-        return res.status(500).send('<h1>Erreur interne</h1>');
+        return res.status(500).send(`<!doctype html><meta charset="utf-8">
+          <link rel="icon" href="/bts/static/img/favicon.ico">
+          <h1>Erreur interne</h1>`);
       }
 
       order.paymentProvider = 'helloasso';
@@ -107,7 +143,9 @@ router.get('/ha/return', async (req, res) => {
         name: 'helloasso',
         haOrderId: orderId || order.paymentProviderMeta?.haOrderId || null,
         checkoutIntentId: resolvedIntentId,
-        code: code || null
+        code: code || null,
+        lastReturnAt: new Date(),
+        lastReturnCode: code || status || ''
       };
     }
 
@@ -124,24 +162,35 @@ router.get('/ha/return', async (req, res) => {
         console.warn('sendMail failed:', e.message);
       }
 
-      return res.send(`<h1>Paiement confirmé ✅</h1><p>Commande ${order._id}</p>`);
+      return res.send(`<!doctype html><meta charset="utf-8">
+        <link rel="icon" href="/bts/static/img/favicon.ico">
+        <h1>Paiement confirmé ✅</h1><p>Commande ${order._id}</p>`);
+
     } else {
       order.status = 'failed';
       await order.save();
-      return res.send(`<h1>Paiement non confirmé ❌</h1><p>Commande ${order._id} — statut: ${status}</p>`);
+      return res.send(`<!doctype html><meta charset="utf-8">
+        <link rel="icon" href="/bts/static/img/favicon.ico">
+        <h1>Paiement non confirmé ❌</h1><p>Commande ${order._id} — statut: ${status}</p>`);
     }
   } catch (e) {
     console.error('[GET /ha/return] error:', e);
-    res.status(500).send('<h1>Erreur interne</h1>');
+    res.status(500).send(`<!doctype html><meta charset="utf-8">
+      <link rel="icon" href="/bts/static/img/favicon.ico">
+      <h1>Erreur interne</h1>`);
   }
 });
 
 router.get('/ha/back', (_req, res) => {
-  res.send('<h1>Paiement abandonné</h1><p>Vous pouvez reprendre votre commande ultérieurement.</p>');
+  res.send(`<!doctype html><meta charset="utf-8">
+    <link rel="icon" href="/bts/static/img/favicon.ico">
+    <h1>Paiement abandonné</h1><p>Vous pouvez reprendre votre commande ultérieurement.</p>`);
 });
 
 router.get('/ha/error', (_req, res) => {
-  res.status(400).send('<h1>Erreur de paiement</h1><p>Une erreur est survenue. Réessayez plus tard.</p>');
+  res.status(400).send(`<!doctype html><meta charset="utf-8">
+    <link rel="icon" href="/bts/static/img/favicon.ico">
+    <h1>Erreur de paiement</h1><p>Une erreur est survenue. Réessayez plus tard.</p>`);
 });
 
 export default router;
