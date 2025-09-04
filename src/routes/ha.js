@@ -11,6 +11,24 @@ const router = express.Router();
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 const isOkCode = v => new Set(['success','succeeded','paid','ok']).has(String(v||'').toLowerCase());
 
+// Normalise les statuts HA potentiels (string ou objet) et accepte un fallback depuis la query (?code=...)
+function normalizeHaStatus(input, fallback) {
+  // déballage d'objets potentiels
+  let raw = input;
+  if (raw && typeof raw === 'object') {
+    raw =
+      raw.status || raw.state || raw.code || raw.result || raw.paymentStatus ||
+      (raw.data && (raw.data.status || raw.data.state || raw.data.code)) || '';
+  }
+  raw = String(raw || fallback || '').trim().toLowerCase();
+  if (!raw) return '';
+  // mapping simple vers une poignée de valeurs canoniques
+  if (raw === 'payment_succeeded' || raw === 'success' || raw === 'succeeded' || raw === 'ok') return 'succeeded';
+  if (raw === 'paid' || raw === 'payment_accepted') return 'paid';
+  if (raw.startsWith('authoriz')) return 'authorized';
+  return raw;
+}
+
 
 
 async function findOrderFromQuery(q) {
@@ -88,7 +106,15 @@ function isPaidLike(status) {
 router.get('/ha/return', async (req, res) => {
   try {
     const q = req.query || {};
+    // log concis pour diagnostiquer INT
+    console.log('[ha/return] query=', {
+      oid: q.oid || null,
+      ci: q.ci || q.checkoutIntentId || null,
+      code: q.code || q.result || q.status || null,
+      orderId: q.orderId || null
+    });
     const { oid, ci, stub, result, checkoutIntentId, code, orderId } = q;
+
     const inStub = isStub() || String(stub) === '1' || typeof result !== 'undefined';
 
     // Trouver la commande via tous les indices possibles
@@ -129,7 +155,8 @@ router.get('/ha/return', async (req, res) => {
           <h1>Bad Request</h1><p>checkoutIntentId manquant</p>`);
       }
       try {
-        status = await getCheckoutStatus(resolvedIntentId); // 'succeeded' / 'failed' / ...
+        // Peut renvoyer une string OU un objet → on normalise plus bas
+        status = await getCheckoutStatus(resolvedIntentId);
       } catch (e) {
         console.error('[ha/return] getCheckoutIntent failed:', e.message || e);
         return res.status(500).send(`<!doctype html><meta charset="utf-8">
@@ -145,7 +172,7 @@ router.get('/ha/return', async (req, res) => {
         checkoutIntentId: resolvedIntentId,
         code: code || null,
         lastReturnAt: new Date(),
-        lastReturnCode: code || status || ''
+        lastReturnCode: code || (typeof status === 'string' ? status : (status?.status || status?.state || ''))
       };
     }
 
@@ -171,8 +198,8 @@ router.get('/ha/return', async (req, res) => {
       await order.save();
       return res.send(`<!doctype html><meta charset="utf-8">
         <link rel="icon" href="/bts/static/img/favicon.ico">
-        <h1>Paiement non confirmé ❌</h1><p>Commande ${order._id} — statut: ${status}</p>`);
-    }
+        <h1>Paiement non confirmé ❌</h1><p>Commande ${order._id} — statut: ${norm || code || 'unknown'}</p>`);
+      }
   } catch (e) {
     console.error('[GET /ha/return] error:', e);
     res.status(500).send(`<!doctype html><meta charset="utf-8">
