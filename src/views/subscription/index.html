@@ -102,18 +102,21 @@
   </main>
 
   <!-- Config spécifique TBH7 : on garde l’API GET/POST unique "s/tbh7" + query -->
-  <script>
+<script>
 window.BTS_VIEW_CONFIG = {
-  title: 'TBH7 — Abonnements 2025-2026',
-  pageTitle: 'TBH7 — Abonnements',
+  title: 'Les Bélougas - Abonnements 2025-2026',
+  pageTitle: 'Les Bélougas - Abonnements 2025-2026',
   api: {
-    status:  '/api/tbh7/status',
-    checkout:'/api/tbh7/checkout'
+    status:  '/api/sub/status',
+    checkout:'/api/sub/checkout'
   },
-  selection: { type: 'zones' } // si tu as le sélecteur de zone côté TBH7
+  selection: { type: 'seats' },
+  buildRowsFromData: false,          // ⬅️ empêche le pré-remplissage
+  svgSeatClasses: { allowed: 'seat-allowed' } // ⬅️ décorrèle "allowed" de "available"
+
 };
 </script>
-  <script defer src="/static/js/generic-view.js"></script>
-  <script defer src="/static/js/tbh7-view.js"></script>
+<script defer src="static/js/generic-view.js"></script>
+<script defer src="static/js/subscription.js"></script>
 </body>
 </html>

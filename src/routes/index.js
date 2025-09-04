@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url';
 
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 import tbh7Router from './tbh7.js';
+import subscriptionRouter from './subscription.js';
+
 import haRoutes from './ha.js';      
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,8 +23,12 @@ export default function routes(router) {
   // Page HTML
   router.get('/tbh7', (req, res) => res.sendFile(path.join(VIEWS_DIR, 'tbh7', 'index.html')));
 
+  router.get('/subscription', (req, res) => res.sendFile(path.join(VIEWS_DIR, 'subscription', 'index.html')));
+
   // API JSON
   router.use('/api/tbh7', tbh7Router);
+
+  router.use('/api/sub', subscriptionRouter);
 
   // API sous /s
   router.use('/s', renewApi);

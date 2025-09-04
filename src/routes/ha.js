@@ -3,7 +3,7 @@ import express from 'express';
 import { Order, Seat } from '../models/index.js';
 import { getCheckoutStatus } from '../services/helloasso.js';
 import { sendMail } from '../loaders/mailer.js';
-import { renderEmailTemplate } from '../utils/email-template.js';
+import { renderOrderEmail, subjectForOrder } from '../services/mailer.js';
 
 const router = express.Router();
 
@@ -11,14 +11,28 @@ const router = express.Router();
 const isStub = () => String(process.env.HELLOASSO_STUB || '').toLowerCase() === 'true';
 const stubResultEnv = () => String(process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
 
-async function markSeatsReserved(order) {
+// Marque en "booked" tous les SIÈGES réels de la commande (renew/subscription).
+// - Ignore les lignes "zone" (ex: TBH7-Z001)
+// - Idempotent: on remet "booked" même si l'état précédent n'était pas "available"
+async function markSeatsBooked(order) {
   try {
-    const seatIds = (order?.lines || []).map(l => l.seatId).filter(Boolean);
-    if (!seatIds.length) return;
-    await Seat.updateMany(
-      { _id: { $in: seatIds } },
-      { $set: { status: 'reserved' } }
+    const lines = Array.isArray(order?.lines) ? order.lines : [];
+    const realSeatIds = Array.from(new Set(
+      lines.map(l => String(l.seatId || '').trim())
+           // Ignore les pseudo-IDs de zone (ex: TBH7-Z001)
+           .filter(s => s && !/-Z\d{3,}$/i.test(s))
+    ));
+
+    if (!realSeatIds.length) return;
+    // ⚙️ Mise à jour inconditionnelle par seatId (sans filtre d'état) pour couvrir "Provisioned", "Held", etc.
+    const r = await Seat.updateMany(
+      { seasonCode: order.seasonCode, venueSlug: order.venueSlug, seatId: { $in: realSeatIds } },
+      { $set: { status: 'booked' } },
+      { runValidators: false }
     );
+    console.log('[ha/return] seats → booked',
+      { count: realSeatIds.length, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0, ids: realSeatIds });
+    
   } catch (e) {
     console.warn('[ha/return] seat update failed:', e.message);
   }
@@ -30,13 +44,8 @@ function isPaidLike(status) {
 
 /**
  * GET /ha/return
- * Scénarios:
- *  - STUB (HELLOASSO_STUB=true OU ?stub=1): pas d’appel réseau, succès/échec via result/env.
- *  - SANDBOX/PROD: vérif via HelloAsso (getCheckoutStatus).
- *
- * Query attendue (selon le flow):
- *   - STUB:   ?oid=<OrderId>&ci=<intentId>&stub=1&result=success|failure
- *   - HA:     ?checkoutIntentId=<id>&code=succeeded|canceled&orderId=<haOrderId>
+ * STUB:   ?oid=<OrderId>&ci=<intentId>&stub=1&result=success|failure
+ * HA:     ?checkoutIntentId=<id>&code=succeeded|canceled&orderId=<haOrderId>
  */
 router.get('/ha/return', async (req, res) => {
   try {
@@ -48,7 +57,7 @@ router.get('/ha/return', async (req, res) => {
     const inStub = isStub() || String(stub) === '1' || typeof result !== 'undefined';
     let order = null;
 
-    // Récupère la commande
+    // Find order
     if (oid) {
       order = await Order.findById(oid);
     } else if (checkoutIntentId) {
@@ -68,12 +77,11 @@ router.get('/ha/return', async (req, res) => {
     let status;
 
     if (inStub) {
-      // 🔒 STUB: pas d’appel HelloAsso, on décide localement
       const desired = String(result || stubResultEnv());
       status = (desired === 'success') ? 'success' : 'failure';
 
       // trace minimale “provider”
-      order.paymentProvider = 'helloasso'; // on garde helloasso pour homogénéité
+      order.paymentProvider = 'helloasso';
       order.paymentProviderMeta = {
         ...(order.paymentProviderMeta || {}),
         name: 'stub',
@@ -81,19 +89,18 @@ router.get('/ha/return', async (req, res) => {
         stubResult: status
       };
     } else {
-      // 🌐 PROD/SANDBOX: on vérifie via l’API (nécessite les creds)
+      // PROD/SANDBOX: verify via HelloAsso
       const resolvedIntentId = checkoutIntentId || ci;
       if (!resolvedIntentId) {
         return res.status(400).send('<h1>Bad Request</h1><p>checkoutIntentId manquant</p>');
       }
       try {
-        status = await getCheckoutStatus(resolvedIntentId); // doit renvoyer 'succeeded' / 'failed' / ...
+        status = await getCheckoutStatus(resolvedIntentId); // 'succeeded' / 'failed' / ...
       } catch (e) {
         console.error('[ha/return] getCheckoutIntent failed:', e.message || e);
         return res.status(500).send('<h1>Erreur interne</h1>');
       }
 
-      // enrichit la commande avec les infos HelloAsso
       order.paymentProvider = 'helloasso';
       order.paymentProviderMeta = {
         ...(order.paymentProviderMeta || {}),
@@ -107,70 +114,12 @@ router.get('/ha/return', async (req, res) => {
     if (isPaidLike(status)) {
       order.status = 'paid';
       await order.save();
-      await markSeatsReserved(order);
-
-      // Email de confirmation
+      await markSeatsBooked(order);
+      // --- EMAIL ---
       try {
-
-const TEMPLATE_BY_KIND = {
-  renew:   process.env.EMAIL_TEMPLATE_RENEW_CONFIRM   || 'renew-confirmation',
-  fanclub: process.env.EMAIL_TEMPLATE_TBH7_CONFIRM || 'tbh7-confirmation',
-  public:  process.env.EMAIL_TEMPLATE_PUBLIC_CONFIRM  || 'public-confirmation',
-  unknown: process.env.EMAIL_TEMPLATE_DEFAULT         || 'renew-confirmation'
-};
-
-const SUBJECT_BY_KIND = {
-  renew:   process.env.EMAIL_SUBJECT_RENEW_CONFIRM   || 'Confirmation de paiement – Abonnement (Renouvellement)',
-  fanclub: process.env.EMAIL_SUBJECT_TBH7_CONFIRM    || 'Confirmation de paiement – Fan Club TBH7',
-  public:  process.env.EMAIL_SUBJECT_PUBLIC_CONFIRM  || 'Confirmation de paiement – Abonnement (Grand public)',
-  unknown: process.env.EMAIL_SUBJECT_DEFAULT         || 'Confirmation de paiement – Abonnement'
-};
-
-function resolveOrderKind(order) {
-  // priorité aux champs persistés
-  if (order.mailTemplateKind) return String(order.mailTemplateKind).toLowerCase();
-  if (order.origin?.flow)     return String(order.origin.flow).toLowerCase();
-
-  // fallback doux (au cas où)
-  const phase = String(order.phase || '').toLowerCase();
-  if (['renew','fanclub','public','tbh7','grandpublic'].includes(phase)) {
-    return phase === 'tbh7' ? 'fanclub' : (phase === 'grandpublic' ? 'public' : phase);
-  }
-  return 'unknown';
-}
-        
-// ...
-const kind    = resolveOrderKind(order);
-const tplName = TEMPLATE_BY_KIND[kind];
-const subject = SUBJECT_BY_KIND[kind];
-
-const linesRows = (Array.isArray(order.lines) ? order.lines : [])
-  .map(l => `<tr><td>${l.seatId || l.zoneKey || ''}</td><td>${l.tariffCode || ''}</td><td>${(Number(l.priceCents||0)/100).toFixed(2)} €</td></tr>`)
-  .join('');
-
-const ctx = {
-  order,
-  orderId: String(order._id),
-  seasonCode: order.seasonCode || '',
-  venueSlug: order.venueSlug || '',
-  payerFirstName: order.payerFirstName || '',
-  payerLastName:  order.payerLastName  || '',
-  payerEmail:     order.payerEmail     || '',
-  totalEuro: ((Number(order.totalCents || 0) / 100).toFixed(2)),
-  installmentsInfo: (Number(order.installments || order.paymentSplit || 1) > 1)
-    ? `Règlement en ${Number(order.installments || order.paymentSplit)} échéances.`
-    : `Règlement en une fois.`,
-  linesRows,
-  haOrderBlock: order.paymentProviderOrderId ? `<p>Référence HelloAsso : <b>${order.paymentProviderOrderId}</b></p>` : '',
-  clubName: process.env.CLUB_NAME || 'Les Bélougas',
-  extraInfo: ''
-};
-
-const html = await renderEmailTemplate(tplName, ctx);
-console.log(html);
-
-await sendMail({ to: order.payerEmail, subject, html });
-
+        const html    = await renderOrderEmail(order);
+        const subject = subjectForOrder(order);
+        await sendMail({ to: order.payerEmail, subject, html });
       } catch (e) {
         console.warn('sendMail failed:', e.message);
       }
