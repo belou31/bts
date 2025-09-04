@@ -3,10 +3,13 @@ import mongoose from 'mongoose';
 import { Zone } from '../src/models/Zone.js';
 import { Season } from '../src/models/Season.js';
 
+import dotenv from 'dotenv';
+dotenv.config();
+
 const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
 
 async function getSeasonCode() {
-  if (process.env.SEASON) return process.env.SEASON;
+  if (process.env.SEASON_CODE) return process.env.SEASON_CODE;
   // le modèle utilise isActive (et parfois seasonCode)
   const s = await Season.findOne({ isActive: true }).lean();
   const code = s?.code || s?.seasonCode;
