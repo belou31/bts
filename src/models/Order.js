@@ -1,57 +1,77 @@
 // src/models/Order.js
 import mongoose from 'mongoose';
 
+/* ----- Line items ----- */
 const LineSchema = new mongoose.Schema({
-  seatId: String,
-  tariffCode: String,
-  priceCents: Number,            // optionnel si tu stockes le détail
-  holderFirstName: String,       // optionnel (porteur de la place)
-  holderLastName: String,
-  justificationField: String,    // ex: Numéro INE / licence
-  info: String                   // info complémentaire
-}, { _id: false });
+  seatId:          { type: String, default: '' },
+  zoneKey:         { type: String, default: '' },   // ← needed for TBH7 / standing zones
+  tariffCode:      { type: String, index: true },
+  priceCents:      { type: Number, default: 0 },
 
+  holderFirstName: { type: String, default: '' },
+  holderLastName:  { type: String, default: '' },
+
+  // Front posts `justif`; your older code used `justificationField`
+  justif:             { type: String, default: '' },
+  justificationField: { type: String, default: '' },
+
+  info:            { type: String, default: '' }
+}, { _id: false, strict: true });
+
+/* ----- Optional sub-schema for origin ----- */
+const OriginSchema = new mongoose.Schema({
+  flow:   { type: String, enum: ['renew','tbh7','fanclub','public','vip'], default: null },
+  uiPath: { type: String, default: null },
+  apiPath:{ type: String, default: null }
+}, { _id:false });
+
+/* ----- Order ----- */
 const OrderSchema = new mongoose.Schema({
   seasonCode: { type: String, index: true },
   venueSlug:  { type: String, index: true },
+
   groupKey:   { type: String, index: true },
-payerFirstName: String,
-payerLastName:  String,
-paymentSplit:   { type: Number, default: 1 },
-  payerEmail: String,
-  lines: [LineSchema],
-  totalCents: Number,
-  status: { type: String, enum: ['pending','paid','failed'], default: 'pending', index: true },
-  paymentProvider: { type: String, default: 'helloasso' },
-  providerRef: String,
 
-  // NOUVEAU : id de commande côté prestataire (HelloAsso)
-  paymentProviderOrderId: { type: String, index: true, sparse: true },
+  payerFirstName: { type: String, default: '' },
+  payerLastName:  { type: String, default: '' },
+  payerEmail:     { type: String, index: true, default: '' },
 
-  meta: { type: Object, default: {} }, // on gardera meta.helloasso.intentId/orderId/raw
+  // number of installments (aka schedule in UI)
+  paymentSplit:   { type: Number, default: 1 },
 
-}, { timestamps: true });
+  lines:      { type: [LineSchema], default: [] },
+  totalCents: { type: Number, default: 0 },
 
-// Unicité logique : un seul "paid" par (season, venue, groupKey)
+  status: { type: String, enum: ['pending','paid','failed','canceled'], default: 'pending', index: true },
+
+  paymentProvider:     { type: String, default: 'helloasso' },
+
+  // ✅ New canonical provider meta bag (used by renew/tbh7 routes & ha.js)
+  paymentProviderMeta: { type: mongoose.Schema.Types.Mixed, default: {} },
+
+  // ⬅ Legacy (keep for compatibility with older data/logic if any)
+  providerRef: { type: String, default: '' },
+  meta:        { type: Object, default: {} },
+
+  // Email/template routing
+  origin:           { type: OriginSchema, default: undefined },
+  mailTemplateKind: { type: String, enum: ['renew','tbh7','public','vip','invite','generic'], default:'generic' }
+}, { timestamps: true, strict: true });
+
+/* ----- Indexes ----- */
+
+// (1) Unique: only one PAID per (season, venue, groupKey)
 OrderSchema.index(
-  { 'meta.tokenHash': 1 },
   { seasonCode: 1, venueSlug: 1, groupKey: 1, status: 1 },
   { unique: true, partialFilterExpression: { status: 'paid' }, name: 'uniq_paid_per_group' }
 );
 
+// (2) Lookup by HelloAsso intent / token (canonical)
+OrderSchema.index({ 'paymentProviderMeta.checkoutIntentId': 1 }, { sparse: true, name: 'idx_provider_intent' });
+OrderSchema.index({ 'paymentProviderMeta.tokenHash': 1 },        { sparse: true, name: 'idx_provider_tokenhash' });
 
-// Petit sous-schéma (pas d’_id)
-const OriginSchema = new mongoose.Schema({
-  flow:   { type: String, enum: ['renew','tbh7','fanclub','public','vip'], default: null }, // nature du flux
-  uiPath: { type: String, default: null },  // ex: "/tbh7" ou "/renew"
-  apiPath:{ type: String, default: null }   // ex: "/api/tbh7/checkout"
-}, { _id:false });
-
-// Ajouts optionnels au schéma Order
-OrderSchema.add({
-  origin:           { type: OriginSchema, default: undefined },
-mailTemplateKind: { type: String, enum: ['renew','tbh7','public','vip','invite','generic'], default:'generic' }
-});
-
+// (3) Legacy lookups (if older orders used meta.*)
+OrderSchema.index({ 'meta.checkoutIntentId': 1 }, { sparse: true, name: 'idx_legacy_intent' });
+OrderSchema.index({ 'meta.tokenHash': 1 },        { sparse: true, name: 'idx_legacy_tokenhash' });
 
 export const Order = mongoose.models.Order || mongoose.model('Order', OrderSchema);

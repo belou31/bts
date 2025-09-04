@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Confirmation d'abonnement — {{org.clubName}}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;line-height:1.4;color:#111827;background:#f9fafb;padding:24px}
+    .card{max-width:720px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px}
+    h1{font-size:18px;margin:0 0 8px}
+    .muted{color:#6b7280}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    td,th{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left}
+    th:last-child, td:last-child{text-align:right}
+    .total{font-weight:700}
+    .foot{margin-top:18px;font-size:12px;color:#6b7280}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Confirmation d’inscription</h1>
+    <p class="muted">
+      Bonjour {{payer.fullName}},<br>
+      voici le récapitulatif de votre demande d’adhésion pour la saison {{order.seasonCode}} ({{order.venueSlug}}).
+    </p>
+
+    <table aria-label="Vos lignes">
+      <thead>
+        <tr>
+          <th>Place / Zone</th>
+          <th>Bénéficiaire</th>
+          <th>Tarif</th>
+          <th>Montant</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{LINES_HTML}}
+        <tr>
+          <td colspan="3" class="total">Total</td>
+          <td class="total">{{order.totalEuro}}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="margin-top:12px">
+      <strong>Échéancier :</strong> {{order.split}} fois — {{order.installmentsHuman}}
+    </p>
+
+    <p class="foot">
+      N° commande : {{order.id}} — émise le {{order.createdAt}}.<br>
+      Cet e-mail tient lieu de confirmation. Vous recevrez vos billets/QR ultérieurement selon le calendrier du club.
+    </p>
+  </div>
+</body>
+</html>

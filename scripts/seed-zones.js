@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import { Zone } from '../src/models/Zone.js';
 import { Season } from '../src/models/Season.js';
 
-const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/bts';
+const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
 
 async function getSeasonCode() {
   if (process.env.SEASON) return process.env.SEASON;
@@ -14,8 +14,8 @@ async function getSeasonCode() {
 
 (async () => {
   try {
-    await mongoose.connect(uri, { dbName: process.env.MONGODB_DB });
-
+    await mongoose.connect(uri);
+  
     const seasonCode = await getSeasonCode();
 
     const zones = [

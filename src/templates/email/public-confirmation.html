@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <title>Confirmation d’inscription — TBH7</title>
+  <title>Confirmation d’abonnement — Grand public</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
   body{margin:0;padding:0;background:#0b0f17;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif}
@@ -25,9 +25,10 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Confirmation d’inscription — TBH7</h1>
+      <h1>Confirmation d’abonnement — Grand public</h1>
       <p>Bonjour <b>{{payer.fullName}}</b>,</p>
-      <p>Voici le récapitulatif de votre adhésion à la zone TBH7 pour la saison <b>{{order.seasonCode}}</b> ({{order.venueSlug}}).</p>
+      <p>Votre commande <b>{{order.id}}</b> a été confirmée.</p>
+      {{haOrderBlock}}
 
       <div class="grid">
         <div>
