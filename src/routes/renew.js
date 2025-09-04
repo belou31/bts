@@ -268,12 +268,19 @@ router.post('/renew', async (req, res) => {
     }
 
     // SANDBOX/PROD : crée un CheckoutIntent HelloAsso
+    // ➜ Ajoute ?oid=<OrderId> aux URLs de retour pour la corrélation au /ha/return
+    const withOID = (u, oid) => u + (u.includes('?') ? '&' : '?') + `oid=${encodeURIComponent(String(oid))}`;
+    const retUrl  = withOID(HA_RETURN_URL, order._id);
+    const backUrl = withOID(HA_BACK_URL,   order._id);
+    const errUrl  = withOID(HA_ERR_URL,    order._id);
+
     const { redirectUrl, raw, error } = await createCheckoutIntent({
       order,
-      returnUrl: HA_RETURN_URL,
-      backUrl:   HA_BACK_URL,
-      errorUrl:  HA_ERR_URL
+      returnUrl: retUrl,
+      backUrl:   backUrl,
+      errorUrl:  errUrl
     });
+
     if (error || !redirectUrl) {
       console.error('[renew] createCheckoutIntent failed:', error);
       return res.status(502).json({ error: 'helloasso_unavailable' });
@@ -284,7 +291,8 @@ router.post('/renew', async (req, res) => {
       const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: raw.id });
       order.paymentProviderMeta = {
         ...(order.paymentProviderMeta || {}),
-        checkoutIntentId: raw.id,
+        name: 'helloasso',
+        checkoutIntentId: String(raw.id),
         tokenHash
       };
       await order.save();
