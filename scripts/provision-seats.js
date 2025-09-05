@@ -66,7 +66,13 @@ function patternForId(id) {
 
 async function main() {
   const APPLY = isApply();
-  await mongoose.connect(uri, { dbName });
+
+    // ➜ En INT, mets les identifiants dans MONGODB_URI (ex : mongodb://bts:***@127.0.0.1:27017/bts?authSource=bts)
+    // Si MONGODB_DB est défini, on l’utilise ; sinon on laisse Mongoose prendre le db de l’URI.
+    const opts = {};
+    if (process.env.MONGODB_DB) opts.dbName = process.env.MONGODB_DB;
+    await mongoose.connect(uri, opts);
+
   const { seasonCode, venueSlug } = await resolveSeasonVenue();
 
   log(`DB=${dbName || '<default>'} APPLY=${APPLY ? 'YES' : 'NO (dry-run)'}`);
