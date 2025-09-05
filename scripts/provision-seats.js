@@ -3,7 +3,7 @@
 // Par défaut DRY-RUN (aucune écriture). Ajouter --apply pour écrire.
 //
 // ENV attendues :
-//   MONGODB_URI (ex: mongodb://127.0.0.1:27017/bts)
+//   MONGO_URI (ex: mongodb://127.0.0.1:27017/bts)
 //   MONGODB_DB  (ex: bts)
 //   SEASON      (facultatif; sinon saison active)
 //   VENUE       (facultatif; sinon venue de la saison active)
@@ -28,7 +28,7 @@ import { Seat }   from '../src/models/Seat.js';
 import { Season } from '../src/models/Season.js';
 
 // -------- Connexion Mongo (INT/PROD avec auth) ----------
-// Priorité: --uri=... > MONGODB_URI > variables unitaires (user/host/port/db)
+// Priorité: --uri=... > MONGO_URI > variables unitaires (user/host/port/db)
 function arg(k) {
   const p = `--${k}=`;
   const v = process.argv.find(a => a.startsWith(p));
@@ -49,7 +49,7 @@ function buildUriFromEnv() {
   return `mongodb://${HOST}:${PORT}/${DB}`;
 }
 const argvUri = arg('uri');
-const uri = argvUri || process.env.MONGODB_URI || buildUriFromEnv();
+const uri = argvUri || process.env.MONGO_URI || buildUriFromEnv();
 // Si MONGODB_DB est fourni et que l'URI ne porte pas de DB explicite, on le passera à mongoose.connect
 const hasDbInUri = /mongodb(\+srv)?:\/\/[^/]+\/[^?]+/.test(uri);
 const dbName = process.env.MONGODB_DB && !hasDbInUri ? process.env.MONGODB_DB : undefined;
@@ -103,7 +103,7 @@ async function main() {
     console.error('[provision] Mongo connect failed:', e?.message || e);
     if (/requires authentication|auth/i.test(String(e?.message || ''))) {
       console.error('[provision] Conseil: fournissez une URI authentifiée, ex.:');
-      console.error("  MONGODB_URI='mongodb://bts:***@127.0.0.1:27017/bts?authSource=bts'");
+      console.error("  MONGO_URI='mongodb://bts:***@127.0.0.1:27017/bts?authSource=bts'");
       console.error('  ou utilisez --uri=...  (le mot de passe doit être URL-encodé)');
     }
     process.exit(1);
