@@ -1,12 +1,15 @@
 // src/routes/ha.js
 import express from 'express';
-import util from 'node:util';
+import crypto from 'crypto';
+import util from 'util';
+
 import { Order, Seat } from '../models/index.js';
 import { getCheckoutStatus } from '../services/helloasso.js';
 import { sendMail } from '../loaders/mailer.js';
 import { renderOrderEmail, subjectForOrder } from '../services/mailer.js';
 
 const router = express.Router();
+const ORG_SLUG = process.env.HELLOASSO_ORG_SLUG || '';
 
 // helpers
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
@@ -32,7 +35,7 @@ function normalizeHaStatus(input, fallback) {
   if (!raw) return '';
   // mapping simple vers une poignée de valeurs canoniques
   if (raw === 'payment_succeeded' || raw === 'success' || raw === 'succeeded' || raw === 'ok') return 'succeeded';
-  if (raw === 'paid' || raw === 'payment_accepted') return 'paid';
+  if (raw === 'paid' || raw === 'payment_accepted' || raw === 'processed') return 'paid';
   if (raw.startsWith('authoriz')) return 'authorized';
   return raw;
 }
@@ -103,7 +106,7 @@ async function markSeatsBooked(order) {
 }
 
 function isPaidLike(status) {
-  return /^(paid|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(status || '').trim());
+  return /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(status || '').trim());
 }
 
 /**
@@ -111,7 +114,7 @@ function isPaidLike(status) {
  * STUB:   ?oid=<OrderId>&ci=<intentId>&stub=1&result=success|failure
  * HA:     ?checkoutIntentId=<id>&code=succeeded|canceled&orderId=<haOrderId>
  */
-router.get('/ha/return', async (req, res) => {
+router.get('/return', async (req, res) => {
   try {
     const q = req.query || {};
     // log concis pour diagnostiquer INT
@@ -181,6 +184,8 @@ if (order.status === 'paid') {
           <link rel="icon" href="/bts/static/img/favicon.ico">
           <h1>Erreur interne</h1>`);
       }
+      // 🔽 normalise en toute circonstance (y compris si string vide)
+      status = normalizeHaStatus(statusRaw, code);
 
       order.paymentProvider = 'helloasso';
       order.paymentProviderMeta = {
@@ -212,15 +217,20 @@ if (order.status === 'paid') {
       return res.send(`<!doctype html><meta charset="utf-8">
         <link rel="icon" href="/bts/static/img/favicon.ico">
         <h1>Paiement confirmé ✅</h1><p>Commande ${order._id}</p>`);
-
     } else {
-      order.status = 'failed';
-      await order.save();
+      // 🟡 Ne pas conclure à failed ici : on attend le webhook (lead) → pending + message utilisateur
+      if (order.status !== 'paid') {
+        order.status = 'pending';
+        await order.save();
+      }
       return res.send(`<!doctype html><meta charset="utf-8">
         <link rel="icon" href="/bts/static/img/favicon.ico">
-        <h1>Paiement non confirmé ❌</h1><p>Commande ${order._id} — statut: ${status || code || 'unknown'}</p>`);
-      }
-  } catch (e) {
+        <h1>Paiement en cours de validation…</h1>
+        <p>Commande ${order._id}${status ? ` — statut: ${status}` : ''}</p>
+        <p>La confirmation vous parviendra <strong>par email</strong> dès validation.</p>`);
+    }
+
+      } catch (e) {
     console.error('[GET /ha/return] error:', e);
     res.status(500).send(`<!doctype html><meta charset="utf-8">
       <link rel="icon" href="/bts/static/img/favicon.ico">
@@ -228,16 +238,117 @@ if (order.status === 'paid') {
   }
 });
 
-router.get('/ha/back', (_req, res) => {
+router.get('/back', (_req, res) => {
   res.send(`<!doctype html><meta charset="utf-8">
     <link rel="icon" href="/bts/static/img/favicon.ico">
     <h1>Paiement abandonné</h1><p>Vous pouvez reprendre votre commande ultérieurement.</p>`);
 });
 
-router.get('/ha/error', (_req, res) => {
+router.get('/error', (_req, res) => {
   res.status(400).send(`<!doctype html><meta charset="utf-8">
     <link rel="icon" href="/bts/static/img/favicon.ico">
     <h1>Erreur de paiement</h1><p>Une erreur est survenue. Réessayez plus tard.</p>`);
 });
+
+
+/**
+ * POST /ha/webhook
+ * Webhook HelloAsso (non signé côté club). On filtre par organizationSlug.
+ * Payloads possibles (exemples fournis) :
+ *  - eventType: "Payment" → data.order.id = <haOrderId>
+ *  - eventType: "Order"   → data.id       = <haOrderId>
+ */
+router.post('/webhook', express.json({ type: '*/*' }), async (req, res) => {
+  try {
+    // Certains reverse/proxys peuvent encapsuler dans { postData: { contents: "<json>" } }
+    let payload = req.body;
+    if (payload?.postData?.contents) {
+      try { payload = JSON.parse(payload.postData.contents); } catch { /* ignore */ }
+    }
+    const data = payload?.data || {};
+    const eventType = String(payload?.eventType || data?.eventType || '').toLowerCase();
+    const orgSlug   = String(data?.organizationSlug || '').toLowerCase();
+
+    // Filtre org
+    if (ORG_SLUG && orgSlug && ORG_SLUG.toLowerCase() !== orgSlug) {
+      console.warn('[ha/webhook] ignored (org mismatch)', { orgSlug, ORG_SLUG });
+      return res.status(202).send('ignored');
+    }
+
+    // Récup haOrderId selon le type d’event
+    let haOrderId = null;
+    if (eventType === 'payment') {
+      haOrderId = data?.order?.id ?? null;
+    } else if (eventType === 'order') {
+      haOrderId = data?.id ?? null;
+    }
+    if (!haOrderId) {
+      console.warn('[ha/webhook] no haOrderId in payload', { eventType });
+      return res.status(202).send('ignored');
+    }
+    haOrderId = String(haOrderId);
+
+    // Réconciliation : priorité au mapping déjà établi via /ha/return ; sinon fallback email+montant
+    let order = await Order.findOne({ 'paymentProviderMeta.haOrderId': haOrderId });
+    if (!order) {
+      const payerEmail = String(data?.payer?.email || '').trim();
+      const total = Number(
+        (data?.amount && typeof data.amount === 'object' ? data.amount.total : data?.amount) || 0
+      );
+      if (payerEmail && total > 0) {
+        const candidates = await Order.find({
+          status: { $in: ['pending', 'paid'] },
+          payerEmail: new RegExp(`^${payerEmail}$`, 'i'),
+          totalCents: total
+        }).sort({ createdAt: -1 }).limit(2).lean();
+        if (candidates.length === 1) {
+          order = await Order.findById(candidates[0]._id);
+        }
+      }
+    }
+    if (!order) {
+      console.warn('[ha/webhook] order not matched', { haOrderId, eventType });
+      return res.status(202).send('no order matched');
+    }
+
+    // Màj méta + statut
+    const rawState = String(data?.state || data?.status || '').toLowerCase();
+    const status   = normalizeHaStatus(rawState);
+
+    order.paymentProvider = 'helloasso';
+    order.paymentProviderMeta = {
+      ...(order.paymentProviderMeta || {}),
+      name: 'helloasso',
+      haOrderId,
+      lastWebhookAt: new Date(),
+      lastWebhookEvent: eventType,
+      lastWebhookRawState: rawState
+    };
+
+    if (isPaidLike(status)) {
+      order.status = 'paid';
+      await order.save();
+      await markSeatsBooked(order);
+      try {
+        const html = await renderOrderEmail(order);
+        const subject = subjectForOrder(order);
+        await sendMail({ to: order.payerEmail, subject, html });
+      } catch (e) {
+        console.warn('sendMail failed:', e.message);
+      }
+      return res.status(200).send('ok');
+    } else {
+      if (order.status !== 'paid') {
+        order.status = 'pending';
+        await order.save();
+      }
+      return res.status(200).send('pending');
+    }
+  } catch (e) {
+    console.error('[ha/webhook] error:', e);
+    return res.status(500).send('error');
+  }
+});
+
 
 export default router;
