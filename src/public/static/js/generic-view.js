@@ -469,7 +469,44 @@ async function submitPayment() {
       credentials:'same-origin',
       body: JSON.stringify({ items, payer, schedule, totalAmount })
     });
-    if (!res.ok) throw new Error(`Erreur serveur (${res.status}) : ${await res.text().catch(()=>res.status)}`);
+    if (!res.ok) {
+      let msg = `Erreur serveur (${res.status})`;
+      try {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const err = await res.json();
+          // Règle anti-trou
+          if (err?.error === 'single_gap_rule') {
+            msg = `Règle de placement : votre sélection créerait un siège isolé en rangée ${err.rowKey || ''} (zone ${err.zoneKey || ''}). Merci de choisir une autre combinaison.`;
+          }
+          // Erreurs HelloAsso détaillées (tableau "errors")
+          else if (Array.isArray(err?.errors) && err.errors.length) {
+            msg = `Erreurs de saisie :\n• ` + err.errors.map(e => e.message || e.code || String(e)).join('\n• ');
+          }
+          // Message générique du serveur
+          else if (err?.error) {
+            msg = String(err.error);
+          }
+        } else {
+          // Texte brut (ex: pile/proxy)
+          const t = await res.text();
+          // Tentative d’extraction des erreurs HA depuis un message brut
+          const m = t && t.match(/\{"errors":\s*\[[\s\S]*?\]\}/);
+          if (m) {
+            try {
+              const j = JSON.parse(m[0]);
+              if (Array.isArray(j.errors) && j.errors.length) {
+                msg = `Erreurs de saisie :\n• ` + j.errors.map(e => e.message || e.code || String(e)).join('\n• ');
+              }
+            } catch {}
+          } else {
+            msg = `${msg} : ${t || ''}`;
+          }
+        }
+      } catch {}
+      throw new Error(msg);
+    }
+
     const out = await res.json();
     if (out.redirectUrl) {
       feedback.classList.add('ok');
@@ -481,7 +518,9 @@ async function submitPayment() {
   } catch (e) {
     console.error('pay error:', e);
     feedback.classList.add('err');
-    feedback.textContent = e.message || 'Erreur au démarrage du paiement.';
+    // Affichage multi-lignes (les \n sont conservés)
+    feedback.innerText = e.message || 'Erreur au démarrage du paiement.';
+
     $('#payBtn').disabled = false;
   }
 }
