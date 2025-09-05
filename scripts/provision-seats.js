@@ -27,8 +27,35 @@ import mongoose from 'mongoose';
 import { Seat }   from '../src/models/Seat.js';
 import { Season } from '../src/models/Season.js';
 
-const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/bts';
-const dbName = process.env.MONGODB_DB || undefined;
+// -------- Connexion Mongo (INT/PROD avec auth) ----------
+// Priorité: --uri=... > MONGODB_URI > variables unitaires (user/host/port/db)
+function arg(k) {
+  const p = `--${k}=`;
+  const v = process.argv.find(a => a.startsWith(p));
+  return v ? v.slice(p.length) : null;
+}
+function buildUriFromEnv() {
+  const HOST = process.env.MONGODB_HOST || '127.0.0.1';
+  const PORT = process.env.MONGODB_PORT || '27017';
+  const DB   = process.env.MONGODB_DB   || 'bts';
+  const USER = process.env.MONGODB_USER || '';
+  const PASS = process.env.MONGODB_PASSWORD || '';
+  const AUTH = process.env.MONGODB_AUTHSOURCE || (USER ? DB : '');
+  if (USER) {
+    const encU = encodeURIComponent(USER);
+    const encP = encodeURIComponent(PASS);
+    return `mongodb://${encU}:${encP}@${HOST}:${PORT}/${DB}${AUTH ? `?authSource=${encodeURIComponent(AUTH)}` : ''}`;
+  }
+  return `mongodb://${HOST}:${PORT}/${DB}`;
+}
+const argvUri = arg('uri');
+const uri = argvUri || process.env.MONGODB_URI || buildUriFromEnv();
+// Si MONGODB_DB est fourni et que l'URI ne porte pas de DB explicite, on le passera à mongoose.connect
+const hasDbInUri = /mongodb(\+srv)?:\/\/[^/]+\/[^?]+/.test(uri);
+const dbName = process.env.MONGODB_DB && !hasDbInUri ? process.env.MONGODB_DB : undefined;
+function maskUri(u='') {
+  return u.replace(/(mongodb(\+srv)?:\/\/)([^:@/]+):([^@]+)@/i, (_m, p, _s, user) => `${p}${user}:***@`);
+}
 
 // petit helper logs
 const log = (...a) => console.log('[provision]', ...a);
@@ -67,11 +94,20 @@ function patternForId(id) {
 async function main() {
   const APPLY = isApply();
 
-    // ➜ En INT, mets les identifiants dans MONGODB_URI (ex : mongodb://bts:***@127.0.0.1:27017/bts?authSource=bts)
-    // Si MONGODB_DB est défini, on l’utilise ; sinon on laisse Mongoose prendre le db de l’URI.
+  try {
+    console.log('[provision] connecting to', maskUri(uri), dbName ? `(dbName=${dbName})` : '');
     const opts = {};
-    if (process.env.MONGODB_DB) opts.dbName = process.env.MONGODB_DB;
+    if (dbName) opts.dbName = dbName;
     await mongoose.connect(uri, opts);
+  } catch (e) {
+    console.error('[provision] Mongo connect failed:', e?.message || e);
+    if (/requires authentication|auth/i.test(String(e?.message || ''))) {
+      console.error('[provision] Conseil: fournissez une URI authentifiée, ex.:');
+      console.error("  MONGODB_URI='mongodb://bts:***@127.0.0.1:27017/bts?authSource=bts'");
+      console.error('  ou utilisez --uri=...  (le mot de passe doit être URL-encodé)');
+    }
+    process.exit(1);
+  }
 
   const { seasonCode, venueSlug } = await resolveSeasonVenue();
 
@@ -136,4 +172,12 @@ async function main() {
 
 main()
   .then(() => { log('Done.'); process.exit(0); })
-  .catch(err => { console.error('[provision] ERROR:', err); process.exit(1); });
+  .catch(err => {
+    console.error('[provision] ERROR:', err?.message || err);
+    if (/requires authentication|auth/i.test(String(err?.message || ''))) {
+      console.error('[provision] URI actuelle:', maskUri(uri));
+    }
+    process.exit(1);
+  });
+
+  
