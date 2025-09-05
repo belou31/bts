@@ -122,14 +122,27 @@
 
     /* ---------- Clickable zones in the SVG ---------- */
     function wirePlanClicks(svgDoc) {
+      let wired = 0;
       zones.forEach(z => {
         const sel = String(z.svgSelector || '').trim();
         if (!sel) return;
-        $$(sel, svgDoc).forEach(node => {
+        const nodes = $$(sel, svgDoc);
+        nodes.forEach(node => {
+          // Marquage explicite pour la délégation
+          node.dataset.zoneKey = z.key;
+          node.classList.add('zone-hotspot');
+          // Assure la cliquabilité visuelle + technique
           node.style.cursor = 'pointer';
-          node.addEventListener('click', () => addOne(z.key));
+          node.style.pointerEvents = 'auto';
+          // Si on clique SUR la zone (et pas sur un siège), on ajoute une ligne
+          node.addEventListener('click', (ev) => {
+            if (ev.target?.closest?.('[data-seat-id],[data-seat]')) return; // priorité aux sièges
+            addOne(z.key);
+          });
+          wired++;
         });
       });
+      if (window.BTS_VIEW?.dlog) window.BTS_VIEW.dlog('zones wired:', wired);
     }
 
     /* ---------- Keep “remaining” in sync with the cart ---------- */
