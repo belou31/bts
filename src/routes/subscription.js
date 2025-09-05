@@ -267,19 +267,28 @@ router.post('/checkout', async (req, res) => {
     }
 
     // INT/PROD
+    // Corrélation fiable au retour: ajoute ?oid=<orderId> aux 3 URLs
+    const addOID = (u) => u + (u.includes('?') ? '&' : '?') + `oid=${encodeURIComponent(order._id.toString())}`;
     const { redirectUrl, raw, error } = await createCheckoutIntent({
       order,
-      returnUrl: HA_RETURN_URL,
-      backUrl:   HA_BACK_URL,
-      errorUrl:  HA_ERR_URL
+      returnUrl: addOID(HA_RETURN_URL),
+      backUrl:   addOID(HA_BACK_URL),
+      errorUrl:  addOID(HA_ERR_URL)
     });
+
     if (error || !redirectUrl) {
       console.error('[subscription] createCheckoutIntent failed:', error);
       return res.status(502).json({ error: 'helloasso_unavailable' });
     }
     if (raw?.id) {
-      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: raw.id });
-      order.paymentProviderMeta = { ...(order.paymentProviderMeta || {}), checkoutIntentId: raw.id, tokenHash };
+      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: String(raw.id) });
+      order.paymentProviderMeta = {
+        ...(order.paymentProviderMeta || {}),
+        name: 'helloasso',
+        checkoutIntentId: String(raw.id),
+        tokenHash
+      };
+
       await order.save();
     }
 
