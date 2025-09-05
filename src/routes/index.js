@@ -35,7 +35,7 @@ export default function routes(router) {
 
 
   // ✨ Routes HelloAsso (retour, back, error)
-  router.use('/', haRoutes);                 //  expose /ha/return, /ha/back, /ha/error
+  router.use('/ha', haRoutes);                 //  expose /ha/return, /ha/back, /ha/error
 
   // Page racine -> redirige vers /renew (optionnel)
   router.get('/', (_req, res) => res.redirect('./renew'));
