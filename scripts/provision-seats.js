@@ -23,39 +23,21 @@
 
 import mongoose from 'mongoose';
 
+import dotenv from 'dotenv';
+dotenv.config();
+
 // ⚠️ adapte les chemins d'import à ton repo si besoin
 import { Seat }   from '../src/models/Seat.js';
 import { Season } from '../src/models/Season.js';
 
 // -------- Connexion Mongo (INT/PROD avec auth) ----------
-// Priorité: --uri=... > MONGO_URI > variables unitaires (user/host/port/db)
 function arg(k) {
   const p = `--${k}=`;
   const v = process.argv.find(a => a.startsWith(p));
   return v ? v.slice(p.length) : null;
 }
-function buildUriFromEnv() {
-  const HOST = process.env.MONGODB_HOST || '127.0.0.1';
-  const PORT = process.env.MONGODB_PORT || '27017';
-  const DB   = process.env.MONGODB_DB   || 'bts';
-  const USER = process.env.MONGODB_USER || '';
-  const PASS = process.env.MONGODB_PASSWORD || '';
-  const AUTH = process.env.MONGODB_AUTHSOURCE || (USER ? DB : '');
-  if (USER) {
-    const encU = encodeURIComponent(USER);
-    const encP = encodeURIComponent(PASS);
-    return `mongodb://${encU}:${encP}@${HOST}:${PORT}/${DB}${AUTH ? `?authSource=${encodeURIComponent(AUTH)}` : ''}`;
-  }
-  return `mongodb://${HOST}:${PORT}/${DB}`;
-}
-const argvUri = arg('uri');
-const uri = argvUri || process.env.MONGO_URI || buildUriFromEnv();
-// Si MONGODB_DB est fourni et que l'URI ne porte pas de DB explicite, on le passera à mongoose.connect
-const hasDbInUri = /mongodb(\+srv)?:\/\/[^/]+\/[^?]+/.test(uri);
-const dbName = process.env.MONGODB_DB && !hasDbInUri ? process.env.MONGODB_DB : undefined;
-function maskUri(u='') {
-  return u.replace(/(mongodb(\+srv)?:\/\/)([^:@/]+):([^@]+)@/i, (_m, p, _s, user) => `${p}${user}:***@`);
-}
+
+const uri = process.env.MONGO_URI ;
 
 // petit helper logs
 const log = (...a) => console.log('[provision]', ...a);
@@ -95,9 +77,7 @@ async function main() {
   const APPLY = isApply();
 
   try {
-    console.log('[provision] connecting to', maskUri(uri), dbName ? `(dbName=${dbName})` : '');
     const opts = {};
-    if (dbName) opts.dbName = dbName;
     await mongoose.connect(uri, opts);
   } catch (e) {
     console.error('[provision] Mongo connect failed:', e?.message || e);
@@ -111,7 +91,6 @@ async function main() {
 
   const { seasonCode, venueSlug } = await resolveSeasonVenue();
 
-  log(`DB=${dbName || '<default>'} APPLY=${APPLY ? 'YES' : 'NO (dry-run)'}`);
   log(`Target season=${seasonCode} venue=${venueSlug}`);
 
   // Base filter commun
