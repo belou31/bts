@@ -588,7 +588,7 @@ if (Array.isArray(CTX.seatSubscribers)) {
 
   // Plan
   const $planObj = $('#venuePlan');
-  const planPath = (CONFIG.venuePlanPath ? CONFIG.venuePlanPath(CTX.venueSlug) : `/static/venues/${CTX.venueSlug}/plan.svg`);
+  const planPath = (CONFIG.venuePlanPath ? CONFIG.venuePlanPath(CTX.venueSlug) : `static/venues/${CTX.venueSlug}/plan.svg`);
   $planObj.setAttribute('data', planPath);
   $planObj.addEventListener('load', () => { try { onPlanReady($planObj); } catch(e){ console.warn('plan init failed:', e); } }, { once:true });
 
