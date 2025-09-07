@@ -11,6 +11,7 @@ import { Order }       from '../models/Order.js';
 
 import { createCheckoutIntent } from '../services/helloasso.js';
 import { makeTokenHash }        from '../utils/ha-token.js';
+import { checkNoSingleGap }     from '../utils/no-single-gap.js';
 
 const router = express.Router();
 
@@ -216,6 +217,28 @@ router.post('/checkout', async (req, res) => {
         requestedPerZone.set(zoneKey, (requestedPerZone.get(zoneKey) || 0) + 1);
       }
     }
+
+
+  // ----- RÈGLE "NO SINGLE GAP" pour les sièges réels -----
+  {
+    const realSeatIds = lines
+      .map(l => String(l.seatId || '').trim())
+      .filter(sid => !!sid && seatMap.has(sid));
+    if (realSeatIds.length > 1) {
+      const gap = await checkNoSingleGap({ seasonCode, venueSlug, seatIds: realSeatIds });
+      if (gap) {
+        return res.status(422).json({
+          error: 'single_gap_rule',
+          zoneKey: gap.zoneKey,
+          rowKey:  gap.rowKey,
+          seatIdLeft:  gap.leftSeatId,
+          seatIdRight: gap.rightSeatId,
+          gapSeatId:   gap.gapSeatId
+        });
+      }
+    }
+  }
+
 
     // ----- CONTRÔLE QUOTAS SUR LES ZONES -----
     if (requestedPerZone.size) {
