@@ -5,6 +5,9 @@
 .env
 .env.*
 .ha-token.json
-node_modules
 .~lock.*
 .outbox
+.vscode
+node_modules
+data
+tests

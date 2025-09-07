@@ -1,42 +1,72 @@
 // src/loaders/express.js
 import express from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import compression from 'compression';
 import cors from 'cors';
+import { fileURLToPath } from 'url';
 
-// 👉 IMPORTANT : chemin racine du repo (pas /src)
+import routes from '../routes/index.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-const rootDir    = path.resolve(__dirname, '..');  // /src → racine projet
-
-import routes from '../routes/index.js';           // ← depuis /src/loaders vers /src/routes
 
 export async function buildApp() {
   const app = express();
 
+  const BASE_PATH = (process.env.BASE_PATH || '').trim();   // ex: "", ou "/bts"
+  const HOST = process.env.HOST || '127.0.0.1';
+  const PORT = Number(process.env.PORT || 8080);
+
+  // Middlewares
+  app.disable('x-powered-by');
   app.use(compression());
   app.use(cors({ origin: '*', credentials: true }));
   app.use(express.json({ limit: '1mb' }));
-  app.use(express.urlencoded({ extended: false }));
+  app.use(express.urlencoded({ extended: true }));
 
-  // --- Statics ---
-  app.use('/public', express.static(path.join(rootDir, 'public'), { fallthrough: true }));
-  app.use('/views',  express.static(path.join(rootDir, 'views'),  { fallthrough: true }));
+  // Healthz
+  app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
-  // --- Routes applicatives ---
-  routes(app);  // monte /renew (HTML) + /s/renew (JSON) etc.
+  // Statiques (toujours sous /static, préfixés par BASE_PATH côté frontal)
+  const STATIC_DIR = path.resolve(__dirname, '..', 'public', 'static');
+  //const STATIC_DIR = path.resolve(process.cwd(), 'public', 'static');
+  
+  app.use(path.posix.join(BASE_PATH, '/static'), express.static(STATIC_DIR, {
+    fallthrough: false,
+    maxAge: '1h',
+    extensions: ['html', 'js', 'css', 'png', 'svg', 'ico']
+  }));
 
-  // 404 JSON par défaut
-  app.use((req, res) => {
-    res.status(404).json({ error: 'Not found', path: req.originalUrl });
+  // Favicon direct (facultatif)
+  app.get(path.posix.join(BASE_PATH, '/favicon.ico'), (req, res) => {
+    res.sendFile(path.join(STATIC_DIR, 'img', 'favicon.ico'));
   });
 
-  // Handler erreurs
-  app.use((err, req, res, _next) => {
-    console.error('[error]', err);
-    res.status(500).json({ error: err.message || 'Internal error' });
+  // Router applicatif monté **sous BASE_PATH**
+  const router = express.Router();
+  routes(router);                       // <-- déclare /renew et /s/…
+  app.use(BASE_PATH || '/', router);
+
+  // 404 JSON pour API
+  app.use((req, res, next) => {
+    if (req.path.startsWith(path.posix.join(BASE_PATH, '/s/'))) {
+      return res.status(404).json({ error: 'Not found', path: req.path });
+    }
+    return next();
   });
+
+  // 404 générique (HTML)
+  app.use((_req, res) => {
+    res.status(404).send('<h1>404 Not Found</h1>');
+  });
+
+  // Démarrage si appelé directement
+  //if (import.meta.url === `file://${__filename}`) {
+  //  app.listen(PORT, HOST, () => {
+  //    console.log(`[server] basePath = "${BASE_PATH}"`);
+  //    console.log(`[server] listening on http://${HOST}:${PORT}`);
+  //  });
+  //}
 
   return app;
 }

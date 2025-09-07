@@ -354,7 +354,7 @@ async function loadData() {
   }
 
   // Plan SVG
-  const svgPath = `public/venues/${CTX.venueSlug}/plan.svg`;
+  const svgPath = `static/venues/${CTX.venueSlug}/plan.svg`;
   $plan.data = svgPath;
   $plan.addEventListener('load', () => {
     const doc = $plan.contentDocument;

@@ -1,7 +1,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import cheerio from 'cheerio';
+import { load } from 'cheerio';
 import mongoose from 'mongoose';
 
 import { SeatCatalog } from '../../src/models/SeatCatalog.js';
@@ -19,8 +19,8 @@ dotenv.config();
   await mongoose.connect(uri);
 
   const svg = fs.readFileSync(path.resolve(svgFile), 'utf8');
-  const $ = cheerio.load(svg, { xmlMode: true });
-
+  const $ = load(svg);
+  
   const nodes = $('[data-seat-id]');
   console.log(`Found ${nodes.length} seats in SVG`);
   let upserts = 0;

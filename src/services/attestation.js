@@ -25,7 +25,12 @@ function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById 
           <div style="font-weight:600">${subLabel}</div>
           <div style="font-size:12px;color:#64748b">N° abonné: <b>${subNo}</b></div>
           <ul style="margin:8px 0 0 18px">
-            ${arr.map(x => `<li>${x.seatId} — ${x.tariffCode || 'TARIF'} ${(x.priceCents!=null)?'('+fmtEuros(x.priceCents)+')':''}</li>`).join('')}
+            ${arr.map(x => {
+              const isVirtual = /-Z\d{3,}$/i.test(String(x.seatId||''));
+              const place = isVirtual ? (x.zoneKey || '') : (x.seatId || '');
+              return `<li>${place} — ${x.tariffCode || 'TARIF'} ${(x.priceCents!=null)?'('+fmtEuros(x.priceCents)+')':''}</li>`;
+            }).join('')}
+
           </ul>
         </td>
       </tr>

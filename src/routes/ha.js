@@ -1,300 +1,354 @@
 // src/routes/ha.js
 import express from 'express';
-import { Order } from '../models/Order.js';
-import { Seat } from '../models/Seat.js';
-import { getCheckoutStatus, getCheckoutIntent } from '../services/helloasso.js';
-import { sendMail } from '../loaders/mailer.js';
-import { renderEmailTemplate } from '../utils/email-template.js';
+import crypto from 'crypto';
+import util from 'util';
 
+import { Order, Seat } from '../models/index.js';
+import { getCheckoutStatus } from '../services/helloasso.js';
+import { sendMail } from '../loaders/mailer.js';
+import { renderOrderEmail, subjectForOrder } from '../services/mailer.js';
 
 const router = express.Router();
+const ORG_SLUG = process.env.HELLOASSO_ORG_SLUG || '';
 
+// helpers
+const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
+const isOkCode = v => new Set(['success','succeeded','paid','ok']).has(String(v||'').toLowerCase());
+
+// helper log sûr (objets profonds / non sérialisables)
+const inspect = (v) => {
+  try { return util.inspect(v, { depth: 6, maxArrayLength: 100, colors: false }); }
+  catch { try { return JSON.stringify(v); } catch { return String(v); } }
+};
+
+
+// Normalise les statuts HA potentiels (string ou objet) et accepte un fallback depuis la query (?code=...)
+function normalizeHaStatus(input, fallback) {
+  // déballage d'objets potentiels
+  let raw = input;
+  if (raw && typeof raw === 'object') {
+    raw =
+      raw.status || raw.state || raw.code || raw.result || raw.paymentStatus ||
+      (raw.data && (raw.data.status || raw.data.state || raw.data.code)) || '';
+  }
+  raw = String(raw || fallback || '').trim().toLowerCase();
+  if (!raw) return '';
+  // mapping simple vers une poignée de valeurs canoniques
+  if (raw === 'payment_succeeded' || raw === 'success' || raw === 'succeeded' || raw === 'ok') return 'succeeded';
+  if (raw === 'paid' || raw === 'payment_accepted' || raw === 'processed') return 'paid';
+  if (raw.startsWith('authoriz')) return 'authorized';
+  return raw;
+}
+
+
+
+async function findOrderFromQuery(q) {
+  const oid = q.oid || q._id; // flux STUB (DEV)
+  const h   = q.h;            // éventuel token hash si tu l'ajoutes un jour
+  const ci  = q.checkoutIntentId || q.ci; // SANDBOX / STUB
+  const haOrderId = q.orderId;            // ID HelloAsso (numérique)
+
+  // 1) ID local Mongo (si fourni)
+  if (oid) {
+    try {
+      const o = await Order.findById(String(oid));
+      if (o) return o;
+    } catch { /* ignore cast */ }
+  }
+  // 2) Token hash (si utilisé)
+  if (h) {
+    const o = await Order.findOne({ 'paymentProviderMeta.tokenHash': String(h) });
+    if (o) return o;
+  }
+  // 3) checkoutIntentId (SANDBOX/PROD)
+  if (ci) {
+    const o = await Order.findOne({ 'paymentProviderMeta.checkoutIntentId': String(ci) });
+    if (o) return o;
+  }
+  // 4) HelloAsso orderId (si on l’a déjà enregistré dans meta, voir plus bas)
+  if (haOrderId) {
+    const o = await Order.findOne({ 'paymentProviderMeta.haOrderId': String(haOrderId) });
+    if (o) return o;
+  }
+  return null;
+}
+
+
+// Helpers
+const isStub = () => String(process.env.HELLOASSO_STUB || '').toLowerCase() === 'true';
+const stubResultEnv = () => String(process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
+
+// Marque en "booked" tous les SIÈGES réels de la commande (renew/subscription).
+// - Ignore les lignes "zone" (ex: TBH7-Z001)
+// - Idempotent: on remet "booked" même si l'état précédent n'était pas "available"
+async function markSeatsBooked(order) {
+  try {
+    const lines = Array.isArray(order?.lines) ? order.lines : [];
+    const realSeatIds = Array.from(new Set(
+      lines.map(l => String(l.seatId || '').trim())
+           // Ignore les pseudo-IDs de zone (ex: TBH7-Z001)
+           .filter(s => s && !/-Z\d{3,}$/i.test(s))
+    ));
+
+    if (!realSeatIds.length) return;
+    // ⚙️ Mise à jour inconditionnelle par seatId (sans filtre d'état) pour couvrir "Provisioned", "Held", etc.
+    const r = await Seat.updateMany(
+      { seasonCode: order.seasonCode, venueSlug: order.venueSlug, seatId: { $in: realSeatIds } },
+      { $set: { status: 'booked' } },
+      { runValidators: false }
+    );
+    console.log('[ha/return] seats → booked',
+      { count: realSeatIds.length, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0, ids: realSeatIds });
+    
+  } catch (e) {
+    console.warn('[ha/return] seat update failed:', e.message);
+  }
+}
 
 function isPaidLike(status) {
-  return /paid|authorized|succeeded|success|ok/i.test(String(status||''));
+  return /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(status || '').trim());
 }
-
-async function reserveSeatsForOrder(order) {
-  if (!order?.lines?.length) return;
-  const { seasonCode, venueSlug } = order;
-  for (const l of order.lines) {
-    if (!l.seatId) continue;
-    await Seat.updateOne(
-      { seasonCode, venueSlug, seatId: l.seatId },
-      { $set: { status: 'reserved', reservedByOrderId: order._id } }
-    );
-  }
-}
-
-// helper: persister info HelloAsso dans l’order
-async function persistHelloAssoInfo(order, { intentId, providerOrderId, rawStatus, raw }) {
-  order.meta = order.meta || {};
-  order.meta.helloasso = {
-    ...(order.meta.helloasso || {}),
-    intentId: intentId || (order.meta.helloasso?.intentId || null),
-    orderId: providerOrderId || (order.meta.helloasso?.orderId || null),
-    rawStatus: rawStatus || (order.meta.helloasso?.rawStatus || null),
-    raw: raw || (order.meta.helloasso?.raw || null),
-  };
-  // Champ dédié pour faciliter les exports / recherches
-  if (providerOrderId && !order.paymentProviderOrderId) {
-    order.paymentProviderOrderId = String(providerOrderId);
-  }
-  await order.save();
-}
-
-
 
 /**
  * GET /ha/return
- * HelloAsso renvoie souvent ?checkoutIntentId=...&code=...
- * NE PAS se fier à ?orderId=... (ID HelloAsso), on récupère l’orderId Mongo via metadata du checkout-intent.
+ * STUB:   ?oid=<OrderId>&ci=<intentId>&stub=1&result=success|failure
+ * HA:     ?checkoutIntentId=<id>&code=succeeded|canceled&orderId=<haOrderId>
  */
-router.get('/ha/return', async (req, res) => {
+router.get('/return', async (req, res) => {
   try {
     const q = req.query || {};
-    const ci = q.ci || q.checkoutIntentId || q.id || null; // checkoutIntentId côté HA
-    let   oid = q.oid || null;                              // _id (BTS) de la commande
-    let status = q.code || 'unknown';                       // code=succeeded|...
-    // 👇 Surtout ne pas oublier d'initialiser :
-    let providerOrderId = q.order || q.orderId || null;     // n° commande HelloAsso
-    let rawIntent = null;
+    // log concis pour diagnostiquer INT
+    console.log('[ha/return] query=', {
+      oid: q.oid || null,
+      ci: q.ci || q.checkoutIntentId || null,
+      code: q.code || q.result || q.status || null,
+      orderId: q.orderId || null
+    });
+    const { oid, ci, stub, result, checkoutIntentId, code, orderId } = q;
 
-    // Si on a l'intent, on complète via l'API HelloAsso
-    if (ci) {
-      try {
-        const det = await getCheckoutIntent(ci);
-        rawIntent = det.raw || null;
-        if (!oid) {
-          // BTS stocke en metadata.orderNo ou orderId suivant les versions
-          oid = det?.metadata?.orderNo || det?.metadata?.orderId || null;
-        }
-        status = det?.status || status;
-        if (!providerOrderId) {
-          providerOrderId = det?.providerOrderId || det?.orderId || null;
-        }
-      } catch (e) {
-        console.warn('[ha/return] getCheckoutIntent failed:', e.message);
-      }
+    const inStub = isStub() || String(stub) === '1' || typeof result !== 'undefined';
+
+    // Trouver la commande via tous les indices possibles
+    const order = await findOrderFromQuery(q);
+
+    if (!order) {
+      return res.status(404).send(`<!doctype html><meta charset="utf-8">
+        <link rel="icon" href="/bts/static/img/favicon.ico">
+        <h1>Order not found</h1>`);
     }
 
-    if (!oid) return res.status(400).send('Missing order reference');
-
-    const order = await Order.findById(oid);
-
-
-
-    if (!order) return res.status(404).send('Order not found');
-
-    // on sauvegarde ce qu’on sait déjà (intentId / orderId HA / statut brut)
-    await persistHelloAssoInfo(order, {
-      intentId: ci || null,
-      providerOrderId: providerOrderId || null,
-      rawStatus: status || null,
-      raw: rawIntent || null
+    console.log('[ha/return] order found', {
+      orderId: String(order._id),
+      status: order.status,
+      meta: order.paymentProviderMeta
     });
 
-    // si le statut est incertain, on le redemande
-    if (!isPaidLike(status) && ci) {
-      try { status = await getCheckoutStatus(ci); } catch {}
+if (order.status === 'paid') {
+      return res.send(`<!doctype html><meta charset="utf-8">
+        <link rel="icon" href="/bts/static/img/favicon.ico">
+        <h1>Paiement déjà confirmé ✅</h1><p>Commande ${order._id}</p>`);
+    }
+
+    let status;
+
+    if (inStub) {
+      const desired = String(result || stubResultEnv());
+      status = (desired === 'success') ? 'success' : 'failure';
+
+      // trace minimale “provider”
+      order.paymentProvider = 'helloasso';
+      order.paymentProviderMeta = {
+        ...(order.paymentProviderMeta || {}),
+        name: 'stub',
+        checkoutIntentId: ci || checkoutIntentId || `stub-${Date.now()}`,
+        stubResult: status
+      };
+    } else {
+      // PROD/SANDBOX: verify via HelloAsso
+      const resolvedIntentId = checkoutIntentId || ci;
+      if (!resolvedIntentId) {
+        return res.status(400).send(`<!doctype html><meta charset="utf-8">
+          <link rel="icon" href="/bts/static/img/favicon.ico">
+          <h1>Bad Request</h1><p>checkoutIntentId manquant</p>`);
+      }
+      console.log('[ha/return] resolvedIntentId=', resolvedIntentId);
+      let statusRaw;
+
+      try {
+        // Peut renvoyer une string OU un objet → on normalise plus bas
+        statusRaw = await getCheckoutStatus(resolvedIntentId);
+        console.log('[ha/return] getCheckoutStatus raw type=', typeof statusRaw, 'value=', inspect(statusRaw));
+      } catch (e) {
+        console.error('[ha/return] getCheckoutIntent failed:', e.message || e);
+        return res.status(500).send(`<!doctype html><meta charset="utf-8">
+          <link rel="icon" href="/bts/static/img/favicon.ico">
+          <h1>Erreur interne</h1>`);
+      }
+      // 🔽 normalise en toute circonstance (y compris si string vide)
+      status = normalizeHaStatus(statusRaw, code);
+
+      order.paymentProvider = 'helloasso';
+      order.paymentProviderMeta = {
+        ...(order.paymentProviderMeta || {}),
+        name: 'helloasso',
+        haOrderId: orderId || order.paymentProviderMeta?.haOrderId || null,
+        checkoutIntentId: resolvedIntentId,
+        code: code || null,
+        lastReturnAt: new Date(),
+        lastReturnCode: code || (typeof statusRaw === 'string' ? statusRaw : (statusRaw?.status || statusRaw?.state || '')),
+        lastStatusRawType: typeof statusRaw,
+        lastStatusRaw: (() => { try { return JSON.stringify(statusRaw); } catch { return String(statusRaw); } })()
+      };
     }
 
     if (isPaidLike(status)) {
-      if (order.status !== 'paid') {
-        // (si tu as une allocation TBH7, appelle-la ici avant)
-        order.status = 'paid';
-        // si providerOrderId a été découvert après coup, on le garde aussi
-        if (providerOrderId) {
-          order.paymentProvider = "helloasso";
-          order.meta.helloasso =
-          {
-            ...(order.paymentProvider || {}),
-            orderId: providerOrderId || order.meta.helloasso?.orderId || null,
-            intentId: ci || order.meta.helloasso?.intentId || null,
-            rawStatus: status || order.meta.helloasso?.rawStatus || null,
-            raw: rawIntent || order.meta.helloasso?.raw || null
-          };
-          //order.paymentProviderOrderId = order.paymentProviderOrderId || String(providerOrderId);
-        }
-        await order.save();
-
-        // réservation des sièges seatId (renew) / déjà alloué (TBH7 après allocation)
-        await reserveSeatsForOrder(order);
-
-// — Prépare les variables pour le template —
-const totalEuro = (Number(order.totalCents || 0) / 100).toFixed(2);
-const installments = Number(order.installments || order.paymentSplit || 1);
-const installmentsInfo = installments > 1
-  ? `Règlement en ${installments} échéances.`
-  : `Règlement en une fois.`;
-
-const lines = Array.isArray(order.lines) ? order.lines : [];
-const linesRows = lines.map(l =>
-  `<tr><td>${l.seatId || l.zoneKey || ''}</td><td>${l.tariffCode || ''}</td><td>${(Number(l.priceCents||0)/100).toFixed(2)} €</td></tr>`
-).join('');
-
-const linesHtml = lines.map(l =>
-  `<li>${l.seatId || l.zoneKey || ''} — ${l.tariffCode || ''} (${(Number(l.priceCents||0)/100).toFixed(2)} €)</li>`
-).join('');
-
-// bloc HelloAsso (si dispo)
-let haOrderBlock = '';
-if (order.paymentProviderOrderId) {
-  haOrderBlock = `<p>Référence HelloAsso : <b>${order.paymentProviderOrderId}</b></p>`;
-}
-
-// infos club optionnelles
-const clubName = process.env.CLUB_NAME || 'Les Bélougas';
-
-const tplName = process.env.EMAIL_TEMPLATE_RENEW_CONFIRM || 'renew-confirmation';
-const html = await renderEmailTemplate(tplName, {
-  orderId: String(order._id),
-  seasonCode: order.seasonCode || '',
-  venueSlug: order.venueSlug || '',
-  payerFirstName: order.payerFirstName || '',
-  payerLastName:  order.payerLastName  || '',
-  payerEmail:     order.payerEmail     || '',
-  totalEuro,
-  installmentsInfo,
-  linesRows,     // pour <table>
-  linesHtml,     // pour <ul> de secours (dans le default template)
-  haOrderBlock,  // bloc référence HA, éventuellement vide
-  clubName,
-  extraInfo: ''  // tu peux injecter des consignes supplémentaires ici
-});
-
-// — Envoi de l’email (le loader gère déjà EMAIL_STUB=true → .eml) —
-await sendMail({
-  to: order.payerEmail,
-  subject: process.env.EMAIL_SUBJECT_RENEW_CONFIRM || 'Confirmation de paiement - Abonnement',
-  html
-});        
-
-      }
-      return res
-        .status(200)
-        .send(`<!doctype html><html lang="fr"><meta charset="utf-8"><title>OK</title><body>
-          <h1>Paiement confirmé ✅</h1>
-          <p>Commande ${order._id}</p>
-          ${order.paymentProviderOrderId ? `<p>Référence HelloAsso : <b>${order.paymentProviderOrderId}</b></p>` : ''}
-        </body></html>`);
-        
-    } else {
-      order.status = 'failed';
-      await order.save();
-      return res
-        .status(200)
-        .send(`<!doctype html><html lang="fr"><meta charset="utf-8"><title>KO</title><body>
-          <h1>Paiement non confirmé ❌</h1>
-          <p>Commande ${order._id} — statut: ${status}</p>
-        </body></html>`);
-    }
-  } catch (e) {
-    console.error('[GET /ha/return] error:', e);
-    res.status(500).send('Erreur interne');
-  }
-});
-
-
-/**
- * GET /ha/back
- * Retour "annuler/revenir" depuis HelloAsso (navigateur).
- * Affiche un message simple.
- */
-router.get('/ha/back', (_req, res) => {
-  res
-    .status(200)
-    .send(`<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<title>Paiement annulé</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif;background:#0b0f17;color:#e5e7eb;margin:0;padding:24px}
-  .card{max-width:720px;margin:0 auto;background:#0f1622;border:1px solid #111827;border-radius:12px;padding:18px}
-  a.btn{display:inline-block;margin-top:12px;padding:10px 14px;border-radius:10px;background:#111827;border:1px solid #1f2937;color:#e5e7eb;text-decoration:none}
-  a.btn:hover{background:#162233}
-</style>
-</head>
-<body>
-  <div class="card">
-    <h1>Paiement annulé</h1>
-    <p>Vous avez quitté HelloAsso avant de confirmer le règlement.</p>
-    <p>Vous pouvez relancer la procédure si besoin.</p>
-  </div>
-</body>
-</html>`);
-});
-
-/**
- * GET /ha/error
- * Page d'erreur simple si HelloAsso renvoie une redirection d'erreur.
- */
-router.get('/ha/error', (_req, res) => {
-  res
-    .status(400)
-    .send(`<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<title>Erreur de paiement</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif;background:#0b0f17;color:#e5e7eb;margin:0;padding:24px}
-  .card{max-width:720px;margin:0 auto;background:#0f1622;border:1px solid #111827;border-radius:12px;padding:18px}
-  a.btn{display:inline-block;margin-top:12px;padding:10px 14px;border-radius:10px;background:#111827;border:1px solid #1f2937;color:#e5e7eb;text-decoration:none}
-  a.btn:hover{background:#162233}
-</style>
-</head>
-<body>
-  <div class="card">
-    <h1>Erreur de paiement</h1>
-    <p>Une erreur est survenue pendant le paiement. Veuillez réessayer dans quelques minutes.</p>
-  </div>
-</body>
-</html>`);
-});
-
-
-// (optionnel) webhook serveur→serveur
-router.post('/webhook/helloasso', express.json({ type: '*/*' }), async (req, res) => {
-  try {
-    const body = req.body || {};
-    const ci = body.id || body.checkoutIntentId || null;
-
-    let orderId = body?.metadata?.orderId || null;
-    let status  = body?.status || body?.code || '';
-
-    if (!orderId && ci) {
-      try {
-        const det = await getCheckoutIntent(ci);
-        orderId = det?.metadata?.orderId || null;
-        status  = status || det?.status;
-      } catch {}
-    }
-    if (!orderId) return res.status(400).json({ ok:false, error:'no orderId' });
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(200).json({ ok:true, note:'order not found (idempotent)' });
-
-    await persistHelloAssoInfo(order, {
-      intentId: ci || null,
-      providerOrderId: providerOrderId || null,
-      rawStatus: status || null,
-      raw: rawIntent || body || null
-    });
-
-    if (isPaidLike(status) && order.status !== 'paid') {
       order.status = 'paid';
       await order.save();
-      await reserveSeatsForOrder(order);
+      await markSeatsBooked(order);
+      // --- EMAIL ---
+      try {
+        const html    = await renderOrderEmail(order);
+        const subject = subjectForOrder(order);
+        await sendMail({ to: order.payerEmail, subject, html });
+      } catch (e) {
+        console.warn('sendMail failed:', e.message);
+      }
+
+      return res.send(`<!doctype html><meta charset="utf-8">
+        <link rel="icon" href="/bts/static/img/favicon.ico">
+        <h1>Paiement confirmé ✅</h1><p>Commande ${order._id}</p>`);
+    } else {
+      // 🟡 Ne pas conclure à failed ici : on attend le webhook (lead) → pending + message utilisateur
+      if (order.status !== 'paid') {
+        order.status = 'pending';
+        await order.save();
+      }
+      return res.send(`<!doctype html><meta charset="utf-8">
+        <link rel="icon" href="/bts/static/img/favicon.ico">
+        <h1>Paiement en cours de validation…</h1>
+        <p>Commande ${order._id}${status ? ` — statut: ${status}` : ''}</p>
+        <p>La confirmation vous parviendra <strong>par email</strong> dès validation.</p>`);
     }
-    return res.json({ ok:true });
-  } catch (e) {
-    console.error('[POST /webhook/helloasso] error:', e);
-    res.status(500).json({ ok:false, error:'internal_error' });
+
+      } catch (e) {
+    console.error('[GET /ha/return] error:', e);
+    res.status(500).send(`<!doctype html><meta charset="utf-8">
+      <link rel="icon" href="/bts/static/img/favicon.ico">
+      <h1>Erreur interne</h1>`);
   }
 });
+
+router.get('/back', (_req, res) => {
+  res.send(`<!doctype html><meta charset="utf-8">
+    <link rel="icon" href="/bts/static/img/favicon.ico">
+    <h1>Paiement abandonné</h1><p>Vous pouvez reprendre votre commande ultérieurement.</p>`);
+});
+
+router.get('/error', (_req, res) => {
+  res.status(400).send(`<!doctype html><meta charset="utf-8">
+    <link rel="icon" href="/bts/static/img/favicon.ico">
+    <h1>Erreur de paiement</h1><p>Une erreur est survenue. Réessayez plus tard.</p>`);
+});
+
+
+/**
+ * POST /ha/webhook
+ * Webhook HelloAsso (non signé côté club). On filtre par organizationSlug.
+ * Payloads possibles (exemples fournis) :
+ *  - eventType: "Payment" → data.order.id = <haOrderId>
+ *  - eventType: "Order"   → data.id       = <haOrderId>
+ */
+router.post('/webhook', express.json({ type: '*/*' }), async (req, res) => {
+  try {
+    // Certains reverse/proxys peuvent encapsuler dans { postData: { contents: "<json>" } }
+    let payload = req.body;
+    if (payload?.postData?.contents) {
+      try { payload = JSON.parse(payload.postData.contents); } catch { /* ignore */ }
+    }
+    const data = payload?.data || {};
+    const eventType = String(payload?.eventType || data?.eventType || '').toLowerCase();
+    const orgSlug   = String(data?.organizationSlug || '').toLowerCase();
+
+    // Filtre org
+    if (ORG_SLUG && orgSlug && ORG_SLUG.toLowerCase() !== orgSlug) {
+      console.warn('[ha/webhook] ignored (org mismatch)', { orgSlug, ORG_SLUG });
+      return res.status(202).send('ignored');
+    }
+
+    // Récup haOrderId selon le type d’event
+    let haOrderId = null;
+    if (eventType === 'payment') {
+      haOrderId = data?.order?.id ?? null;
+    } else if (eventType === 'order') {
+      haOrderId = data?.id ?? null;
+    }
+    if (!haOrderId) {
+      console.warn('[ha/webhook] no haOrderId in payload', { eventType });
+      return res.status(202).send('ignored');
+    }
+    haOrderId = String(haOrderId);
+
+    // Réconciliation : priorité au mapping déjà établi via /ha/return ; sinon fallback email+montant
+    let order = await Order.findOne({ 'paymentProviderMeta.haOrderId': haOrderId });
+    if (!order) {
+      const payerEmail = String(data?.payer?.email || '').trim();
+      const total = Number(
+        (data?.amount && typeof data.amount === 'object' ? data.amount.total : data?.amount) || 0
+      );
+      if (payerEmail && total > 0) {
+        const candidates = await Order.find({
+          status: { $in: ['pending', 'paid'] },
+          payerEmail: new RegExp(`^${payerEmail}$`, 'i'),
+          totalCents: total
+        }).sort({ createdAt: -1 }).limit(2).lean();
+        if (candidates.length === 1) {
+          order = await Order.findById(candidates[0]._id);
+        }
+      }
+    }
+    if (!order) {
+      console.warn('[ha/webhook] order not matched', { haOrderId, eventType });
+      return res.status(202).send('no order matched');
+    }
+
+    // Màj méta + statut
+    const rawState = String(data?.state || data?.status || '').toLowerCase();
+    const status   = normalizeHaStatus(rawState);
+
+    order.paymentProvider = 'helloasso';
+    order.paymentProviderMeta = {
+      ...(order.paymentProviderMeta || {}),
+      name: 'helloasso',
+      haOrderId,
+      lastWebhookAt: new Date(),
+      lastWebhookEvent: eventType,
+      lastWebhookRawState: rawState
+    };
+
+    if (isPaidLike(status)) {
+      order.status = 'paid';
+      await order.save();
+      await markSeatsBooked(order);
+      try {
+        const html = await renderOrderEmail(order);
+        const subject = subjectForOrder(order);
+        await sendMail({ to: order.payerEmail, subject, html });
+      } catch (e) {
+        console.warn('sendMail failed:', e.message);
+      }
+      return res.status(200).send('ok');
+    } else {
+      if (order.status !== 'paid') {
+        order.status = 'pending';
+        await order.save();
+      }
+      return res.status(200).send('pending');
+    }
+  } catch (e) {
+    console.error('[ha/webhook] error:', e);
+    return res.status(500).send('error');
+  }
+});
+
 
 export default router;

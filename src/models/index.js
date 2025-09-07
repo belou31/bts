@@ -13,3 +13,4 @@ export { PaymentIntent } from './PaymentIntent.js';
 export { SeatCatalog }   from './SeatCatalog.js';
 export { Subscriber }    from './Subscriber.js';
 export { Venue }         from './Venue.js';
+export { ZoneHold }      from './ZoneHold.js';

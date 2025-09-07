@@ -1,30 +1,45 @@
 // src/routes/index.js
+import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import express from 'express';
-import renewApi from './renew.js';
-import haRouter from './ha.js';
+
+import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
+import tbh7Router from './tbh7.js';
+import subscriptionRouter from './subscription.js';
+import adminRouter from './admin.js';
+
+import haRoutes from './ha.js';      
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-const rootDir    = path.resolve(__dirname, '..');
+const VIEWS_DIR  = path.resolve(__dirname, '..', 'views');
 
-export default function routes(app) {
-  const router = express.Router();
-
-  // Page HTML
-  router.get('/renew', (_req, res) => {
-    res.sendFile(path.join(rootDir, 'views', 'renew', 'index.html'));
+export default function routes(router) {
+  // Page HTML "renew"
+  router.get('/renew', (req, res) => {
+    const filePath = path.join(VIEWS_DIR, 'renew', 'index.html');
+    res.sendFile(filePath);
   });
 
-  // API JSON sous /s (GET /s/renew, POST /s/renew)
+  // Page HTML
+  router.get('/tbh7', (req, res) => res.sendFile(path.join(VIEWS_DIR, 'tbh7', 'index.html')));
+
+  router.get('/subscription', (req, res) => res.sendFile(path.join(VIEWS_DIR, 'subscription', 'index.html')));
+
+  // API JSON
+  router.use('/api/tbh7', tbh7Router);
+
+  router.use('/api/sub', subscriptionRouter);
+
+  router.use('/', adminRouter);
+
+  // API sous /s
   router.use('/s', renewApi);
 
-  // Retour paiement HelloAsso
-  router.use('/', haRouter);
 
-  // Santé
-  router.get('/healthz', (_req, res) => res.json({ ok: true }));
+  // ✨ Routes HelloAsso (retour, back, error)
+  router.use('/ha', haRoutes);                 //  expose /ha/return, /ha/back, /ha/error
 
-  app.use('/', router);
+  // Page racine -> redirige vers /renew (optionnel)
+  router.get('/', (_req, res) => res.redirect('./renew'));
 }

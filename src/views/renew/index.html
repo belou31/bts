@@ -1,92 +1,112 @@
+<!-- views/renew/index.html -->
 <!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
   <title>Renouvellement d’abonnement — BTS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- IMPORTANT : tout est relatif à /bts/ -->
-  <base href="/bts/">
-  <link rel="icon" href="public/static/img/favicon.ico">
-  <link rel="stylesheet" href="public/static/styles/renew.css">
+  <!-- IMPORTANT : chemins relatifs à /bts/ -->
+  <link rel="icon" href="static/img/favicon.ico">
+  <link rel="stylesheet" href="static/styles/generic-view.css">
 </head>
 <body>
   <header class="site-header">
     <div class="brand">
-      <img src="public/static/img/logo.png" alt="Logo" class="logo">
-      <h1>Renouvellement d’abonnement 2025-2026</h1>
+      <img src="static/img/logo.png" alt="Logo" class="logo">
+      <h1 id="pageTitle">Renouvellement d’abonnement</h1>
     </div>
   </header>
 
   <main class="page">
     <!-- Colonne PLAN -->
     <section class="col plan-col">
-      <div class="panel">
-        <h2>Votre plan</h2>
-        <div id="planWrap" class="plan-wrap">
-          <!-- le src est fixé dynamiquement en JS -->
+      <div id="plan" class="panel">
+        <h2 class="panel-title">Plan</h2>
+        <div class="plan-wrap">
           <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="Plan de la salle"></object>
-          <div id="planStatus" class="plan-status">Chargement du plan…</div>
+          <div class="plan-status">Molette pour zoomer, cliquer-glisser pour déplacer.</div>
         </div>
-        <div class="help">
-          <p>Molette pour zoomer, glisser pour déplacer. Les sièges autorisés sont surlignés.</p>
-        </div>
+        <div class="help">Les sièges autorisés sont surlignés.</div>
       </div>
     </section>
 
-    <!-- Colonne FORM -->
+    <!-- Colonne COMMANDE -->
     <section class="col form-col">
-      <div class="panel">
-        <h2>Vos places</h2>
-        <div id="seatsList" class="seats-list">
-          <!-- lignes injectées par JS -->
-        </div>
-      </div>
-
-      <div class="panel">
-        <h2>Paiement</h2>
-            <p><small class="hint">Le reçu et la confirmation seront envoyés à l'email de contact.</small></p>
-        <div class="form-grid payer-row">
-          <div class="form-group">
-            <label for="payerLast">Nom</label>
-            <input id="payerLast" type="text" placeholder="Nom">
+      <div id="order" class="panel">
+        <!-- Bloc LIGNES -->
+        <div id="linesPanel" class="block">
+          <h2>Vos places</h2>
+          <div class="lines-head">
+            <div></div>
+            <div>Place</div>
+            <div>Nom</div>
+            <div>Prénom</div>
+            <div>Tarif (montant)</div>
           </div>
-          <div class="form-group">
-            <label for="payerFirst">Prénom</label>
-            <input id="payerFirst" type="text" placeholder="Prénom">
-          </div>
-          <div class="form-group">
-            <label for="payerEmail">Email de contact</label>
-            <input id="payerEmail" type="email" placeholder="email@exemple.com">
-          </div>
+          <div id="cartRows"></div>
         </div>
 
-        <div class="form-grid pay-bottom-row">
-          <div class="form-group">
-            <label for="paySchedule">Échéancier</label>
-            <select id="paySchedule">
-              <option value="1">En 1 fois</option>
-              <option value="2">En 2 fois</option>
-              <option value="3">En 3 fois</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Échéance (estimation)</label>
-            <div id="schedulePreview" class="total-box">—</div>
-          </div>
-          <div class="form-group">
-            <label>Total</label>
-            <div id="totalBox" class="total-box">0,00 €</div>
-          </div>
-        </div>
+        <!-- Bloc PAIEMENT -->
+        <div id="payPanel" class="block">
+          <h2>Paiement</h2>
+          <p><small class="help">Le reçu et la confirmation seront envoyés à l'email de contact.</small></p>
 
-        <div class="actions">
-          <button id="payBtn" class="pay-btn">Procéder au paiement</button>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="payerLast">Nom</label>
+              <input id="payerLast" type="text" placeholder="Nom">
+            </div>
+            <div class="form-group">
+              <label for="payerFirst">Prénom</label>
+              <input id="payerFirst" type="text" placeholder="Prénom">
+            </div>
+            <div class="form-group">
+              <label for="payerEmail">Email de contact</label>
+              <input id="payerEmail" type="email" placeholder="email@exemple.com">
+            </div>
+          </div>
+
+          <div class="pay-bottom">
+            <div class="form-group">
+              <label for="paySchedule">Échéancier</label>
+              <select id="paySchedule">
+                <option value="1">En 1 fois</option>
+                <option value="2">En 2 fois</option>
+                <option value="3">En 3 fois</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Échéance (estimation)</label>
+              <div id="schedulePreview" class="total-box">—</div>
+            </div>
+            <div class="form-group">
+              <label>Total</label>
+              <div id="totalBox" class="total-box">0,00 €</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="payBtn" class="pay-btn">Procéder au paiement</button>
+          </div>
+          <p id="feedback" class="feedback"></p>
         </div>
       </div>
     </section>
   </main>
 
-  <script defer src="../../views/renew/renew.js"></script>
-  <script defer src="views/renew/renew.js"></script>
+  <!-- Config spécifique RENEW : on garde l’API GET/POST unique "s/renew" + query -->
+  <script>
+    window.BTS_VIEW_CONFIG = {
+      title: 'Les Bélougas - Renouvellement 2025-2026',
+      pageTitle: 'Les Bélougas - Renouvellement 2025-2026',
+      api: {
+        status: 's/renew' + (location.search || ''),
+        checkout: 's/renew' + (location.search || '')
+      },
+      selection: { type: 'seats' },
+      venuePlanPath: (slug) => `static/venues/${slug}/plan.svg`
+    };
+  </script>
+  <script defer src="static/js/generic-view.js"></script>
 </body>
 </html>
