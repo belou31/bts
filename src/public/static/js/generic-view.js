@@ -447,6 +447,52 @@ function setFeedback(kind, title, details=[]) {
   el.innerHTML = `<span class="fb-icon">${icon}</span><span class="fb-text"><strong>${escapeHtml(title||'')}</strong>${list}</span>`;
 }
 
+// ——— Extraction "human-friendly" des erreurs HelloAsso, même quand elles
+// arrivent sous forme de chaîne contenant du JSON imbriqué.
+function extractHaMessages(from) {
+  try {
+    // Cas 1 : objet JSON déjà parsé
+    if (from && typeof from === 'object') {
+      if (Array.isArray(from.errors)) {
+        return from.errors.map(e => e?.message || e?.code || 'Champ invalide');
+      }
+      if (from.error && typeof from.error === 'object' && Array.isArray(from.error.errors)) {
+        return from.error.errors.map(e => e?.message || e?.code || 'Champ invalide');
+      }
+      // Certains backends encapsulent encore sous .error.message (string JSON)
+      if (typeof from.error === 'string') {
+        return extractHaMessages(from.error);
+      }
+    }
+    // Cas 2 : chaîne brute (ex: "HelloAsso checkout 400 {\"errors\":[{...}]}")
+    const text = typeof from === 'string' ? from : '';
+    if (!text) return [];
+    // a) si la chaîne entière est du JSON
+    if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+      try {
+        const j = JSON.parse(text);
+        return extractHaMessages(j);
+      } catch {/* on continue */}
+    }
+    // b) extraire toutes les valeurs "message":"...".
+    const msgs = [];
+    const re = /"message"\s*:\s*"([^"]+)"/g;
+    let m;
+    while ((m = re.exec(text))) {
+      msgs.push(m[1]);
+    }
+    if (msgs.length) return msgs;
+    // c) fallback : si on voit "HelloAsso checkout 400", message générique
+    if (/helloasso\s+checkout\s+400/i.test(text)) {
+      return ['Certaines informations ne sont pas valides. Veuillez corriger les champs en erreur.'];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+
 async function submitPayment() {
   setFeedback('', ''); // clear
 
@@ -490,8 +536,8 @@ async function submitPayment() {
       credentials:'same-origin',
       body: JSON.stringify({ items, payer, schedule, totalAmount })
     });
+
     if (!res.ok) {
-      // On fabrique un message "human friendly" SANS exposer le JSON technique
       let title = 'Une erreur est survenue.';
       let details = [];
       try {
@@ -502,25 +548,38 @@ async function submitPayment() {
             title = 'Règle de placement';
             details = [`Votre sélection créerait un siège isolé en rangée ${err.rowKey || ''} (zone ${err.zoneKey || ''}). Merci de choisir une autre combinaison.`];
           } else if (Array.isArray(err?.errors) && err.errors.length) {
-           title = 'Veuillez corriger les éléments suivants :';
+            title = 'Veuillez corriger les éléments suivants :';
             details = err.errors.map(e => e?.message || e?.code || 'Champ invalide');
-          } else if (err?.error) {
-            // Messages métier éventuels du serveur
-            // On masque tout ce qui ressemble à du message technique
-            const msg = String(err.error);
-            if (/internal|stack|exception|mongo|sql|trace|axios|fetch|network/i.test(msg)) {
-              title = 'Un problème technique est survenu. Réessayez dans quelques instants.';
-            } else {
-              title = msg;
-            }
           } else {
-            title = 'Impossible de traiter votre demande. Réessayez.';
+            // ✨ Nouveau : extraire les messages HA d’une chaîne JSON incluse dans err.error
+            const msgs = extractHaMessages(err);
+            if (msgs.length) {
+              title = 'Veuillez corriger les éléments suivants :';
+              details = msgs;
+            } else if (err?.error) {
+              const msg = String(err.error);
+              if (/internal|stack|exception|mongo|sql|trace|axios|fetch|network/i.test(msg)) {
+                title = 'Un problème technique est survenu. Réessayez dans quelques instants.';
+              } else {
+                // message métier court si possible, sinon message générique
+                title = (msg.length > 140) ? 'Impossible de traiter votre demande. Vérifiez vos informations puis réessayez.' : msg;
+              }
+            } else {
+              title = 'Impossible de traiter votre demande. Réessayez.';
+            }
           }
         } else {
-          // Texte brut (proxy, WAF...). Ne pas afficher le texte technique à l’utilisateur.
-          title = (res.status >= 500)
-            ? 'Un problème technique est survenu. Réessayez dans quelques instants.'
-            : 'Impossible de traiter votre demande. Vérifiez vos informations puis réessayez.';
+          // Texte brut : tenter extraction messages HA, sinon générique
+          const rawText = await res.text();
+          const msgs = extractHaMessages(rawText);
+          if (msgs.length) {
+            title = 'Veuillez corriger les éléments suivants :';
+            details = msgs;
+          } else {
+            title = (res.status >= 500)
+              ? 'Un problème technique est survenu. Réessayez dans quelques instants.'
+              : 'Impossible de traiter votre demande. Vérifiez vos informations puis réessayez.';
+          }
         }
       } catch {
         title = 'Un problème technique est survenu. Réessayez dans quelques instants.';
@@ -530,6 +589,7 @@ async function submitPayment() {
       return;
     }
 
+    
     const out = await res.json();
     if (out.redirectUrl) {
       setFeedback('ok', 'Redirection vers le paiement…');
