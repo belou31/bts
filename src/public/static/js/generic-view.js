@@ -432,8 +432,23 @@ dlog('syncPayerMaybe after:', { pf: pf.value, pl: pl.value, pe: pe.value });
 }
 
 /* ========= Soumission paiement ========= */
+// ————— Helpers feedback (humain lisible) —————
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+const WARN_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="#F7B500" d="M1 21h22L12 2 1 21z"/><path fill="#111" d="M13 18h-2v-2h2v2zm0-4h-2V9h2v5z"/></svg>';
+const OK_SVG   = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#22c55e"/><path d="M8 12.5l2.5 2.5L16 9.5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function setFeedback(kind, title, details=[]) {
+  const el = $('#feedback'); if (!el) return;
+  el.className = `feedback ${kind==='error' ? 'err' : (kind==='ok' ? 'ok' : '')}`;
+  el.setAttribute('role','alert'); // accessibilité
+  const list = (details && details.length)
+    ? `<ul class="fb-list">` + details.map(d=>`<li>${escapeHtml(d)}</li>`).join('') + `</ul>`
+    : '';
+  const icon = kind==='error' ? WARN_SVG : (kind==='ok' ? OK_SVG : '');
+  el.innerHTML = `<span class="fb-icon">${icon}</span><span class="fb-text"><strong>${escapeHtml(title||'')}</strong>${list}</span>`;
+}
+
 async function submitPayment() {
-  const feedback = $('#feedback'); feedback.className = 'feedback'; feedback.textContent = '';
+  setFeedback('', ''); // clear
 
   const items = [];
   $$('.cart-row').forEach(row => {
@@ -448,15 +463,21 @@ async function submitPayment() {
     items.push({ seatId, zoneKey, firstName: holderFirst, lastName: holderLast, tariffCode, justif, info });
 });
 
-  if (!items.length) { feedback.classList.add('err'); feedback.textContent = 'Ajoutez au moins une ligne.'; return; }
+  if (!items.length) {
+    setFeedback('error', 'Veuillez ajouter au moins une ligne.');
+    return;
+  }
 
   const payer = {
     firstName: $('#payerFirst').value.trim(),
     lastName : $('#payerLast').value.trim(),
     email    : $('#payerEmail').value.trim()
   };
-  if (!payer.email) { feedback.classList.add('err'); feedback.textContent = 'Renseignez un email de contact.'; return; }
-
+  if (!payer.email) {
+    setFeedback('error', 'Renseignez un email de contact.');
+    try { $('#payerEmail').focus(); } catch {}
+    return;
+  }
   const schedule = Number($('#paySchedule').value || 1);
   const totalAmount = CTX.currentTotal || 0;
 
@@ -469,19 +490,57 @@ async function submitPayment() {
       credentials:'same-origin',
       body: JSON.stringify({ items, payer, schedule, totalAmount })
     });
-    if (!res.ok) throw new Error(`Erreur serveur (${res.status}) : ${await res.text().catch(()=>res.status)}`);
+    if (!res.ok) {
+      // On fabrique un message "human friendly" SANS exposer le JSON technique
+      let title = 'Une erreur est survenue.';
+      let details = [];
+      try {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const err = await res.json();
+          if (err?.error === 'single_gap_rule') {
+            title = 'Règle de placement';
+            details = [`Votre sélection créerait un siège isolé en rangée ${err.rowKey || ''} (zone ${err.zoneKey || ''}). Merci de choisir une autre combinaison.`];
+          } else if (Array.isArray(err?.errors) && err.errors.length) {
+           title = 'Veuillez corriger les éléments suivants :';
+            details = err.errors.map(e => e?.message || e?.code || 'Champ invalide');
+          } else if (err?.error) {
+            // Messages métier éventuels du serveur
+            // On masque tout ce qui ressemble à du message technique
+            const msg = String(err.error);
+            if (/internal|stack|exception|mongo|sql|trace|axios|fetch|network/i.test(msg)) {
+              title = 'Un problème technique est survenu. Réessayez dans quelques instants.';
+            } else {
+              title = msg;
+            }
+          } else {
+            title = 'Impossible de traiter votre demande. Réessayez.';
+          }
+        } else {
+          // Texte brut (proxy, WAF...). Ne pas afficher le texte technique à l’utilisateur.
+          title = (res.status >= 500)
+            ? 'Un problème technique est survenu. Réessayez dans quelques instants.'
+            : 'Impossible de traiter votre demande. Vérifiez vos informations puis réessayez.';
+        }
+      } catch {
+        title = 'Un problème technique est survenu. Réessayez dans quelques instants.';
+      }
+      setFeedback('error', title, details);
+      $('#payBtn').disabled = false;
+      return;
+    }
+
     const out = await res.json();
     if (out.redirectUrl) {
-      feedback.classList.add('ok');
-      feedback.textContent = 'Redirection vers le paiement…';
+      setFeedback('ok', 'Redirection vers le paiement…');
       location.href = out.redirectUrl;
     } else {
       throw new Error('Réponse inattendue du serveur.');
     }
   } catch (e) {
     console.error('pay error:', e);
-    feedback.classList.add('err');
-    feedback.textContent = e.message || 'Erreur au démarrage du paiement.';
+    setFeedback('error', 'Impossible de démarrer le paiement. Réessayez dans quelques instants.');
+
     $('#payBtn').disabled = false;
   }
 }
