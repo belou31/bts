@@ -27,7 +27,7 @@
           <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="Plan de la salle"></object>
           <div class="plan-status">Molette pour zoomer, cliquer-glisser pour déplacer.</div>
         </div>
-        <div class="help">Les sièges autorisés sont surlignés.</div>
+        <div class="help">Cliquer sur un siège ou une zone (DEBOUT, TBH7, TBH7 VIRAGE).</div>
       </div>
     </section>
 
@@ -38,10 +38,10 @@
         <div id="linesPanel" class="block">
           <h2>Vos places</h2>
   <div class="zone-toolbar">
-  <label for="zoneSelect">Cliquer sur le plan ou Choisir une Zone ici :</label>
+  <label for="zoneSelect"> <small class="help">Choisir sur Plan ou Ajouter Zone:</small></label>
   <select id="zoneSelect"></select>
   <button type="button" id="addZoneBtn">Ajouter</button>
-  <span id="zoneRemain" class="remain"></span>
+  <small class="help"><span id="zoneRemain" class="remain"></span></small>
 </div>
           <div class="lines-head">
             <div></div>
@@ -68,7 +68,7 @@
               <input id="payerFirst" type="text" placeholder="Prénom">
             </div>
             <div class="form-group">
-              <label for="payerEmail">Email de contact</label>
+              <label for="payerEmail">Email</label>
               <input id="payerEmail" type="email" placeholder="email@exemple.com">
             </div>
           </div>
@@ -83,7 +83,7 @@
               </select>
             </div>
             <div class="form-group">
-              <label>Échéance (estimation)</label>
+              <label>Échéance(s)</label>
               <div id="schedulePreview" class="total-box">—</div>
             </div>
             <div class="form-group">
