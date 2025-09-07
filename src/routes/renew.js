@@ -11,6 +11,7 @@ import { Order }       from '../models/Order.js';
 
 import { createCheckoutIntent } from '../services/helloasso.js';
 import { makeTokenHash } from '../utils/ha-token.js';
+import { checkNoSingleGap } from '../utils/no-single-gap.js';
 
 const router = express.Router();
 
@@ -226,6 +227,26 @@ router.post('/renew', async (req, res) => {
       });
       totalCents += Number(priceCents || 0);
     }
+
+
+  // ----- RÈGLE "NO SINGLE GAP" -----
+  {
+    const realSeatIds = lines.map(l => l.seatId).filter(Boolean);
+    if (realSeatIds.length > 1) {
+      const gap = await checkNoSingleGap({ seasonCode, venueSlug, seatIds: realSeatIds });
+      if (gap) {
+        return res.status(422).json({
+          error: 'single_gap_rule',
+          zoneKey: gap.zoneKey,
+          rowKey:  gap.rowKey,
+          seatIdLeft:  gap.leftSeatId,
+          seatIdRight: gap.rightSeatId,
+          gapSeatId:   gap.gapSeatId
+        });
+      }
+    }
+  }
+
 
     // Créer la commande (pending)
     const order = await Order.create({
