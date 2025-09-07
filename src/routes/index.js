@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 import tbh7Router from './tbh7.js';
 import subscriptionRouter from './subscription.js';
+import adminRouter from './admin.js';
 
 import haRoutes from './ha.js';      
 
@@ -29,6 +30,8 @@ export default function routes(router) {
   router.use('/api/tbh7', tbh7Router);
 
   router.use('/api/sub', subscriptionRouter);
+
+  router.use('/', adminRouter);
 
   // API sous /s
   router.use('/s', renewApi);
