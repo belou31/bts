@@ -109,6 +109,35 @@ function isPaidLike(status) {
   return /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(status || '').trim());
 }
 
+function renderNeutral(orderId, statusLabel) {
+  const extra = statusLabel ? ` — statut: ${statusLabel}` : '';
+  return `<!doctype html><meta charset="utf-8">
+    <link rel="icon" href="/bts/static/img/favicon.ico">
+    <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,'Noto Sans',sans-serif;
+           margin:2rem;line-height:1.5}
+      .card{max-width:720px;border:1px solid #eee;border-radius:12px;padding:24px}
+      h1{font-size:1.25rem;margin:0 0 .5rem}
+      .muted{color:#666}
+      .warn{background:#FFF6E5;border:1px solid #F6C15C;padding:12px;border-radius:8px;margin-top:12px}
+    </style>
+    <div class="card">
+      <h1>Traitement en cours…</h1>
+      <p class="muted">Commande <strong>${orderId}</strong>${extra}</p>
+      <p>Votre paiement a été pris en charge. Deux emails distincts vont vous parvenir&nbsp;:</p>
+      <ul>
+        <li><strong>Le reçu HelloAsso</strong> pour la transaction bancaire,</li>
+        <li><strong>L’attestation d’abonnement</strong> envoyée par <em>billetterie@tbhc.fr</em>.</li>
+      </ul>
+      <div class="warn">
+        <strong>Important&nbsp;:</strong>
+        si vous recevez le reçu HelloAsso mais <em>pas</em> l’attestation d’abonnement,
+        vos places ne sont <strong>pas</strong> bloquées et nous procéderons au remboursement.
+      </div>
+    </div>`;
+}
+
+
 /**
  * GET /ha/return
  * STUB:   ?oid=<OrderId>&ci=<intentId>&stub=1&result=success|failure
@@ -202,34 +231,34 @@ if (order.status === 'paid') {
     }
 
     if (isPaidLike(status)) {
+      // passe paid, mais on affiche un message neutre
       order.status = 'paid';
-      await order.save();
-      await markSeatsBooked(order);
-      // --- EMAIL ---
-      try {
-        const html    = await renderOrderEmail(order);
-        const subject = subjectForOrder(order);
-        await sendMail({ to: order.payerEmail, subject, html });
-      } catch (e) {
-        console.warn('sendMail failed:', e.message);
+      try { await order.save(); }
+      catch (e) {
+        if (e?.code === 11000) console.warn('[ha/return] duplicate paid (ignored):', e?.keyValue || e?.message);
+        else throw e;
       }
-
-      return res.send(`<!doctype html><meta charset="utf-8">
-        <link rel="icon" href="/bts/static/img/favicon.ico">
-        <h1>Paiement confirmé ✅</h1><p>Commande ${order._id}</p>`);
+      await markSeatsBooked(order);
+      // email idempotent
+      try {
+        if (!order.paymentProviderMeta?.attestationSentAt) {
+          const html    = await renderOrderEmail(order);
+          const subject = subjectForOrder(order);
+          await sendMail({ to: order.payerEmail, subject, html });
+          order.paymentProviderMeta = { ...(order.paymentProviderMeta||{}), attestationSentAt: new Date() };
+          await order.save();
+        }
+      } catch (e) { console.warn('sendMail failed:', e.message); }
+      return res.send(renderNeutral(order._id, status));
     } else {
-      // 🟡 Ne pas conclure à failed ici : on attend le webhook (lead) → pending + message utilisateur
+      // garder pending et rendre un message neutre
       if (order.status !== 'paid') {
         order.status = 'pending';
         await order.save();
       }
-      return res.send(`<!doctype html><meta charset="utf-8">
-        <link rel="icon" href="/bts/static/img/favicon.ico">
-        <h1>Paiement en cours de validation…</h1>
-        <p>Commande ${order._id}${status ? ` — statut: ${status}` : ''}</p>
-        <p>La confirmation vous parviendra <strong>par email</strong> dès validation.</p>`);
+      return res.send(renderNeutral(order._id, status));
     }
-
+    
       } catch (e) {
     console.error('[GET /ha/return] error:', e);
     res.status(500).send(`<!doctype html><meta charset="utf-8">

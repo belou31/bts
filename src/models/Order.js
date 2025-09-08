@@ -61,9 +61,14 @@ const OrderSchema = new mongoose.Schema({
 /* ----- Indexes ----- */
 
 // (1) Unique: only one PAID per (season, venue, groupKey)
+// Index non-unique pour filtrer/rapporter par groupe+statut
 OrderSchema.index(
-  { seasonCode: 1, venueSlug: 1, groupKey: 1, status: 1 },
-  { unique: true, partialFilterExpression: { status: 'paid' }, name: 'uniq_paid_per_group' }
+  { seasonCode:1, venueSlug:1, groupKey:1, status:1 },
+  { name:'idx_group_status' }
+);
+OrderSchema.index(
+  { seasonCode:1, venueSlug:1, groupKey:1, payerEmail:1, status:1 },
+  { name:'uniq_paid_per_payer', unique:true, partialFilterExpression:{ status:'paid' } }
 );
 
 // (2) Lookup by HelloAsso intent / token (canonical)
