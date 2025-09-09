@@ -11,7 +11,7 @@ import { Order }       from '../models/Order.js';
 
 import { createCheckoutIntent } from '../services/helloasso.js';
 import { makeTokenHash } from '../utils/ha-token.js';
-import { checkNoSingleGap } from '../utils/no-single-gap.js';
+import { findSingleGaps }      from '../utils/no-single-gap.js';
 
 const router = express.Router();
 
@@ -229,23 +229,20 @@ router.post('/renew', async (req, res) => {
     }
 
 
-  // ----- RÈGLE "NO SINGLE GAP" -----
-  {
-    const realSeatIds = lines.map(l => l.seatId).filter(Boolean);
-    if (realSeatIds.length > 1) {
-      const gap = await checkNoSingleGap({ seasonCode, venueSlug, seatIds: realSeatIds });
-      if (gap) {
-        return res.status(422).json({
-          error: 'single_gap_rule',
-          zoneKey: gap.zoneKey,
-          rowKey:  gap.rowKey,
-          seatIdLeft:  gap.leftSeatId,
-          seatIdRight: gap.rightSeatId,
-          gapSeatId:   gap.gapSeatId
+    // 🚫 RÈGLE ANTI-TROU (serveur) — contrôle avant création de l'order
+    //    Ne considère que les lignes "siège" (les zones virtuelles n'existent pas en Renew)
+    {
+      const seatIdsAsked = lines.map(l => l.seatId).filter(Boolean);
+      const gaps = await findSingleGaps({ seasonCode, venueSlug, selectedSeatIds: seatIdsAsked });
+      if (gaps.length) {
+        const g = gaps[0];
+        return res.status(409).json({
+          error: 'no_single_gap',
+          message: `Votre sélection créerait un siège isolé en rangée ${g.row} (zone ${g.zoneKey}).`,
+          problems: gaps
         });
       }
     }
-  }
 
 
     // Créer la commande (pending)

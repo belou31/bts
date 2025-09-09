@@ -11,7 +11,7 @@ import { Order }       from '../models/Order.js';
 
 import { createCheckoutIntent } from '../services/helloasso.js';
 import { makeTokenHash }        from '../utils/ha-token.js';
-import { checkNoSingleGap }     from '../utils/no-single-gap.js';
+import { findSingleGaps }       from '../utils/no-single-gap.js';
 
 const router = express.Router();
 
@@ -219,25 +219,26 @@ router.post('/checkout', async (req, res) => {
     }
 
 
-  // ----- RÈGLE "NO SINGLE GAP" pour les sièges réels -----
-  {
-    const realSeatIds = lines
-      .map(l => String(l.seatId || '').trim())
-      .filter(sid => !!sid && seatMap.has(sid));
-    if (realSeatIds.length > 1) {
-      const gap = await checkNoSingleGap({ seasonCode, venueSlug, seatIds: realSeatIds });
-      if (gap) {
-        return res.status(422).json({
-          error: 'single_gap_rule',
-          zoneKey: gap.zoneKey,
-          rowKey:  gap.rowKey,
-          seatIdLeft:  gap.leftSeatId,
-          seatIdRight: gap.rightSeatId,
-          gapSeatId:   gap.gapSeatId
-        });
+    // 🚫 RÈGLE ANTI-TROU (serveur) — contrôle avant création de l'order
+    //    Ici on ne contrôle que les lignes “SIÈGE” réels (les lignes “ZONE” n’impactent pas une rangée).
+    {
+      const seatIdsAsked = lines
+        .map(l => l.seatId)
+        .filter(sid => !!sid && askedSeatIds.includes(sid)); // réels uniquement
+      if (seatIdsAsked.length) {
+        const { seasonCode, venueSlug } = await getActiveSeasonAndVenue();
+        const gaps = await findSingleGaps({ seasonCode, venueSlug, selectedSeatIds: seatIdsAsked });
+        if (gaps.length) {
+          const g = gaps[0];
+          return res.status(409).json({
+            error: 'no_single_gap',
+            message: `Votre sélection créerait un siège isolé en rangée ${g.row} (zone ${g.zoneKey}).`,
+            problems: gaps
+          });
+        }
       }
     }
-  }
+
 
 
     // ----- CONTRÔLE QUOTAS SUR LES ZONES -----

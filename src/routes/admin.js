@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import { Order } from '../models/Order.js';
 import { Seat }  from '../models/Seat.js';
 import { Zone }  from '../models/Zone.js';
+import { exportOrdersCsv, exportSeatsCsv } from '../services/exports.js';
 
 const router = express.Router();
 
@@ -155,109 +156,32 @@ router.get('/', async (_req, res) => {
   </div>`);
 });
 
-/* ===================== Export commandes (CSV) =====================
 
- Colonnes enrichies pour le rapprochement HelloAsso :
-  - providerName, haOrderId, checkoutIntentId, lastReturnCode, lastWebhookEvent, attestationSentAt
-*/
+/* ===================== Export commandes (CSV) ===================== */
 router.get('/export/orders.csv', async (req, res) => {
   res.setHeader('Content-Type','text/csv; charset=utf-8');
   res.setHeader('Content-Disposition','attachment; filename="orders.csv"');
-
-  const header = [
-    'orderId','createdAt','phase','status',
-    'payerFirstName','payerLastName','payerEmail',
-    'seasonCode','venueSlug','paymentSplit','totalCents',
-    // HA / provider
-    'providerName','haOrderId','checkoutIntentId','lastReturnCode','lastWebhookEvent','attestationSentAt',
-    // Lignes…
-    'lineIndex','seatId','zoneKey','tariffCode','priceCents','holderFirstName','holderLastName'
-  ].join(',');
-  res.write(header + '\n');
-
-  const cursor = Order.find({}).sort({ createdAt: 1 }).lean().cursor();
-  for await (const o of cursor) {
-    const base = [
-      o._id, o.createdAt?.toISOString?.() || '', o.phase||'', o.status||'',
-      o.payerFirstName||'', o.payerLastName||'', o.payerEmail||'',
-      o.seasonCode||'', o.venueSlug||'', o.paymentSplit||'',
-      o.totalCents||0,
-      o.paymentProviderMeta?.name || o.paymentProvider || '',
-      o.paymentProviderMeta?.haOrderId || '',
-      o.paymentProviderMeta?.checkoutIntentId || '',
-      o.paymentProviderMeta?.lastReturnCode || '',
-      o.paymentProviderMeta?.lastWebhookEvent || '',
-      o.paymentProviderMeta?.attestationSentAt ? new Date(o.paymentProviderMeta.attestationSentAt).toISOString() : ''
-    ].map(csvEscape).join(',');
-
-    const lines = Array.isArray(o.lines) ? o.lines : [];
-    if (!lines.length) { res.write(base + ',,,,,,,\n'); continue; }
-    let j = 0;
-    for (const l of lines) {
-      const row = [
-        base, j, l.seatId||'', l.zoneKey||'', l.tariffCode||'', l.priceCents||0, l.holderFirstName||'', l.holderLastName||''
-      ].map(csvEscape).join(',');
-      res.write(row + '\n'); j++;
-    }
-  }
+  const filter = {};
+  if (req.query.season) filter.seasonCode = String(req.query.season);
+  if (req.query.venue)  filter.venueSlug  = String(req.query.venue);
+  if (req.query.status) filter.status     = String(req.query.status);
+  await exportOrdersCsv({ out: res, filter, includeHeader: true });
   res.end();
 });
 
-/* ===================== Export sièges (CSV enrichi) =====================
-
-  Inclut :
-   - provisionTags / note (Seat.meta)
-   - s’il est booké : orderId, payer, email, tariff, price, createdAt.
-*/
+/* ===================== Export sièges (CSV enrichi) ===================== */
 router.get('/export/seats.csv', async (req, res) => {
   res.setHeader('Content-Type','text/csv; charset=utf-8');
   res.setHeader('Content-Disposition','attachment; filename="seats.csv"');
-
-  const header = [
-    'seatId','zoneKey','row','num','status',
-    'provisionTags','provisionNote',
-    'reservedByOrderId','reservedAt','reservedPhase','reservedPayer','reservedEmail','reservedTariff','reservedPriceCents'
-  ].join(',');
-  res.write(header + '\n');
-
-  // 1) Map seatId -> last paid order line (regardless of status of Seat)
-  const booked = await Order.aggregate([
-    { $match: { status: 'paid' } },
-    { $sort: { createdAt: -1 } },
-    { $unwind: '$lines' },
-    { $match: { 'lines.seatId': { $ne: null } } },
-    { $group: {
-      _id: '$lines.seatId',
-      orderId: { $first: '$_id' },
-      createdAt: { $first: '$createdAt' },
-      phase: { $first: '$phase' },
-      payerFirstName: { $first: '$payerFirstName' },
-      payerLastName:  { $first: '$payerLastName' },
-      payerEmail:     { $first: '$payerEmail' },
-      tariffCode:     { $first: '$lines.tariffCode' },
-      priceCents:     { $first: '$lines.priceCents' }
-    } }
-  ]);
-  const bookedMap = new Map(booked.map(x => [String(x._id), x]));
-
-  const cursor = Seat.find({}).sort({ zoneKey:1, row:1, num:1, seatId:1 }).lean().cursor();
-  for await (const s of cursor) {
-    const meta = s.meta || {};
-    const tags = Array.isArray(meta.provisionTags) ? meta.provisionTags.join('|') : '';
-    const note = meta.provisionNote || '';
-
-    const b = bookedMap.get(String(s.seatId));
-    const row = [
-      s.seatId || '', s.zoneKey || '', s.row || '', s.num || '', s.status || '',
-      tags, note,
-      b?.orderId || '', b?.createdAt?.toISOString?.() || '', b?.phase || '',
-      (b ? `${b.payerFirstName||''} ${b.payerLastName||''}`.trim() : ''),
-      b?.payerEmail || '', b?.tariffCode || '', b?.priceCents || 0
-    ].map(csvEscape).join(',');
-    res.write(row + '\n');
-  }
+  const filterSeat  = {};
+  const filterOrder = {};
+  if (req.query.season) { filterSeat.seasonCode = String(req.query.season); filterOrder.seasonCode = String(req.query.season); }
+  if (req.query.venue)  { filterSeat.venueSlug  = String(req.query.venue);  filterOrder.venueSlug  = String(req.query.venue); }
+  if (req.query.zone)   { filterSeat.zoneKey    = String(req.query.zone); }
+  await exportSeatsCsv({ out: res, filterSeat, filterOrder, includeHeader: true });
   res.end();
 });
+
 
 /* ===================== Stats zones (HTML/JSON) =====================
 
