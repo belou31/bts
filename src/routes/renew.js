@@ -231,7 +231,7 @@ router.post('/renew', async (req, res) => {
 
     // 🚫 RÈGLE ANTI-TROU (serveur) — contrôle avant création de l'order
     //    Ne considère que les lignes "siège" (les zones virtuelles n'existent pas en Renew)
-    {
+    /*{
       const seatIdsAsked = lines.map(l => l.seatId).filter(Boolean);
       const gaps = await findSingleGaps({ seasonCode, venueSlug, selectedSeatIds: seatIdsAsked });
       if (gaps.length) {
@@ -242,7 +242,7 @@ router.post('/renew', async (req, res) => {
           problems: gaps
         });
       }
-    }
+    }*/
 
 
     // Créer la commande (pending)
