@@ -221,7 +221,7 @@ router.post('/checkout', async (req, res) => {
 
     // 🚫 RÈGLE ANTI-TROU (serveur) — contrôle avant création de l'order
     //    Ici on ne contrôle que les lignes “SIÈGE” réels (les lignes “ZONE” n’impactent pas une rangée).
-    {
+    /*{
       const seatIdsAsked = lines
         .map(l => l.seatId)
         .filter(sid => !!sid && askedSeatIds.includes(sid)); // réels uniquement
@@ -237,7 +237,7 @@ router.post('/checkout', async (req, res) => {
           });
         }
       }
-    }
+    }*/
 
 
 
