@@ -541,29 +541,66 @@ async function submitPayment() {
       let title = 'Une erreur est survenue.';
       let details = [];
       try {
-        const ct = res.headers.get('content-type') || '';
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
         if (ct.includes('application/json')) {
           const err = await res.json();
-          if (err?.error === 'single_gap_rule') {
+
+          // 🔹 Règle anti-trou (nouvelle clé renvoyée par l’API)
+          if (err?.error === 'no_single_gap' || err?.code === 'no_single_gap' || err?.error === 'single_gap_rule') {
             title = 'Règle de placement';
-            details = [`Votre sélection créerait un siège isolé en rangée ${err.rowKey || ''} (zone ${err.zoneKey || ''}). Merci de choisir une autre combinaison.`];
-          } else if (Array.isArray(err?.errors) && err.errors.length) {
+            if (err?.message) {
+              details = [err.message];
+            } else {
+              // Essaye d’extraire une explication depuis problems[0]
+              const g = Array.isArray(err?.problems) && err.problems.length ? err.problems[0] : null;
+              const row  = g?.row || err?.row || err?.rowKey || '';
+              const zone = g?.zoneKey || err?.zoneKey || '';
+              details = [`Votre sélection créerait un siège isolé${row||zone ? ` en rangée ${row} (zone ${zone})` : ''}. Merci de choisir une autre combinaison.`];
+            }
+          }
+          // 🔹 Siège indisponible
+          else if (err?.error === 'seat_unavailable') {
+            title = 'Siège indisponible';
+            const sid = err?.seatId || '';
+            const st  = err?.status || '';
+            details = [`Le siège ${sid} n’est plus disponible (${st || 'indisponible'}).`];
+          }
+          // 🔹 Quota dépassé (zones)
+          else if (err?.error === 'quota_exceeded') {
+            title = 'Quota atteint';
+            const z = err?.zoneKey || '';
+            const r = typeof err?.remaining === 'number' ? err.remaining : 0;
+            details = [`Le quota est atteint pour la zone ${z}. Places restantes: ${r}.`];
+          }
+          // 🔹 Zone invalide
+          else if (err?.error === 'invalid_zone') {
+            title = 'Zone inconnue';
+            details = [`La zone demandée n’existe pas ou n’est pas éligible.`];
+          }
+          // 🔹 Panier vide / email manquant / échéancier invalide
+          else if (err?.error === 'no_lines') {
+            title = 'Veuillez ajouter au moins une ligne.';
+          } else if (err?.error === 'payer_email_required') {
+            title = 'Renseignez un email de contact.';
+          } else if (err?.error === 'invalid_schedule') {
+            title = 'Échéancier invalide';
+            details = ['Choisissez 1, 2 ou 3 échéances.'];
+          }
+          // 🔹 Tableau d’erreurs HelloAsso structuré
+          else if (Array.isArray(err?.errors) && err.errors.length) {
             title = 'Veuillez corriger les éléments suivants :';
             details = err.errors.map(e => e?.message || e?.code || 'Champ invalide');
-          } else {
-            // ✨ Nouveau : extraire les messages HA d’une chaîne JSON incluse dans err.error
+          }
+          // 🔹 Message “métier” direct
+          else if (typeof err?.message === 'string' && err.message.trim()) {
+            title = err.message.trim();
+          }
+          // 🔹 Extraction des messages HelloAsso depuis une chaîne imbriquée
+          else {
             const msgs = extractHaMessages(err);
             if (msgs.length) {
               title = 'Veuillez corriger les éléments suivants :';
               details = msgs;
-            } else if (err?.error) {
-              const msg = String(err.error);
-              if (/internal|stack|exception|mongo|sql|trace|axios|fetch|network/i.test(msg)) {
-                title = 'Un problème technique est survenu. Réessayez dans quelques instants.';
-              } else {
-                // message métier court si possible, sinon message générique
-                title = (msg.length > 140) ? 'Impossible de traiter votre demande. Vérifiez vos informations puis réessayez.' : msg;
-              }
             } else {
               title = 'Impossible de traiter votre demande. Réessayez.';
             }
@@ -588,7 +625,7 @@ async function submitPayment() {
       $('#payBtn').disabled = false;
       return;
     }
-
+    
     
     const out = await res.json();
     if (out.redirectUrl) {
