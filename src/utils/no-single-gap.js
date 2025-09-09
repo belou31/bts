@@ -1,132 +1,107 @@
 // src/utils/no-single-gap.js
+// Valide qu'une sélection de sièges ne laisse PAS de "siège isolé" AU MILIEU
+// d'un tronçon (même zone + même rangée). Les bords de tronçon sont autorisés.
+//
+// Usage:
+//   const problems = await findSingleGaps({ seasonCode, venueSlug, selectedSeatIds:[...] });
+//   // problems = [{ zoneKey, row, seatId }, ...]
+//
+// Hypothèses:
+// - seatId format “ZONE-ROW-NNN” (ex: "N4-K-056")
+// - “tronçon” = suite de numéros contigus existants en BD (toute discontinuité
+//   dans la numérotation est considérée comme une frontière/bord acceptable)
+
 import { Seat } from '../models/Seat.js';
 
-/**
- * Règle "no single gap"
- * Interdit de laisser une place disponible isolée entre deux places occupées dans UNE même rangée.
- * - On ne bloque PAS un “trou” en bout de rangée (bords).
- * - On se base sur l'état actuel en BD (booked/busy = occupé ; available = libre),
- *   + les sièges que l'utilisateur tente d'ajouter.
- *
- * @param {Object} args
- * @param {string} args.seasonCode
- * @param {string} args.venueSlug
- * @param {string[]} args.seatIds - liste de sièges RÉELS choisis par l'utilisateur
- * @returns {null|{zoneKey,rowKey,gapSeatId,leftSeatId,rightSeatId}}
- */
-export async function checkNoSingleGap({ seasonCode, venueSlug, seatIds }) {
-  const list = Array.from(new Set((seatIds || []).map(s => String(s || '').trim()).filter(Boolean)));
-  if (list.length <= 1) return null; // un seul siège: pas de cas "trou isolé"
+function parseSeatId(sid) {
+  const m = String(sid || '').match(/^([A-Z0-9]+)-([A-Z]+)-0*([0-9]+)$/i);
+  if (!m) return null;
+  return { zoneKey: m[1].toUpperCase(), row: m[2].toUpperCase(), num: Number(m[3]) };
+}
 
-  // Parseur d'ID "ZONE-ROW-NNN"
-  const RE = /^([A-Z0-9]+)-([A-Z]+)-(\d+)$/i;
-  const parse = (sid) => {
-    const m = String(sid || '').match(RE);
-    if (!m) return null;
-    return {
-      zoneKey: m[1].toUpperCase(),
-      rowKey:  m[2].toUpperCase(),
-      num:     parseInt(m[3], 10),
-      pad:     m[3].length
-    };
-  };
+export async function findSingleGaps({ seasonCode, venueSlug, selectedSeatIds }) {
+  const selected = (selectedSeatIds || []).map(parseSeatId).filter(Boolean);
+  if (!selected.length) return [];
 
-  // Regrouper la sélection par (zone,row)
-  const rows = new Map(); // "ZONE|ROW" -> { zoneKey,rowKey,pad, selected:Set<number> }
-  for (const sid of list) {
-    const p = parse(sid);
-    if (!p) continue;
-    const key = `${p.zoneKey}|${p.rowKey}`;
-    let rec = rows.get(key);
-    if (!rec) { rec = { zoneKey: p.zoneKey, rowKey: p.rowKey, pad: p.pad, selected: new Set() }; rows.set(key, rec); }
-    rec.pad = Math.max(rec.pad, p.pad);
-    rec.selected.add(p.num);
+  // Groupe la sélection par (zone|row) pour ne requêter que les rangées concernées
+  const byZR = new Map(); // "ZONE|ROW" -> [{zoneKey,row,num,seatId},...]
+  for (const p of selected) {
+    const key = `${p.zoneKey}|${p.row}`;
+    (byZR.get(key) || byZR.set(key, []).get(key)).push(p);
   }
-  if (!rows.size) return null;
 
-  // Construire une requête pour récupérer tous les sièges des rangées concernées
-  const or = [];
-  for (const { zoneKey, rowKey } of rows.values()) {
-    // ^ZONE-ROW-\d+  (insensible à la casse)
-    or.push({ seatId: new RegExp(`^${escapeReg(zoneKey)}-${escapeReg(rowKey)}-\\d+$`, 'i') });
-  }
-  // Rien à vérifier ?
-  if (!or.length) return null;
+  const problems = [];
 
-  const dbSeats = await Seat.find(
-    { seasonCode, venueSlug, $or: or },
-    { _id: 0, seatId: 1, status: 1 }
-  ).lean();
+  for (const [key, picks] of byZR.entries()) {
+    const [zoneKey, row] = key.split('|');
+    // Charge TOUS les sièges existants de cette zone/rangée (peut être partiel / trous)
+    const docs = await Seat.find(
+      {
+        seasonCode, venueSlug,
+        seatId: { $regex: `^${zoneKey}-${row}-\\d+$`, $options: 'i' }
+      },
+      { _id: 0, seatId: 1, status: 1 }
+    ).lean();
 
-  // Indexer par rangée
-  const rowMap = new Map(); // key -> { zoneKey,rowKey,pad, existing:Set<number>, occupied:Set<number> }
-  for (const s of dbSeats || []) {
-    const p = parse(s.seatId);
-    if (!p) continue;
-    const key = `${p.zoneKey}|${p.rowKey}`;
-    let rec = rowMap.get(key);
-    if (!rec) {
-      const seed = rows.get(key) || { pad: p.pad };
-      rec = {
-        zoneKey: p.zoneKey,
-        rowKey:  p.rowKey,
-        pad:     Math.max(p.pad, seed.pad || 3),
-        existing: new Set(),
-        occupied: new Set()
-      };
-      rowMap.set(key, rec);
+    // Map + liste ordonnée par numéro
+    const nodes = docs.map(d => {
+      const p = parseSeatId(d.seatId);
+      if (!p) return null;
+      const st = String(d.status || '').toLowerCase();
+      const occupiedNow = (st !== 'available'); // busy/provisioned/booked/... => occupé
+      return { seatId: d.seatId, num: p.num, occupied: occupiedNow };
+    }).filter(Boolean).sort((a, b) => a.num - b.num);
+
+    if (!nodes.length) continue; // rien à valider
+
+    // Marque la sélection courante comme "occupée après sélection"
+    const selectedSet = new Set(
+      picks.map(pp => `${zoneKey}-${row}-${String(pp.num).padStart(3, '0')}`)
+    );
+    for (const n of nodes) {
+      if (selectedSet.has(n.seatId)) n.occupied = true;
     }
-    rec.pad = Math.max(rec.pad, p.pad);
-    rec.existing.add(p.num);
-    // Occupé si BD != available
-    const st = String(s.status || '').toLowerCase();
-    if (st && st !== 'available') rec.occupied.add(p.num);
-  }
 
-  // Ajouter la sélection utilisateur comme "occupé"
-  for (const [key, meta] of rows.entries()) {
-    const rec = rowMap.get(key);
-    if (!rec) continue;
-    for (const n of meta.selected) rec.occupied.add(n);
-  }
+    // Parcourt la ligne et construit des segments d'**indisponibilité** numérique:
+    // On veut détecter des segments *disponibles* de longueur 1 **à l'intérieur**
+    // de deux sièges occupés contigus (numériquement).
+    let segStart = -1; // début d'un segment d'AVAIL (indices)
+    for (let i = 0; i <= nodes.length; i++) {
+      const cur = nodes[i];               // undefined à la fin
+      const prev = nodes[i - 1];
+      const curAvail = cur && !cur.occupied;
+      const numberingGap = !!(cur && prev && cur.num !== prev.num + 1);
 
-  // Recherche d'un trou isolé : pattern OCCUPÉ - LIBRE - OCCUPÉ avec indices consécutifs
-  for (const rec of rowMap.values()) {
-    const nums = Array.from(rec.existing).sort((a, b) => a - b);
-    if (nums.length < 3) continue;
+      // Si on a un trou de numérotation, on flush le segment précédent car c'est une frontière
+      const mustFlushForGap = numberingGap && segStart !== -1;
+      const mustFlushForEnd = (!cur || !curAvail) && segStart !== -1;
+      if (mustFlushForGap || mustFlushForEnd) {
+        const segEnd = mustFlushForGap ? (i - 1) : (i - 1);
+        const len = segEnd - segStart + 1;
+        if (len === 1) {
+          // Singleton: n'est problématique que s'il est *intérieur* (deux voisins occupés ET contigus)
+          const leftIdx  = segStart - 1;
+          const rightIdx = segEnd + 1;
+          const here     = nodes[segStart];
+          const leftOK   = leftIdx >= 0
+                           && nodes[leftIdx].occupied
+                           && nodes[leftIdx].num === here.num - 1;
+          const rightOK  = rightIdx < nodes.length
+                           && nodes[rightIdx].occupied
+                           && nodes[rightIdx].num === here.num + 1;
+          if (leftOK && rightOK) {
+            problems.push({ zoneKey, row, seatId: here.seatId });
+          }
+        }
+        segStart = -1;
+      }
 
-    const has = (n) => rec.existing.has(n);
-    const occ = (n) => rec.occupied.has(n);
-
-    for (let i = 1; i < nums.length - 1; i++) {
-      const n = nums[i];
-      const l = nums[i - 1];
-      const r = nums[i + 1];
-      // On ne vérifie que des positions "centrales" consécutives
-      if (l + 1 !== n || n + 1 !== r) continue;
-
-      // Trou isolé = libre ET ses deux voisins présents & occupés
-      if (!occ(n) && has(l) && has(r) && occ(l) && occ(r)) {
-        const gapSeatId   = makeSeatId(rec.zoneKey, rec.rowKey, n, rec.pad);
-        const leftSeatId  = makeSeatId(rec.zoneKey, rec.rowKey, l, rec.pad);
-        const rightSeatId = makeSeatId(rec.zoneKey, rec.rowKey, r, rec.pad);
-        return {
-          zoneKey: rec.zoneKey,
-          rowKey:  rec.rowKey,
-          gapSeatId,
-          leftSeatId,
-          rightSeatId
-        };
+      // Démarre un nouveau segment après un gap ou après un siège occupé
+      if (curAvail && (segStart === -1)) {
+        segStart = i;
       }
     }
   }
 
-  return null;
-}
-
-function escapeReg(s) {
-  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-function makeSeatId(zoneKey, rowKey, num, pad = 3) {
-  return `${zoneKey}-${rowKey}-${String(num).padStart(pad, '0')}`;
+  return problems;
 }
