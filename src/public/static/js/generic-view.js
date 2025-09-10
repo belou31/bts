@@ -76,10 +76,24 @@ const CTX = {
   seatSubById:new Map()   // <- NEW: index normalisé seatId -> {firstName,lastName,email}  
 };
 
+// Index rapide: seatId -> status
+let SEAT_STATUS = new Map();
+
+
 /* ========= Helpers prix/sièges ========= */
 const fmtEuro = cents => (Number(cents||0)/100).toLocaleString('fr-FR', { style:'currency', currency:'EUR' });
 const normSeatId = s => String(s||'').trim();
 const zoneKeyFromSeatId = seatId => String(seatId||'').split('-')[0] || '';
+
+// --- Helpers siège (parsing voisinage) ---
+function parseSeatId(sid){
+  const m = String(sid||'').match(/^([^-\s]+)-([A-Za-z]+)-(\d{1,3})$/);
+  if (!m) return null;
+  return { zone:m[1], row:m[2], num: Number(m[3]), width: m[3].length };
+}
+function makeSeatId(zone,row,num,width){
+  return `${zone}-${row}-${String(num).padStart(width||3,'0')}`;
+}
 
 function buildPricesIndex(list) {
   // Map zoneKey -> Map tariffCode -> priceCents
@@ -109,6 +123,85 @@ function computeLineAmount(pricesIdx, zoneKey, tariffCode) {
   return 0;
 }
 
+// ---- NO SINGLE GAP (local, fenêtre ±2, bords tolérés) ----
+const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
+function buildSelectedSet(items){
+  const set = new Set();
+  for (const it of (items||[])) {
+    const sid = String(it?.seatId||'').trim();
+    if (!sid || isVirtualZoneSeatId(sid)) continue;
+    if (!parseSeatId(sid)) continue; // ignore formats non standards
+    set.add(sid);
+  }
+  return set;
+}
+function statusOf(sid){
+  return (SEAT_STATUS.get(sid) || '').toLowerCase();
+}
+function isOccupied(sid, selectedSet){
+  if (!sid) return false;
+  if (selectedSet?.has(sid)) return true;                  // la sélection actuelle “occupe”
+  const st = statusOf(sid);
+  return st==='booked' || st==='sold' || st==='busy' || st==='blocked' || st==='provisioned';
+}
+function isAvailableSeat(sid, selectedSet){
+  if (!sid) return false;
+  if (selectedSet?.has(sid)) return false;                 // déjà pris par la sélection
+  return statusOf(sid) === 'available';
+}
+function checkLocalNoSingleGap(items){
+  const sel = buildSelectedSet(items);
+  if (!sel.size) return null;
+  // Pour chaque siège sélectionné, ne tester que les BORDS du bloc
+  for (const sid of sel) {
+    const p = parseSeatId(sid); if (!p) continue;
+    const L1 = makeSeatId(p.zone,p.row,p.num-1,p.width);
+    const L2 = makeSeatId(p.zone,p.row,p.num-2,p.width);
+    const R1 = makeSeatId(p.zone,p.row,p.num+1,p.width);
+    const R2 = makeSeatId(p.zone,p.row,p.num+2,p.width);
+
+    // est-on à un bord à gauche ? (le siège immédiatement à gauche n'est PAS sélectionné)
+    const isLeftBorder = !sel.has(L1);
+    if (isLeftBorder) {
+      // ✨ LONGUEUR du bloc sélectionné vers la droite (incluant sid)
+      let blockLenRight = 1;
+      while (sel.has(makeSeatId(p.zone,p.row,p.num+blockLenRight,p.width))) blockLenRight++;
+      // ✅ si on prend ≥2 sièges, on AUTORISE de laisser un seul siège libre côté gauche
+      if (blockLenRight >= 2) {
+        // ne rien bloquer sur ce bord
+      } else {
+        // Cas bloquant local (fenêtre 2) : [Occupe] … L2 occupé, L1 libre, [SELECTION]
+        // On ne bloque QUE si L1 existe et est libre ET que L2 existe et est occupé.
+        const L1Exists = SEAT_STATUS.has(L1);
+        const L2Exists = SEAT_STATUS.has(L2);
+
+        if (L1Exists && isAvailableSeat(L1, sel) && L2Exists && isOccupied(L2, sel)) {
+          return { zone:p.zone, row:p.row, side:'left', seat:sid };
+        }
+      }
+    }
+
+    // est-on à un bord à droite ?
+    const isRightBorder = !sel.has(R1);
+    if (isRightBorder) {
+      // ✨ LONGUEUR du bloc sélectionné vers la gauche (incluant sid)
+      let blockLenLeft = 1;
+      while (sel.has(makeSeatId(p.zone,p.row,p.num-blockLenLeft,p.width))) blockLenLeft++;
+      // ✅ si on prend ≥2 sièges, on AUTORISE de laisser un seul siège libre côté droit
+      if (blockLenLeft >= 2) {
+        // ne rien bloquer sur ce bord
+      } else {
+        // Cas bloquant local (fenêtre 2) : [SELECTION] R1 libre, R2 occupé … [Occupe]
+        const R1Exists = SEAT_STATUS.has(R1);
+        const R2Exists = SEAT_STATUS.has(R2);
+        if (R1Exists && isAvailableSeat(R1, sel) && R2Exists && isOccupied(R2, sel)) {
+          return { zone:p.zone, row:p.row, side:'right', seat:sid };
+        }
+      }
+    }
+  }
+  return null;
+}
 
 const STATE_CLASSES = new Set([CLASSES.available, CLASSES.booked, CLASSES.busy]);
 
@@ -524,6 +617,16 @@ async function submitPayment() {
     try { $('#payerEmail').focus(); } catch {}
     return;
   }
+
+  // 💡 Vérification locale “no single gap” (fenêtre ±2 ; bords autorisés)
+  const gap = checkLocalNoSingleGap(items);
+  if (gap) {
+    setFeedback('error', 'Règle de placement', [
+      `Votre sélection créerait un siège isolé en rangée ${gap.row} (zone ${gap.zone}). Merci de choisir une autre combinaison.`
+    ]);
+    return;
+  }
+
   const schedule = Number($('#paySchedule').value || 1);
   const totalAmount = CTX.currentTotal || 0;
 
@@ -666,6 +769,9 @@ dlog('payload sample:', {
   // a) seatSubscribers -> index normalisé
   CTX.seatSubscribers = data.seatSubscribers || {};
   CTX.seatSubById = new Map();
+  // Index rapide des statuts de siège
+  SEAT_STATUS = new Map((CTX.seats||[]).map(s => [String(s.seatId), String(s.status||'').toLowerCase()]));
+
 
 let mappedCount = 0;
 if (Array.isArray(CTX.seatSubscribers)) {
