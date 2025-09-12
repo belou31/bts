@@ -913,6 +913,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const h1 = $('#pageTitle'); if (h1) h1.textContent = CONFIG.title || 'Billetterie';
 
+  const pageEl = $('#page') || $('.page');
+  // ——— gestion du layout (auto par défaut, verrou si clic utilisateur)
+  const guessAutoLayout = () => (window.innerWidth > window.innerHeight) ? 'row' : 'col';
+  let layoutLock = null; // null = auto ; 'row' | 'col' = verrou
+
+  // Affiche l’icône de la **cible** (le prochain layout si on clique)
+  function setLayoutIconForTarget(currentMode){
+    const btn = $('#layoutToggle'); if (!btn) return;
+    const target = (currentMode === 'row') ? 'col' : 'row';
+    const showH = (target === 'row'); // prochain état = horizontal → icône horizontale
+    $('.icon-h', btn)?.toggleAttribute('hidden', !showH);
+    $('.icon-v', btn)?.toggleAttribute('hidden',  showH);
+  }
+  function applyLayout(){
+    const mode = layoutLock || guessAutoLayout();
+    if (pageEl) pageEl.setAttribute('data-layout', mode);
+    setLayoutIconForTarget(mode); // affiche l’icône de la **cible** (prochain layout)
+  }
+
+  
+  window.addEventListener('resize', () => { if (!layoutLock) applyLayout(); });
+
   try { await loadData(); }
   catch (e) {
     console.error('load error:', e);
@@ -921,4 +943,61 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   $('#payBtn').addEventListener('click', submitPayment);
   $('#paySchedule').addEventListener('change', updateInstallmentsPreview);
+
+  // ——— actions Plan
+  // 1) Toggle layout (verrouille le mode jusqu’à ce que l’utilisateur re-clique)
+  const layoutBtn = $('#layoutToggle');
+  if (layoutBtn && pageEl) {
+    layoutBtn.addEventListener('click', () => {
+      const current = pageEl.getAttribute('data-layout') || guessAutoLayout();
+      const next = (current === 'row') ? 'col' : 'row';
+      layoutLock = next;               // on verrouille
+      pageEl.setAttribute('data-layout', next);
+      // après bascule, la nouvelle **cible** est l’inverse de `next`
+      setLayoutIconForTarget(next);
+    });
+  }
+  // 2) Plein écran du plan
+  const fsBtn = $('#fsToggle');
+  const planWrap = $('.plan-wrap');
+  if (fsBtn && planWrap) {
+
+    // plein écran sur le panneau plan
+    fsBtn.addEventListener('click', async () => {
+      const host = planWrap || $('#plan'); // cible sûre : le conteneur du plan
+      const entering = !document.fullscreenElement;
+      try {
+        if (entering) {
+          // bascule immédiate côté UI (un seul carré affiché)
+          $('.icon-big',   fsBtn)?.setAttribute('hidden', 'true');
+          $('.icon-small', fsBtn)?.removeAttribute('hidden');
+          if (host.requestFullscreen)        { await host.requestFullscreen(); }
+          else if (host.webkitRequestFullscreen) { await host.webkitRequestFullscreen(); } // Safari
+        } else {
+          $('.icon-big',   fsBtn)?.removeAttribute('hidden');
+          $('.icon-small', fsBtn)?.setAttribute('hidden', 'true');
+          if (document.exitFullscreen)       { await document.exitFullscreen(); }
+          else if (document.webkitExitFullscreen) { await document.webkitExitFullscreen(); } // Safari
+        }
+      } catch {
+        // en cas d’échec, on rétablit l’état cohérent avec le mode réel
+        const isFS = !!document.fullscreenElement;
+        $('.icon-big',   fsBtn)?.toggleAttribute('hidden',  isFS);
+        $('.icon-small', fsBtn)?.toggleAttribute('hidden', !isFS);
+      }
+    });
+
+    // garde-fou : un seul carré à la fois (tous moteurs)
+    const onFsChange = () => {
+      const isFS = !!document.fullscreenElement;
+      $('.icon-big',   fsBtn)?.toggleAttribute('hidden',  isFS);
+      $('.icon-small', fsBtn)?.toggleAttribute('hidden', !isFS);
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
+    
+  }
+
+  // layout initial (icône = cible)
+  applyLayout();
 });

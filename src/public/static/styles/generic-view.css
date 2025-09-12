@@ -14,17 +14,51 @@ body{ margin:0; font-family:var(--font); background:var(--bg); color:var(--fg); 
 .site-header .brand .logo{height:40px}
 .site-header h1{margin:0; font-size:20px; font-weight:700}
 
-.page{ display:grid; gap:16px; grid-template-columns: 1fr 1fr; padding:16px; align-items:start; }
-@media (max-aspect-ratio: 1/1) { .page{ grid-template-columns: 1fr; } }
+.page{ display:grid; gap:16px; padding:16px; align-items:start; grid-template-columns: 1fr 1fr; }
+/* Mode auto (par défaut) quand aucun verrou n’est posé via data-layout */
+@media (max-aspect-ratio: 1/1) { .page:not([data-layout]){ grid-template-columns: 1fr; } }
+@media (min-aspect-ratio: 1/1) { .page:not([data-layout]){ grid-template-columns: 1fr 1fr; } }
+/* Verrous utilisateur (prioritaires) */
+.page[data-layout="row"]{ grid-template-columns: 1fr 1fr; }
+.page[data-layout="col"]{ grid-template-columns: 1fr; }
+
 .col{ min-width:0; }
 .panel{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px; box-shadow: 0 8px 20px rgba(0,0,0,.25); }
 
-/* PLAN */
-#plan .panel-title{margin:0 0 8px 0; font-size:18px}
+#plan .panel-title{ margin:0; font-size:18px }
+.panel-head{
+  display:flex; align-items:center; gap:12px; margin-bottom:8px;
+}
+.panel-head .plan-actions{ margin-left:auto; display:flex; gap:6px; }
+
+.panel-head{
+  display:flex; align-items:center; gap:12px; margin-bottom:8px;
+}
+.panel-head .plan-actions{ margin-left:auto; display:flex; gap:6px; }
 .plan-wrap{ position:relative; background:#0b131a; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
 .plan-object{ width:100%; height:60vh; display:block; background:#0a1118; }
 #venuePlan.grabbing{ cursor:grabbing; }
 .plan-status{ position:absolute; left:8px; bottom:8px; font-size:12px; color:var(--muted); }
+
+/* Toolbar : désormais dans l’entête du panel, plus dans le plan */
+.plan-actions{ display:flex; gap:6px; }
+.tool-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:34px; height:34px; border-radius:8px;
+  border:1px solid var(--line); background:#0d141c; color:#cbd5e1; cursor:pointer;
+}
+.tool-btn:hover{ border-color:#36506b; color:#e2e8f0; background:#0f1720; }
+ .tool-btn .icon{ display:block; }
+ /* s’assurer que [hidden] l’emporte sur display:block ci-dessus */
+ .tool-btn .icon[hidden]{ display:none !important; }
+
+/* Respecter l’attribut [hidden] malgré la règle ci-dessus */
+.tool-btn .icon[hidden]{ display:none !important; }
+
+/* Plein écran du container du plan */
+.plan-wrap:fullscreen{ border-radius:0; }
+.plan-wrap:fullscreen .plan-object{ height:100vh; }
+
 
 /* ORDER */
 #order .block{ margin-bottom:16px; }
@@ -140,3 +174,14 @@ button.pay-btn:disabled{ opacity:.6; cursor:not-allowed; }
   background:#0f1720; color:var(--fg);
   border:1px solid var(--line); border-radius:8px; outline:none;
 }
+
+
+/* Icônes blanches (fond sombre) */
+.plan-actions .tool-btn{ color:#fff; }
+.plan-actions .tool-btn svg *{
+  fill:#fff !important;
+  stroke:#fff !important;
+}
+
+/* respecter l’attribut [hidden] malgré .tool-btn .icon{display:block} */
+.tool-btn .icon[hidden]{ display:none !important; }
