@@ -107,6 +107,7 @@ async function main() {
 
   // --- Règle FANCLUB (TBH7): zones N5,N6,N7, rangées L,M,N ---
   const fanclubFilter = { ...base, seatId: { $regex: /^(?:N5|N6|N7)-(?:L|M|N)-\d+$/ } };
+  const fanclubFilter2 = { ...base, seatId: { $regex: /N6-K-\d+$/ } };
 
   // --- Règle UNAVAILABLE: sièges unitaires
   const unavailableList = [
@@ -140,6 +141,7 @@ async function main() {
   await applyCategory('SPECIALE (zones S3,S4A)', specialeFilter);
   await applyCategory('VISITORS (S2 rangées F,G)', visitorsFilter);
   await applyCategory('FANCLUB TBH7 (N5/N6/N7 rangées L,M,N)', fanclubFilter);
+  await applyCategory('FANCLUB TBH7 2 N6 rangée K', fanclubFilter2);
   await applyCategory('UNAVAILABLE (sièges unitaires)', unavailableFilter);
 
   if (!APPLY) {
