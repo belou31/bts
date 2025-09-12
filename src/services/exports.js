@@ -31,7 +31,8 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
   const cursor = Order.find(q).sort({ createdAt: 1 }).lean().cursor();
 
   for await (const o of cursor) {
-    const base = [
+    // ⚠️ Garder un TABLEAU jusqu'au join final (sinon toute la base devient une seule cellule)
+    const baseFields = [
       o._id,
       o.createdAt?.toISOString?.() || '',
       o.phase || '',
@@ -49,18 +50,20 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
       o.paymentProviderMeta?.lastReturnCode || '',
       o.paymentProviderMeta?.lastWebhookEvent || '',
       o.paymentProviderMeta?.attestationSentAt ? new Date(o.paymentProviderMeta.attestationSentAt).toISOString() : ''
-    ].map(csvEscape).join(',');
+    ];
 
     const lines = Array.isArray(o.lines) ? o.lines : [];
     if (!lines.length) {
-      // 7 colonnes ligne: lineIndex..holderLastName
-      out.write(base + ',' + ['','','','','','',''].join(',') + '\n');
+      // 7 colonnes ligne: lineIndex..holderLastName → valeurs vides
+      const rowFields = [...baseFields, 0, '', '', '', 0, '', ''];
+      out.write(rowFields.map(csvEscape).join(',') + '\n');
+
       continue;
     }
     let j = 0;
     for (const l of lines) {
-      const row = [
-        base,
+      const rowFields = [
+        ...baseFields,
         j,
         l.seatId || '',
         l.zoneKey || '',
@@ -68,8 +71,9 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
         l.priceCents || 0,
         l.holderFirstName || '',
         l.holderLastName  || ''
-      ].map(csvEscape).join(',');
-      out.write(row + '\n');
+      ];
+      out.write(rowFields.map(csvEscape).join(',') + '\n');
+
       j++;
     }
   }
