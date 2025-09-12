@@ -206,18 +206,20 @@ router.get('/export/seats.csv', async (req, res) => {
 */
 const SUB_ZONE_KEYS = ['TBH7', 'TBH7-VIRAGE', 'DEBOUT'];
 
-async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys }) {
+async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, statusIn = null }) {
+  // Si statusIn est défini → filtre inclusif (ex: ['paid'])
+  // Sinon → fallback historique (tout sauf canceled/failed)
+  const statusMatch = Array.isArray(statusIn) && statusIn.length
+    ? { status: { $in: statusIn } }
+    : { status: { $nin: ['canceled', 'failed'] } };
+
   const rows = await Order.aggregate([
-    { $match: {
-      seasonCode, venueSlug,
-      status: { $nin: ['canceled', 'failed'] },
-      'lines.zoneKey': { $in: zoneKeys }
-    }},
+    { $match: { seasonCode, venueSlug, ...statusMatch, 'lines.zoneKey': { $in: zoneKeys } } },
     { $unwind: '$lines' },
     { $match: { 'lines.zoneKey': { $in: zoneKeys } } },
     { $group: { _id: '$lines.zoneKey', count: { $sum: 1 } } }
   ]);
-  return new Map(rows.map(r => [String(r._id), Number(r.count || 0)]));
+  return new Map(rows.map(r => [String(r._id || ''), Number(r.count || 0)]));
 }
 
 async function zonesSnapshot() {
@@ -225,8 +227,11 @@ async function zonesSnapshot() {
   const seasonCode = activeSeason?.seasonCode || process.env.SEASON_CODE || null;
   const venueSlug  = activeSeason?.venueSlug  || process.env.VENUE_SLUG  || null;
 
-  const [zones, usage] = await Promise.all([
+  // usagePaid = seulement "paid" (référence pour quota subscription)
+  // usageAll  = tout sauf canceled/failed (diagnostic)
+  const [zones, usagePaid, usageAll] = await Promise.all([
     Zone.find({ seasonCode, venueSlug, key: { $in: SUB_ZONE_KEYS }, isActive: true }).lean(),
+    computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys: SUB_ZONE_KEYS, statusIn: ['paid'] }),
     computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys: SUB_ZONE_KEYS })
   ]);
 
@@ -234,10 +239,19 @@ async function zonesSnapshot() {
     const quota     = Number(z.quota || 0);
     const capacity  = Number(z.capacity || 0);
     const plafond   = quota > 0 ? quota : capacity;
-    const used      = usage.get(z.key) || 0;
-    const remaining = Math.max(0, (plafond || 0) - used);
+    const usedPaid  = usagePaid.get(z.key) || 0;
+    const usedAll   = usageAll.get(z.key)  || 0;
+    const pending   = Math.max(0, usedAll - usedPaid); // indicatif
+    const remainingPaid = Math.max(0, (plafond || 0) - usedPaid);
     return {
-      key: z.key, name: z.name || z.key, quota, capacity, used, remaining
+      key: z.key,
+      name: z.name || z.key,
+      quota,
+      capacity,
+      usedPaid,
+      usedAll,
+      pending,
+      remainingPaid
     };
   });
 
@@ -272,15 +286,30 @@ router.get('/stats/zones', async (_req, res) => {
     h1{font-size:18px;margin:0 0 12px}
     .grid{display:grid;grid-template-columns:1fr;gap:24px}
     .mono{font-family:ui-monospace,Consolas,monospace}
-  </style>
+    .muted{color:#666}  </style>
   <h1>Stats zones — <span class="mono">${snap.seasonCode || ''} / ${snap.venueSlug || ''}</span></h1>
   <div class="grid">
     <div>
       <h2>TBH7 & zones publiques</h2>
+      <p class="muted">Le quota *subscription* s’appuie sur <strong>usedPaid</strong> (commandes payées). La colonne <em>pending</em> est informative (= usedAll − usedPaid).</p>
       <table>
-        <tr><th>zone</th><th>quota</th><th>capacity</th><th>utilisés</th><th>restants</th></tr>
+        <tr>
+          <th>zone</th>
+          <th>quota</th>
+          <th>capacity</th>
+          <th>usedPaid</th>
+          <th>usedAll</th>
+          <th>pending</th>
+          <th>remaining (paid)</th>
+        </tr>
         ${snap.subZones.map(z=>`<tr>
-          <td>${z.key}</td><td>${z.quota}</td><td>${z.capacity}</td><td>${z.used}</td><td>${z.remaining}</td>
+          <td>${z.key}</td>
+          <td>${z.quota}</td>
+          <td>${z.capacity}</td>
+          <td>${z.usedPaid}</td>
+          <td>${z.usedAll}</td>
+          <td>${z.pending}</td>
+          <td>${z.remainingPaid}</td>
         </tr>`).join('')}
       </table>
     </div>
