@@ -63,22 +63,28 @@ function zoneKeyFromSeatId(seatId) {
   return i > 0 ? s.slice(0, i) : s;
 }
 
-async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys }) {
-  // Conso = nombre de lignes de commandes (toutes origines) non annulées/échouées, groupées par zone
+async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, statusIn = ['paid'] }) {
+  // Conso = nombre de lignes de commandes groupées par zone.
+  // Par défaut, on retient UNIQUEMENT les commandes "paid" pour le quota subscription.
+  const baseMatch = {
+    seasonCode,
+    venueSlug,
+    'lines.zoneKey': { $in: zoneKeys }
+  };
+  const statusMatch = (Array.isArray(statusIn) && statusIn.length)
+    ? { status: { $in: statusIn } }                 // ex: ['paid']
+    : { status: { $nin: ['canceled', 'failed'] } }; // fallback historique
+
   const rows = await Order.aggregate([
-    { $match: {
-      seasonCode, venueSlug,
-      status: { $nin: ['canceled', 'failed'] },
-      'lines.zoneKey': { $in: zoneKeys }
-    }},
+    { $match: { ...baseMatch, ...statusMatch } },
     { $unwind: '$lines' },
     { $match: { 'lines.zoneKey': { $in: zoneKeys } } },
     { $group: { _id: '$lines.zoneKey', count: { $sum: 1 } } }
   ]);
-  const usage = new Map();
-  for (const r of rows) usage.set(String(r._id || ''), Number(r.count || 0));
+  const usage = new Map(rows.map(r => [String(r._id || ''), Number(r.count || 0)]));
   return usage;
 }
+
 
 /* ====== GET /api/sub/status ======
  * Répond: { seasonCode, venueSlug, tariffs[], prices[], seats[], zones[] }
@@ -109,8 +115,10 @@ router.get('/status', async (_req, res, next) => {
       seasonCode, venueSlug, isActive: true
     }).lean();
 
-    // --- Calcul “remaining” zone = min(quota>0 ? quota : capacity) - usage
-    const usage = await computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys: SUB_ZONE_KEYS });
+    // --- Calcul “remaining” zone = plafond - USAGE(only paid)
+    const usage = await computeZoneUsageAllOrders({
+      seasonCode, venueSlug, zoneKeys: SUB_ZONE_KEYS, statusIn: ['paid']
+    });
     const zonesOut = (zones || []).map(z => {
       const quota     = Number(z.quota || 0);
       const capacity  = Number(z.capacity || 0);
@@ -243,8 +251,12 @@ router.post('/checkout', async (req, res) => {
 
     // ----- CONTRÔLE QUOTAS SUR LES ZONES -----
     if (requestedPerZone.size) {
-      const usage = await computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys: SUB_ZONE_KEYS });
-      for (const [zoneKey, count] of requestedPerZone) {
+      // Garde-fou anti-oversell : ne compter que le "paid" pour autoriser la vente
+      const usage = await computeZoneUsageAllOrders({
+        seasonCode, venueSlug, zoneKeys: SUB_ZONE_KEYS, statusIn: ['paid']
+      });
+
+    for (const [zoneKey, count] of requestedPerZone) {
         const z        = zoneMap.get(zoneKey);
         const used     = usage.get(zoneKey) || 0;
         const quota    = Number(z.quota || 0);
