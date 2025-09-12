@@ -79,6 +79,15 @@ const CTX = {
 // Index rapide: seatId -> status
 let SEAT_STATUS = new Map();
 
+// Normalisation des états venant de l’API
+function mapSeatState(st) {
+  const v = String(st || '').trim().toLowerCase();
+  if (!v) return 'available';                 // ⬅️ défaut à "available"
+  if (v === 'free' || v === 'open') return 'available';
+  if (v === 'sold') return 'booked';
+  if (v === 'blocked' || v === 'provisioned' || v === 'hold' || v === 'held') return 'busy';
+  return v; // 'available' | 'booked' | 'busy' | autres valeurs déjà normalisées
+}
 
 /* ========= Helpers prix/sièges ========= */
 const fmtEuro = cents => (Number(cents||0)/100).toLocaleString('fr-FR', { style:'currency', currency:'EUR' });
@@ -147,58 +156,66 @@ function isOccupied(sid, selectedSet){
 function isAvailableSeat(sid, selectedSet){
   if (!sid) return false;
   if (selectedSet?.has(sid)) return false;                 // déjà pris par la sélection
-  return statusOf(sid) === 'available';
+  const st = statusOf(sid);
+  return st === 'available' || st === '';                  // tolère l'ancien cas vide (ceinture+bretelles)
 }
+
+// Compte le nb de places "libres" contiguës jusqu'à 2 de part et d'autre,
+// en considérant le BORD de tribune comme ">=2 libres" pour ne JAMAIS bloquer.
+function countAvailSide(zone,row,startNum,width,dir,sel){
+  // dir = -1 (gauche) → on part de startNum-1 ; dir = +1 (droite) → startNum+1
+  let count = 0;
+  for (let step = 1; step <= 2; step++) {
+    const n = startNum + dir*step;
+    const sid = makeSeatId(zone,row,n,width);
+    if (!SEAT_STATUS.has(sid)) {
+      // au bord de la tribune : on considère comme ">= 2" pour éviter tout blocage
+      return 2;
+    }
+    if (isAvailableSeat(sid, sel)) {
+      count++;
+    } else {
+      break;
+    }
+  }
+  return count; // 0, 1 ou 2 (2 = "au moins 2")
+}
+
+
 function checkLocalNoSingleGap(items){
   const sel = buildSelectedSet(items);
   if (!sel.size) return null;
-  // Pour chaque siège sélectionné, ne tester que les BORDS du bloc
+
   for (const sid of sel) {
     const p = parseSeatId(sid); if (!p) continue;
+
+    // On ne traite que le siège "bord gauche" d'un bloc sélectionné pour éviter les doublons
     const L1 = makeSeatId(p.zone,p.row,p.num-1,p.width);
-    const L2 = makeSeatId(p.zone,p.row,p.num-2,p.width);
-    const R1 = makeSeatId(p.zone,p.row,p.num+1,p.width);
-    const R2 = makeSeatId(p.zone,p.row,p.num+2,p.width);
+    if (sel.has(L1)) continue; // pas le bord gauche du bloc → on passe
 
-    // est-on à un bord à gauche ? (le siège immédiatement à gauche n'est PAS sélectionné)
-    const isLeftBorder = !sel.has(L1);
-    if (isLeftBorder) {
-      // ✨ LONGUEUR du bloc sélectionné vers la droite (incluant sid)
-      let blockLenRight = 1;
-      while (sel.has(makeSeatId(p.zone,p.row,p.num+blockLenRight,p.width))) blockLenRight++;
-      // ✅ si on prend ≥2 sièges, on AUTORISE de laisser un seul siège libre côté gauche
-      if (blockLenRight >= 2) {
-        // ne rien bloquer sur ce bord
-      } else {
-        // Cas bloquant local (fenêtre 2) : [Occupe] … L2 occupé, L1 libre, [SELECTION]
-        // On ne bloque QUE si L1 existe et est libre ET que L2 existe et est occupé.
-        const L1Exists = SEAT_STATUS.has(L1);
-        const L2Exists = SEAT_STATUS.has(L2);
+    // Trouver l’extrémité droite du bloc (bord droit)
+    let rightNum = p.num;
+    while (sel.has(makeSeatId(p.zone,p.row,rightNum+1,p.width))) rightNum++;
+    const leftNum = p.num; // on est bien le bord gauche du bloc
 
-        if (L1Exists && isAvailableSeat(L1, sel) && L2Exists && isOccupied(L2, sel)) {
-          return { zone:p.zone, row:p.row, side:'left', seat:sid };
-        }
-      }
+    const blockLen = (rightNum - leftNum + 1);
+
+    // Comptes de libres contigus à gauche/droite (bornés à 2 ; bord = 2)
+    const leftAvail  = countAvailSide(p.zone,p.row,leftNum, p.width, -1, sel);
+    const rightAvail = countAvailSide(p.zone,p.row,rightNum,p.width, +1, sel);
+if (DEBUG) dlog('gapCheck', { row:p.row, zone:p.zone, blockLen, leftAvail, rightAvail, leftNum, rightNum });
+    // Règle (STRICT) :
+    //  - bloc = 1  → interdit si left==1 ou right==1
+    //  - bloc ≥ 2  → interdit si left==1 OU right==1  (même un seul côté)
+    if (blockLen <= 1) {
+      if (leftAvail === 1)  return { zone:p.zone, row:p.row, side:'left',  seat:sid };
+      if (rightAvail === 1) return { zone:p.zone, row:p.row, side:'right', seat:sid };
+    } else {
+      if (leftAvail === 1 && rightAvail === 1) return { zone:p.zone, row:p.row, side:'both',  seat:sid };
+      if (leftAvail === 1 && rightAvail > 0)   return { zone:p.zone, row:p.row, side:'left',  seat:sid };
+      if (rightAvail === 1 && leftAvail > 0)    return { zone:p.zone, row:p.row, side:'right', seat:sid };
     }
 
-    // est-on à un bord à droite ?
-    const isRightBorder = !sel.has(R1);
-    if (isRightBorder) {
-      // ✨ LONGUEUR du bloc sélectionné vers la gauche (incluant sid)
-      let blockLenLeft = 1;
-      while (sel.has(makeSeatId(p.zone,p.row,p.num-blockLenLeft,p.width))) blockLenLeft++;
-      // ✅ si on prend ≥2 sièges, on AUTORISE de laisser un seul siège libre côté droit
-      if (blockLenLeft >= 2) {
-        // ne rien bloquer sur ce bord
-      } else {
-        // Cas bloquant local (fenêtre 2) : [SELECTION] R1 libre, R2 occupé … [Occupe]
-        const R1Exists = SEAT_STATUS.has(R1);
-        const R2Exists = SEAT_STATUS.has(R2);
-        if (R1Exists && isAvailableSeat(R1, sel) && R2Exists && isOccupied(R2, sel)) {
-          return { zone:p.zone, row:p.row, side:'right', seat:sid };
-        }
-      }
-    }
   }
   return null;
 }
@@ -770,8 +787,12 @@ dlog('payload sample:', {
   CTX.seatSubscribers = data.seatSubscribers || {};
   CTX.seatSubById = new Map();
   // Index rapide des statuts de siège
-  SEAT_STATUS = new Map((CTX.seats||[]).map(s => [String(s.seatId), String(s.status||'').toLowerCase()]));
 
+  SEAT_STATUS = new Map(
+    (CTX.seats || []).map(s => [ String(s.seatId).trim(), mapSeatState(s.status) ])
+  );
+  dlog('SEAT_STATUS sample:', Array.from(SEAT_STATUS.entries()).slice(0,8));
+  
 
 let mappedCount = 0;
 if (Array.isArray(CTX.seatSubscribers)) {
@@ -892,6 +913,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const h1 = $('#pageTitle'); if (h1) h1.textContent = CONFIG.title || 'Billetterie';
 
+  const pageEl = $('#page') || $('.page');
+  // ——— gestion du layout (auto par défaut, verrou si clic utilisateur)
+  const guessAutoLayout = () => (window.innerWidth > window.innerHeight) ? 'row' : 'col';
+  let layoutLock = null; // null = auto ; 'row' | 'col' = verrou
+
+  // Affiche l’icône de la **cible** (le prochain layout si on clique)
+  function setLayoutIconForTarget(currentMode){
+    const btn = $('#layoutToggle'); if (!btn) return;
+    const target = (currentMode === 'row') ? 'col' : 'row';
+    const showH = (target === 'row'); // prochain état = horizontal → icône horizontale
+    $('.icon-h', btn)?.toggleAttribute('hidden', !showH);
+    $('.icon-v', btn)?.toggleAttribute('hidden',  showH);
+  }
+  function applyLayout(){
+    const mode = layoutLock || guessAutoLayout();
+    if (pageEl) pageEl.setAttribute('data-layout', mode);
+    setLayoutIconForTarget(mode); // affiche l’icône de la **cible** (prochain layout)
+  }
+
+  
+  window.addEventListener('resize', () => { if (!layoutLock) applyLayout(); });
+
   try { await loadData(); }
   catch (e) {
     console.error('load error:', e);
@@ -900,4 +943,61 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   $('#payBtn').addEventListener('click', submitPayment);
   $('#paySchedule').addEventListener('change', updateInstallmentsPreview);
+
+  // ——— actions Plan
+  // 1) Toggle layout (verrouille le mode jusqu’à ce que l’utilisateur re-clique)
+  const layoutBtn = $('#layoutToggle');
+  if (layoutBtn && pageEl) {
+    layoutBtn.addEventListener('click', () => {
+      const current = pageEl.getAttribute('data-layout') || guessAutoLayout();
+      const next = (current === 'row') ? 'col' : 'row';
+      layoutLock = next;               // on verrouille
+      pageEl.setAttribute('data-layout', next);
+      // après bascule, la nouvelle **cible** est l’inverse de `next`
+      setLayoutIconForTarget(next);
+    });
+  }
+  // 2) Plein écran du plan
+  const fsBtn = $('#fsToggle');
+  const planWrap = $('.plan-wrap');
+  if (fsBtn && planWrap) {
+
+    // plein écran sur le panneau plan
+    fsBtn.addEventListener('click', async () => {
+      const host = planWrap || $('#plan'); // cible sûre : le conteneur du plan
+      const entering = !document.fullscreenElement;
+      try {
+        if (entering) {
+          // bascule immédiate côté UI (un seul carré affiché)
+          $('.icon-big',   fsBtn)?.setAttribute('hidden', 'true');
+          $('.icon-small', fsBtn)?.removeAttribute('hidden');
+          if (host.requestFullscreen)        { await host.requestFullscreen(); }
+          else if (host.webkitRequestFullscreen) { await host.webkitRequestFullscreen(); } // Safari
+        } else {
+          $('.icon-big',   fsBtn)?.removeAttribute('hidden');
+          $('.icon-small', fsBtn)?.setAttribute('hidden', 'true');
+          if (document.exitFullscreen)       { await document.exitFullscreen(); }
+          else if (document.webkitExitFullscreen) { await document.webkitExitFullscreen(); } // Safari
+        }
+      } catch {
+        // en cas d’échec, on rétablit l’état cohérent avec le mode réel
+        const isFS = !!document.fullscreenElement;
+        $('.icon-big',   fsBtn)?.toggleAttribute('hidden',  isFS);
+        $('.icon-small', fsBtn)?.toggleAttribute('hidden', !isFS);
+      }
+    });
+
+    // garde-fou : un seul carré à la fois (tous moteurs)
+    const onFsChange = () => {
+      const isFS = !!document.fullscreenElement;
+      $('.icon-big',   fsBtn)?.toggleAttribute('hidden',  isFS);
+      $('.icon-small', fsBtn)?.toggleAttribute('hidden', !isFS);
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
+    
+  }
+
+  // layout initial (icône = cible)
+  applyLayout();
 });
