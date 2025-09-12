@@ -10,6 +10,13 @@ import { exportOrdersCsv, exportSeatsCsv } from '../services/exports.js';
 
 const router = express.Router();
 
+/* ===================== Base path & helpers URLs ===================== */
+const BASE_PATH = process.env.BASE_PATH || '';
+const trimEndSlash = (s='') => s.replace(/\/+$/,'');
+const urlJoin = (base='', p='') => `${trimEndSlash(base)}${p.startsWith('/') ? p : `/${p}`}`;
+const urlFor = (p='') => urlJoin(BASE_PATH, p); // ex: urlFor('/admin/export/orders.csv')
+
+
 /* ===================== Sécurité =====================
 
   Deux modes possibles (cumulables) :
@@ -62,8 +69,14 @@ const csvEscape = (v) => {
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 
 /* ===================== Page HTML ===================== */
-router.get('/', async (_req, res) => {
-  const mongoState = mongoose.connection?.readyState; // 0=disconnected 1=connected 2=connecting 3=disconnecting
+router.get('/', async (req, res) => {
+  // Redirige /admin → /admin/ en conservant la query-string (pour ?token=...)
+  const [pathOnly, qs=''] = (req.originalUrl || '').split('?', 2);
+  if (pathOnly && !pathOnly.endsWith('/')) {
+    return res.redirect(302, `${pathOnly}/${qs ? `?${qs}` : ''}`);
+  }
+
+const mongoState = mongoose.connection?.readyState; // 0=disconnected 1=connected 2=connecting 3=disconnecting
   const mongoStateLabel = ['disconnected','connected','connecting','disconnecting'][mongoState || 0];
 
   // PM2 (best-effort)
@@ -91,7 +104,11 @@ router.get('/', async (_req, res) => {
     { $group: { _id: '$status', c: { $sum: 1 } } }
   ]);
 
-  res.set('Content-Type','text/html; charset=utf-8');
+  // Si la page a été ouverte avec ?token=..., on le propage dans les liens
+  const token = (req.query.token || '').toString();
+  const tokQS = token ? `?token=${encodeURIComponent(token)}` : '';
+
+res.set('Content-Type','text/html; charset=utf-8');
   res.send(`<!doctype html><meta charset="utf-8">
   <title>BTS — Admin</title>
   <style>
@@ -148,11 +165,10 @@ router.get('/', async (_req, res) => {
 
     <div class="card">
       <h2>Exports</h2>
-      <div><a class="btn" href="./export/orders.csv">Exporter les commandes (CSV)</a></div>
-      <div><a class="btn" href="./export/seats.csv">Exporter les sièges (CSV)</a></div>
-      <div><a class="btn" href="./stats/zones">Statistiques zones (HTML)</a></div>
-      <div><a class="btn" href="./stats/zones.json">Statistiques zones (JSON)</a></div>
-    </div>
+      <div><a class="btn" href="${urlFor('/admin/export/orders.csv')}${tokQS}">Exporter les commandes (CSV)</a></div>
+      <div><a class="btn" href="${urlFor('/admin/export/seats.csv')}${tokQS}">Exporter les sièges (CSV)</a></div>
+      <div><a class="btn" href="${urlFor('/admin/stats/zones')}${tokQS}">Statistiques zones (HTML)</a></div>
+      <div><a class="btn" href="${urlFor('/admin/stats/zones.json')}${tokQS}">Statistiques zones (JSON)</a></div>
   </div>`);
 });
 
