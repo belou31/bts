@@ -10,6 +10,7 @@ import { renderOrderEmail, subjectForOrder } from '../services/mailer.js';
 
 const router = express.Router();
 const ORG_SLUG = process.env.HELLOASSO_ORG_SLUG || '';
+const REPOST_URL = process.env.HELLOASSO_REPOST_URL || '';
 
 // helpers
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
@@ -40,6 +41,49 @@ function normalizeHaStatus(input, fallback) {
   return raw;
 }
 
+
+// ----- REPOST helper (non bloquant) -----
+function repostHaReturn(kind, order, ctx = {}) {
+  try {
+    if (!REPOST_URL || typeof fetch !== 'function') return;
+    const payload = {
+      event: 'ha_return',
+      kind,                                        // 'paid' | 'pending' | 'paid_already'
+      env: process.env.APP_ENV || process.env.NODE_ENV || 'unknown',
+      orderId: String(order?._id || ''),
+      status: order?.status || '',
+      paid: order?.status === 'paid',
+      seasonCode: order?.seasonCode || '',
+      venueSlug: order?.venueSlug || '',
+      totalCents: order?.totalCents ?? 0,
+      payer: {
+        firstName: order?.payerFirstName || '',
+        lastName:  order?.payerLastName  || '',
+        email:     order?.payerEmail     || ''
+      },
+      meta: {
+        provider: order?.paymentProvider || '',
+        checkoutIntentId: order?.paymentProviderMeta?.checkoutIntentId || null,
+        haOrderId:        order?.paymentProviderMeta?.haOrderId        || null,
+        code: ctx.code ?? null,
+        statusLabel: ctx.statusLabel ?? null
+      },
+      query: ctx.query || {}
+    };
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 3000);
+    // fire-and-forget
+    fetch(REPOST_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Source': 'bts-ha-return' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    }).catch(err => console.warn('[ha/repost] fetch failed:', err?.message || err))
+      .finally(() => clearTimeout(t));
+  } catch (e) {
+    console.warn('[ha/repost] failed:', e?.message || e);
+  }
+}
 
 
 async function findOrderFromQuery(q) {
@@ -173,7 +217,11 @@ router.get('/return', async (req, res) => {
     });
 
 if (order.status === 'paid') {
-      return res.send(`<!doctype html><meta charset="utf-8">
+
+  // REPOST même si déjà payé (idempotent côté intégration)
+      repostHaReturn('paid_already', order, { query: q, statusLabel: 'already_paid' });
+
+    return res.send(`<!doctype html><meta charset="utf-8">
         <link rel="icon" href="/bts/static/img/favicon.ico">
         <h1>Paiement déjà confirmé ✅</h1><p>Commande ${order._id}</p>`);
     }
@@ -249,6 +297,8 @@ if (order.status === 'paid') {
           await order.save();
         }
       } catch (e) { console.warn('sendMail failed:', e.message); }
+      // REPOST paid (non bloquant)
+      repostHaReturn('paid', order, { query: q, code, statusLabel: status });
       return res.send(renderNeutral(order._id, status));
     } else {
       // garder pending et rendre un message neutre
@@ -256,6 +306,8 @@ if (order.status === 'paid') {
         order.status = 'pending';
         await order.save();
       }
+      // REPOST pending (non bloquant)
+      repostHaReturn('pending', order, { query: q, code, statusLabel: status });
       return res.send(renderNeutral(order._id, status));
     }
     
