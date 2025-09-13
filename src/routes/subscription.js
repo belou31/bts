@@ -24,6 +24,10 @@ const HA_RETURN_URL   = process.env.HELLOASSO_RETURN_URL || (APP_URL ? `${APP_UR
 const HA_BACK_URL     = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/back');
 const HA_ERR_URL      = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/error');
 
+const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 10); // durée du hold en minutes
+const HOLD_MS  = HOLD_MIN * 60 * 1000;
+const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
+
 // zones “grand public” qu’on expose au sélecteur (Fan club + debout)
 const SUB_ZONE_KEYS = ['TBH7', 'TBH7-VIRAGE', 'DEBOUT'];
 
@@ -274,7 +278,7 @@ router.post('/checkout', async (req, res) => {
 
     const totalCents = lines.reduce((acc, l) => acc + Number(l.priceCents || 0), 0);
 
-    // Créer l’order
+    // Créer l’order (pending)
     const order = await Order.create({
       seasonCode, venueSlug,
       phase: 'subscription',
@@ -290,6 +294,37 @@ router.post('/checkout', async (req, res) => {
       mailTemplateKind: 'subscription'
     });
 
+    // HOLD des sièges réels (status available -> busy + meta.hold)
+    const holdUntil = new Date(Date.now() + HOLD_MS);
+    const realSeatIds = lines
+      .map(l => String(l.seatId || '').trim())
+      .filter(sid => sid && !isVirtualZoneSeatId(sid));
+    if (realSeatIds.length) {
+      // on lock uniquement les seats encore disponibles
+      await Seat.updateMany(
+        { seasonCode, venueSlug, seatId: { $in: realSeatIds }, status: 'available' },
+        { $set: { status: 'busy', 'meta.hold': { by: 'checkout', orderId: order._id, until: holdUntil } } },
+        { runValidators: false }
+      );
+      // Vérifier que TOUS sont bien tenus
+      const held = await Seat.find(
+        { seasonCode, venueSlug, seatId: { $in: realSeatIds }, 'meta.hold.orderId': order._id },
+        { seatId: 1 }
+      ).lean();
+      const heldSet = new Set(held.map(s => s.seatId));
+      const missing = realSeatIds.filter(id => !heldSet.has(id));
+      if (missing.length) {
+        // rollback best-effort
+        await Seat.updateMany(
+          { seasonCode, venueSlug, seatId: { $in: Array.from(heldSet) }, 'meta.hold.orderId': order._id },
+          { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
+        );
+        order.status = 'canceled';
+        await order.save();
+        return res.status(409).json({ error: 'seat_unavailable', seats: missing });
+      }
+    }
+    
     // HelloAsso (STUB en DEV)
     if (HELLOASSO_STUB) {
       const intentId  = `stub-${Date.now()}`;

@@ -17,6 +17,7 @@ const ORG_SLUG = process.env.HELLOASSO_ORG_SLUG || '';
 const REPOST_URL = process.env.HELLOASSO_REPOST_URL || '';
 const REPOST_TIMEOUT_MS = Number(process.env.HELLOASSO_REPOST_TIMEOUT_MS || 1000);
 
+
 // helpers
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 const isOkCode = v => new Set(['success','succeeded','paid','ok']).has(String(v||'').toLowerCase());
@@ -178,8 +179,8 @@ async function markSeatsBooked(order) {
     // ⚙️ Mise à jour inconditionnelle par seatId (sans filtre d'état) pour couvrir "Provisioned", "Held", etc.
     const r = await Seat.updateMany(
       { seasonCode: order.seasonCode, venueSlug: order.venueSlug, seatId: { $in: realSeatIds } },
-      { $set: { status: 'booked' } },
-      { runValidators: false }
+      { $set: { status: 'booked' }, $unset: { 'meta.hold': 1 } },
+    { runValidators: false }
     );
     console.log('[ha/return] seats → booked',
       { count: realSeatIds.length, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0, ids: realSeatIds });
@@ -263,8 +264,7 @@ router.get('/error', (_req, res) => {
  * Source of truth. On forwarde le payload BRUT (fire-and-forget), puis on vérifie l'état via getCheckoutStatus.
  * Accepte tout Content-Type ; on conserve req._raw pour le REPOST.
  */
-router.post(
-  '/webhook',
+router.post('/webhook',
   // On essaye d'abord de capter le RAW ; si un json parser amont est passé, req.body sera un objet -> géré plus bas.
   express.raw({ type: '*/*', limit: '1mb' }),
   async (req, res) => {
