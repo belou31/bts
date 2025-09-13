@@ -213,139 +213,20 @@ function renderNeutral(orderId, statusLabel) {
  * STUB:   ?oid=<OrderId>&ci=<intentId>&stub=1&result=success|failure
  * HA:     ?checkoutIntentId=<id>&code=succeeded|canceled&orderId=<haOrderId>
  */
-router.get('/return', async (req, res) => {
-console.log('Start return');    
-  try {
-    const q = req.query || {};
-    // log concis pour diagnostiquer INT
-    console.log('[ha/return] query=', {
-      oid: q.oid || null,
-      ci: q.ci || q.checkoutIntentId || null,
-      code: q.code || q.result || q.status || null,
-      orderId: q.orderId || null
-    });
-
-console.log('Before Raw repost');    
-    // REPOST systématique du "payload" d'origine (ici: query string → POST x-www-form-urlencoded)
-    repostRawFromRequest(req, 'bts-ha-return');
-
-    const { oid, ci, stub, result, checkoutIntentId, code, orderId } = q;
-
-    const inStub = isStub() || String(stub) === '1' || typeof result !== 'undefined';
-
-    // Trouver la commande via tous les indices possibles
-    const order = await findOrderFromQuery(q);
-
-    if (!order) {
-      // Même si aucune Order locale, le repost a déjà été effectué.
-      return res.status(200).send(`<!doctype html><meta charset="utf-8">
-        <link rel="icon" href="/bts/static/img/favicon.ico">
-        <h1>Retour reçu</h1><p>Aucune commande locale correspondante.</p>`);
-    }
-
-    console.log('[ha/return] order found', {
-      orderId: String(order._id),
-      status: order.status,
-      meta: order.paymentProviderMeta
-    });
-
-if (order.status === 'paid') {
-
-    return res.send(`<!doctype html><meta charset="utf-8">
-        <link rel="icon" href="/bts/static/img/favicon.ico">
-        <h1>Paiement déjà confirmé ✅</h1><p>Commande ${order._id}</p>`);
-    }
-
-    let status;
-
-    if (inStub) {
-      const desired = String(result || stubResultEnv());
-      status = (desired === 'success') ? 'success' : 'failure';
-
-      // trace minimale “provider”
-      order.paymentProvider = 'helloasso';
-      order.paymentProviderMeta = {
-        ...(order.paymentProviderMeta || {}),
-        name: 'stub',
-        checkoutIntentId: ci || checkoutIntentId || `stub-${Date.now()}`,
-        stubResult: status
-      };
-    } else {
-      // PROD/SANDBOX: verify via HelloAsso
-      const resolvedIntentId = checkoutIntentId || ci;
-      if (!resolvedIntentId) {
-        return res.status(400).send(`<!doctype html><meta charset="utf-8">
-          <link rel="icon" href="/bts/static/img/favicon.ico">
-          <h1>Bad Request</h1><p>checkoutIntentId manquant</p>`);
-      }
-      console.log('[ha/return] resolvedIntentId=', resolvedIntentId);
-      let statusRaw;
-
-      try {
-        // Peut renvoyer une string OU un objet → on normalise plus bas
-        statusRaw = await getCheckoutStatus(resolvedIntentId);
-        console.log('[ha/return] getCheckoutStatus raw type=', typeof statusRaw, 'value=', inspect(statusRaw));
-      } catch (e) {
-        console.error('[ha/return] getCheckoutIntent failed:', e.message || e);
-        return res.status(500).send(`<!doctype html><meta charset="utf-8">
-          <link rel="icon" href="/bts/static/img/favicon.ico">
-          <h1>Erreur interne</h1>`);
-      }
-      // 🔽 normalise en toute circonstance (y compris si string vide)
-      status = normalizeHaStatus(statusRaw, code);
-
-      order.paymentProvider = 'helloasso';
-      order.paymentProviderMeta = {
-        ...(order.paymentProviderMeta || {}),
-        name: 'helloasso',
-        haOrderId: orderId || order.paymentProviderMeta?.haOrderId || null,
-        checkoutIntentId: resolvedIntentId,
-        code: code || null,
-        lastReturnAt: new Date(),
-        lastReturnCode: code || (typeof statusRaw === 'string' ? statusRaw : (statusRaw?.status || statusRaw?.state || '')),
-        lastStatusRawType: typeof statusRaw,
-        lastStatusRaw: (() => { try { return JSON.stringify(statusRaw); } catch { return String(statusRaw); } })()
-      };
-    }
-
-    if (isPaidLike(status)) {
-      // passe paid, mais on affiche un message neutre
-      order.status = 'paid';
-      try { await order.save(); }
-      catch (e) {
-        if (e?.code === 11000) console.warn('[ha/return] duplicate paid (ignored):', e?.keyValue || e?.message);
-        else throw e;
-      }
-      await markSeatsBooked(order);
-      // email idempotent
-      try {
-        if (!order.paymentProviderMeta?.attestationSentAt) {
-          const html    = await renderOrderEmail(order);
-          const subject = subjectForOrder(order);
-          await sendMail({ to: order.payerEmail, subject, html });
-          order.paymentProviderMeta = { ...(order.paymentProviderMeta||{}), attestationSentAt: new Date() };
-          await order.save();
-        }
-      } catch (e) { console.warn('sendMail failed:', e.message); }
-
-      return res.send(renderNeutral(order._id, status));
-    } else {
-      // garder pending et rendre un message neutre
-      if (order.status !== 'paid') {
-        order.status = 'pending';
-        await order.save();
-      }
-
-      return res.send(renderNeutral(order._id, status));
-    }
-    
-      } catch (e) {
-    console.error('[GET /ha/return] error:', e);
-    res.status(500).send(`<!doctype html><meta charset="utf-8">
-      <link rel="icon" href="/bts/static/img/favicon.ico">
-      <h1>Erreur interne</h1>`);
-  }
+router.get('/return', (req, res) => {
+  const q = req.query || {};
+  console.log('[ha/return] query=', {
+    oid: q.oid || null,
+    ci: q.ci || q.checkoutIntentId || null,
+    code: q.code || q.result || q.status || null,
+    orderId: q.orderId || null
+  });
+  // ⚠️ Aucun effet de bord ici : la confirmation est gérée par /ha/webhook
+  const status = normalizeHaStatus(q.status || q.code || q.result || '');
+  const orderId = String(q.oid || q._id || q.orderId || q.checkoutIntentId || '—');
+  return res.send(renderNeutral(orderId, status || ''));
 });
+
 
 router.get('/back', (_req, res) => {
   res.send(`<!doctype html><meta charset="utf-8">
