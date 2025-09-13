@@ -3,6 +3,10 @@ import express from 'express';
 import crypto from 'crypto';
 import util from 'util';
 
+import http from 'node:http';
+import https from 'node:https';
+import { URL as NodeURL } from 'node:url';
+
 import { Order, Seat } from '../models/index.js';
 import { getCheckoutStatus } from '../services/helloasso.js';
 import { sendMail } from '../loaders/mailer.js';
@@ -42,24 +46,20 @@ function normalizeHaStatus(input, fallback) {
   return raw;
 }
 
-
-// ----- REPOST RAW (forward tel quel) -----
+// ----- REPOST RAW (forward tel quel, avec fallback http/https) -----
 function repostRawFromRequest(req, sourceTag) {
   try {
-console.log('Entering Raw repost');    
-    if (!REPOST_URL || typeof fetch !== 'function') return;
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), REPOST_TIMEOUT_MS);
-
+    if (!REPOST_URL) {
+      console.warn('[ha/repost-raw] skipped: HELLOASSO_REPOST_URL is empty');
+      return;
+    }
+    // Prépare le body & headers
     let body = '';
-    let headers = { 'X-Source': sourceTag };
-
+    const headers = { 'X-Source': sourceTag };
     if (req.method === 'POST') {
-      // Repost JSON tel quel (tel qu'on l'a parsé)
       body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
       headers['Content-Type'] = 'application/json';
     } else {
-      // Repost des query params sous forme x-www-form-urlencoded
       const params = new URLSearchParams();
       for (const [k, v] of Object.entries(req.query || {})) {
         if (Array.isArray(v)) v.forEach(val => params.append(k, String(val)));
@@ -68,11 +68,44 @@ console.log('Entering Raw repost');
       body = params.toString();
       headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }
+    console.log('[ha/repost-raw] →', { url: REPOST_URL, via: (typeof fetch === 'function' ? 'fetch' : 'http/https'), ct: headers['Content-Type'], len: body.length });
 
-    // fire-and-forget (on ne bloque pas le flux HA)
-    fetch(REPOST_URL, { method: 'POST', headers, body, signal: controller.signal })
-      .catch(err => console.warn('[ha/repost-raw] fetch failed:', err?.message || err))
-      .finally(() => clearTimeout(t));
+    // 1) fetch si dispo (Node >=18)
+    if (typeof fetch === 'function') {
+      // fire-and-forget, on n'attend pas la réponse
+      fetch(REPOST_URL, { method: 'POST', headers, body })
+        .catch(err => console.warn('[ha/repost-raw:fetch] failed:', err?.message || err));
+      return;
+    }
+
+    // 2) Fallback http/https natif
+    const u = new NodeURL(REPOST_URL);
+    const isHttps = u.protocol === 'https:';
+    const opts = {
+      method: 'POST',
+      hostname: u.hostname,
+      port: u.port || (isHttps ? 443 : 80),
+      path: u.pathname + (u.search || ''),
+      headers: {
+        ...headers,
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
+    const client = isHttps ? https : http;
+    const req2 = client.request(opts, (res2) => {
+      // on consomme la réponse pour éviter les warnings, mais sans rien en faire
+      res2.on('data', () => {});
+      res2.on('end', () => {});
+    });
+    req2.on('error', (err) => console.warn('[ha/repost-raw:http] failed:', err?.message || err));
+    if (REPOST_TIMEOUT_MS > 0) {
+      req2.setTimeout(REPOST_TIMEOUT_MS, () => {
+        console.warn('[ha/repost-raw:http] timeout');
+        try { req2.destroy(new Error('timeout')); } catch {}
+      });
+    }
+    req2.write(body);
+    req2.end();
   } catch (e) {
     console.warn('[ha/repost-raw] failed:', e?.message || e);
   }
@@ -381,8 +414,10 @@ router.post('/webhook', express.json({ type: '*/*' }), async (req, res) => {
       }
     }
     if (!order) {
-      console.warn('[ha/webhook] order not matched', { haOrderId, eventType });
-      return res.status(202).send('no order matched');
+      // Même si aucune Order locale, le repost a déjà été effectué.
+      return res.status(200).send(`<!doctype html><meta charset="utf-8">
+        <link rel="icon" href="/bts/static/img/favicon.ico">
+        <h1>Retour reçu</h1><p>Aucune commande locale correspondante.</p>`);
     }
 
     // Màj méta + statut
