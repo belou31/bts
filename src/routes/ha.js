@@ -214,6 +214,7 @@ function renderNeutral(orderId, statusLabel) {
  * HA:     ?checkoutIntentId=<id>&code=succeeded|canceled&orderId=<haOrderId>
  */
 router.get('/return', async (req, res) => {
+console.log('Start return');    
   try {
     const q = req.query || {};
     // log concis pour diagnostiquer INT
@@ -236,9 +237,10 @@ console.log('Before Raw repost');
     const order = await findOrderFromQuery(q);
 
     if (!order) {
-      return res.status(404).send(`<!doctype html><meta charset="utf-8">
+      // Même si aucune Order locale, le repost a déjà été effectué.
+      return res.status(200).send(`<!doctype html><meta charset="utf-8">
         <link rel="icon" href="/bts/static/img/favicon.ico">
-        <h1>Order not found</h1>`);
+        <h1>Retour reçu</h1><p>Aucune commande locale correspondante.</p>`);
     }
 
     console.log('[ha/return] order found', {
