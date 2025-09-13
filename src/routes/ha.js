@@ -47,30 +47,44 @@ function normalizeHaStatus(input, fallback) {
 }
 
 // ----- REPOST RAW (forward tel quel, avec fallback http/https) -----
-function repostRawFromRequest(req, sourceTag) {
-  try {
-    if (!REPOST_URL) {
-      console.warn('[ha/repost-raw] skipped: HELLOASSO_REPOST_URL is empty');
-      return;
-    }
-    // Prépare le body & headers
+function repostRawFromRequest(reqLike, sourceTag) {
+try {
+    if (!REPOST_URL || typeof fetch !== 'function') return;
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), REPOST_TIMEOUT_MS);
+
+    const method = (reqLike.method || 'POST').toUpperCase();
+    const origCT = reqLike.headers?.['content-type'] || reqLike.headers?.['Content-Type'] || '';
     let body = '';
-    const headers = { 'X-Source': sourceTag };
-    if (req.method === 'POST') {
-      body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
-      headers['Content-Type'] = 'application/json';
+    let headers = { 'X-Source': sourceTag };
+
+    if (method === 'POST') {
+      // Si on nous donne déjà une string brute -> on la renvoie telle quelle
+      if (typeof reqLike.body === 'string') {
+        body = reqLike.body;
+        if (origCT) headers['Content-Type'] = origCT;
+        else headers['Content-Type'] = 'application/octet-stream';
+      } else if (Buffer.isBuffer(reqLike.body)) {
+        body = reqLike.body; // Buffer OK
+        if (origCT) headers['Content-Type'] = origCT;
+        else headers['Content-Type'] = 'application/octet-stream';
+      } else {
+        // Objet déjà parsé -> on reconstruit en JSON
+        body = JSON.stringify(reqLike.body ?? {});
+        headers['Content-Type'] = 'application/json';
+      }
     } else {
+      // GET -> on reconstruit le form-urlencoded depuis query
       const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(req.query || {})) {
+      for (const [k, v] of Object.entries(reqLike.query || {})) {
         if (Array.isArray(v)) v.forEach(val => params.append(k, String(val)));
         else params.append(k, String(v));
       }
       body = params.toString();
       headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }
-    console.log('[ha/repost-raw] →', { url: REPOST_URL, via: (typeof fetch === 'function' ? 'fetch' : 'http/https'), ct: headers['Content-Type'], len: body.length });
 
-    // 1) fetch si dispo (Node >=18)
+     // fire-and-forget (on ne bloque pas le flux HA)
     if (typeof fetch === 'function') {
       // fire-and-forget, on n'attend pas la réponse
       fetch(REPOST_URL, { method: 'POST', headers, body })
@@ -222,9 +236,12 @@ router.get('/return', (req, res) => {
     orderId: q.orderId || null
   });
   // ⚠️ Aucun effet de bord ici : la confirmation est gérée par /ha/webhook
-  const status = normalizeHaStatus(q.status || q.code || q.result || '');
+  const raw = q.status || q.code || q.result || '';
+  const norm = normalizeHaStatus(raw);
+  // Ambigu -> ne pas afficher. On n'affiche que les statuts "négatifs".
+  const label = (norm === 'failure' || norm === 'canceled') ? norm : '';
   const orderId = String(q.oid || q._id || q.orderId || q.checkoutIntentId || '—');
-  return res.send(renderNeutral(orderId, status || ''));
+  return res.send(renderNeutral(orderId, label));
 });
 
 
@@ -246,14 +263,29 @@ router.get('/error', (_req, res) => {
  * Source of truth. On forwarde le payload BRUT (fire-and-forget), puis on vérifie l'état via getCheckoutStatus.
  * Accepte tout Content-Type ; on conserve req._raw pour le REPOST.
  */
-router.post('/webhook',
+router.post(
+  '/webhook',
+  // On essaye d'abord de capter le RAW ; si un json parser amont est passé, req.body sera un objet -> géré plus bas.
   express.raw({ type: '*/*', limit: '1mb' }),
   async (req, res) => {
-  try {
-    const rawBuf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
-    const rawTxt = rawBuf.toString('utf8');
-    // 🔁 REPOST BRUT en non-bloquant (tel quel)
-    repostRawFromRequest({ method:'POST', body: rawTxt, headers: req.headers }, 'bts-ha-webhook');
+try {
+    // 1) Capture RAW tolérante
+    let rawTxt = '';
+    if (Buffer.isBuffer(req.body)) {
+      rawTxt = req.body.toString('utf8');
+    } else if (typeof req.body === 'string') {
+      rawTxt = req.body;
+    } else if (req.body && typeof req.body === 'object') {
+      // déjà parsé par un middleware amont
+      rawTxt = JSON.stringify(req.body);
+    } else {
+      rawTxt = '';
+    }
+    // 🔁 REPOST BRUT en non-bloquant (tel quel) en conservant le Content-Type si possible
+    repostRawFromRequest(
+      { method:'POST', body: rawTxt, headers: req.headers },
+      'bts-ha-webhook'
+    );
 
     // On tente de parser JSON (si applicable) pour piloter la logique locale
     let payload = null;
