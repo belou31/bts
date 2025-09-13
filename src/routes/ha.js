@@ -243,18 +243,23 @@ router.get('/error', (_req, res) => {
 
 /**
  * POST /ha/webhook
- * Webhook HelloAsso (non signé côté club). On filtre par organizationSlug.
- * Payloads possibles (exemples fournis) :
- *  - eventType: "Payment" → data.order.id = <haOrderId>
- *  - eventType: "Order"   → data.id       = <haOrderId>
+ * Source of truth. On forwarde le payload BRUT (fire-and-forget), puis on vérifie l'état via getCheckoutStatus.
+ * Accepte tout Content-Type ; on conserve req._raw pour le REPOST.
  */
-router.post('/webhook', express.json({ type: '*/*' }), async (req, res) => {
+router.post('/webhook',
+  express.raw({ type: '*/*', limit: '1mb' }),
+  async (req, res) => {
   try {
-    // Certains reverse/proxys peuvent encapsuler dans { postData: { contents: "<json>" } }
-    let payload = req.body;
-    if (payload?.postData?.contents) {
-      try { payload = JSON.parse(payload.postData.contents); } catch { /* ignore */ }
-    }
+    const rawBuf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
+    const rawTxt = rawBuf.toString('utf8');
+    // 🔁 REPOST BRUT en non-bloquant (tel quel)
+    repostRawFromRequest({ method:'POST', body: rawTxt, headers: req.headers }, 'bts-ha-webhook');
+
+    // On tente de parser JSON (si applicable) pour piloter la logique locale
+    let payload = null;
+    try { if ((req.headers['content-type']||'').includes('json')) payload = JSON.parse(rawTxt); } catch {}
+    if (payload?.postData?.contents) { try { payload = JSON.parse(payload.postData.contents); } catch {} }
+
     const data = payload?.data || {};
     const eventType = String(payload?.eventType || data?.eventType || '').toLowerCase();
     const orgSlug   = String(data?.organizationSlug || '').toLowerCase();
@@ -278,7 +283,7 @@ router.post('/webhook', express.json({ type: '*/*' }), async (req, res) => {
     }
     haOrderId = String(haOrderId);
 
-    // Réconciliation : priorité au mapping déjà établi via /ha/return ; sinon fallback email+montant
+    // Réconciliation locale : d’abord par haOrderId (si déjà connu), sinon heuristique email+montant
     let order = await Order.findOne({ 'paymentProviderMeta.haOrderId': haOrderId });
     if (!order) {
       const payerEmail = String(data?.payer?.email || '').trim();
@@ -303,9 +308,23 @@ router.post('/webhook', express.json({ type: '*/*' }), async (req, res) => {
         <h1>Retour reçu</h1><p>Aucune commande locale correspondante.</p>`);
     }
 
-    // Màj méta + statut
+    // Vérification côté HA (non partenaire : pas de signature → on double-vérifie l'intent)
+    // On tente d'abord data.checkoutIntentId, sinon l'intent local connu :
+    const intentId =
+      String(data?.checkoutIntentId || '') ||
+      String(order?.paymentProviderMeta?.checkoutIntentId || '');
+    let statusFromApi = '';
+    if (intentId) {
+      try {
+        const st = await getCheckoutStatus(intentId);
+        statusFromApi = normalizeHaStatus(st);
+      } catch (e) {
+        console.warn('[ha/webhook] getCheckoutStatus failed:', e?.message || e);
+      }
+    }
+    // Fallback : état porté par le webhook
     const rawState = String(data?.state || data?.status || '').toLowerCase();
-    const status   = normalizeHaStatus(rawState);
+    const status   = statusFromApi || normalizeHaStatus(rawState);
 
     order.paymentProvider = 'helloasso';
     order.paymentProviderMeta = {
