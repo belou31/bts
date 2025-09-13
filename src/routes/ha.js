@@ -46,6 +46,7 @@ function normalizeHaStatus(input, fallback) {
 // ----- REPOST RAW (forward tel quel) -----
 function repostRawFromRequest(req, sourceTag) {
   try {
+console.log('Entering Raw repost');    
     if (!REPOST_URL || typeof fetch !== 'function') return;
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), REPOST_TIMEOUT_MS);
@@ -190,6 +191,7 @@ router.get('/return', async (req, res) => {
       orderId: q.orderId || null
     });
 
+console.log('Before Raw repost');    
     // REPOST systématique du "payload" d'origine (ici: query string → POST x-www-form-urlencoded)
     repostRawFromRequest(req, 'bts-ha-return');
 
