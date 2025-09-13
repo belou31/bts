@@ -94,3 +94,39 @@ async function markSeatsBooked(order) {
   await mongoose.disconnect();
   process.exit(0);
 })();
+
+
+
+const HOLD_EXPIRE_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 10);
+const PENDING_MAX_MIN = Number(process.env.PENDING_MAX_MIN || 120);
+
+async function releaseExpiredHolds({ seasonCode, venueSlug }) {
+  const now = new Date();
+  const r = await Seat.updateMany(
+    { seasonCode, venueSlug, status: 'busy', 'meta.hold.until': { $lte: now } },
+    { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
+  );
+  console.log('[sentinel] releaseExpiredHolds:', { matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
+}
+
+async function cancelStalePendingAndRelease({ seasonCode, venueSlug }) {
+  const cutoff = new Date(Date.now() - PENDING_MAX_MIN * 60 * 1000);
+  const stale = await Order.find({
+    seasonCode, venueSlug,
+    status: 'pending',
+    createdAt: { $lte: cutoff }
+  }).lean();
+  for (const o of stale) {
+    await Order.updateOne({ _id: o._id, status: 'pending' }, { $set: { status: 'canceled' } });
+    await Seat.updateMany(
+      { seasonCode, venueSlug, status: 'busy', 'meta.hold.orderId': o._id },
+      { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
+    );
+    console.log('[sentinel] canceled pending & released holds:', o._id.toString());
+  }
+}
+
+// call both in your existing runner/loop
+await releaseExpiredHolds(ctx);
+await cancelStalePendingAndRelease(ctx);
+

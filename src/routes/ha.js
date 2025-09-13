@@ -302,49 +302,33 @@ try {
       return res.status(202).send('ignored');
     }
 
-    // Récup haOrderId selon le type d’event
-    let haOrderId = null;
-    if (eventType === 'payment') {
-      haOrderId = data?.order?.id ?? null;
-    } else if (eventType === 'order') {
-      haOrderId = data?.id ?? null;
-    }
-    if (!haOrderId) {
-      console.warn('[ha/webhook] no haOrderId in payload', { eventType });
-      return res.status(202).send('ignored');
-    }
-    haOrderId = String(haOrderId);
-
-    // Réconciliation locale : d’abord par haOrderId (si déjà connu), sinon heuristique email+montant
-    let order = await Order.findOne({ 'paymentProviderMeta.haOrderId': haOrderId });
-    if (!order) {
-      const payerEmail = String(data?.payer?.email || '').trim();
-      const total = Number(
-        (data?.amount && typeof data.amount === 'object' ? data.amount.total : data?.amount) || 0
-      );
-      if (payerEmail && total > 0) {
-        const candidates = await Order.find({
-          status: { $in: ['pending', 'paid'] },
-          payerEmail: new RegExp(`^${payerEmail}$`, 'i'),
-          totalCents: total
-        }).sort({ createdAt: -1 }).limit(2).lean();
-        if (candidates.length === 1) {
-          order = await Order.findById(candidates[0]._id);
-        }
-      }
-    }
-    if (!order) {
-      // Même si aucune Order locale, le repost a déjà été effectué.
-      return res.status(200).send(`<!doctype html><meta charset="utf-8">
-        <link rel="icon" href="/bts/static/img/favicon.ico">
-        <h1>Retour reçu</h1><p>Aucune commande locale correspondante.</p>`);
+    // On ne TRAITE que Payment. Les autres events (Order, ...) sont ignorés (mais repostés).
+    if (eventType !== 'payment') {
+      return res.status(202).send('ignored-non-payment');
     }
 
-    // Vérification côté HA (non partenaire : pas de signature → on double-vérifie l'intent)
-    // On tente d'abord data.checkoutIntentId, sinon l'intent local connu :
+    // Corrélation PRIORITAIRE par metadata.orderId (l’_id BTS passé à HelloAsso)
+    const btsOrderId = String(payload?.metadata?.orderId || payload?.metadata?.orderNo || '').trim();
+    if (!btsOrderId) {
+      console.warn('[ha/webhook] missing metadata.orderId on Payment event');
+      return res.status(202).send('ignored-no-bts-orderid');
+    }
+    let order = null;
+    try { order = await Order.findById(btsOrderId); } catch { /* cast error */ }
+    if (!order) {
+      console.warn('[ha/webhook] order not found from metadata.orderId', { btsOrderId });
+      return res.status(202).send('ignored-order-not-found');
+    }
+
+    // HelloAsso order id (utile pour rapprochements futurs)
+    const haOrderId = String(data?.order?.id || '').trim() || null;
+
+    // Vérification côté HA via l’intent : on utilise celui stocké en base ;
+    // fallback sur data.checkoutIntentId si présent (peu probable sur Payment).
     const intentId =
-      String(data?.checkoutIntentId || '') ||
-      String(order?.paymentProviderMeta?.checkoutIntentId || '');
+      String(order?.paymentProviderMeta?.checkoutIntentId || '') ||
+      String(data?.checkoutIntentId || '');    
+
     let statusFromApi = '';
     if (intentId) {
       try {
@@ -354,19 +338,23 @@ try {
         console.warn('[ha/webhook] getCheckoutStatus failed:', e?.message || e);
       }
     }
-    // Fallback : état porté par le webhook
+
+    // Fallback très limité : on lit l’état brut du Payment (utile pour traces)
     const rawState = String(data?.state || data?.status || '').toLowerCase();
     const status   = statusFromApi || normalizeHaStatus(rawState);
 
+    // Journalise + persiste les métadonnées HA (haOrderId, lastWebhook*)
     order.paymentProvider = 'helloasso';
     order.paymentProviderMeta = {
       ...(order.paymentProviderMeta || {}),
       name: 'helloasso',
-      haOrderId,
+      haOrderId: haOrderId || order?.paymentProviderMeta?.haOrderId || null,
       lastWebhookAt: new Date(),
       lastWebhookEvent: eventType,
       lastWebhookRawState: rawState
     };
+    await order.save();
+    
 
     if (isPaidLike(status)) {
       order.status = 'paid';
