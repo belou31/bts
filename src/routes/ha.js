@@ -11,41 +11,24 @@ import { Order, Seat } from '../models/index.js';
 import { getCheckoutStatus } from '../services/helloasso.js';
 import { sendMail } from '../loaders/mailer.js';
 import { renderOrderEmail, subjectForOrder } from '../services/mailer.js';
+import { normalizeHaStatus, isPaidLike,
+         finalizePaidIfNoConflict,
+         sendOrderAttestationIfNeeded,
+         sendConflictEmail } from '../services/order-finalization.js';
 
 const router = express.Router();
 const ORG_SLUG = process.env.HELLOASSO_ORG_SLUG || '';
 const REPOST_URL = process.env.HELLOASSO_REPOST_URL || '';
 const REPOST_TIMEOUT_MS = Number(process.env.HELLOASSO_REPOST_TIMEOUT_MS || 1000);
 
-
 // helpers
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
-const isOkCode = v => new Set(['success','succeeded','paid','ok']).has(String(v||'').toLowerCase());
 
 // helper log sûr (objets profonds / non sérialisables)
 const inspect = (v) => {
   try { return util.inspect(v, { depth: 6, maxArrayLength: 100, colors: false }); }
   catch { try { return JSON.stringify(v); } catch { return String(v); } }
 };
-
-
-// Normalise les statuts HA potentiels (string ou objet) et accepte un fallback depuis la query (?code=...)
-function normalizeHaStatus(input, fallback) {
-  // déballage d'objets potentiels
-  let raw = input;
-  if (raw && typeof raw === 'object') {
-    raw =
-      raw.status || raw.state || raw.code || raw.result || raw.paymentStatus ||
-      (raw.data && (raw.data.status || raw.data.state || raw.data.code)) || '';
-  }
-  raw = String(raw || fallback || '').trim().toLowerCase();
-  if (!raw) return '';
-  // mapping simple vers une poignée de valeurs canoniques
-  if (raw === 'payment_succeeded' || raw === 'success' || raw === 'succeeded' || raw === 'ok') return 'succeeded';
-  if (raw === 'paid' || raw === 'payment_accepted' || raw === 'processed') return 'paid';
-  if (raw.startsWith('authoriz')) return 'authorized';
-  return raw;
-}
 
 // ----- REPOST RAW (forward tel quel, avec fallback http/https) -----
 function repostRawFromRequest(reqLike, sourceTag) {
@@ -163,33 +146,6 @@ async function findOrderFromQuery(q) {
 const isStub = () => String(process.env.HELLOASSO_STUB || '').toLowerCase() === 'true';
 const stubResultEnv = () => String(process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
 
-// Marque en "booked" tous les SIÈGES réels de la commande (renew/subscription).
-// - Ignore les lignes "zone" (ex: TBH7-Z001)
-// - Idempotent: on remet "booked" même si l'état précédent n'était pas "available"
-async function markSeatsBooked(order) {
-  try {
-    const lines = Array.isArray(order?.lines) ? order.lines : [];
-    const realSeatIds = Array.from(new Set(
-      lines.map(l => String(l.seatId || '').trim())
-           // Ignore les pseudo-IDs de zone (ex: TBH7-Z001)
-           .filter(s => s && !/-Z\d{3,}$/i.test(s))
-    ));
-
-    if (!realSeatIds.length) return;
-    // ⚙️ Mise à jour inconditionnelle par seatId (sans filtre d'état) pour couvrir "Provisioned", "Held", etc.
-    const r = await Seat.updateMany(
-      { seasonCode: order.seasonCode, venueSlug: order.venueSlug, seatId: { $in: realSeatIds } },
-      { $set: { status: 'booked' }, $unset: { 'meta.hold': 1 } },
-    { runValidators: false }
-    );
-    console.log('[ha/return] seats → booked',
-      { count: realSeatIds.length, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0, ids: realSeatIds });
-    
-  } catch (e) {
-    console.warn('[ha/return] seat update failed:', e.message);
-  }
-}
-
 // ---- Helpers seats (conflit-safe) ----
 function realSeatIdsFromOrder(order) {
   const lines = Array.isArray(order?.lines) ? order.lines : [];
@@ -280,10 +236,6 @@ async function finalizePaidIfNoConflict(order) {
   order.status = 'paid';
   await order.save();
   return { ok: true, booked: modified, conflicts: [] };
-}
-
-function isPaidLike(status) {
-  return /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(status || '').trim());
 }
 
 function renderNeutral(orderId, statusLabel) {
@@ -448,24 +400,13 @@ try {
     await order.save();
     
     if (isPaidLike(status)) {
-      // ✅ Finalisation sûre (anti-doublon) : ne “booke” et ne “paid” que si aucun conflit
       const fin = await finalizePaidIfNoConflict(order);
       if (fin.ok) {
-        try {
-          if (!order.paymentProviderMeta?.attestationSentAt) {
-            const html = await renderOrderEmail(order);
-            const subject = subjectForOrder(order);
-            await sendMail({ to: order.payerEmail, subject, html });
-            order.paymentProviderMeta = { ...(order.paymentProviderMeta||{}), attestationSentAt: new Date() };
-            await order.save();
-          }
-        } catch (e) { console.warn('sendMail failed:', e.message); }
+        await sendOrderAttestationIfNeeded(order);
         return res.status(200).send('ok');
       } else {
-        // On ne renvoie pas d’erreur à HelloAsso (nous avons bien reçu), mais on n’atteste pas.
-        console.warn('[ha/webhook] seat conflict — order marked failed', {
-          orderId: String(order._id), conflicts: fin.conflicts
-        });
+        await sendConflictEmail(order);
+        // on renvoie 200: le webhook a été traité (même s’il mène à failed)
         return res.status(200).send('conflict');
       }
     } else {
