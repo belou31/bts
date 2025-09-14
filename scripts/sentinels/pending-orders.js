@@ -13,8 +13,6 @@ import { normalizeHaStatus, isPaidLike,
          finalizePaidIfNoConflict,
          sendOrderAttestationIfNeeded,
          sendConflictEmail } from '../../src/services/order-finalization.js';
-import { renderOrderEmail, subjectForOrder } from '../../src/services/mailer.js';
-import { sendMail } from '../../src/loaders/mailer.js';
 
 const uri = process.env.MONGO_URI;
 if (!uri) { console.error('[sentinel] MONGO_URI manquant'); process.exit(1); }
