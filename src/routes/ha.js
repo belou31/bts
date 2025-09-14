@@ -99,6 +99,36 @@ try {
   }
 }
 
+// ---- HTML neutre pour /ha/return
+function renderNeutral(orderId, statusLabel) {
+  const extra = statusLabel ? ` — statut: ${statusLabel}` : '';
+  return `<!doctype html><meta charset="utf-8">
+    <link rel="icon" href="/bts/static/img/favicon.ico">
+    <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,'Noto Sans',sans-serif;
+           margin:2rem;line-height:1.5}
+      .card{max-width:720px;border:1px solid #eee;border-radius:12px;padding:24px}
+      h1{font-size:1.25rem;margin:0 0 .5rem}
+      .muted{color:#666}
+      .warn{background:#FFF6E5;border:1px solid #F6C15C;padding:12px;border-radius:8px;margin-top:12px}
+    </style>
+    <div class="card">
+      <h1>Traitement en cours…</h1>
+      <p class="muted">Commande <strong>${orderId}</strong>${extra}</p>
+      <p>Votre paiement a été pris en charge. Deux emails distincts vont vous parvenir&nbsp;:</p>
+      <ul>
+        <li><strong>Le reçu HelloAsso</strong> pour la transaction bancaire,</li>
+        <li><strong>L’attestation d’abonnement</strong> envoyée par <em>billetterie@tbhc.fr</em>.</li>
+      </ul>
+      <div class="warn">
+        <strong>Important&nbsp;:</strong>
+        si vous recevez le reçu HelloAsso mais <em>pas</em> l’attestation d’abonnement,
+        vos places ne sont <strong>pas</strong> bloquées et nous procéderons au remboursement.
+      </div>
+    </div>`;
+}
+
+
 
 async function findOrderFromQuery(q) {
   const oid = q.oid || q._id; // flux STUB (DEV)
