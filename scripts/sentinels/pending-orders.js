@@ -2,20 +2,20 @@
 // Parcourt les orders HelloAsso en pending récents, vérifie le statut et finalise si paid.
 // Usage (cron/PM2): node scripts/sentinels/pending-orders.js [--sinceMinutes=180]
 
-import dotenv from 'dotenv';
-dotenv.config();
+ // Charge .env avant d'importer des modules susceptibles de lire process.env
+ import 'dotenv/config';
 
 import mongoose from 'mongoose';
 import { Order } from '../../src/models/Order.js';
 import { Seat }  from '../../src/models/Seat.js';
-import { getCheckoutStatus } from '../../src/services/helloasso.js';
 import { renderOrderEmail, subjectForOrder } from '../../src/services/mailer.js';
 import { sendMail } from '../../src/loaders/mailer.js';
+import { getCheckoutStatus } from '../../src/services/helloasso.js';
 
 const uri = process.env.MONGO_URI;
 if (!uri) { console.error('[sentinel] MONGO_URI manquant'); process.exit(1); }
 
-const sinceMin = Number(1440); // Number((process.argv.find(a=>a.startsWith('--sinceMinutes='))||'').split('=')[1] || 180);
+const sinceMin = Number((process.argv.find(a=>a.startsWith('--sinceMinutes='))||'').split('=')[1] || 180);
 const isPaidLike = s => /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(s||''));
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 
