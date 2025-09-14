@@ -32,17 +32,20 @@ async function markSeatsBooked(order) {
   return r.modifiedCount ?? r.nModified ?? 0;
 }
 
-const HOLD_EXPIRE_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 10);
-const PENDING_MAX_MIN = Number(process.env.PENDING_MAX_MIN || 120);
+const HOLD_EXPIRE_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 5);
+const PENDING_MAX_MIN = Number(process.env.PENDING_MAX_MIN || 10);
+
 
 async function releaseExpiredHolds({ seasonCode, venueSlug }) {
   const now = new Date();
   const r = await Seat.updateMany(
     { seasonCode, venueSlug, status: 'busy', 'meta.hold.until': { $lte: now } },
     { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
- );
-  console.log('[sentinel] releaseExpiredHolds:', { seasonCode, venueSlug, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
+  );
+  console.log('[sentinel] releaseExpiredHolds',
+    { seasonCode, venueSlug, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
 }
+
 
 async function cancelStalePendingAndRelease({ seasonCode, venueSlug }) {
   const cutoff = new Date(Date.now() - PENDING_MAX_MIN * 60 * 1000);
