@@ -35,9 +35,20 @@ async function markSeatsBooked(order) {
 
 // ====== Housekeeping (holds & pending expirés) ======
 const HOLD_EXPIRE_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 5);
-const PENDING_MAX_MIN = Number(process.env.PENDING_MAX_MIN || 10);
+const PENDING_MAX_MIN = Number(process.env.PENDING_MAX_MIN || 5);
 
- async function releaseExpiredHolds({ seasonCode, venueSlug }) {
+// Libère les sièges d'une commande annulée (holds posés avec meta.hold.orderId = order._id)
+async function releaseSeatsForOrder(order) {
+  const r = await Seat.updateMany(
+    { seasonCode: order.seasonCode, venueSlug: order.venueSlug, status: 'busy', 'meta.hold.orderId': order._id },
+    { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
+  );
+  const released = r.modifiedCount ?? r.nModified ?? 0;
+  console.log('[sentinel] releaseSeatsForOrder:', { orderId: order._id.toString(), released });
+  return released;
+}
+
+async function releaseExpiredHolds({ seasonCode, venueSlug }) {
    const now = new Date();
    const r = await Seat.updateMany(
      { seasonCode, venueSlug, status: 'busy', 'meta.hold.until': { $lte: now } },
@@ -55,12 +66,10 @@ const PENDING_MAX_MIN = Number(process.env.PENDING_MAX_MIN || 10);
    }).lean();
    for (const o of stale) {
      await Order.updateOne({ _id: o._id, status: 'pending' }, { $set: { status: 'canceled' } });
-     await Seat.updateMany(
-       { seasonCode, venueSlug, status: 'busy', 'meta.hold.orderId': o._id },
-       { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
-     );
-     console.log('[sentinel] canceled pending & released holds:', o._id.toString());
-   }
+     await releaseSeatsForOrder(o);
+     console.log('[sentinel] canceled pending:', o._id.toString());
+
+    }
  }
 
 
@@ -77,6 +86,12 @@ async function resolveCtx() {
 async function runOnce() {
   await mongoose.connect(uri, { dbName: process.env.MONGODB_DB });
   const since = new Date(Date.now() - sinceMin*60*1000);
+
+  console.log('[sentinel] config:', {
+    sinceMinutes: sinceMin,
+    PENDING_MAX_MIN,
+    CHECKOUT_HOLD_MIN: HOLD_EXPIRE_MIN
+  });
 
   const list = await Order.find({
     status: { $in: ['pending'] },
