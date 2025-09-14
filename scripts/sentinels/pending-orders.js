@@ -8,6 +8,7 @@ import 'dotenv/config';
 
 import mongoose from 'mongoose';
 import { Order } from '../../src/models/Order.js';
+import { Seat }  from '../../src/models/Seat.js';
 import { getCheckoutStatus } from '../../src/services/helloasso.js';
 import { normalizeHaStatus, isPaidLike,
          finalizePaidIfNoConflict,
