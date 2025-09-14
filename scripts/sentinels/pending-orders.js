@@ -1,9 +1,10 @@
 // scripts/sentinels/pending-orders.js
+
 // Parcourt les orders HelloAsso en pending récents, vérifie le statut et finalise si paid.
 // Usage (cron/PM2): node scripts/sentinels/pending-orders.js [--sinceMinutes=180]
+// (PM2 cron) : voir README ou ecosystem.config.js
 
- // Charge .env avant d'importer des modules susceptibles de lire process.env
- import 'dotenv/config';
+import 'dotenv/config';
 
 import mongoose from 'mongoose';
 import { Order } from '../../src/models/Order.js';
@@ -32,40 +33,48 @@ async function markSeatsBooked(order) {
   return r.modifiedCount ?? r.nModified ?? 0;
 }
 
+// ====== Housekeeping (holds & pending expirés) ======
 const HOLD_EXPIRE_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 5);
 const PENDING_MAX_MIN = Number(process.env.PENDING_MAX_MIN || 10);
 
+ async function releaseExpiredHolds({ seasonCode, venueSlug }) {
+   const now = new Date();
+   const r = await Seat.updateMany(
+     { seasonCode, venueSlug, status: 'busy', 'meta.hold.until': { $lte: now } },
+     { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
+   );
+   console.log('[sentinel] releaseExpiredHolds:', { matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
+ }
+ 
+ async function cancelStalePendingAndRelease({ seasonCode, venueSlug }) {
+   const cutoff = new Date(Date.now() - PENDING_MAX_MIN * 60 * 1000);
+   const stale = await Order.find({
+     seasonCode, venueSlug,
+     status: 'pending',
+     createdAt: { $lte: cutoff }
+   }).lean();
+   for (const o of stale) {
+     await Order.updateOne({ _id: o._id, status: 'pending' }, { $set: { status: 'canceled' } });
+     await Seat.updateMany(
+       { seasonCode, venueSlug, status: 'busy', 'meta.hold.orderId': o._id },
+       { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
+     );
+     console.log('[sentinel] canceled pending & released holds:', o._id.toString());
+   }
+ }
 
-async function releaseExpiredHolds({ seasonCode, venueSlug }) {
-  const now = new Date();
-  const r = await Seat.updateMany(
-    { seasonCode, venueSlug, status: 'busy', 'meta.hold.until': { $lte: now } },
-    { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
-  );
-  console.log('[sentinel] releaseExpiredHolds',
-    { seasonCode, venueSlug, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
+
+// ====== Résolution d’un contexte {seasonCode, venueSlug} ======
+async function resolveCtx() {
+  // On prend la saison/la salle de la commande la plus récente ; fallback sur l'env
+  const recent = await Order.findOne({}).sort({ createdAt: -1 }).lean();
+  const seasonCode = recent?.seasonCode || process.env.SEASON_CODE || null;
+  const venueSlug  = recent?.venueSlug  || process.env.VENUE_SLUG  || null;
+  return { seasonCode, venueSlug };
 }
 
-
-async function cancelStalePendingAndRelease({ seasonCode, venueSlug }) {
-  const cutoff = new Date(Date.now() - PENDING_MAX_MIN * 60 * 1000);
-  const stale = await Order.find({
-    seasonCode, venueSlug,
-    status: 'pending',
-    createdAt: { $lte: cutoff }
-  }).lean();
-  for (const o of stale) {
-    await Order.updateOne({ _id: o._id, status: 'pending' }, { $set: { status: 'canceled' } });
-    await Seat.updateMany(
-      { seasonCode, venueSlug, status: 'busy', 'meta.hold.orderId': o._id },
-      { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
-    );
-    console.log('[sentinel] canceled pending & released holds:', o._id.toString());
-  }
-}
-
-
-(async () => {
+// ====== Runner unique : scan + housekeeping ======
+async function runOnce() {
   await mongoose.connect(uri, { dbName: process.env.MONGODB_DB });
   const since = new Date(Date.now() - sinceMin*60*1000);
 
@@ -84,7 +93,7 @@ async function cancelStalePendingAndRelease({ seasonCode, venueSlug }) {
 
     let raw;
     try { raw = await getCheckoutStatus(intent); }
-    catch (e) { console.warn('[sentinel] getCheckoutStatus failed:', intent, e.message); continue; }
+    catch (e) { console.warn('[sentinel] getCheckoutStatus failed:', intent, e.message); raw = ''; }
 
     const status = (s => {
       if (s && typeof s === 'object') s = s.status || s.state || s.code || '';
@@ -124,7 +133,23 @@ async function cancelStalePendingAndRelease({ seasonCode, venueSlug }) {
     } catch (e) { console.warn('[sentinel] sendMail failed:', e.message); }
   }
 
+  // --- Housekeeping systématique (libérer holds expirés + annuler pending trop vieux)
+  const ctx = await resolveCtx();
+  if (ctx.seasonCode && ctx.venueSlug) {
+    await releaseExpiredHolds(ctx);
+    await cancelStalePendingAndRelease(ctx);
+  } else {
+    console.warn('[sentinel] housekeeping skipped (no season/venue context)');
+  }
+
   await mongoose.disconnect();
   process.exit(0);
-})();
+}
+
+// Entrée
+runOnce().catch(e => {
+  console.error('[sentinel] fatal:', e);
+  process.exit(1);
+}); 
+
 
