@@ -190,6 +190,98 @@ async function markSeatsBooked(order) {
   }
 }
 
+// ---- Helpers seats (conflit-safe) ----
+function realSeatIdsFromOrder(order) {
+  const lines = Array.isArray(order?.lines) ? order.lines : [];
+  return Array.from(new Set(
+    lines.map(l => String(l.seatId || '').trim())
+         .filter(s => s && !/-Z\d{3,}$/i.test(s)) // exclut les pseudo-IDs de zone
+  ));
+}
+
+async function finalizePaidIfNoConflict(order) {
+  const seatIds = realSeatIdsFromOrder(order);
+  // Cas “zones” uniquement : rien à réserver → paid direct
+  if (!seatIds.length) {
+    order.status = 'paid';
+    await order.save();
+    return { ok: true, booked: 0, conflicts: [] };
+  }
+
+  // Charger l’état actuel des sièges
+  const seats = await Seat.find({
+    seasonCode: order.seasonCode,
+   venueSlug:  order.venueSlug,
+    seatId:     { $in: seatIds }
+  }).lean();
+  const byId = new Map(seats.map(s => [String(s.seatId), s]));
+
+  // Détecter les conflits AVANT mise à jour
+  const conflicts = [];
+  for (const sid of seatIds) {
+    const s = byId.get(sid);
+    if (!s) { conflicts.push({ seatId: sid, reason: 'not_found' }); continue; }
+    if (String(s.status) === 'booked') { conflicts.push({ seatId: sid, reason: 'already_booked' }); continue; }
+    if (String(s.status) === 'busy') {
+      const holder = s?.meta?.hold?.orderId ? String(s.meta.hold.orderId) : '';
+      if (holder && holder !== String(order._id)) {
+        conflicts.push({ seatId: sid, reason: 'busy_other' });
+        continue;
+      }
+      // sinon: busy par CETTE commande → ok
+    }
+    // 'available' → ok
+  }
+
+  if (conflicts.length) {
+    // Ne pas finaliser : on marque en failed + note de conflit (pas compté dans les quotas)
+    order.status = 'failed';
+    order.paymentProviderMeta = {
+      ...(order.paymentProviderMeta || {}),
+      conflict: { kind: 'seat_conflict', seats: conflicts, checkedAt: new Date() }
+    };
+    await order.save();
+    return { ok: false, booked: 0, conflicts };
+  }
+
+  // Dernier rempart de concurrence : on ne “booke” que si le siège est encore libre
+  // (available) ou bien (busy + hold pour CETTE commande).
+  const upd = await Seat.updateMany(
+    {
+      seasonCode: order.seasonCode,
+      venueSlug:  order.venueSlug,
+      seatId:     { $in: seatIds },
+      $or: [
+        { status: 'available' },
+        { status: 'busy', 'meta.hold.orderId': order._id }
+      ]
+    },
+    { $set: { status: 'booked' }, $unset: { 'meta.hold': 1 } },
+    { runValidators: false }
+  );
+
+  const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);
+  if (modified !== seatIds.length) {
+    // Quelqu’un a pris au vol entre le check et l’update → conflit tardif
+    order.status = 'failed';
+    order.paymentProviderMeta = {
+      ...(order.paymentProviderMeta || {}),
+      conflict: {
+        kind: 'seat_conflict_race',
+        note: `modified=${modified} / expected=${seatIds.length}`,
+        checkedAt: new Date()
+      }
+    };
+    await order.save();
+    return { ok: false, booked: modified, conflicts: [{ reason: 'race_condition', modified, expected: seatIds.length }] };
+  }
+
+  // Tout est bon → on passe en paid
+  order.status = 'paid';
+  await order.save();
+  return { ok: true, booked: modified, conflicts: [] };
+}
+
 function isPaidLike(status) {
   return /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(status || '').trim());
 }
@@ -355,21 +447,30 @@ try {
     };
     await order.save();
     
-
     if (isPaidLike(status)) {
-      order.status = 'paid';
-      await order.save();
-      await markSeatsBooked(order);
-      try {
-        const html = await renderOrderEmail(order);
-        const subject = subjectForOrder(order);
-        await sendMail({ to: order.payerEmail, subject, html });
-      } catch (e) {
-        console.warn('sendMail failed:', e.message);
+      // ✅ Finalisation sûre (anti-doublon) : ne “booke” et ne “paid” que si aucun conflit
+      const fin = await finalizePaidIfNoConflict(order);
+      if (fin.ok) {
+        try {
+          if (!order.paymentProviderMeta?.attestationSentAt) {
+            const html = await renderOrderEmail(order);
+            const subject = subjectForOrder(order);
+            await sendMail({ to: order.payerEmail, subject, html });
+            order.paymentProviderMeta = { ...(order.paymentProviderMeta||{}), attestationSentAt: new Date() };
+            await order.save();
+          }
+        } catch (e) { console.warn('sendMail failed:', e.message); }
+        return res.status(200).send('ok');
+      } else {
+        // On ne renvoie pas d’erreur à HelloAsso (nous avons bien reçu), mais on n’atteste pas.
+        console.warn('[ha/webhook] seat conflict — order marked failed', {
+          orderId: String(order._id), conflicts: fin.conflicts
+        });
+        return res.status(200).send('conflict');
       }
-      return res.status(200).send('ok');
     } else {
-      if (order.status !== 'paid') {
+
+    if (order.status !== 'paid') {
         order.status = 'pending';
         await order.save();
       }
