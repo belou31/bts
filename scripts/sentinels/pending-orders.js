@@ -15,7 +15,7 @@ import { sendMail } from '../../src/loaders/mailer.js';
 const uri = process.env.MONGO_URI;
 if (!uri) { console.error('[sentinel] MONGO_URI manquant'); process.exit(1); }
 
-const sinceMin = Number((process.argv.find(a=>a.startsWith('--sinceMinutes='))||'').split('=')[1] || 180);
+const sinceMin = Number(1440); // Number((process.argv.find(a=>a.startsWith('--sinceMinutes='))||'').split('=')[1] || 180);
 const isPaidLike = s => /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(s||''));
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 
