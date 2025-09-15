@@ -41,7 +41,8 @@
     "morgan": "^1.10.1",
     "node-fetch": "^3.3.2",
     "nodemailer": "^6.10.1",
-    "pino": "^9.3.2"
+    "pino": "^9.3.2",
+    "qrcode": "^1.5.3"
   },
   "devDependencies": {
     "cheerio": "^1.0.0-rc.12",

@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Tariff } from '../models/Tariff.js';
+import { hexToQrSvg } from './qr.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -94,6 +95,68 @@ function formatDateFR(d) {
   }
 }
 
+// -- Helpers "tickets / QR" ---------------------------------------------------
+function shortHex(h) {
+  const s = String(h||'');
+  return s.length > 12 ? (s.slice(0,6) + '…' + s.slice(-4)) : s;
+}
+
+async function buildTicketsHtml(order) {
+  // tickets attendus en: order.meta.tickets = [{ seatId, tariff, hex }, ...]
+  const tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+  if (!tickets.length) return '';
+
+  // Génère les SVG en parallèle
+  const svgs = await Promise.all(tickets.map(t => hexToQrSvg(t.hex, { ecl:'M', margin:1 })));
+
+  const rows = tickets.map((t, i) => {
+    const seat = t.seatId || t.zoneKey || '';
+    const tarif = String(t.tariff||'').toUpperCase();
+    const hex = t.hex || '';
+    const svg = svgs[i] || '';
+    return `
+      <tr>
+        <td style="padding:8px 6px;vertical-align:top">${seat}</td>
+        <td style="padding:8px 6px;vertical-align:top">${tarif}</td>
+        <td style="padding:8px 6px;vertical-align:top"><code>${shortHex(hex)}</code></td>
+        <td style="padding:8px 6px;vertical-align:top">
+          <div class="qr" style="width:120px;height:auto">${svg}</div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <div class="tickets" style="margin-top:24px">
+      <h2 style="margin:0 0 12px">Billets</h2>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr>
+            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">Place</th>
+            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">Tarif</th>
+            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">Code</th>
+            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">QR</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p style="margin-top:8px;color:#6b7280;font-size:12px">Conservez ces QR et présentez-les à l’entrée.</p>
+    </div>`;
+}
+
+function injectTicketsHtml(html, ticketsHtml) {
+  if (!ticketsHtml) return html;
+  if (html.includes('{{TICKETS_HTML}}')) {
+    return html.replace('{{TICKETS_HTML}}', ticketsHtml);
+  }
+  // fallback: insertion avant </body> si présent, sinon concat
+  const idx = html.lastIndexOf('</body>');
+  if (idx !== -1) {
+    return html.slice(0, idx) + ticketsHtml + html.slice(idx);
+  }
+  return html + ticketsHtml;
+}
+
+
 /**
  * Subject builder (keeps env overrides).
  */
@@ -149,6 +212,8 @@ export async function renderOrderEmail(order) {
     .join('');
 
   const htmlRaw = await loadTemplateHtml(tplName);
+  // Construit (éventuellement) le bloc billets + QR pour les commandes événementielles
+  const ticketsHtml = await buildTicketsHtml(order);
 
   if (tplName === 'tbh7-confirmation') {
     const ctx = {
@@ -165,9 +230,10 @@ export async function renderOrderEmail(order) {
         installmentsHuman: humanInstallments(split),
         createdAt: formatDateFR(order.createdAt)
       },
-      LINES_HTML: tbh7Rows
+      LINES_HTML: tbh7Rows,
+      TICKETS_HTML: ticketsHtml
     };
-    return applyVars(htmlRaw, ctx);
+    return injectTicketsHtml(applyVars(htmlRaw, ctx), ticketsHtml);
   }
 
   // default: renew-confirmation.html (your current Renew template)
@@ -188,5 +254,26 @@ export async function renderOrderEmail(order) {
     extraInfo: '', // slot libre si besoin
   };
 
-  return applyVars(htmlRaw, ctx);
+  return injectTicketsHtml(applyVars(htmlRaw, ctx), ticketsHtml);
+}
+
+
+// NEW: attribue des codes QR "banque" selon le tarif des lignes
+export async function attachQrFromBank(db, order){
+  const Events = db.collection('events');
+  const evId   = String(order?.meta?.eventId||'');
+  if (!evId) return { ok:false, reason:'no-event' };
+  const { ObjectId } = await import('mongodb');
+  const ev = await Events.findOne({ _id: new ObjectId(evId) });
+  if (!ev?.qrBank?.buckets) return { ok:false, reason:'no-bank' };
+  const picked = [];
+  for (const ln of (order?.lines||[])) {
+    const list = ev.qrBank.buckets[String(ln.tariff||'NORMAL').toUpperCase()] || [];
+    const hex  = list.shift(); // consomme 1 code
+    if (!hex) return { ok:false, reason:'depleted' };
+    picked.push({ seatId: ln.seatId, tariff: ln.tariff, hex });
+  }
+  // persiste la consommation
+  await Events.updateOne({ _id: ev._id }, { $set: { 'qrBank.buckets': ev.qrBank.buckets } });
+  return { ok:true, tickets: picked };
 }

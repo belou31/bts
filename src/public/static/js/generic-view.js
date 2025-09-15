@@ -606,6 +606,29 @@ function extractHaMessages(from) {
 async function submitPayment() {
   setFeedback('', ''); // clear
 
+  // ── Vérification: pour chaque place, au moins Nom OU Prénom ────────────────
+  // Réinitialise d'éventuels marquages d'erreur précédents
+  $$('.holder-first, .holder-last').forEach(inp => inp.removeAttribute('aria-invalid'));
+  const missingNameRows = [];
+  let firstBad = null;
+  $$('.cart-row').forEach(row => {
+    const fn = $('.holder-first', row)?.value?.trim();
+    const ln = $('.holder-last',  row)?.value?.trim();
+    if (!fn && !ln) {
+      const label = $('.seat-label', row)?.textContent?.trim() || row.dataset.seatId || `Ligne`;
+      missingNameRows.push(label);
+      // marque les deux champs en erreur (accessibilité)
+      $('.holder-first', row)?.setAttribute('aria-invalid','true');
+      $('.holder-last',  row)?.setAttribute('aria-invalid','true');
+      if (!firstBad) firstBad = $('.holder-last', row) || $('.holder-first', row);
+    }
+  });
+  if (missingNameRows.length) {
+    setFeedback('error', 'Informations manquantes', missingNameRows.map(l => `« ${l} » : saisir un nom ou un prénom.`));
+    try { firstBad?.focus(); } catch {}
+    return;
+  }
+
   const items = [];
   $$('.cart-row').forEach(row => {
     const seatId = row.dataset.seatId;
