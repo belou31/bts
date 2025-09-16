@@ -1,6 +1,8 @@
 //src/services/order-finalization.js
+import mongoose from 'mongoose';
 import { Seat } from '../models/Seat.js';
-import { renderOrderEmail, subjectForOrder } from './mailer.js';
+import { renderOrderEmail, subjectForOrder, attachQrFromBank } from './mailer.js';
+import { buildTicketsPdfBuffer } from './tickets-pdf.js';
 import { sendMail } from '../loaders/mailer.js';
 
 export function normalizeHaStatus(input, fallback) {
@@ -108,13 +110,38 @@ export async function sendOrderAttestationIfNeeded(order) {
   const tpl = isEvent
     ? (process.env.EMAIL_TEMPLATE_EVENT_CONFIRM || 'event-confirmation')
     : (process.env.EMAIL_TEMPLATE_SUBSCRIPTION_CONFIRM || process.env.EMAIL_TEMPLATE_TBH7_CONFIRM || 'subscription-confirmation');
-  const subject = isEvent
-    ? (process.env.EMAIL_SUBJECT_EVENT_CONFIRM || 'Les Bélougas - Confirmation de commande (match)')
-    : (process.env.EMAIL_SUBJECT_RENEW_CONFIRM || 'Les Bélougas - Votre Abonnement 2025-2026');
- 
-  const html = await renderOrderEmail(order);
-  
-  await sendMail({ to: order.payerEmail, subject, html });
+
+  const subject = subjectForOrder(order);
+  const html = await renderOrderEmail(order);  
+
+   // 1) Banque de QR → order.meta.tickets
+   try {
+     const r = await attachQrFromBank(mongoose.connection.db, order);
+     if (r?.ok && Array.isArray(r.tickets) && r.tickets.length) {
+       order.meta = { ...(order.meta || {}), tickets: r.tickets };
+       await order.save();
+     }
+   } catch (e) {
+     console.warn('[mail] attachQrFromBank failed:', e.message);
+   }
+
+   // 2) Génère le PDF si tickets présents
+   let attachments = [];
+   try {
+     if (Array.isArray(order?.meta?.tickets) && order.meta.tickets.length) {
+       const pdf = await buildTicketsPdfBuffer(order);
+       attachments.push({
+         filename: `billets-${String(order._id)}.pdf`,
+         contentType: 'application/pdf',
+         content: pdf
+       });
+     }
+   } catch (e) {
+     console.warn('[mail] buildTicketsPdfBuffer failed:', e.message);
+   }
+
+
+  await sendMail({ to: order.payerEmail, subject, html, attachments });
 
   return true;
 }

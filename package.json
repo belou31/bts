@@ -42,7 +42,9 @@
     "node-fetch": "^3.3.2",
     "nodemailer": "^6.10.1",
     "pino": "^9.3.2",
-    "qrcode": "^1.5.3"
+    "qrcode": "^1.5.3",
+    "pdfkit": "^0.13.0",
+    "svg-to-pdfkit": "^0.1.8"
   },
   "devDependencies": {
     "cheerio": "^1.0.0-rc.12",

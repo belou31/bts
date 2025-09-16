@@ -25,20 +25,20 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>{{clubName}} — Confirmation de commande (Match)</h1>
+      <h1>Les Bélougas — {{order.eventName}}</h1>
       <p>Bonjour <b>{{payerFirstName}} {{payerLastName}}</b>,</p>
       <p>Voici le récapitulatif de votre commande de billets.</p>
 
       <div class="grid">
         <div>
           <h2>Détails</h2>
-          <p class="muted">Saison : <b>{{seasonCode}}</b></p>
-          <p class="muted">Lieu : <b>{{venueSlug}}</b></p>
+          <p class="muted">Saison : <b>{{order.seasonCode}}</b></p>
+          <p class="muted">Lieu : <b>{{order.venueSlug}}</b></p>
         </div>
         <div>
           <h2>Paiement</h2>
-          <p class="muted">{{installmentsInfo}}</p>
-          <p class="muted">Total réglé : <b>{{totalEuro}} €</b></p>
+          <p class="muted"><strong>Échéancier :</strong> {{order.split}} fois — {{order.installmentsHuman}}</p>
+          <p class="muted">Total réglé : <b>{{order.totalEuro}}</b></p>
         </div>
       </div>
 
@@ -47,15 +47,16 @@
         <thead>
           <tr>
             <th>Place / Zone</th>
+            <th>Bénéficiaire</th>
             <th>Tarif</th>
             <th>Montant</th>
           </tr>
         </thead>
         <tbody>
-          {{linesRows}}
+          {{LINES_HTML}}
           <tr>
             <td colspan="2" class="total">Total</td>
-            <td class="total">{{totalEuro}} €</td>
+            <td class="total">{{order.totalEuro}}</td>
           </tr>
         </tbody>
       </table>

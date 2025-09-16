@@ -1,46 +1,53 @@
 // src/loaders/mailer.js
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
-import nodemailer from 'nodemailer';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
 
-const EMAIL_STUB = String(process.env.EMAIL_STUB || 'false').toLowerCase() === 'true';
-const FROM = process.env.FROM_EMAIL || 'Billetterie <noreply@localhost>';
-const OUTBOX = path.resolve(process.cwd(), '.outbox');
+export async function sendMail({ to, subject, html, attachments = [] }) {
+  const outDir = path.resolve(process.cwd(), '.outbox');
+  await fs.mkdir(outDir, { recursive: true });
 
-let transporter;
+  const boundary = '=_BTS_' + Math.random().toString(36).slice(2);
+  const dateStr  = new Date().toISOString().replace(/[:.]/g,'-');
+  const safeSubj = String(subject || 'Message').replace(/[^\w\- .]/g, '').slice(0,120);
+  const fname    = `${dateStr}__${safeSubj}.eml`;
+  const fpath    = path.join(outDir, fname);
 
-export async function sendMail({ to, subject, html, text }) {
-  if (EMAIL_STUB) {
-    if (!fs.existsSync(OUTBOX)) fs.mkdirSync(OUTBOX, { recursive: true });
-    const now = new Date().toISOString().replace(/[:.]/g, '-');
-    const fname = path.join(OUTBOX, `${now}__${sanitize(subject)}.eml`);
-    const eml = [
-      `From: ${FROM}`,
-      `To: ${to}`,
-      `Subject: ${subject}`,
-      'MIME-Version: 1.0',
-      'Content-Type: text/html; charset="UTF-8"',
-      '',
-      html || (text ? `<pre>${escapeHtml(text)}</pre>` : '<p>(vide)</p>')
-    ].join('\r\n');
-    fs.writeFileSync(fname, eml, 'utf8');
-    console.log(`[EMAIL_STUB] écrit ${fname}`);
-    return { stub: true, file: fname };
+  let mime = '';
+  mime += `From: "BTS" <no-reply@bts.local>\r\n`;
+  mime += `To: <${to}>\r\n`;
+  mime += `Subject: ${subject}\r\n`;
+  mime += `MIME-Version: 1.0\r\n`;
+
+  if (attachments.length) {
+    mime += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`;
+    // part 1: HTML
+    mime += `--${boundary}\r\n`;
+    mime += `Content-Type: text/html; charset="utf-8"\r\n`;
+    mime += `Content-Transfer-Encoding: 8bit\r\n\r\n`;
+    mime += (html || '') + `\r\n`;
+    // parts: attachments
+    for (const att of attachments) {
+      const filename    = att.filename || 'piece.pdf';
+      const contentType = att.contentType || 'application/octet-stream';
+      const buf = Buffer.isBuffer(att.content) ? att.content : Buffer.from(String(att.content||''), 'utf8');
+      const b64 = buf.toString('base64').replace(/(.{76})/g, '$1\r\n'); // wrap
+      mime += `--${boundary}\r\n`;
+      mime += `Content-Type: ${contentType}; name="${filename}"\r\n`;
+      mime += `Content-Transfer-Encoding: base64\r\n`;
+      mime += `Content-Disposition: attachment; filename="${filename}"\r\n\r\n`;
+      mime += b64 + `\r\n`;
+    }
+    mime += `--${boundary}--\r\n`;
+  } else {
+    // message simple (HTML seul)
+    mime += `Content-Type: text/html; charset="utf-8"\r\n`;
+    mime += `Content-Transfer-Encoding: 8bit\r\n\r\n`;
+    mime += (html || '') + `\r\n`;
   }
 
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
-    });
-  }
-
-  return transporter.sendMail({ from: FROM, to, subject, html, text });
-}
-
-function sanitize(s) {
-  return String(s || 'message').replace(/[^\w\-éèàêîôùçÉÈÀÊÎÔÛÇ ]+/g, '_').slice(0, 80);
-}
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  await fs.writeFile(fpath, mime, 'utf8');
+  console.log('[EMAIL_STUB] écrit', fpath);
 }

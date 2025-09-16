@@ -234,7 +234,14 @@ router.post('/:eventId/checkout', async (req, res) => {
       venueSlug:  ev.venueSlug,
       // méta évènement
       schedule: Number(schedule||1),
-      meta: { eventId: String(ev._id), eventSlug: ev.slug, provider:'helloasso' },
+      meta: {
+        eventId:      String(ev._id),
+        eventSlug:    ev.slug,
+        eventName:    ev.name,       // ⬅️ pour l’objet + template email
+        eventStartsAt: ev.startsAt,  // ⬅️ utile si affichage date/heure match
+        provider:     'helloasso'
+      },
+
       origin: { flow: 'event', uiPath: '/event', apiPath: `${req.baseUrl||''}${req.path}` },
       mailTemplateKind: 'event',
       hold: { until }

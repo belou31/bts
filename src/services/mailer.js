@@ -178,6 +178,12 @@ function injectTicketsHtml(html, ticketsHtml) {
  */
 export function subjectForOrder(order) {
   const kind = resolveOrderKind(order);
+  if (kind === 'event') {
+    const ename = order?.meta?.eventName || order?.meta?.eventSlug || 'Match';
+    const base  = process.env.EMAIL_SUBJECT_EVENT_CONFIRM || 'Confirmation – Billetterie';
+    return `${base} — ${ename}`;
+  }
+
   return SUBJECT_BY_KIND[kind] || SUBJECT_BY_KIND.renew;
 }
 
@@ -216,18 +222,52 @@ export async function renderOrderEmail(order) {
     `<tr><td>${c.seat}</td><td>${c.beneficiary}</td><td>${c.tariff}</td><td>${c.priceRich}</td></tr>`
   ).join('');
 
-
   const htmlRaw = await loadTemplateHtml(tplName);
-  // Construit (éventuellement) le bloc billets + QR pour les commandes événementielles
-  const ticketsHtml = await buildTicketsHtml(order);
+  // Pas de QR inline pour "event" (ils seront en PDF joint).
+  const ticketsHtml = (tplName === 'event-confirmation') ? '' : await buildTicketsHtml(order);
 
-  // Contexte unique pour TOUS les templates (renew / subscription / event)
+  if (tplName === 'event-confirmation') {
+    const ename = order?.meta?.eventName || order?.meta?.eventSlug || 'Match';
+    // Contexte unifié (event)
+    const ctx = {
+      org: { clubName: (process.env.CLUB_NAME || 'Les Bélougas') },
+      payer: {
+        fullName: [order.payerFirstName || order?.payer?.firstName, order.payerLastName || order?.payer?.lastName]
+                  .filter(Boolean).join(' ').trim()
+      },
+      order: {
+        id: String(order._id),
+        seasonCode: order.seasonCode || '',
+        venueSlug: order.venueSlug || '',
+        totalEuro: fmtEuroWithSymbol(totalCents),
+        split,
+        installmentsHuman: humanInstallments(split),
+        createdAt: formatDateFR(order.createdAt),
+        eventName: ename
+      },
+      LINES_HTML,
+      TICKETS_HTML: '',   // pas de QR inline pour les events (PDF joint)
+      // compat héritée
+      payerFirstName: order.payerFirstName || order?.payer?.firstName || '',
+      payerLastName:  order.payerLastName  || order?.payer?.lastName  || '',
+      payerEmail:     order.payerEmail     || order?.payer?.email     || '',
+      orderId:        String(order._id),
+      totalEuroPlain: fmtEuroPlain(totalCents),
+      installmentsInfo: humanInstallments(split),
+      haOrderBlock,
+      clubName: (process.env.CLUB_NAME || 'Les Bélougas'),
+      linesRows: LINES_HTML,
+      extraInfo: ''
+    };
+    return applyVars(htmlRaw, ctx); // pas de QR inline pour event (PDF joint)
+  }
+
+  // ——— Non-event (renew / subscription / public)
   const ctx = {
-    // ——— nouveaux placeholders unifiés
     org: { clubName: (process.env.CLUB_NAME || 'Les Bélougas') },
     payer: {
       fullName: [order.payerFirstName || order?.payer?.firstName, order.payerLastName || order?.payer?.lastName]
-                  .filter(Boolean).join(' ').trim()
+                 .filter(Boolean).join(' ').trim()
     },
     order: {
       id: String(order._id),
@@ -240,8 +280,7 @@ export async function renderOrderEmail(order) {
     },
     LINES_HTML: LINES_HTML,
     TICKETS_HTML: ticketsHtml,
-
-    // ——— compat héritée (au cas où un ancien template lit encore ces clés)
+    // compat héritée
     payerFirstName: order.payerFirstName || order?.payer?.firstName || '',
     payerLastName:  order.payerLastName  || order?.payer?.lastName  || '',
     payerEmail:     order.payerEmail     || order?.payer?.email     || '',
@@ -250,19 +289,69 @@ export async function renderOrderEmail(order) {
     installmentsInfo: humanInstallments(split),
     haOrderBlock,
     clubName: (process.env.CLUB_NAME || 'Les Bélougas'),
-    // si l'ancien template attend encore {{linesRows}}, on lui donne le 4-colonnes
     linesRows: LINES_HTML,
     extraInfo: ''
   };
-
   return injectTicketsHtml(applyVars(htmlRaw, ctx), ticketsHtml);
 
 }
 
+// === NEW: génère un PDF (1 page / billet) à partir de order.meta.tickets ===
+export async function buildTicketsPdfBuffer(order) {
+  const tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+  if (!tickets.length) return null;
 
-// NEW: attribue des codes QR "banque" selon le tarif des lignes
+  return await new Promise(async (resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 36 });
+      const chunks = [];
+      doc.on('data', (d) => chunks.push(d));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+      const title  = order?.meta?.eventName || order?.meta?.eventSlug || 'Match';
+      const season = order?.seasonCode || '';
+      const venue  = order?.venueSlug  || '';
+
+      for (let i = 0; i < tickets.length; i++) {
+        const t = tickets[i];
+        if (i > 0) doc.addPage();
+
+        // En-tête
+        doc.fontSize(18).text(`Les Bélougas — ${title}`);
+        doc.moveDown(0.2);
+        doc.fontSize(11).fillColor('#666').text(`Saison: ${season} — Lieu: ${venue}`);
+        doc.fillColor('#000').moveDown(1);
+
+        // Détails
+        const seat = t.seatId || t.zoneKey || '';
+        doc.fontSize(14).text(`Place: ${seat}`);
+        doc.moveDown(0.2);
+        doc.fontSize(12).text(`Tarif: ${String(t.tariff||'NORMAL').toUpperCase()}`);
+        doc.moveDown(1);
+
+        // QR (SVG → PDF)
+        const svg = await hexToQrSvg(t.hex, { ecl: 'M', margin: 1 });
+        const svgStr = String(svg); // évite getElementsByTagName is not a function
+        svgToPdf(doc, svgStr, 360, 150, { width: 180, height: 180, preserveAspectRatio: 'xMidYMid meet' });
+
+        // Encadré d’info
+        doc.roundedRect(36, 340, 300, 80, 8).stroke();
+        doc.text('Présentez ce billet à l’entrée.\nConservez-le jusqu’à la fin de l’événement.',
+                 48, 350, { width: 276 });
+      }
+      doc.end();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}  
+
+
+
+
+// NEW: attribue des QR depuis la “banque” selon le tarif des lignes (event only)
 export async function attachQrFromBank(db, order){
-  const Events = db.collection('events');
+const Events = db.collection('events');
   const evId   = String(order?.meta?.eventId||'');
   if (!evId) return { ok:false, reason:'no-event' };
   const { ObjectId } = await import('mongodb');
@@ -270,10 +359,18 @@ export async function attachQrFromBank(db, order){
   if (!ev?.qrBank?.buckets) return { ok:false, reason:'no-bank' };
   const picked = [];
   for (const ln of (order?.lines||[])) {
-    const list = ev.qrBank.buckets[String(ln.tariff||'NORMAL').toUpperCase()] || [];
+    // 🔑 clé de bucket = code tarif normalisé
+    const key  = String(ln.tariffCode || ln.tariff || 'NORMAL').toUpperCase();
+    const list = ev.qrBank.buckets[key] || [];
     const hex  = list.shift(); // consomme 1 code
     if (!hex) return { ok:false, reason:'depleted' };
-    picked.push({ seatId: ln.seatId, tariff: ln.tariff, hex });
+    // stocke seatId & zoneKey (utile en affichage “zone debout”)
+    picked.push({
+      seatId: ln.seatId || '',
+      zoneKey: ln.zoneKey || '',
+      tariff: key,
+      hex
+    });
   }
   // persiste la consommation
   await Events.updateOne({ _id: ev._id }, { $set: { 'qrBank.buckets': ev.qrBank.buckets } });
