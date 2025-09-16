@@ -46,5 +46,5 @@ export default function routes(router) {
   router.use('/ha', haRoutes);                 //  expose /ha/return, /ha/back, /ha/error
 
   // Page racine -> redirige vers /renew (optionnel)
-  router.get('/', (_req, res) => res.redirect('./renew'));
+  //router.get('/', (_req, res) => res.redirect('./renew'));
 }

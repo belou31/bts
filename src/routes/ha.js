@@ -189,7 +189,33 @@ router.get('/return', (req, res) => {
     code: q.code || q.result || q.status || null,
     orderId: q.orderId || null
   });
-  // ⚠️ Aucun effet de bord ici : la confirmation est gérée par /ha/webhook
+  // 🧪 DEV STUB (optionnel) : si HELLOASSO_STUB=true ET stub=1, on finalise localement.
+  try {
+    const isStubDev = String(process.env.HELLOASSO_STUB || '').toLowerCase() === 'true';
+    const doStub = isStubDev && String(q.stub || '0') === '1' && (q.oid || q.orderId);
+    if (doStub) {
+      (async () => {
+        const orderId = String(q.oid || q.orderId);
+        try {
+          const o = await Order.findById(orderId);
+          if (!o) return console.warn('[ha/return stub] order not found', orderId);
+          const fin = await finalizePaidIfNoConflict(o);
+          if (fin.ok) {
+            await sendOrderAttestationIfNeeded(o);
+            console.log('[ha/return stub] finalized & mailed', orderId);
+          } else {
+            console.warn('[ha/return stub] conflict', fin);
+          }
+        } catch (e) {
+          console.error('[ha/return stub] error', e?.message || e);
+        }
+      })();
+      // Affichage immédiat (on ne bloque pas sur la finalisation)
+      return res.send(renderNeutral(String(q.oid || q.orderId), 'stub-dev'));
+    }
+  } catch {}
+
+  // ⚠️ En dehors du mode stub, aucun effet de bord : la confirmation est gérée par /ha/webhook
   const raw = q.status || q.code || q.result || '';
   const norm = normalizeHaStatus(raw);
   // Ambigu -> ne pas afficher. On n'affiche que les statuts "négatifs".

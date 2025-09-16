@@ -5,13 +5,13 @@
   <title>Billetterie Match — BTS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- IMPORTANT : chemins relatifs à /bts/ (gérés par le reverse-proxy) -->
-  <link rel="icon" href="static/img/favicon.ico">
-  <link rel="stylesheet" href="static/styles/generic-view.css">
+  <link rel="icon" href="../static/img/favicon.ico">
+  <link rel="stylesheet" href="../static/styles/generic-view.css">
 </head>
 <body>
   <header class="site-header">
     <div class="brand">
-      <img src="static/img/logo.png" alt="Logo" class="logo">
+      <img src="../static/img/logo.png" alt="Logo" class="logo">
       <h1 id="pageTitle">Billetterie Match</h1>
     </div>
     <p>Sélectionnez vos places sur le plan, complétez les informations, puis procédez au paiement sécurisé.</p>
@@ -135,17 +135,19 @@
       title: 'Les Bélougas - Billetterie Match',
       pageTitle: 'Les Bélougas - Billetterie Match',
       api: {
-        status:  'api/event/' + encodeURIComponent(ev) + '/status',
-        checkout:'api/event/' + encodeURIComponent(ev) + '/checkout'
+        status:  '../api/event/' + encodeURIComponent(ev) + '/status',
+        checkout:'../api/event/' + encodeURIComponent(ev) + '/checkout'
       },
       // On reste sur une sélection au siège ; la toolbar zone peut être activée si besoin
       selection: { type: 'seats' },
       buildRowsFromData: false,
-      svgSeatClasses: { allowed: 'seat-allowed' } // cohérence avec subscription
+      svgSeatClasses: { allowed: 'seat-allowed' }, // cohérence avec subscription
+      // Chemin du plan : remonte d'UN niveau pour tomber sur /venues/…
+      venuePlanPath: slug => `../static/venues/${slug}/plan.svg`
     };
   })();
   </script>
-  <script defer src="static/js/generic-view.js"></script>
-  <script defer src="static/js/event.js"></script>
+  <script defer src="../static/js/generic-view.js"></script>
+  <script defer src="../static/js/event.js"></script>
 </body>
 </html>

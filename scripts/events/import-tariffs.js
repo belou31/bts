@@ -16,9 +16,16 @@ async function readCsv(path, onRow) {
   let lineNo = 0;
   for await (const line of rl) {
     lineNo++;
-    const L = line.trim();
+    // supprime BOM éventuel sur la première ligne
+    const L = (lineNo === 1 && line.charCodeAt(0) === 0xFEFF) ? line.slice(1).trim() : line.trim();
     if (!L || L.startsWith('#')) continue;
     const parts = L.split(',').map(s => s.trim());
+    // ignore les entêtes "code,label" ou "zoneKey,tariffCode,priceCents"
+    const p0 = String(parts[0]||'').toLowerCase();
+    if ((p0 === 'code' && String(parts[1]||'').toLowerCase() === 'label')
+      || (p0 === 'zonekey' && String(parts[1]||'').toLowerCase() === 'tariffcode')) {
+      continue;
+    }
     await onRow(parts, lineNo);
   }
 }
@@ -31,10 +38,9 @@ async function main(){
     .help().argv;
 
   const uri = process.env.MONGO_URI;
-  const dbn = "bts";
-  if (!uri || !dbn) throw new Error('MONGO_URI / MONGODB_DB requis');
-
-  await mongoose.connect(uri, { dbName: dbn });
+  const dbn = process.env.MONGODB_DB; // optionnel si DB incluse dans l'URI
+  if (!uri) throw new Error('MONGO_URI requis');
+  await mongoose.connect(uri, dbn ? { dbName: dbn } : {});
 
   // Résout l’event
   const ev = await (async () => {
@@ -49,22 +55,24 @@ async function main(){
   const tariffDocs = [];
   await readCsv(argv.tariffs, async (parts, n) => {
     const [code, label] = parts;
-    if (!code) throw new Error(`Ligne ${n}: code manquant`);
+    if (!code || String(code).toLowerCase() === 'code') return; // ignore ligne entête résiduelle
     tariffDocs.push({
-      code: String(code).toUpperCase(),
-      label: label || code,
+      code: String(code).trim().toUpperCase(),
+      label: (label ?? code)?.toString().trim(),
       priceTableKey: ev.priceTableKey,
-      isActive: true
+      active: true
     });
   });
 
   // Upsert par code+priceTableKey
+  let tUpserts = 0;
   for (const t of tariffDocs) {
     await Tariff.updateOne(
       { priceTableKey: ev.priceTableKey, code: t.code },
       { $set: t },
       { upsert: true }
     );
+    tUpserts++;
   }
 
   // 2) Zone Prices
@@ -72,26 +80,33 @@ async function main(){
   const priceDocs = [];
   await readCsv(argv.zoneprices, async (parts, n) => {
     const [zoneKey, tariffCode, priceCents] = parts;
-    if (!zoneKey || !tariffCode) throw new Error(`Ligne ${n}: zoneKey/tariffCode manquant`);
+    if (!zoneKey || !tariffCode) {
+      if (String(zoneKey||'').toLowerCase() === 'zonekey') return; // entête
+      throw new Error(`Ligne ${n}: zoneKey/tariffCode manquant`);
+    }
+    // normalise cents: accepte "800", "800,00", "800.0"
+    const centsNorm = String(priceCents ?? '').replace(/\s/g,'').replace(',', '.');
+    const cents = Math.round(Number(centsNorm||0));
     priceDocs.push({
       priceTableKey: ev.priceTableKey,
-      zoneKey: String(zoneKey),
-      tariffCode: String(tariffCode).toUpperCase(),
-      priceCents: Number(priceCents||0)|0,
-      isActive: true
+      zoneKey: String(zoneKey).trim().toUpperCase(),
+      tariffCode: String(tariffCode).trim().toUpperCase(),
+      priceCents: Number.isFinite(cents) ? cents : 0
     });
   });
 
   // Upsert par priceTableKey + zoneKey + tariffCode
+  let pUpserts = 0;
   for (const p of priceDocs) {
     await TariffPrice.updateOne(
       { priceTableKey: ev.priceTableKey, zoneKey: p.zoneKey, tariffCode: p.tariffCode },
       { $set: p },
       { upsert: true }
     );
+    pUpserts++;
   }
 
-  console.log('✅ Import terminé');
+  console.log(`✅ Import terminé · Tariffs upserted: ${tUpserts} · Prices upserted: ${pUpserts}`);
   await mongoose.disconnect();
 }
 
