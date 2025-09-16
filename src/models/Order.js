@@ -54,8 +54,16 @@ const OrderSchema = new mongoose.Schema({
   meta:        { type: Object, default: {} },
 
   // Email/template routing
-  origin:           { type: OriginSchema, default: undefined },
-  mailTemplateKind: { type: String, enum: ['renew','tbh7','subscription','vip','invite','generic'], default:'generic' }
+   origin: {
+    // ajout de "event" pour distinguer le flux billetterie évènement
+    flow:   { type:String, enum:['renew','subscription','public','event'], default:'subscription', index:true },
+     uiPath: { type:String },
+     apiPath:{ type:String }
+   },
+
+  // ajout de "event" pour les emails de match
+  mailTemplateKind: { type:String, enum:['renew','subscription','public','event'], default:'subscription', index:true },
+
 }, { timestamps: true, strict: true });
 
 /* ----- Indexes ----- */
@@ -78,5 +86,13 @@ OrderSchema.index({ 'paymentProviderMeta.tokenHash': 1 },        { sparse: true,
 // (3) Legacy lookups (if older orders used meta.*)
 OrderSchema.index({ 'meta.checkoutIntentId': 1 }, { sparse: true, name: 'idx_legacy_intent' });
 OrderSchema.index({ 'meta.tokenHash': 1 },        { sparse: true, name: 'idx_legacy_tokenhash' });
+
+ // (optionnel) garde-fou: normaliser en minuscules
+OrderSchema.pre('validate', function(next){
+   if (this.mailTemplateKind) this.mailTemplateKind = String(this.mailTemplateKind).toLowerCase();
+   if (this.origin && this.origin.flow) this.origin.flow = String(this.origin.flow).toLowerCase();
+   next();
+ });
+
 
 export const Order = mongoose.models.Order || mongoose.model('Order', OrderSchema);

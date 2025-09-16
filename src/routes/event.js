@@ -14,6 +14,10 @@ import * as HA from '../services/helloasso.js';      // createCheckoutIntent/get
 const router = Router();
 
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
+// Helper: reconnaît un ID virtuel de zone (ex: DEBOUT-Z001)
+const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid||''));
+// Helper: reconnaît un vrai seatId (ZONE-ROW-###)
+const isRealSeatId = (sid) => /^[A-Z0-9]+-[A-Z]+-\d{1,4}$/i.test(String(sid||''));
 
 async function loadEvent(eventIdOrSlug){
   const q = isValidObjectId(eventIdOrSlug)
@@ -70,9 +74,11 @@ async function computeSeatStates(ev){
 
   for (const ord of (paid||[])) {
     for (const ln of (ord.lines||[])) {
-      const sid = String(ln.seatId||'');
-      if (!sid) continue;
-      const rec = byId.get(sid) || { seatId:sid, zoneKey:null, status:'available' };
+      const sid = String(ln.seatId||'').trim();
+      if (!sid) continue;                 // lignes de zone → pas de seatId
+      if (/-Z\d{3,}$/i.test(sid)) continue; // IDs virtuels (zones) → ignorer
+      if (!byId.has(sid)) continue;       // ⛔ ne crée PAS de siège fantôme
+      const rec = byId.get(sid);
       rec.status = 'booked';
       byId.set(sid, rec);
     }
@@ -152,14 +158,21 @@ router.post('/:eventId/checkout', async (req, res) => {
     const { payer, items, schedule } = req.body || {};
     assert(Array.isArray(items) && items.length > 0, 'Panier vide');
 
-    // ⚠️ On n’impose la vérif de siège que si seatId est présent
+    // Valide: lignes "siège" strictes, lignes "zone" (seatId vide) autorisées
     const seats = await computeSeatStates(ev);
     const statusIdx = new Map(seats.map(s => [String(s.seatId), s.status]));
     for (const it of items) {
-      const sid = String(it.seatId||'').trim();
-      if (!sid) continue; // ligne "zone" (ex: DEBOUT) → pas de check siège
-      const st  = statusIdx.get(sid) || 'available';
-      assert(st === 'available', `Siège indisponible: ${sid} (${st})`);
+      const sidRaw = String(it.seatId||'').trim();
+      const sid = (sidRaw && statusIdx.has(sidRaw)) ? sidRaw : '';
+      const z   = String(it.zoneKey||'').trim().toUpperCase();
+      assert(z, 'zoneKey manquant');
+      // ⚠️ Ne vérifier la dispo que pour les vrais sièges connus du plan.
+      // (labels "Zone Debout" ou IDs virtuels ne sont pas dans statusIdx)
+      // ✅ ne vérifier que si c’est un siège du plan (clé présente dans statusIdx)
+      if (sid && statusIdx.has(sid)) {
+        const st = statusIdx.get(sid) || 'available';
+        assert(st === 'available', `Siège indisponible: ${sid} (${st})`);
+      }
     }
 
     // Recalcule prix (table évènement si elle existe, sinon fallback)
@@ -169,22 +182,31 @@ router.post('/:eventId/checkout', async (req, res) => {
       Number(p.priceCents)||0
     ]));
     const lines = items.map(it => {
-      const z = String(it.zoneKey||'').toUpperCase();
-      const t = String(it.tariffCode||'').toUpperCase();
-      const sid = String(it.seatId||'').trim() || null;
+      const z   = String(it.zoneKey||'').toUpperCase();
+      const t   = String(it.tariffCode||'').toUpperCase();
+      const sidRaw = String(it.seatId||'').trim();
+      // ✅ Ne garder un seatId que s’il correspond à un vrai siège du plan.
+      // (IDs virtuels type DEBOUT-Z001 ou libellés "Zone Debout" => seatId vide)
+      const realSeat = sidRaw && statusIdx.has(sidRaw);
+      const sid = realSeat ? sidRaw : '';
       const key = `${z}::${t}`;
     // 🛑 Interdit: tarif absent pour la zone dans la table retenue
       if (!pmap.has(key)) {
         throw new Error(`Tarif indisponible pour la zone (${z}/${t})${scope==='fallback'?' [fallback]':''}`);
       }
       return {
-        seatId:   sid,                // peut être null pour une ligne "zone"
-        zoneKey:  z,
-        tariff:   t,
-       amountCents: pmap.get(key)
+        // ⚠️ garder seatId tel quel (DEBOUT-Z001, N5-J-057, ...)
+        seatId:       sid,
+        zoneKey:      String(it.zoneKey||'').toUpperCase(),
+        // normaliser les noms attendus par les e-mails/outils
+        tariffCode:   String(it.tariffCode||'').toUpperCase(),
+        priceCents:   pmap.get(key),
+        // champs optionnels côté front (porteurs)
+        holderFirstName: String(it.firstName||''),
+        holderLastName:  String(it.lastName||'')
       };
     });
-    const totalCents = lines.reduce((s, l) => s + (Number(l.amountCents)||0), 0);
+    const totalCents = lines.reduce((s, l) => s + (Number(l.priceCents)||0), 0);
     assert(totalCents > 0, 'Montant total nul (tarifs manquants ?)');
 
     
@@ -199,22 +221,29 @@ router.post('/:eventId/checkout', async (req, res) => {
         lastName:  String(payer?.lastName||'').trim(),
         email:     String(payer?.email||'').trim()
       },
+      // 🧾 lignes normalisées
       lines,
-      schedule: Number(schedule||1),
-    totalCents,
-    meta: {
-      eventId: String(ev._id),
-      eventSlug: ev.slug,
-      eventName: ev.name,
+      // 📌 champs “flattened” utilisés par les e-mails & la finalisation
+      payerFirstName: String(payer?.firstName||'').trim(),
+      payerLastName:  String(payer?.lastName||'').trim(),
+      payerEmail:     String(payer?.email||'').trim(),
+      totalCents,
+      paymentSplit: Number(schedule||1),
+      // Contexte sièges pour la finalisation
       seasonCode: ev.seasonCode,
-      venueSlug: ev.venueSlug,
-      provider:'helloasso'
-    },
+      venueSlug:  ev.venueSlug,
+      // méta évènement
+      schedule: Number(schedule||1),
+      meta: { eventId: String(ev._id), eventSlug: ev.slug, provider:'helloasso' },
+      origin: { flow: 'event', uiPath: '/event', apiPath: `${req.baseUrl||''}${req.path}` },
+      mailTemplateKind: 'event',
       hold: { until }
     });
 
-    // Pose des holds uniquement pour les lignes avec seatId réel
-    const holdable = lines.filter(ln => !!ln.seatId);
+    // Pose des holds uniquement pour les VRAIS sièges (présents dans statusIdx)
+    const holdable = lines.filter(ln => !!ln.seatId && statusIdx.has(ln.seatId));
+    // (Les lignes de zone — seatId vide — n’ont pas de hold unitaire : le quota
+    //  se gère au niveau des tarifs/zones. La finalisation ignore déjà ces lignes.)
     if (holdable.length) {
       await Promise.all(holdable.map(ln =>
         Seat.updateOne(
@@ -233,17 +262,31 @@ router.post('/:eventId/checkout', async (req, res) => {
         metadata: { orderId: String(ord._id), eventId: String(ev._id) },
         returnUrl: retUrl
       });
+      // stocker l’identifiant d’intent si dispo
+      if (intent?.id) {
+        ord.paymentProvider = 'helloasso';
+        ord.paymentProviderMeta = { ...(ord.paymentProviderMeta||{}), checkoutIntentId: String(intent.id) };
+        await ord.save();
+      }
     } catch (err) {
       // En DEV, si HELLOASSO_STUB=true, on renvoie un faux redirect pour tester le flux bout-en-bout
       if (String(process.env.HELLOASSO_STUB||'').toLowerCase() === 'true') {
         const appUrl = process.env.APP_URL || '';
-        intent = { redirectUrl: `${appUrl.replace(/\/$/,'')}/ha/return?stub=1&ok=1&orderId=${ord._id}` };
+        // ➕ inclure oid & ci pour aider /ha/return à corréler
+        const fakeCi = `stub_${ord._id}`;
+        ord.paymentProvider = 'helloasso';
+        ord.paymentProviderMeta = { ...(ord.paymentProviderMeta||{}), checkoutIntentId: fakeCi, stub:true };
+        await ord.save();
+        intent = {
+          redirectUrl: `${appUrl.replace(/\/$/,'')}/ha/return?stub=1&result=success&oid=${ord._id}&ci=${fakeCi}&orderId=${ord._id}`
+        };
       } else {
         throw new Error(`HelloAsso indisponible: ${err.message||err}`);
       }
     }
 
-    res.json({ ok:true, orderId:String(ord._id), checkout:intent });
+    const redirectUrl = intent?.redirectUrl || intent?.url || null;
+    res.json({ ok:true, orderId:String(ord._id), redirectUrl, checkout:intent });
   } catch (e) {
     console.error('[event/checkout] error:', e?.message || e);
     res.status(400).json({ ok:false, error: e.message||'Checkout error' });

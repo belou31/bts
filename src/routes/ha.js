@@ -215,13 +215,47 @@ router.get('/return', (req, res) => {
     }
   } catch {}
 
-  // ⚠️ En dehors du mode stub, aucun effet de bord : la confirmation est gérée par /ha/webhook
   const raw = q.status || q.code || q.result || '';
   const norm = normalizeHaStatus(raw);
-  // Ambigu -> ne pas afficher. On n'affiche que les statuts "négatifs".
   const label = (norm === 'failure' || norm === 'canceled') ? norm : '';
   const orderId = String(q.oid || q._id || q.orderId || q.checkoutIntentId || '—');
+
+  // DEV/STUB : on finalise ici (fire-and-forget) au lieu d’attendre un webhook.
+  (async () => {
+    try {
+      if (String(process.env.HELLOASSO_STUB||'').toLowerCase() === 'true') {
+        const ord = await Order.findById(q.oid || q.orderId);
+        if (ord) {
+          // journalise le "retour" pour debug
+          ord.paymentProvider = 'helloasso';
+          ord.paymentProviderMeta = {
+            ...(ord.paymentProviderMeta||{}),
+            lastReturnAt: new Date(),
+            lastReturnCode: norm || (raw || 'stub'),
+            checkoutIntentId: ord.paymentProviderMeta?.checkoutIntentId || (q.ci || q.checkoutIntentId || null),
+            stub: true
+          };
+          await ord.save();
+
+          if (norm !== 'failure' && norm !== 'canceled') {
+            const fin = await finalizePaidIfNoConflict(ord);   // ⚠️ N’altère PAS les seatId
+            if (fin.ok) {
+              try { await sendOrderAttestationIfNeeded(ord); } catch (e) {
+                console.warn('[ha/return stub] mail send failed:', e?.message || e);
+              }
+            } else {
+              console.warn('[ha/return stub] conflict', fin);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[ha/return stub] finalize failed:', e?.message || e);
+    }
+  })();
+
   return res.send(renderNeutral(orderId, label));
+
 });
 
 

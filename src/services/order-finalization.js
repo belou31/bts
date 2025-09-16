@@ -1,3 +1,4 @@
+//src/services/order-finalization.js
 import { Seat } from '../models/Seat.js';
 import { renderOrderEmail, subjectForOrder } from './mailer.js';
 import { sendMail } from '../loaders/mailer.js';
@@ -20,13 +21,16 @@ export const isPaidLike = (s) =>
   /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(s||''));
 
 const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid||''));
+const isRealSeatId        = (sid) => /^[A-Z0-9]+-[A-Z]+-\d{1,4}$/i.test(String(sid||''));
+
 
 export function realSeatIdsFromOrder(order) {
   return Array.from(new Set(
     (order?.lines || [])
       .map(l => String(l.seatId || '').trim())
-      .filter(s => s && !isVirtualZoneSeatId(s))
-  ));
+      // Ne garder que les vrais seatIds (ZONE-ROW-###) et exclure explicitement les IDs virtuels de zone
+      .filter(s => s && isRealSeatId(s) && !isVirtualZoneSeatId(s))
+    ));
 }
 
 
@@ -40,8 +44,8 @@ export async function finalizePaidIfNoConflict(order) {
   }
 
   const seats = await Seat.find({
-    seasonCode: order.seasonCode,
-    venueSlug:  order.venueSlug,
+    seasonCode: String(order.seasonCode||''),
+    venueSlug:  String(order.venueSlug||''),
     seatId:     { $in: seatIds }
   }).lean();
   const byId = new Map(seats.map(s => [String(s.seatId), s]));
@@ -76,7 +80,9 @@ export async function finalizePaidIfNoConflict(order) {
       seatId:     { $in: seatIds },
       $or: [
         { status: 'available' },
-        { status: 'busy', 'meta.hold.orderId': order._id }
+        { status: 'available' },
+        // le hold peut être stocké en ObjectId OU en string (selon les flux) → accepter les deux
+        { status: 'busy', $or: [ { 'meta.hold.orderId': order._id }, { 'meta.hold.orderId': String(order._id) } ] }        
       ]
     },
     { $set: { status: 'booked' }, $unset: { 'meta.hold': 1 } },
@@ -98,12 +104,18 @@ export async function finalizePaidIfNoConflict(order) {
 }
 
 export async function sendOrderAttestationIfNeeded(order) {
-  if (order?.paymentProviderMeta?.attestationSentAt) return false;
+  const isEvent = !!order?.meta?.eventId;
+  const tpl = isEvent
+    ? (process.env.EMAIL_TEMPLATE_EVENT_CONFIRM || 'event-confirmation')
+    : (process.env.EMAIL_TEMPLATE_SUBSCRIPTION_CONFIRM || process.env.EMAIL_TEMPLATE_TBH7_CONFIRM || 'subscription-confirmation');
+  const subject = isEvent
+    ? (process.env.EMAIL_SUBJECT_EVENT_CONFIRM || 'Les Bélougas - Confirmation de commande (match)')
+    : (process.env.EMAIL_SUBJECT_RENEW_CONFIRM || 'Les Bélougas - Votre Abonnement 2025-2026');
+ 
   const html = await renderOrderEmail(order);
-  const subject = subjectForOrder(order);
+  
   await sendMail({ to: order.payerEmail, subject, html });
-  order.paymentProviderMeta = { ...(order.paymentProviderMeta || {}), attestationSentAt: new Date() };
-  await order.save();
+
   return true;
 }
 

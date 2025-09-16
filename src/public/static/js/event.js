@@ -51,8 +51,9 @@
       const current = String(placeCell.textContent || '').trim();
       const z = String(row.dataset.zoneKey||'').toUpperCase();
       const sid = String(row.dataset.seatId||'').trim();
-      // 👉 Si c'est une ligne "zone" (pas de seatId), on force la clé (DEBOUT)
-      const val = sid || z || (ZONES_META[z] || z) || '';
+      // 👉 pour DEBOUT-Z001 on n’affiche que "DEBOUT"
+      const pretty = sid.replace(/-Z\d{3,}$/i, '');
+      const val = (pretty || z || (ZONES_META[z] || z) || '').toUpperCase();
       if (current === val) return;
       if (val) placeCell.textContent = val;
     });
@@ -64,14 +65,10 @@
     api.addRowForZone = function({ zoneKey, qty = 1 } = {}){
       const Z = String(zoneKey||'').toUpperCase();
       if (!Z) return;
-      for (let i=0;i<qty;i++){
-        const id = virtualSeatId(Z);              // ex: DEBOUT-Z001
-        const label = ZONES_META[Z] || Z;         // ex: "Debout" ou "DEBOUT"
-        // 👉 délègue entièrement à generic-view : il créé la ligne + select tarifs
-        api.addRowForSeat({ seatId: id, zoneKey: Z, label });
-      }
-      api.recomputeTotals?.();
-    };
+      const label = ZONES_META[Z] || Z;
+      for (let i=0;i<qty;i++) api.addRowForSeat({ seatId:'', zoneKey: Z, label });
+        api.recomputeTotals?.();
+      };
   }
 
   // Remplit le <select id="zoneSelect"> avec allowedZones + libellés
@@ -228,7 +225,13 @@
         const zone = String(row.dataset.zoneKey||'').toUpperCase();
         const sel  = row.querySelector('select[name="tariff"]');
         if (!sel) return;
-        const allowedTariffs = new Set(ALLOWED_TARIFFS_BY_ZONE[zone] || []);
+        const list = ALLOWED_TARIFFS_BY_ZONE[zone] || [];
+        // ⚠️ si on n’a pas de liste pour la zone, on ne filtre pas (sinon tout paraît vide)
+        if (!Array.isArray(list) || list.length === 0) {
+          [...sel.options].forEach(opt => opt.disabled = false);
+          return;
+        }
+        const allowedTariffs = new Set(list.map(t => String(t).toUpperCase()));
         [...sel.options].forEach(opt => {
           const t = String(opt.value||'').toUpperCase();
           opt.disabled = !allowedTariffs.has(t);
@@ -253,42 +256,6 @@
       applyFallbackLabels();
     });
 
-
-    btn?.addEventListener('click', async () => {
-      btn.disabled = true;
-      try {
-        const cfg = window.BTS_VIEW_CONFIG;
-        const items = Array.from(document.querySelectorAll('#cartRows .cart-row')).map(row => ({
-          seatId: row.dataset.seatId,
-          zoneKey: String(row.dataset.zoneKey || '').toUpperCase(),
-          tariffCode: row.querySelector('select[name="tariff"]')?.value || 'NORMAL'
-        }));
-        if (!items.length) throw new Error('Panier vide.');
-        const fn = String(first?.value||'').trim();
-        const ln = String(last?.value||'').trim();
-        const em = String(email?.value||'').trim();
-        if (!em) throw new Error('Email requis.');
-        if (!fn && !ln) throw new Error('Nom ou prénom requis.');
-        if (fn && ln && fn.toLowerCase() === ln.toLowerCase()) throw new Error('Nom et prénom ne peuvent pas être identiques.');
-
-        const resp = await fetch(cfg.api.checkout, {
-          method:'POST', headers:{ 'Content-Type':'application/json' },
-          body: JSON.stringify({ payer:{ firstName:fn, lastName:ln, email:em }, items, schedule: Number(sched?.value||1) })
-        }).then(async r=>({ ok:r.ok, status:r.status, body: await r.json().catch(()=>({})) }));
-
-        if (!resp.ok) {
-          const msg = resp.body?.error || `HTTP ${resp.status||''}`;
-          throw new Error(msg || 'Erreur checkout');
-        }
-        const url = resp.body?.checkout?.redirectUrl || resp.body?.checkout?.url || null;
-
-        if (url) location.href = url;
-        else setFb(true, "Intent de paiement créé. Suivez les instructions.");
-      } catch (e) {
-        setFb(false, e.message || 'Erreur.');
-      } finally {
-        btn.disabled = false;
-      }
-    });
+    // ⚠️ Ne pas binder ici : on laisse generic-view.js gérer #payBtn
   });
 })();

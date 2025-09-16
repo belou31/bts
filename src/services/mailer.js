@@ -24,29 +24,29 @@ function humanInstallments(n) {
 }
 
 function resolveOrderKind(order) {
+  // ➤ Priorité: une commande “match” porte meta.eventId → kind = 'event'
+  if (order?.meta?.eventId) return 'event';
+  // Compat existant : champs optionnels
   if (order.mailTemplateKind) return String(order.mailTemplateKind).toLowerCase();
   if (order.origin?.flow)     return String(order.origin.flow).toLowerCase();
   const phase = String(order.phase || '').toLowerCase();
-  if (['renew','fanclub','public','tbh7','grandpublic'].includes(phase)) {
-    return phase === 'tbh7' ? 'tbh7'
-         : phase === 'grandpublic' ? 'public'
-         : phase;
-  }
-  return 'renew'; // défaut doux
+  if (['renew','subscription','event','public'].includes(phase)) return phase;
+  return 'renew';
 }
 
+
 const TEMPLATE_BY_KIND = {
-  renew:  'renew-confirmation',
-  tbh7:   'tbh7-confirmation',     // fan club TBH7
-  fanclub:'tbh7-confirmation',     // alias
-  public: 'public-confirmation',   // si vous le créez plus tard
+  renew:         'renew-confirmation',
+  subscription:  'subscription-confirmation',   // (ex-public-confirmation renommé)
+  event:         'event-confirmation',
+  public:         'public-confirmation'
 };
 
 const SUBJECT_BY_KIND = {
-  renew:  process.env.EMAIL_SUBJECT_RENEW_CONFIRM  || 'Confirmation de paiement – Abonnement (Renouvellement)',
-  tbh7:   process.env.EMAIL_SUBJECT_TBH7_CONFIRM   || 'Confirmation d’inscription – TBH7',
-  fanclub:process.env.EMAIL_SUBJECT_TBH7_CONFIRM   || 'Confirmation d’inscription – TBH7',
-  public: process.env.EMAIL_SUBJECT_PUBLIC_CONFIRM || 'Confirmation de paiement – Abonnement (Grand public)',
+  renew:         process.env.EMAIL_SUBJECT_RENEW_CONFIRM         || 'Confirmation – Abonnement (Renouvellement)',
+  subscription:  process.env.EMAIL_SUBJECT_SUBSCRIPTION_CONFIRM  || 'Confirmation – Abonnement',
+  event:         process.env.EMAIL_SUBJECT_EVENT_CONFIRM         || 'Confirmation – Billetterie (Match)',
+  public:         process.env.EMAIL_SUBJECT_PUBLIC_CONFIRM         || 'Confirmation'
 };
 
 async function loadTemplateHtml(name) {
@@ -57,7 +57,7 @@ async function loadTemplateHtml(name) {
 
 async function buildTariffsMap(seasonCode, venueSlug) {
   try {
-    const tar = await Tariff.find({ seasonCode, venueSlug, isActive: true }).lean();
+    const tar = await Tariff.find({ seasonCode, venueSlug, active: true }).lean();
     const map = new Map();
     for (const t of tar) map.set(String(t.code || '').toUpperCase(), t.label || t.code);
     return map;
@@ -71,6 +71,19 @@ function getTariffLabel(code, map) {
   return map.get(up) || up || '';
 }
 
+// ——— Normalisation d'une ligne, utilisée pour un rendu unique (4 colonnes)
+function normalizeLine(l, tariffsMap) {
+  const seat = lineSeatOrZone(l);
+  const beneficiary = [l.holderFirstName, l.holderLastName].filter(Boolean).join(' ').trim();
+  const tariff = getTariffLabel(l.tariffCode, tariffsMap);
+  const priceCents = Number(l.priceCents)||0;
+  return {
+    seat, beneficiary, tariff,
+    pricePlain: fmtEuroPlain(priceCents), priceRich: fmtEuroWithSymbol(priceCents)
+  };
+}
+
+
 // ultra simple “mustache-like” replacer supporting dotted paths (e.g. payer.fullName)
 function applyVars(html, ctx) {
   return html.replace(/\{\{\s*([.\w]+)\s*\}\}/g, (_m, key) => {
@@ -81,9 +94,12 @@ function applyVars(html, ctx) {
   });
 }
 
+const VIRT_RE = /^.+-Z\d{3,}$/i;
 function lineSeatOrZone(l) {
-  // Renew: seatId; TBH7/Public: zoneKey fallback
-  return l.seatId || l.zoneKey || '';
+  // Si ID virtuel (ex: DEBOUT-Z001), on affiche la zone (DEBOUT)
+  const sid = String(l.seatId||'');
+  if (sid && VIRT_RE.test(sid)) return String(l.zoneKey||'');
+  return sid || String(l.zoneKey||'');
 }
 
 function formatDateFR(d) {
@@ -166,11 +182,13 @@ export function subjectForOrder(order) {
 }
 
 /**
- * Render email HTML for an Order, using the right template and context.
- * Works with your two current templates:
- *  - renew-confirmation.html (expects {{linesRows}}, {{installmentsInfo}}, etc.)
- *  - tbh7-confirmation.html  (expects {{LINES_HTML}} and nested objects)
- */
+  * Render email HTML for an Order, using the right template and context.
+  * Works with your two current templates:
+  *  - renew-confirmation.html (expects {{linesRows}}, {{installmentsInfo}}, etc.)
+  *  - tbh7-confirmation.html / subscription-confirmation.html
+  *    (expect {{LINES_HTML}} and nested objects)
+  */
+
 export async function renderOrderEmail(order) {
   const kind = resolveOrderKind(order);
   const tplName = TEMPLATE_BY_KIND[kind] || TEMPLATE_BY_KIND.renew;
@@ -191,70 +209,54 @@ export async function renderOrderEmail(order) {
     ? `<p>Référence HelloAsso : <b>${haOrderId}</b></p>`
     : '';
 
-  // Build rows (two variants)
-  const renewRows = (Array.isArray(order.lines) ? order.lines : [])
-    .map(l => {
-      const place = lineSeatOrZone(l);
-      const tarif = getTariffLabel(l.tariffCode, tariffsMap);
-      const price = fmtEuroPlain(l.priceCents);
-      return `<tr><td>${place}</td><td>${tarif}</td><td>${price} €</td></tr>`;
-    })
-    .join('');
+  // Rendu unique (4 colonnes) → LINES_HTML
+  const _lines = Array.isArray(order.lines) ? order.lines : [];
+  const normalized = _lines.map(l => normalizeLine(l, tariffsMap));
+  const LINES_HTML = normalized.map(c =>
+    `<tr><td>${c.seat}</td><td>${c.beneficiary}</td><td>${c.tariff}</td><td>${c.priceRich}</td></tr>`
+  ).join('');
 
-  const tbh7Rows = (Array.isArray(order.lines) ? order.lines : [])
-    .map(l => {
-      const place = lineSeatOrZone(l);
-      const beneficiaire = [l.holderFirstName, l.holderLastName].filter(Boolean).join(' ').trim();
-      const tarif = getTariffLabel(l.tariffCode, tariffsMap);
-      const price = fmtEuroWithSymbol(l.priceCents);
-      return `<tr><td>${place}</td><td>${beneficiaire}</td><td>${tarif}</td><td>${price}</td></tr>`;
-    })
-    .join('');
 
   const htmlRaw = await loadTemplateHtml(tplName);
   // Construit (éventuellement) le bloc billets + QR pour les commandes événementielles
   const ticketsHtml = await buildTicketsHtml(order);
 
-  if (tplName === 'tbh7-confirmation') {
-    const ctx = {
-      org: { clubName: (process.env.CLUB_NAME || 'Les Bélougas') },
-      payer: {
-        fullName: [order.payerFirstName, order.payerLastName].filter(Boolean).join(' ').trim()
-      },
-      order: {
-        id: String(order._id),
-        seasonCode: order.seasonCode || '',
-        venueSlug: order.venueSlug || '',
-        totalEuro: fmtEuroWithSymbol(totalCents),
-        split,
-        installmentsHuman: humanInstallments(split),
-        createdAt: formatDateFR(order.createdAt)
-      },
-      LINES_HTML: tbh7Rows,
-      TICKETS_HTML: ticketsHtml
-    };
-    return injectTicketsHtml(applyVars(htmlRaw, ctx), ticketsHtml);
-  }
-
-  // default: renew-confirmation.html (your current Renew template)
+  // Contexte unique pour TOUS les templates (renew / subscription / event)
   const ctx = {
-    payerFirstName: order.payerFirstName || '',
-    payerLastName:  order.payerLastName  || '',
-    payerEmail:     order.payerEmail     || '',
+    // ——— nouveaux placeholders unifiés
+    org: { clubName: (process.env.CLUB_NAME || 'Les Bélougas') },
+    payer: {
+      fullName: [order.payerFirstName || order?.payer?.firstName, order.payerLastName || order?.payer?.lastName]
+                  .filter(Boolean).join(' ').trim()
+    },
+    order: {
+      id: String(order._id),
+      seasonCode: order.seasonCode || '',
+      venueSlug: order.venueSlug || '',
+      totalEuro: fmtEuroWithSymbol(totalCents),
+      split,
+      installmentsHuman: humanInstallments(split),
+      createdAt: formatDateFR(order.createdAt)
+    },
+    LINES_HTML: LINES_HTML,
+    TICKETS_HTML: ticketsHtml,
+
+    // ——— compat héritée (au cas où un ancien template lit encore ces clés)
+    payerFirstName: order.payerFirstName || order?.payer?.firstName || '',
+    payerLastName:  order.payerLastName  || order?.payer?.lastName  || '',
+    payerEmail:     order.payerEmail     || order?.payer?.email     || '',
     orderId:        String(order._id),
-    seasonCode:     order.seasonCode || '',
-    venueSlug:      order.venueSlug || '',
-
-    totalEuro:      fmtEuroPlain(totalCents),       // template ajoute " €"
+    totalEuroPlain: fmtEuroPlain(totalCents),
     installmentsInfo: humanInstallments(split),
-
     haOrderBlock,
     clubName: (process.env.CLUB_NAME || 'Les Bélougas'),
-    linesRows: renewRows,
-    extraInfo: '', // slot libre si besoin
+    // si l'ancien template attend encore {{linesRows}}, on lui donne le 4-colonnes
+    linesRows: LINES_HTML,
+    extraInfo: ''
   };
 
   return injectTicketsHtml(applyVars(htmlRaw, ctx), ticketsHtml);
+
 }
 
 
