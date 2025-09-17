@@ -216,7 +216,6 @@ router.post('/:eventId/checkout', async (req, res) => {
 
     const ord = await Order.create({
       phase: 'event',
-      groupKey: `event-${seasonCode}`,
       paymentProvider: 'helloasso',
       paymentProviderMeta: {},
 
