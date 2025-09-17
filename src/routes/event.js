@@ -269,6 +269,8 @@ router.post('/:eventId/checkout', async (req, res) => {
     let intent = null;
     try {
       const retUrl = process.env.HELLOASSO_RETURN_URL || '';
+
+      console.log("Order:" + JSON.stringify(ord));
   
       intent = await HA.createCheckoutIntent({
         ord,

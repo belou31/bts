@@ -58,7 +58,6 @@ function ymdLocal(d) {
 // --- API v5: create intent ---
 export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const token = await getAccessToken();
-console.log("Order:" + JSON.stringify(order));
   // Nombre d’échéances
   const n = Math.max(1, Number(order.installments || order.paymentSplit || 1));
 
