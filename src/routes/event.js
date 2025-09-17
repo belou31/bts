@@ -213,8 +213,14 @@ router.post('/:eventId/checkout', async (req, res) => {
     // Crée order "pending" + hold
     const now = new Date();
     const until = new Date(now.getTime() + HOLD_MIN*60*1000);
+
     const ord = await Order.create({
-    createdAt: now,
+      phase: 'event',
+      groupKey: `event-${seasonCode}`,
+      paymentProvider: 'helloasso',
+      paymentProviderMeta: {},
+
+      createdAt: now,
       status: 'pending',
       payer: {
         firstName: String(payer?.firstName||'').trim(),
@@ -269,7 +275,8 @@ router.post('/:eventId/checkout', async (req, res) => {
         returnUrl: retUrl,
         backUrl: retUrl,
         errorUrl: retUrl
-      });   
+      });  
+  console.log("bingo"); 
       //     returnUrl: addOID(HA_RETURN_URL),
       //     backUrl:   addOID(HA_BACK_URL),
       //errorUrl:  addOID(HA_ERR_URL)
