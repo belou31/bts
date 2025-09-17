@@ -265,10 +265,18 @@ router.post('/:eventId/checkout', async (req, res) => {
     try {
       const retUrl = process.env.HELLOASSO_RETURN_URL || '';
       intent = await HA.createCheckoutIntent({
-        amountCents: totalCents,
-        metadata: { orderId: String(ord._id), eventId: String(ev._id) },
+        ord,
         returnUrl: retUrl
-      });
+      });   
+      //     returnUrl: addOID(HA_RETURN_URL),
+      //     backUrl:   addOID(HA_BACK_URL),
+      //errorUrl:  addOID(HA_ERR_URL)
+
+      //intent = await HA.createCheckoutIntent({
+      //  amountCents: totalCents,
+      //  metadata: { orderId: String(ord._id), eventId: String(ev._id) },
+      //  returnUrl: retUrl
+      //});
       // stocker l’identifiant d’intent si dispo
       if (intent?.id) {
         ord.paymentProvider = 'helloasso';
