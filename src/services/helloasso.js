@@ -71,6 +71,8 @@ export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl
     order.itemName ||
     `Abonnement ${order.seasonCode || ''}`.trim();
 
+console.log("C08:" + itemName);
+
   // Répartition des montants (reste sur l’acompte)
   const base = Math.floor(total / n);
   const remainder = total - base * n;
@@ -89,6 +91,7 @@ export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl
       terms = [];
     }
   }
+console.log("C09");
 
   // Payload conforme
   const payload = {
@@ -125,7 +128,7 @@ export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl
   if ((process.env.HELLOASSO_ENV || '').includes('sandbox')) {
     console.log('[helloasso] payload', JSON.stringify(payload));
   }
-
+console.log("C10");
   const url = `${API_V5}/organizations/${encodeURIComponent(ORG_SLUG)}/checkout-intents`;
   const r = await fetch(url, {
     method: 'POST',
