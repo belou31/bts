@@ -39,6 +39,8 @@ export function realSeatIdsFromOrder(order) {
 // Finalisation atomique anti-doublon. Ne fait PAS d’email.
 export async function finalizePaidIfNoConflict(order) {
   const seatIds = realSeatIdsFromOrder(order);
+  const isEvent = !!order?.meta?.eventId;   // ⬅️ nouvel indicateur
+
   if (!seatIds.length) {
     order.status = 'paid';
     await order.save();
@@ -58,7 +60,7 @@ export async function finalizePaidIfNoConflict(order) {
     if (!s) { conflicts.push({ seatId: sid, reason: 'not_found' }); continue; }
     if (s.status === 'booked') { conflicts.push({ seatId: sid, reason: 'already_booked' }); continue; }
     if (s.status === 'busy') {
-      const holder = s?.meta?.hold?.orderId ? String(s.meta.hold.orderId) : '';
+    const holder = s?.meta?.hold?.orderId ? String(s.meta.hold.orderId) : '';
       if (holder && holder !== String(order._id)) {
         conflicts.push({ seatId: sid, reason: 'busy_other' });
         continue;
@@ -75,6 +77,27 @@ export async function finalizePaidIfNoConflict(order) {
     return { ok: false, booked: 0, conflicts };
   }
 
+  if (isEvent) {
+    // ⚽ Cas ÉVÈNEMENT : ne pas “booker” globalement dans Seat.
+    // On libère le hold éventuel porté par CETTE commande (sinon il reste “busy” globalement).
+    await Seat.updateMany(
+      {
+        seasonCode: order.seasonCode,
+        venueSlug:  order.venueSlug,
+        seatId:     { $in: seatIds },
+        'meta.hold.orderId': String(order._id)
+      },
+      { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } },
+      { runValidators: false }
+    );
+
+    // L’état “booked” pour le plan du match sera géré en LECTURE
+    // par /api/event/:id/status (overlay à partir des Orders paid).
+    order.status = 'paid';
+    await order.save();
+    return { ok: true, booked: seatIds.length, conflicts: [] };
+  } else {
+    // 🪑 Cas ABONNEMENT : on “booke” définitivement dans Seat (comportement historique)
   const upd = await Seat.updateMany(
     {
       seasonCode: order.seasonCode,
@@ -82,27 +105,30 @@ export async function finalizePaidIfNoConflict(order) {
       seatId:     { $in: seatIds },
       $or: [
         { status: 'available' },
-        { status: 'available' },
-        // le hold peut être stocké en ObjectId OU en string (selon les flux) → accepter les deux
-        { status: 'busy', $or: [ { 'meta.hold.orderId': order._id }, { 'meta.hold.orderId': String(order._id) } ] }        
+        // busy tenu par cet ordre en ObjectId...
+        { status: 'busy', 'meta.hold.orderId': order._id },
+       // ...ou en String (cas /event et historiques)
+        { status: 'busy', 'meta.hold.orderId': String(order._id) }
       ]
     },
+
     { $set: { status: 'booked' }, $unset: { 'meta.hold': 1 } },
-    { runValidators: false }
-  );
-  const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);
-  if (modified !== seatIds.length) {
-    order.status = 'failed';
-    order.paymentProviderMeta = {
-      ...(order.paymentProviderMeta || {}),
-      conflict: { source: 'finalize', kind: 'seat_conflict_race', modified, expected: seatIds.length, checkedAt: new Date() }
-    };
+      { runValidators: false }
+    );
+    const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);
+    if (modified !== seatIds.length) {
+      order.status = 'failed';
+      order.paymentProviderMeta = {
+        ...(order.paymentProviderMeta || {}),
+        conflict: { source: 'finalize', kind: 'seat_conflict_race', modified, expected: seatIds.length, checkedAt: new Date() }
+      };
+      await order.save();
+      return { ok: false, booked: modified, conflicts: [{ reason: 'race_condition', modified, expected: seatIds.length }] };
+    }
+    order.status = 'paid';
     await order.save();
-    return { ok: false, booked: modified, conflicts: [{ reason: 'race_condition', modified, expected: seatIds.length }] };
-  }
-  order.status = 'paid';
-  await order.save();
-  return { ok: true, booked: modified, conflicts: [] };
+    return { ok: true, booked: modified, conflicts: [] };
+  }  
 }
 
 export async function sendOrderAttestationIfNeeded(order) {
