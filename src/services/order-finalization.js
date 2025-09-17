@@ -132,6 +132,7 @@ export async function finalizePaidIfNoConflict(order) {
 }
 
 export async function sendOrderAttestationIfNeeded(order) {
+  console.log("bingo");
   const isEvent = !!order?.meta?.eventId;
   const tpl = isEvent
     ? (process.env.EMAIL_TEMPLATE_EVENT_CONFIRM || 'event-confirmation')
