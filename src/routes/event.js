@@ -266,7 +266,9 @@ router.post('/:eventId/checkout', async (req, res) => {
       const retUrl = process.env.HELLOASSO_RETURN_URL || '';
       intent = await HA.createCheckoutIntent({
         ord,
-        returnUrl: retUrl
+        returnUrl: retUrl,
+        backUrl: retUrl,
+        errorUrl: retUrl
       });   
       //     returnUrl: addOID(HA_RETURN_URL),
       //     backUrl:   addOID(HA_BACK_URL),
