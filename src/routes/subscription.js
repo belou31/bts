@@ -97,7 +97,6 @@ async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, stat
 router.get('/status', async (_req, res, next) => {
   try {
     const { seasonCode, venueSlug } = await getActiveSeasonAndVenue();
-
     // --- Sièges de la salle (pour le clic direct sur siège côté front)
     const seats = await Seat.find(
       { seasonCode, venueSlug },
@@ -155,7 +154,6 @@ router.get('/status', async (_req, res, next) => {
 router.post('/checkout', async (req, res) => {
   try {
     const { seasonCode, venueSlug } = await getActiveSeasonAndVenue();
-
     const payer    = req.body?.payer || {};
     const schedule = Number(req.body?.schedule || 1);
     // Accepte "items" (nouveau) ET "lines" (héritage generic-view)
@@ -299,32 +297,47 @@ router.post('/checkout', async (req, res) => {
     const realSeatIds = lines
       .map(l => String(l.seatId || '').trim())
       .filter(sid => sid && !isVirtualZoneSeatId(sid));
-    if (realSeatIds.length) {
-      // on lock uniquement les seats encore disponibles
-      await Seat.updateMany(
+
+      if (realSeatIds.length) {
+      // Pose les holds uniquement sur les sièges encore disponibles
+      const upd = await Seat.updateMany(
         { seasonCode, venueSlug, seatId: { $in: realSeatIds }, status: 'available' },
-        { $set: { status: 'busy', 'meta.hold': { by: 'checkout', orderId: order._id, until: holdUntil } } },
+       {
+          $set: {
+            status: 'busy',
+            'meta.hold': { by: 'checkout', orderId: String(order._id), until: holdUntil }
+          }
+        },
         { runValidators: false }
       );
-      // Vérifier que TOUS sont bien tenus
-      const held = await Seat.find(
-        { seasonCode, venueSlug, seatId: { $in: realSeatIds }, 'meta.hold.orderId': order._id },
-        { seatId: 1 }
-      ).lean();
-      const heldSet = new Set(held.map(s => s.seatId));
-      const missing = realSeatIds.filter(id => !heldSet.has(id));
-      if (missing.length) {
-        // rollback best-effort
+      const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);
+      if (modified !== realSeatIds.length) {
+        // Rollback strict : ne libère que ce qu'on vient de tenir pour CETTE commande
         await Seat.updateMany(
-          { seasonCode, venueSlug, seatId: { $in: Array.from(heldSet) }, 'meta.hold.orderId': order._id },
-          { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
+          {
+            seasonCode, venueSlug,
+            seatId: { $in: realSeatIds },
+            status: 'busy',
+            $or: [
+              { 'meta.hold.orderId': String(order._id) },
+              { 'meta.hold.orderId': order._id } // compat si des holds anciens sont typés ObjectId
+            ]
+          },
+          { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } },
+          { runValidators: false }
         );
-        order.status = 'canceled';
+        order.status = 'failed';
+        order.paymentProviderMeta = {
+          ...(order.paymentProviderMeta || {}),
+          reason: 'pre_hold_mismatch',
+          expected: realSeatIds.length,
+          modified
+        };
         await order.save();
-        return res.status(409).json({ error: 'seat_unavailable', seats: missing });
+        return res.status(409).json({ ok:false, error:'seat_unavailable', message:'Un des sièges vient d’être pris.' });
       }
     }
-    
+      
     // HelloAsso (STUB en DEV)
     if (HELLOASSO_STUB) {
       const intentId  = `stub-${Date.now()}`;

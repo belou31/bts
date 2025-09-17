@@ -1,5 +1,8 @@
+//src/services/order-finalization.js
+import mongoose from 'mongoose';
 import { Seat } from '../models/Seat.js';
-import { renderOrderEmail, subjectForOrder } from './mailer.js';
+import { renderOrderEmail, subjectForOrder, attachQrFromBank } from './mailer.js';
+import { buildTicketsPdfBuffer } from './tickets-pdf.js';
 import { sendMail } from '../loaders/mailer.js';
 
 export function normalizeHaStatus(input, fallback) {
@@ -20,19 +23,24 @@ export const isPaidLike = (s) =>
   /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(s||''));
 
 const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid||''));
+const isRealSeatId        = (sid) => /^[A-Z0-9]+-[A-Z]+-\d{1,4}$/i.test(String(sid||''));
+
 
 export function realSeatIdsFromOrder(order) {
   return Array.from(new Set(
     (order?.lines || [])
       .map(l => String(l.seatId || '').trim())
-      .filter(s => s && !isVirtualZoneSeatId(s))
-  ));
+      // Ne garder que les vrais seatIds (ZONE-ROW-###) et exclure explicitement les IDs virtuels de zone
+      .filter(s => s && isRealSeatId(s) && !isVirtualZoneSeatId(s))
+    ));
 }
 
 
 // Finalisation atomique anti-doublon. Ne fait PAS d’email.
 export async function finalizePaidIfNoConflict(order) {
   const seatIds = realSeatIdsFromOrder(order);
+  const isEvent = !!order?.meta?.eventId;   // ⬅️ nouvel indicateur
+
   if (!seatIds.length) {
     order.status = 'paid';
     await order.save();
@@ -40,8 +48,8 @@ export async function finalizePaidIfNoConflict(order) {
   }
 
   const seats = await Seat.find({
-    seasonCode: order.seasonCode,
-    venueSlug:  order.venueSlug,
+    seasonCode: String(order.seasonCode||''),
+    venueSlug:  String(order.venueSlug||''),
     seatId:     { $in: seatIds }
   }).lean();
   const byId = new Map(seats.map(s => [String(s.seatId), s]));
@@ -52,7 +60,7 @@ export async function finalizePaidIfNoConflict(order) {
     if (!s) { conflicts.push({ seatId: sid, reason: 'not_found' }); continue; }
     if (s.status === 'booked') { conflicts.push({ seatId: sid, reason: 'already_booked' }); continue; }
     if (s.status === 'busy') {
-      const holder = s?.meta?.hold?.orderId ? String(s.meta.hold.orderId) : '';
+    const holder = s?.meta?.hold?.orderId ? String(s.meta.hold.orderId) : '';
       if (holder && holder !== String(order._id)) {
         conflicts.push({ seatId: sid, reason: 'busy_other' });
         continue;
@@ -69,6 +77,27 @@ export async function finalizePaidIfNoConflict(order) {
     return { ok: false, booked: 0, conflicts };
   }
 
+  if (isEvent) {
+    // ⚽ Cas ÉVÈNEMENT : ne pas “booker” globalement dans Seat.
+    // On libère le hold éventuel porté par CETTE commande (sinon il reste “busy” globalement).
+    await Seat.updateMany(
+      {
+        seasonCode: order.seasonCode,
+        venueSlug:  order.venueSlug,
+        seatId:     { $in: seatIds },
+        'meta.hold.orderId': String(order._id)
+      },
+      { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } },
+      { runValidators: false }
+    );
+
+    // L’état “booked” pour le plan du match sera géré en LECTURE
+    // par /api/event/:id/status (overlay à partir des Orders paid).
+    order.status = 'paid';
+    await order.save();
+    return { ok: true, booked: seatIds.length, conflicts: [] };
+  } else {
+    // 🪑 Cas ABONNEMENT : on “booke” définitivement dans Seat (comportement historique)
   const upd = await Seat.updateMany(
     {
       seasonCode: order.seasonCode,
@@ -76,34 +105,70 @@ export async function finalizePaidIfNoConflict(order) {
       seatId:     { $in: seatIds },
       $or: [
         { status: 'available' },
-        { status: 'busy', 'meta.hold.orderId': order._id }
+        // busy tenu par cet ordre en ObjectId...
+        { status: 'busy', 'meta.hold.orderId': order._id },
+       // ...ou en String (cas /event et historiques)
+        { status: 'busy', 'meta.hold.orderId': String(order._id) }
       ]
     },
+
     { $set: { status: 'booked' }, $unset: { 'meta.hold': 1 } },
-    { runValidators: false }
-  );
-  const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);
-  if (modified !== seatIds.length) {
-    order.status = 'failed';
-    order.paymentProviderMeta = {
-      ...(order.paymentProviderMeta || {}),
-      conflict: { source: 'finalize', kind: 'seat_conflict_race', modified, expected: seatIds.length, checkedAt: new Date() }
-    };
+      { runValidators: false }
+    );
+    const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);
+    if (modified !== seatIds.length) {
+      order.status = 'failed';
+      order.paymentProviderMeta = {
+        ...(order.paymentProviderMeta || {}),
+        conflict: { source: 'finalize', kind: 'seat_conflict_race', modified, expected: seatIds.length, checkedAt: new Date() }
+      };
+      await order.save();
+      return { ok: false, booked: modified, conflicts: [{ reason: 'race_condition', modified, expected: seatIds.length }] };
+    }
+    order.status = 'paid';
     await order.save();
-    return { ok: false, booked: modified, conflicts: [{ reason: 'race_condition', modified, expected: seatIds.length }] };
-  }
-  order.status = 'paid';
-  await order.save();
-  return { ok: true, booked: modified, conflicts: [] };
+    return { ok: true, booked: modified, conflicts: [] };
+  }  
 }
 
 export async function sendOrderAttestationIfNeeded(order) {
-  if (order?.paymentProviderMeta?.attestationSentAt) return false;
-  const html = await renderOrderEmail(order);
+  const isEvent = !!order?.meta?.eventId;
+  const tpl = isEvent
+    ? (process.env.EMAIL_TEMPLATE_EVENT_CONFIRM || 'event-confirmation')
+    : (process.env.EMAIL_TEMPLATE_SUBSCRIPTION_CONFIRM || process.env.EMAIL_TEMPLATE_TBH7_CONFIRM || 'subscription-confirmation');
+
   const subject = subjectForOrder(order);
-  await sendMail({ to: order.payerEmail, subject, html });
-  order.paymentProviderMeta = { ...(order.paymentProviderMeta || {}), attestationSentAt: new Date() };
-  await order.save();
+  const html = await renderOrderEmail(order);  
+
+   // 1) Banque de QR → order.meta.tickets
+   try {
+     const r = await attachQrFromBank(mongoose.connection.db, order);
+     if (r?.ok && Array.isArray(r.tickets) && r.tickets.length) {
+       order.meta = { ...(order.meta || {}), tickets: r.tickets };
+       await order.save();
+     }
+   } catch (e) {
+     console.warn('[mail] attachQrFromBank failed:', e.message);
+   }
+
+   // 2) Génère le PDF si tickets présents
+   let attachments = [];
+   try {
+     if (Array.isArray(order?.meta?.tickets) && order.meta.tickets.length) {
+       const pdf = await buildTicketsPdfBuffer(order);
+       attachments.push({
+         filename: `billets-${String(order._id)}.pdf`,
+         contentType: 'application/pdf',
+         content: pdf
+       });
+     }
+   } catch (e) {
+     console.warn('[mail] buildTicketsPdfBuffer failed:', e.message);
+   }
+
+
+  await sendMail({ to: order.payerEmail, subject, html, attachments });
+
   return true;
 }
 

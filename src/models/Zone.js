@@ -24,13 +24,21 @@ const ZoneSchema = new mongoose.Schema({
   // ATTENTION: unique par saison désormais
   seasonCode: { type: String, required: true, index: true },
 
+  // Lieu (patinoire). Permet de distinguer les mêmes clés de zones selon la salle
+  venueSlug:  { type: String, required: true, index: true },
+
+  // Contrôle d'accès à la billetterie publique du match
+  // PUBLIC: visible si tarif-zone event existe ; VIP/FANCLUB/HIDDEN: invisibles en public
+  access:     { type: String, enum: ['PUBLIC','VIP','FANCLUB','HIDDEN'], default: 'PUBLIC', index: true },
+
   isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
-// ---- Index composé unique par saison ----
+// ---- Index composé unique par saison/lieu/clé ----
 ZoneSchema.index(
-  { key: 1, seasonCode: 1 },
-  { unique: true, name: 'uniq_zone_key_season' }
+  { seasonCode: 1, venueSlug: 1, key: 1 },
+  { unique: true, name: 'uniq_zone_season_venue_key' }
 );
+ 
 
 export const Zone = mongoose.models.Zone || mongoose.model('Zone', ZoneSchema);

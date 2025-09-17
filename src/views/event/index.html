@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Billetterie Match — BTS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- IMPORTANT : chemins relatifs à /bts/ (gérés par le reverse-proxy) -->
+  <link rel="icon" href="../static/img/favicon.ico">
+  <link rel="stylesheet" href="../static/styles/generic-view.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <img src="../static/img/logo.png" alt="Logo" class="logo">
+      <h1 id="pageTitle">Billetterie du match</h1>
+    </div>
+    <p>Sélectionnez vos places sur le plan, complétez les informations, puis procédez au paiement sécurisé.</p>
+  </header>
+
+  <main class="page" id="page">
+    <!-- Colonne PLAN -->
+    <section class="col plan-col">
+      <div id="plan" class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Plan</h2>
+          <!-- Toolbar plan : toggle layout + plein écran (identique à subscription) -->
+          <div class="plan-actions" role="toolbar" aria-label="Affichage">
+            <button id="layoutToggle" class="tool-btn" type="button" title="Basculer l’affichage">
+              <svg class="icon icon-h" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+                <rect x="2"  y="5" width="7" height="10" rx="2"/><rect x="11" y="5" width="7" height="10" rx="2"/>
+              </svg>
+              <svg class="icon icon-v" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" hidden>
+                <rect x="5" y="2"  width="10" height="7" rx="2"/><rect x="5" y="11" width="10" height="7" rx="2"/>
+              </svg>
+            </button>
+            <button id="fsToggle" class="tool-btn" type="button" title="Plein écran du plan">
+              <svg class="icon icon-big" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+                <rect x="3" y="3" width="14" height="14" rx="3"/>
+              </svg>
+              <svg class="icon icon-small" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" hidden>
+                <rect x="6" y="6" width="8" height="8" rx="2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="plan-wrap">
+          <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="Plan de la salle"></object>
+          <div class="plan-status">Molette pour zoomer, cliquer-glisser pour déplacer.</div>
+        </div>
+        <div class="help">Cliquez sur un siège pour l’ajouter/retirer du panier.</div>
+      </div>
+    </section>
+
+    <!-- Colonne COMMANDE -->
+    <section class="col form-col">
+      <div id="order" class="panel">
+        <!-- Bloc LIGNES -->
+        <div id="linesPanel" class="block">
+          <h2>Vos places</h2>
+
+          <!-- Même toolbar que renew/subscription : ici on la garde mais optionnelle.
+               Elle peut rester vide/masquée si achat par siège uniquement. -->
+          <div class="zone-toolbar">
+            <label for="zoneSelect"><small class="help">Choisir sur Plan ou Ajouter Zone :</small></label>
+            <select id="zoneSelect"></select>
+            <button type="button" id="addZoneBtn">Ajouter</button>
+            <small class="help"><span id="zoneRemain" class="remain"></span></small>
+          </div>
+
+          <div class="lines-head">
+            <div></div>
+            <div>Place</div>
+            <div>Nom</div>
+            <div>Prénom</div>
+            <div>Tarif (montant)</div>
+          </div>
+          <div id="cartRows"></div>
+        </div>
+
+        <!-- Bloc PAIEMENT -->
+        <div id="payPanel" class="block">
+          <h2>Paiement</h2>
+          <p><small class="help">Le reçu et la confirmation seront envoyés à l'email de contact.</small></p>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="payerLast">Nom</label>
+              <input id="payerLast" type="text" placeholder="Nom">
+            </div>
+            <div class="form-group">
+              <label for="payerFirst">Prénom</label>
+              <input id="payerFirst" type="text" placeholder="Prénom">
+            </div>
+            <div class="form-group">
+              <label for="payerEmail">Email</label>
+              <input id="payerEmail" type="email" placeholder="email@exemple.com">
+            </div>
+          </div>
+
+          <div class="pay-bottom">
+            <div class="form-group"  style="display:none">
+              <label for="paySchedule">Échéancier</label>
+              <select id="paySchedule">
+                <option value="1">En 1 fois</option>
+                <option value="2">En 2 fois</option>
+                <option value="3">En 3 fois</option>
+              </select>
+            </div>
+            <div class="form-group"  style="visibility:hidden">
+              <label>Échéance(s)</label>
+              <div id="schedulePreview" class="total-box">—</div>
+            </div>
+            <div class="form-group">
+              <label>Total</label>
+              <div id="totalBox" class="total-box">0,00 €</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="payBtn" class="pay-btn">Procéder au paiement</button>
+          </div>
+          <p id="feedback" class="feedback"></p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Config spécifique "MATCH" : même structure que subscription, endpoints relatifs -->
+  <script>
+  (function(){
+    const q = new URLSearchParams(location.search);
+    const ev = q.get('eventId') || q.get('slug') || '';
+    window.BTS_VIEW_CONFIG = {
+      title: 'Les Bélougas - Billetterie Match - Préparation Bélougas vs Vipers - samedi 20 septembre',
+      pageTitle: 'Les Bélougas - Billetterie Match',
+      api: {
+        status:  '../api/event/' + encodeURIComponent(ev) + '/status',
+        checkout:'../api/event/' + encodeURIComponent(ev) + '/checkout'
+      },
+      // On reste sur une sélection au siège ; la toolbar zone peut être activée si besoin
+      selection: { type: 'seats' },
+      buildRowsFromData: false,
+      svgSeatClasses: { allowed: 'seat-allowed' }, // cohérence avec subscription
+      // Chemin du plan : remonte d'UN niveau pour tomber sur /venues/…
+      venuePlanPath: slug => `../static/venues/${slug}/plan.svg`
+    };
+  })();
+  </script>
+  <script defer src="../static/js/generic-view.js"></script>
+  <script defer src="../static/js/event.js"></script>
+</body>
+</html>
