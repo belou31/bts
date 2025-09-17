@@ -57,7 +57,9 @@ function ymdLocal(d) {
 
 // --- API v5: create intent ---
 export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
+console.log("C06:before");
   const token = await getAccessToken();
+console.log("C07:after");
 
   // Nombre d’échéances
   const n = Math.max(1, Number(order.installments || order.paymentSplit || 1));
@@ -91,7 +93,6 @@ console.log("C08:" + itemName);
       terms = [];
     }
   }
-console.log("C09");
 
   // Payload conforme
   const payload = {
@@ -128,7 +129,6 @@ console.log("C09");
   if ((process.env.HELLOASSO_ENV || '').includes('sandbox')) {
     console.log('[helloasso] payload', JSON.stringify(payload));
   }
-console.log("C10");
   const url = `${API_V5}/organizations/${encodeURIComponent(ORG_SLUG)}/checkout-intents`;
   const r = await fetch(url, {
     method: 'POST',
