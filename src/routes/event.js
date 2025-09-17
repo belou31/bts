@@ -9,7 +9,7 @@ import { Order } from '../models/Order.js';          // supposé existant
 import { Tariff } from '../models/Tariff.js';        // supposé existant
 import { TariffPrice } from '../models/TariffPrice.js'; // supposé existant
 import { Zone } from '../models/Zone.js';
-import * as HA from '../services/helloasso.js';      // createCheckoutIntent/getCheckoutStatus
+import { createCheckoutIntent } from '../services/helloasso.js';
 
 const router = Router();
 
@@ -233,6 +233,7 @@ router.post('/:eventId/checkout', async (req, res) => {
       payerLastName:  String(payer?.lastName||'').trim(),
       payerEmail:     String(payer?.email||'').trim(),
       totalCents,
+      installment: Number(schedule||1),
       paymentSplit: Number(schedule||1),
       // Contexte sièges pour la finalisation
       seasonCode: ev.seasonCode,
@@ -268,26 +269,15 @@ router.post('/:eventId/checkout', async (req, res) => {
     // Intent paiement (HelloAsso ou STUB)
     let intent = null;
     try {
+      const addOID = (u) => u + (u.includes('?') ? '&' : '?') + `oid=${encodeURIComponent(String(ord._id))}`;
       const retUrl = process.env.HELLOASSO_RETURN_URL || '';
-
-      console.log("Order:" + JSON.stringify(ord));
-  
-      intent = await HA.createCheckoutIntent({
-        ord,
-        returnUrl: retUrl,
-        backUrl: retUrl,
-        errorUrl: retUrl
+      intent = await createCheckoutIntent({
+        order: ord,
+        returnUrl: addOID(retUrl),
+        backUrl:   addOID(retUrl.replace('/ha/return','/ha/back')),
+        errorUrl:  addOID(retUrl.replace('/ha/return','/ha/error'))
       });  
-      //     returnUrl: addOID(HA_RETURN_URL),
-      //     backUrl:   addOID(HA_BACK_URL),
-      //errorUrl:  addOID(HA_ERR_URL)
 
-      //intent = await HA.createCheckoutIntent({
-      //  amountCents: totalCents,
-      //  metadata: { orderId: String(ord._id), eventId: String(ev._id) },
-      //  returnUrl: retUrl
-      //});
-      // stocker l’identifiant d’intent si dispo
       if (intent?.id) {
         ord.paymentProvider = 'helloasso';
         ord.paymentProviderMeta = { ...(ord.paymentProviderMeta||{}), checkoutIntentId: String(intent.id) };

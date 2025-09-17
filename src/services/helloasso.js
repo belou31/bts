@@ -61,7 +61,6 @@ export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl
   // Nombre d’échéances
   const n = Math.max(1, Number(order.installments || order.paymentSplit || 1));
 
-console.log("C06:before");
   // Montant total
   const total = Number(order.totalCents || 0);
   if (!total || total < 0) throw new Error('totalAmount invalid');
