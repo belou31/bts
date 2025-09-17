@@ -273,7 +273,7 @@ router.post('/:eventId/checkout', async (req, res) => {
       console.log("Order:" + JSON.stringify(ord));
   
       intent = await HA.createCheckoutIntent({
-        ord,
+        order: ord,
         returnUrl: retUrl,
         backUrl: retUrl,
         errorUrl: retUrl
