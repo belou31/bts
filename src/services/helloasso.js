@@ -58,7 +58,7 @@ function ymdLocal(d) {
 // --- API v5: create intent ---
 export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const token = await getAccessToken();
-
+console.log("Order:" + JSON.stringify(order));
   // Nombre d’échéances
   const n = Math.max(1, Number(order.installments || order.paymentSplit || 1));
 
@@ -66,14 +66,11 @@ console.log("C06:before");
   // Montant total
   const total = Number(order.totalCents || 0);
   if (!total || total < 0) throw new Error('totalAmount invalid');
-console.log("C07:after");
 
   // Intitulé
   const itemName =
     order.itemName ||
     `Abonnement ${order.seasonCode || ''}`.trim();
-
-console.log("C08:" + itemName);
 
   // Répartition des montants (reste sur l’acompte)
   const base = Math.floor(total / n);
