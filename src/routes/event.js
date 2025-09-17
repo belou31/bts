@@ -9,7 +9,7 @@ import { Order } from '../models/Order.js';          // supposé existant
 import { Tariff } from '../models/Tariff.js';        // supposé existant
 import { TariffPrice } from '../models/TariffPrice.js'; // supposé existant
 import { Zone } from '../models/Zone.js';
-import * as HA from '../services/helloasso.js';      // createCheckoutIntent/getCheckoutStatus
+import { createCheckoutIntent } from '../services/helloasso.js';
 
 const router = Router();
 
@@ -233,6 +233,7 @@ router.post('/:eventId/checkout', async (req, res) => {
       payerLastName:  String(payer?.lastName||'').trim(),
       payerEmail:     String(payer?.email||'').trim(),
       totalCents,
+      installment: Number(schedule||1),
       paymentSplit: Number(schedule||1),
       // Contexte sièges pour la finalisation
       seasonCode: ev.seasonCode,
@@ -272,7 +273,7 @@ router.post('/:eventId/checkout', async (req, res) => {
 
       console.log("Order:" + JSON.stringify(ord));
   
-      intent = await HA.createCheckoutIntent({
+      intent = await createCheckoutIntent({
         order: ord,
         returnUrl: retUrl,
         backUrl: retUrl,
