@@ -143,7 +143,7 @@ export async function buildTicketsPdfBuffer(order) {
   const ev = evId ? await Event.findById(evId).lean().catch(()=>null) : null;
 
   const tariffLabels = await loadTariffLabelMap(ev);
-
+console.log(JSON.stringify(tariffLabels));
   // --- Charge le template & le logo (fichiers)
   const tplPath  = process.env.TICKET_SVG_TEMPLATE || DEFAULT_TEMPLATE;
   const logoPath = process.env.CLUB_LOGO_SVG_PATH || DEFAULT_LOGO;
@@ -186,7 +186,7 @@ export async function buildTicketsPdfBuffer(order) {
         ORDER_ID: String(order?._id || ''),
         SEAT: seatOrZone(t),
         BENEFICIARY: beneficiary,
-        TARIFF: tLabel
+        TARIFF_LABEL: tCode
       });
 
       // 2) On remplace les slots <rect id="qr|logo"> par des <svg x/y/w/h> embarquant le contenu
