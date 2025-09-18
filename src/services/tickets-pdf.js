@@ -5,11 +5,27 @@ import PDFDocument from 'pdfkit';
 import SVGtoPDF from 'svg-to-pdfkit';
 import { Event } from '../models/Event.js';
 import { hexToQrSvg } from './qr.js';
-
+import { Tariff } from '../models/Tariff.js';
 
 // --- Emplacements / chemins par défaut
 const DEFAULT_TEMPLATE = path.resolve(process.cwd(), 'src', 'templates', 'pdf', 'ticket.svg');
 const DEFAULT_LOGO     = path.resolve(process.cwd(), 'data', 'logo.svg');
+
+// util pour récupérer le label depuis l'évènement (fallback saison/lieu)
+async function loadTariffLabelMap(ev) {
+  const qEvent = ev?.priceTableKey ? { priceTableKey: ev.priceTableKey, active: true } : null;
+  const tariffs = (qEvent
+    ? await Tariff.find(qEvent).lean()
+    : await Tariff.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, active: true }).lean()
+  ) || [];
+  const m = {};
+  for (const t of tariffs) {
+    const code = String(t.code || t.tariffCode || '').toUpperCase();
+    const label = t.label || t.name || code;
+    if (code) m[code] = String(label);
+  }
+  return m;
+}
 
 // ---------- Helpers ----------
 function fmtDateFR(d) {
@@ -126,6 +142,8 @@ export async function buildTicketsPdfBuffer(order) {
   const evId = String(order?.meta?.eventId || '');
   const ev = evId ? await Event.findById(evId).lean().catch(()=>null) : null;
 
+  const tariffLabels = await loadTariffLabelMap(ev);
+
   // --- Charge le template & le logo (fichiers)
   const tplPath  = process.env.TICKET_SVG_TEMPLATE || DEFAULT_TEMPLATE;
   const logoPath = process.env.CLUB_LOGO_SVG_PATH || DEFAULT_LOGO;
@@ -156,7 +174,9 @@ export async function buildTicketsPdfBuffer(order) {
       const t = tickets[i] || {};
       // Bénéficiaire : idéalement depuis la ligne correspondante, sinon fallback payer
       const beneficiary = beneficiaryForTicket(t, order);
-console.log(JSON.stringify(t));
+      const tCode = String(t?.tariff || t?.tariffCode || 'NORMAL').toUpperCase();
+      const tLabel = tariffLabels[tCode] || tCode;
+
       // 1) Remplacement des placeholders texte
       const textSvg = applyVars(rawSvg, {
         CLUB_NAME: clubName,
@@ -166,7 +186,7 @@ console.log(JSON.stringify(t));
         ORDER_ID: String(order?._id || ''),
         SEAT: seatOrZone(t),
         BENEFICIARY: beneficiary,
-        TARIFF: String(t?.tariff || t?.tariffCode || 'NORMAL').toUpperCase()
+        TARIFF: tLabel
       });
 
       // 2) On remplace les slots <rect id="qr|logo"> par des <svg x/y/w/h> embarquant le contenu
