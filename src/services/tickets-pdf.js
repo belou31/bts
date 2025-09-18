@@ -186,7 +186,7 @@ export async function buildTicketsPdfBuffer(order) {
         ORDER_ID: String(order?._id || ''),
         SEAT: seatOrZone(t),
         BENEFICIARY: beneficiary,
-        TARIFF: tLabel
+        TARIFF_LABEL: tLabel
       });
 
       // 2) On remplace les slots <rect id="qr|logo"> par des <svg x/y/w/h> embarquant le contenu
