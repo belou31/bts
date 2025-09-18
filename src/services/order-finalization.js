@@ -132,7 +132,7 @@ export async function finalizePaidIfNoConflict(order) {
 }
 
 export async function sendOrderAttestationIfNeeded(order) {
-console.log('[MAIL CALLSITE]', 'sendOrderAttestationIfNeeded', order?._id, order?.mailTemplateKind, order?.phase, !!order?.meta?.eventId);
+
   const isEvent = !!order?.meta?.eventId;
 
   const tpl = isEvent
@@ -158,7 +158,11 @@ console.log('[MAIL CALLSITE]', 'sendOrderAttestationIfNeeded', order?._id, order
    try {
      if (Array.isArray(order?.meta?.tickets) && order.meta.tickets.length) {
        const pdf = await buildTicketsPdfBuffer(order);
-       attachments.push({
+console.log('[mail/pdf] bytes=', pdf?.length || 0,
+            'tickets=', Array.isArray(order?.meta?.tickets) ? order.meta.tickets.length : 0,
+            'kind=', order?.mailTemplateKind);
+
+            attachments.push({
          filename: `billets-${String(order._id)}.pdf`,
          contentType: 'application/pdf',
          content: pdf
