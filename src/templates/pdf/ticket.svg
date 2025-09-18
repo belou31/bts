@@ -28,7 +28,7 @@
 
   <!-- Bloc info billet -->
   <text x="44" y="200" class="h4 text">Tarif</text>
-  <text x="44" y="230" class="h1 text">{{TARIFF}}</text>
+  <text x="44" y="230" class="h1 text">{{TARIFF_LABEL}}</text>
 
   <text x="44" y="260" class="h4 text">Place</text>
   <text x="44" y="290" class="h2 text">{{SEAT}}</text>
