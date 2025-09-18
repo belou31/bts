@@ -8,6 +8,7 @@ import tbh7Router from './tbh7.js';
 import subscriptionRouter from './subscription.js';
 import eventRoutes from './event.js';
 import adminRoutes from './admin.js';
+import supervisionRoutes from './admin/supervision.routes.js';
 
 import haRoutes from './ha.js';      
 
@@ -37,6 +38,7 @@ export default function routes(router) {
   router.use('/api/event', eventRoutes);
 
   router.use('/admin', adminRoutes);
+  router.use('/admin/supervision', supervisionRoutes);
 
   // API sous /s
   router.use('/s', renewApi);
