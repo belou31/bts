@@ -31,7 +31,7 @@
   <text x="44" y="230" class="h1 text">{{TARIFF_LABEL}}</text>
 
   <text x="44" y="260" class="h4 text">Place</text>
-  <text x="44" y="290" class="h2 text">{{SEAT}}</text>
+  <text x="44" y="290" class="h1 text">{{SEAT}}</text>
 
   <text x="44" y="320" class="h4 text">Bénéficiaire</text>
   <text x="44" y="350" class="h1 text">{{BENEFICIARY}}</text>
