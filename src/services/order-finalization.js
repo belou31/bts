@@ -132,11 +132,12 @@ export async function finalizePaidIfNoConflict(order) {
 }
 
 export async function sendOrderAttestationIfNeeded(order) {
-  console.log("bingo");
+console.log('[MAIL CALLSITE]', 'sendOrderAttestationIfNeeded', order?._id, order?.mailTemplateKind, order?.phase, !!order?.meta?.eventId);
   const isEvent = !!order?.meta?.eventId;
+
   const tpl = isEvent
     ? (process.env.EMAIL_TEMPLATE_EVENT_CONFIRM || 'event-confirmation')
-    : (process.env.EMAIL_TEMPLATE_SUBSCRIPTION_CONFIRM || process.env.EMAIL_TEMPLATE_TBH7_CONFIRM || 'subscription-confirmation');
+    : (process.env.EMAIL_TEMPLATE_SUBSCRIPTION_CONFIRM || 'subscription-confirmation');
 
   const subject = subjectForOrder(order);
   const html = await renderOrderEmail(order);  
