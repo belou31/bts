@@ -24,6 +24,10 @@ const HA_RETURN_URL   = process.env.HELLOASSO_RETURN_URL || (APP_URL ? `${APP_UR
 const HA_BACK_URL     = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/back');
 const HA_ERR_URL      = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/error');
 
+const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 10); // durée du hold en minutes
+const HOLD_MS  = HOLD_MIN * 60 * 1000;
+const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
+
 // zones “grand public” qu’on expose au sélecteur (Fan club + debout)
 const SUB_ZONE_KEYS = ['TBH7', 'TBH7-VIRAGE', 'DEBOUT'];
 
@@ -93,7 +97,6 @@ async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, stat
 router.get('/status', async (_req, res, next) => {
   try {
     const { seasonCode, venueSlug } = await getActiveSeasonAndVenue();
-
     // --- Sièges de la salle (pour le clic direct sur siège côté front)
     const seats = await Seat.find(
       { seasonCode, venueSlug },
@@ -151,7 +154,6 @@ router.get('/status', async (_req, res, next) => {
 router.post('/checkout', async (req, res) => {
   try {
     const { seasonCode, venueSlug } = await getActiveSeasonAndVenue();
-
     const payer    = req.body?.payer || {};
     const schedule = Number(req.body?.schedule || 1);
     // Accepte "items" (nouveau) ET "lines" (héritage generic-view)
@@ -274,7 +276,7 @@ router.post('/checkout', async (req, res) => {
 
     const totalCents = lines.reduce((acc, l) => acc + Number(l.priceCents || 0), 0);
 
-    // Créer l’order
+    // Créer l’order (pending)
     const order = await Order.create({
       seasonCode, venueSlug,
       phase: 'subscription',
@@ -290,6 +292,52 @@ router.post('/checkout', async (req, res) => {
       mailTemplateKind: 'subscription'
     });
 
+    // HOLD des sièges réels (status available -> busy + meta.hold)
+    const holdUntil = new Date(Date.now() + HOLD_MS);
+    const realSeatIds = lines
+      .map(l => String(l.seatId || '').trim())
+      .filter(sid => sid && !isVirtualZoneSeatId(sid));
+
+      if (realSeatIds.length) {
+      // Pose les holds uniquement sur les sièges encore disponibles
+      const upd = await Seat.updateMany(
+        { seasonCode, venueSlug, seatId: { $in: realSeatIds }, status: 'available' },
+       {
+          $set: {
+            status: 'busy',
+            'meta.hold': { by: 'checkout', orderId: String(order._id), until: holdUntil }
+          }
+        },
+        { runValidators: false }
+      );
+      const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);
+      if (modified !== realSeatIds.length) {
+        // Rollback strict : ne libère que ce qu'on vient de tenir pour CETTE commande
+        await Seat.updateMany(
+          {
+            seasonCode, venueSlug,
+            seatId: { $in: realSeatIds },
+            status: 'busy',
+            $or: [
+              { 'meta.hold.orderId': String(order._id) },
+              { 'meta.hold.orderId': order._id } // compat si des holds anciens sont typés ObjectId
+            ]
+          },
+          { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } },
+          { runValidators: false }
+        );
+        order.status = 'failed';
+        order.paymentProviderMeta = {
+          ...(order.paymentProviderMeta || {}),
+          reason: 'pre_hold_mismatch',
+          expected: realSeatIds.length,
+          modified
+        };
+        await order.save();
+        return res.status(409).json({ ok:false, error:'seat_unavailable', message:'Un des sièges vient d’être pris.' });
+      }
+    }
+      
     // HelloAsso (STUB en DEV)
     if (HELLOASSO_STUB) {
       const intentId  = `stub-${Date.now()}`;

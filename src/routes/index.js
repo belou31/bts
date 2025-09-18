@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 import tbh7Router from './tbh7.js';
 import subscriptionRouter from './subscription.js';
+import eventRoutes from './event.js';
 import adminRoutes from './admin.js';
 
 import haRoutes from './ha.js';      
@@ -26,12 +27,14 @@ export default function routes(router) {
 
   router.get('/subscription', (req, res) => res.sendFile(path.join(VIEWS_DIR, 'subscription', 'index.html')));
 
+  router.get('/event', (req, res) => res.sendFile(path.join(VIEWS_DIR, 'event', 'index.html')));
+
   // API JSON
   router.use('/api/tbh7', tbh7Router);
 
   router.use('/api/sub', subscriptionRouter);
 
-  //router.use('/admin', adminRoutes);
+  router.use('/api/event', eventRoutes);
 
   router.use('/admin', adminRoutes);
 
@@ -43,5 +46,5 @@ export default function routes(router) {
   router.use('/ha', haRoutes);                 //  expose /ha/return, /ha/back, /ha/error
 
   // Page racine -> redirige vers /renew (optionnel)
-  router.get('/', (_req, res) => res.redirect('./renew'));
+  //router.get('/', (_req, res) => res.redirect('./renew'));
 }

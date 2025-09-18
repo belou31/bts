@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="595" height="842" viewBox="0 0 595 842" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .h1{font:700 22px system-ui, -apple-system, Segoe UI, Roboto, Arial;}
+      .h2{font:600 14px system-ui, -apple-system, Segoe UI, Roboto, Arial;}
+      .p {font:400 12px system-ui, -apple-system, Segoe UI, Roboto, Arial;}
+      .muted{fill:#666}
+      .text{fill:#111}
+      .chip{fill:#f3f4f6; stroke:#e5e7eb}
+      .card{fill:#fff; stroke:#e5e7eb}
+    </style>
+  </defs>
+
+  <!-- Fond -->
+  <rect x="0" y="0" width="595" height="842" fill="#ffffff"/>
+  <!-- Carte -->
+  <rect x="28" y="28" width="539" height="786" rx="12" class="card"/>
+
+  <!-- En-tête -->
+  <text x="44" y="64" class="h2 text">{{CLUB_NAME}}</text>
+  <text x="44" y="92" class="h2 text">{{EVENT_NAME}}</text>
+  <text x="44" y="112" class="p muted">{{EVENT_DATE}}</text>
+  <text x="44" y="130" class="p muted">Lieu : {{VENUE_NAME}}</text>
+
+  <!-- Slot logo (en haut à droite) -->
+  <rect id="logo" x="455" y="40" width="92" height="92" fill="none"/>
+
+  <!-- Bloc info billet -->
+  <text x="44" y="200" class="h4 text">Tarif</text>
+  <text x="44" y="230" class="h1 text">{{TARIFF_LABEL}}</text>
+
+  <text x="44" y="260" class="h4 text">Place</text>
+  <text x="44" y="290" class="h1 text">{{SEAT}}</text>
+
+  <text x="44" y="320" class="h4 text">Bénéficiaire</text>
+  <text x="44" y="350" class="h1 text">{{BENEFICIARY}}</text>
+
+  <!-- Slot QR à droite (carré) -->
+  <rect id="qr" x="333" y="180" width="150" height="150" fill="none"/>
+
+  <!-- Pied de page -->
+  <text x="44" y="760" class="p muted">Commande : {{ORDER_ID}} — Présentez ce billet (QR) à l’entrée.</text>
+</svg>
+

@@ -1,6 +1,5 @@
 *.log
 *.csv
-*.svg
 *.zip
 .env
 .env.*
@@ -11,3 +10,4 @@
 node_modules
 data
 tests
+grep_*

@@ -134,6 +134,17 @@ function computeLineAmount(pricesIdx, zoneKey, tariffCode) {
 
 // ---- NO SINGLE GAP (local, fenêtre ±2, bords tolérés) ----
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
+
+function seatDisplayLabel(seatLike, seatId, zoneKey) {
+  // 1) si le front a fourni label (ex: "Debout"), on prend ça
+  if (seatLike?.label) return String(seatLike.label);
+  // 2) si c’est un ID virtuel “zone”, on affiche la zone (ex: "DEBOUT")
+  if (isVirtualZoneSeatId(seatId)) return String(zoneKey||'') || seatId;
+  // 3) sinon, on garde l’ID siège
+  return seatId;
+}
+
+
 function buildSelectedSet(items){
   const set = new Set();
   for (const it of (items||[])) {
@@ -372,9 +383,10 @@ function syncSelectedHighlights() {
 
   // ajoute pour chaque ligne du panier
   $$('.cart-row').forEach(row => {
-    const sid = row.dataset.seatId;
-   addSeatClass(sid, CLASSES.selected);
-});
+    const sid = row.dataset.seatId || '';
+    if (!sid) return;                    // ⬅️ évite querySelector('#')
+    addSeatClass(sid, CLASSES.selected);
+  });
 }
 
 /* ========= LIGNES (cart) ========= */
@@ -433,9 +445,8 @@ function applyTariffExtrasOnRow(row) {
 function makeRowForSeat(seat) {
 
   const seatId = normSeatId(seat?.seatId || seat?.id || seat?.label || '');
-  const seatDisplay = String(seat?.label || seatId);
-
   const z = seat?.zoneKey ? String(seat.zoneKey) : zoneKeyFromSeatId(seatId);
+  const seatDisplay = seatDisplayLabel(seat, seatId, z);   // ⬅️ “DEBOUT” plutôt que “DEBOUT-Z001”
     
     // a) abonné lié au siège (index normalisé) ou fallback sur les champs du siège
   const subs = CTX.seatSubById.get(seatId) || {
@@ -499,8 +510,9 @@ function makeRowForSeat(seat) {
 function updateTotals() {
   let total = 0;
   $$('.cart-row').forEach(row => {
-    const seatId = row.dataset.seatId;
-    const z = zoneKeyFromSeatId(seatId);
+    const seatId = row.dataset.seatId || '';
+    // ⬅️ privilégie la zone portée dans dataset (lignes “zone” incluses)
+    const z = row.dataset.zoneKey || zoneKeyFromSeatId(seatId);
     const tariff = $('.tariff-select', row).value;
     total += computeLineAmount(CTX.pricesIdx, z, tariff);
   });
@@ -605,6 +617,29 @@ function extractHaMessages(from) {
 
 async function submitPayment() {
   setFeedback('', ''); // clear
+
+  // ── Vérification: pour chaque place, au moins Nom OU Prénom ────────────────
+  // Réinitialise d'éventuels marquages d'erreur précédents
+  $$('.holder-first, .holder-last').forEach(inp => inp.removeAttribute('aria-invalid'));
+  const missingNameRows = [];
+  let firstBad = null;
+  $$('.cart-row').forEach(row => {
+    const fn = $('.holder-first', row)?.value?.trim();
+    const ln = $('.holder-last',  row)?.value?.trim();
+    if (!fn && !ln) {
+      const label = $('.seat-label', row)?.textContent?.trim() || row.dataset.seatId || `Ligne`;
+      missingNameRows.push(label);
+      // marque les deux champs en erreur (accessibilité)
+      $('.holder-first', row)?.setAttribute('aria-invalid','true');
+      $('.holder-last',  row)?.setAttribute('aria-invalid','true');
+      if (!firstBad) firstBad = $('.holder-last', row) || $('.holder-first', row);
+    }
+  });
+  if (missingNameRows.length) {
+    setFeedback('error', 'Informations manquantes', missingNameRows.map(l => `« ${l} » : saisir un nom ou un prénom.`));
+    try { firstBad?.focus(); } catch {}
+    return;
+  }
 
   const items = [];
   $$('.cart-row').forEach(row => {
@@ -748,10 +783,13 @@ async function submitPayment() {
     
     
     const out = await res.json();
-    if (out.redirectUrl) {
-      setFeedback('ok', 'Redirection vers le paiement…');
-      location.href = out.redirectUrl;
-    } else {
+    // ⬅️ tolérance: racine ou dans { checkout:{ redirectUrl } }
+    const redirectUrl = out.redirectUrl || out?.checkout?.redirectUrl || out?.checkout?.url;
+    if (redirectUrl) {
+
+    setFeedback('ok', 'Redirection vers le paiement…');
+      location.href = redirectUrl;
+  } else {
       throw new Error('Réponse inattendue du serveur.');
     }
   } catch (e) {

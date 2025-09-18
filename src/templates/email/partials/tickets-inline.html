@@ -1,0 +1,14 @@
+<!-- src/templates/email/partials/tickets-inline.html -->
+<!-- Bloc billets : sera remplacé par renderOrderEmail() si order.meta.tickets est défini -->
+{{TICKETS_HTML}}
+
+<!--
+Utilisation :
+- Dans tes templates (renew-confirmation.html, tbh7-confirmation.html, etc.),
+  ajoute simplement cette ligne où tu veux :
+  
+  {{TICKETS_HTML}}
+
+- Si le placeholder est absent, mailer.js ajoutera automatiquement le bloc "Billets"
+  juste avant </body> (fallback).
+-->

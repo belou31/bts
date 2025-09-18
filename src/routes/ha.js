@@ -3,41 +3,129 @@ import express from 'express';
 import crypto from 'crypto';
 import util from 'util';
 
+import http from 'node:http';
+import https from 'node:https';
+import { URL as NodeURL } from 'node:url';
+
 import { Order, Seat } from '../models/index.js';
 import { getCheckoutStatus } from '../services/helloasso.js';
-import { sendMail } from '../loaders/mailer.js';
-import { renderOrderEmail, subjectForOrder } from '../services/mailer.js';
+import { normalizeHaStatus, isPaidLike,
+         finalizePaidIfNoConflict,
+         sendOrderAttestationIfNeeded,
+         sendConflictEmail } from '../services/order-finalization.js';
 
 const router = express.Router();
 const ORG_SLUG = process.env.HELLOASSO_ORG_SLUG || '';
-
-// helpers
-const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
-const isOkCode = v => new Set(['success','succeeded','paid','ok']).has(String(v||'').toLowerCase());
-
-// helper log sûr (objets profonds / non sérialisables)
-const inspect = (v) => {
-  try { return util.inspect(v, { depth: 6, maxArrayLength: 100, colors: false }); }
-  catch { try { return JSON.stringify(v); } catch { return String(v); } }
-};
+const REPOST_URL = process.env.HELLOASSO_REPOST_URL || '';
+const REPOST_TIMEOUT_MS = Number(process.env.HELLOASSO_REPOST_TIMEOUT_MS || 1000);
 
 
-// Normalise les statuts HA potentiels (string ou objet) et accepte un fallback depuis la query (?code=...)
-function normalizeHaStatus(input, fallback) {
-  // déballage d'objets potentiels
-  let raw = input;
-  if (raw && typeof raw === 'object') {
-    raw =
-      raw.status || raw.state || raw.code || raw.result || raw.paymentStatus ||
-      (raw.data && (raw.data.status || raw.data.state || raw.data.code)) || '';
+// ----- REPOST RAW (forward tel quel, avec fallback http/https) -----
+function repostRawFromRequest(reqLike, sourceTag) {
+try {
+    if (!REPOST_URL || typeof fetch !== 'function') return;
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), REPOST_TIMEOUT_MS);
+
+    const method = (reqLike.method || 'POST').toUpperCase();
+    const origCT = reqLike.headers?.['content-type'] || reqLike.headers?.['Content-Type'] || '';
+    let body = '';
+    let headers = { 'X-Source': sourceTag };
+
+    if (method === 'POST') {
+      // Si on nous donne déjà une string brute -> on la renvoie telle quelle
+      if (typeof reqLike.body === 'string') {
+        body = reqLike.body;
+        if (origCT) headers['Content-Type'] = origCT;
+        else headers['Content-Type'] = 'application/octet-stream';
+      } else if (Buffer.isBuffer(reqLike.body)) {
+        body = reqLike.body; // Buffer OK
+        if (origCT) headers['Content-Type'] = origCT;
+        else headers['Content-Type'] = 'application/octet-stream';
+      } else {
+        // Objet déjà parsé -> on reconstruit en JSON
+        body = JSON.stringify(reqLike.body ?? {});
+        headers['Content-Type'] = 'application/json';
+      }
+    } else {
+      // GET -> on reconstruit le form-urlencoded depuis query
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(reqLike.query || {})) {
+        if (Array.isArray(v)) v.forEach(val => params.append(k, String(val)));
+        else params.append(k, String(v));
+      }
+      body = params.toString();
+      headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    }
+
+     // fire-and-forget (on ne bloque pas le flux HA)
+    if (typeof fetch === 'function') {
+      // fire-and-forget, on n'attend pas la réponse
+      fetch(REPOST_URL, { method: 'POST', headers, body })
+        .catch(err => console.warn('[ha/repost-raw:fetch] failed:', err?.message || err));
+      return;
+    }
+
+    // 2) Fallback http/https natif
+    const u = new NodeURL(REPOST_URL);
+    const isHttps = u.protocol === 'https:';
+    const opts = {
+      method: 'POST',
+      hostname: u.hostname,
+      port: u.port || (isHttps ? 443 : 80),
+      path: u.pathname + (u.search || ''),
+      headers: {
+        ...headers,
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
+    const client = isHttps ? https : http;
+    const req2 = client.request(opts, (res2) => {
+      // on consomme la réponse pour éviter les warnings, mais sans rien en faire
+      res2.on('data', () => {});
+      res2.on('end', () => {});
+    });
+    req2.on('error', (err) => console.warn('[ha/repost-raw:http] failed:', err?.message || err));
+    if (REPOST_TIMEOUT_MS > 0) {
+      req2.setTimeout(REPOST_TIMEOUT_MS, () => {
+        console.warn('[ha/repost-raw:http] timeout');
+        try { req2.destroy(new Error('timeout')); } catch {}
+      });
+    }
+    req2.write(body);
+    req2.end();
+  } catch (e) {
+    console.warn('[ha/repost-raw] failed:', e?.message || e);
   }
-  raw = String(raw || fallback || '').trim().toLowerCase();
-  if (!raw) return '';
-  // mapping simple vers une poignée de valeurs canoniques
-  if (raw === 'payment_succeeded' || raw === 'success' || raw === 'succeeded' || raw === 'ok') return 'succeeded';
-  if (raw === 'paid' || raw === 'payment_accepted' || raw === 'processed') return 'paid';
-  if (raw.startsWith('authoriz')) return 'authorized';
-  return raw;
+}
+
+// ---- HTML neutre pour /ha/return
+function renderNeutral(orderId, statusLabel) {
+  const extra = statusLabel ? ` — statut: ${statusLabel}` : '';
+  return `<!doctype html><meta charset="utf-8">
+    <link rel="icon" href="/bts/static/img/favicon.ico">
+    <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,'Noto Sans',sans-serif;
+           margin:2rem;line-height:1.5}
+      .card{max-width:720px;border:1px solid #eee;border-radius:12px;padding:24px}
+      h1{font-size:1.25rem;margin:0 0 .5rem}
+      .muted{color:#666}
+      .warn{background:#FFF6E5;border:1px solid #F6C15C;padding:12px;border-radius:8px;margin-top:12px}
+    </style>
+    <div class="card">
+      <h1>Traitement en cours…</h1>
+      <p class="muted">Commande <strong>${orderId}</strong>${extra}</p>
+      <p>Votre paiement a été pris en charge. Deux emails distincts vont vous parvenir&nbsp;:</p>
+      <ul>
+        <li><strong>Le reçu HelloAsso</strong> pour la transaction bancaire,</li>
+        <li><strong>L’attestation d’abonnement</strong> envoyée par <em>billetterie@tbhc.fr</em>.</li>
+      </ul>
+      <div class="warn">
+        <strong>Important&nbsp;:</strong>
+        si vous recevez le reçu HelloAsso mais <em>pas</em> l’attestation d’abonnement,
+        vos places ne sont <strong>pas</strong> bloquées et nous procéderons au remboursement.
+      </div>
+    </div>`;
 }
 
 
@@ -78,63 +166,13 @@ async function findOrderFromQuery(q) {
 const isStub = () => String(process.env.HELLOASSO_STUB || '').toLowerCase() === 'true';
 const stubResultEnv = () => String(process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
 
-// Marque en "booked" tous les SIÈGES réels de la commande (renew/subscription).
-// - Ignore les lignes "zone" (ex: TBH7-Z001)
-// - Idempotent: on remet "booked" même si l'état précédent n'était pas "available"
-async function markSeatsBooked(order) {
-  try {
-    const lines = Array.isArray(order?.lines) ? order.lines : [];
-    const realSeatIds = Array.from(new Set(
-      lines.map(l => String(l.seatId || '').trim())
-           // Ignore les pseudo-IDs de zone (ex: TBH7-Z001)
-           .filter(s => s && !/-Z\d{3,}$/i.test(s))
-    ));
-
-    if (!realSeatIds.length) return;
-    // ⚙️ Mise à jour inconditionnelle par seatId (sans filtre d'état) pour couvrir "Provisioned", "Held", etc.
-    const r = await Seat.updateMany(
-      { seasonCode: order.seasonCode, venueSlug: order.venueSlug, seatId: { $in: realSeatIds } },
-      { $set: { status: 'booked' } },
-      { runValidators: false }
-    );
-    console.log('[ha/return] seats → booked',
-      { count: realSeatIds.length, matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0, ids: realSeatIds });
-    
-  } catch (e) {
-    console.warn('[ha/return] seat update failed:', e.message);
-  }
-}
-
-function isPaidLike(status) {
-  return /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(status || '').trim());
-}
-
-function renderNeutral(orderId, statusLabel) {
-  const extra = statusLabel ? ` — statut: ${statusLabel}` : '';
-  return `<!doctype html><meta charset="utf-8">
-    <link rel="icon" href="/bts/static/img/favicon.ico">
-    <style>
-      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,'Noto Sans',sans-serif;
-           margin:2rem;line-height:1.5}
-      .card{max-width:720px;border:1px solid #eee;border-radius:12px;padding:24px}
-      h1{font-size:1.25rem;margin:0 0 .5rem}
-      .muted{color:#666}
-      .warn{background:#FFF6E5;border:1px solid #F6C15C;padding:12px;border-radius:8px;margin-top:12px}
-    </style>
-    <div class="card">
-      <h1>Traitement en cours…</h1>
-      <p class="muted">Commande <strong>${orderId}</strong>${extra}</p>
-      <p>Votre paiement a été pris en charge. Deux emails distincts vont vous parvenir&nbsp;:</p>
-      <ul>
-        <li><strong>Le reçu HelloAsso</strong> pour la transaction bancaire,</li>
-        <li><strong>L’attestation d’abonnement</strong> envoyée par <em>billetterie@tbhc.fr</em>.</li>
-      </ul>
-      <div class="warn">
-        <strong>Important&nbsp;:</strong>
-        si vous recevez le reçu HelloAsso mais <em>pas</em> l’attestation d’abonnement,
-        vos places ne sont <strong>pas</strong> bloquées et nous procéderons au remboursement.
-      </div>
-    </div>`;
+// ---- Helpers seats (conflit-safe) ----
+function realSeatIdsFromOrder(order) {
+  const lines = Array.isArray(order?.lines) ? order.lines : [];
+  return Array.from(new Set(
+    lines.map(l => String(l.seatId || '').trim())
+         .filter(s => s && !/-Z\d{3,}$/i.test(s)) // exclut les pseudo-IDs de zone
+  ));
 }
 
 
@@ -143,129 +181,83 @@ function renderNeutral(orderId, statusLabel) {
  * STUB:   ?oid=<OrderId>&ci=<intentId>&stub=1&result=success|failure
  * HA:     ?checkoutIntentId=<id>&code=succeeded|canceled&orderId=<haOrderId>
  */
-router.get('/return', async (req, res) => {
+router.get('/return', (req, res) => {
+  const q = req.query || {};
+  console.log('[ha/return] query=', {
+    oid: q.oid || null,
+    ci: q.ci || q.checkoutIntentId || null,
+    code: q.code || q.result || q.status || null,
+    orderId: q.orderId || null
+  });
+  // 🧪 DEV STUB (optionnel) : si HELLOASSO_STUB=true ET stub=1, on finalise localement.
   try {
-    const q = req.query || {};
-    // log concis pour diagnostiquer INT
-    console.log('[ha/return] query=', {
-      oid: q.oid || null,
-      ci: q.ci || q.checkoutIntentId || null,
-      code: q.code || q.result || q.status || null,
-      orderId: q.orderId || null
-    });
-    const { oid, ci, stub, result, checkoutIntentId, code, orderId } = q;
-
-    const inStub = isStub() || String(stub) === '1' || typeof result !== 'undefined';
-
-    // Trouver la commande via tous les indices possibles
-    const order = await findOrderFromQuery(q);
-
-    if (!order) {
-      return res.status(404).send(`<!doctype html><meta charset="utf-8">
-        <link rel="icon" href="/bts/static/img/favicon.ico">
-        <h1>Order not found</h1>`);
-    }
-
-    console.log('[ha/return] order found', {
-      orderId: String(order._id),
-      status: order.status,
-      meta: order.paymentProviderMeta
-    });
-
-if (order.status === 'paid') {
-      return res.send(`<!doctype html><meta charset="utf-8">
-        <link rel="icon" href="/bts/static/img/favicon.ico">
-        <h1>Paiement déjà confirmé ✅</h1><p>Commande ${order._id}</p>`);
-    }
-
-    let status;
-
-    if (inStub) {
-      const desired = String(result || stubResultEnv());
-      status = (desired === 'success') ? 'success' : 'failure';
-
-      // trace minimale “provider”
-      order.paymentProvider = 'helloasso';
-      order.paymentProviderMeta = {
-        ...(order.paymentProviderMeta || {}),
-        name: 'stub',
-        checkoutIntentId: ci || checkoutIntentId || `stub-${Date.now()}`,
-        stubResult: status
-      };
-    } else {
-      // PROD/SANDBOX: verify via HelloAsso
-      const resolvedIntentId = checkoutIntentId || ci;
-      if (!resolvedIntentId) {
-        return res.status(400).send(`<!doctype html><meta charset="utf-8">
-          <link rel="icon" href="/bts/static/img/favicon.ico">
-          <h1>Bad Request</h1><p>checkoutIntentId manquant</p>`);
-      }
-      console.log('[ha/return] resolvedIntentId=', resolvedIntentId);
-      let statusRaw;
-
-      try {
-        // Peut renvoyer une string OU un objet → on normalise plus bas
-        statusRaw = await getCheckoutStatus(resolvedIntentId);
-        console.log('[ha/return] getCheckoutStatus raw type=', typeof statusRaw, 'value=', inspect(statusRaw));
-      } catch (e) {
-        console.error('[ha/return] getCheckoutIntent failed:', e.message || e);
-        return res.status(500).send(`<!doctype html><meta charset="utf-8">
-          <link rel="icon" href="/bts/static/img/favicon.ico">
-          <h1>Erreur interne</h1>`);
-      }
-      // 🔽 normalise en toute circonstance (y compris si string vide)
-      status = normalizeHaStatus(statusRaw, code);
-
-      order.paymentProvider = 'helloasso';
-      order.paymentProviderMeta = {
-        ...(order.paymentProviderMeta || {}),
-        name: 'helloasso',
-        haOrderId: orderId || order.paymentProviderMeta?.haOrderId || null,
-        checkoutIntentId: resolvedIntentId,
-        code: code || null,
-        lastReturnAt: new Date(),
-        lastReturnCode: code || (typeof statusRaw === 'string' ? statusRaw : (statusRaw?.status || statusRaw?.state || '')),
-        lastStatusRawType: typeof statusRaw,
-        lastStatusRaw: (() => { try { return JSON.stringify(statusRaw); } catch { return String(statusRaw); } })()
-      };
-    }
-
-    if (isPaidLike(status)) {
-      // passe paid, mais on affiche un message neutre
-      order.status = 'paid';
-      try { await order.save(); }
-      catch (e) {
-        if (e?.code === 11000) console.warn('[ha/return] duplicate paid (ignored):', e?.keyValue || e?.message);
-        else throw e;
-      }
-      await markSeatsBooked(order);
-      // email idempotent
-      try {
-        if (!order.paymentProviderMeta?.attestationSentAt) {
-          const html    = await renderOrderEmail(order);
-          const subject = subjectForOrder(order);
-          await sendMail({ to: order.payerEmail, subject, html });
-          order.paymentProviderMeta = { ...(order.paymentProviderMeta||{}), attestationSentAt: new Date() };
-          await order.save();
+    const isStubDev = String(process.env.HELLOASSO_STUB || '').toLowerCase() === 'true';
+    const doStub = isStubDev && String(q.stub || '0') === '1' && (q.oid || q.orderId);
+    if (doStub) {
+      (async () => {
+        const orderId = String(q.oid || q.orderId);
+        try {
+          const o = await Order.findById(orderId);
+          if (!o) return console.warn('[ha/return stub] order not found', orderId);
+          const fin = await finalizePaidIfNoConflict(o);
+          if (fin.ok) {
+            await sendOrderAttestationIfNeeded(o);
+            console.log('[ha/return stub] finalized & mailed', orderId);
+          } else {
+            console.warn('[ha/return stub] conflict', fin);
+          }
+        } catch (e) {
+          console.error('[ha/return stub] error', e?.message || e);
         }
-      } catch (e) { console.warn('sendMail failed:', e.message); }
-      return res.send(renderNeutral(order._id, status));
-    } else {
-      // garder pending et rendre un message neutre
-      if (order.status !== 'paid') {
-        order.status = 'pending';
-        await order.save();
-      }
-      return res.send(renderNeutral(order._id, status));
+      })();
+      // Affichage immédiat (on ne bloque pas sur la finalisation)
+      return res.send(renderNeutral(String(q.oid || q.orderId), 'stub-dev'));
     }
-    
-      } catch (e) {
-    console.error('[GET /ha/return] error:', e);
-    res.status(500).send(`<!doctype html><meta charset="utf-8">
-      <link rel="icon" href="/bts/static/img/favicon.ico">
-      <h1>Erreur interne</h1>`);
-  }
+  } catch {}
+
+  const raw = q.status || q.code || q.result || '';
+  const norm = normalizeHaStatus(raw);
+  const label = (norm === 'failure' || norm === 'canceled') ? norm : '';
+  const orderId = String(q.oid || q._id || q.orderId || q.checkoutIntentId || '—');
+
+  // DEV/STUB : on finalise ici (fire-and-forget) au lieu d’attendre un webhook.
+  (async () => {
+    try {
+      if (String(process.env.HELLOASSO_STUB||'').toLowerCase() === 'true') {
+        const ord = await Order.findById(q.oid || q.orderId);
+        if (ord) {
+          // journalise le "retour" pour debug
+          ord.paymentProvider = 'helloasso';
+          ord.paymentProviderMeta = {
+            ...(ord.paymentProviderMeta||{}),
+            lastReturnAt: new Date(),
+            lastReturnCode: norm || (raw || 'stub'),
+            checkoutIntentId: ord.paymentProviderMeta?.checkoutIntentId || (q.ci || q.checkoutIntentId || null),
+            stub: true
+          };
+          await ord.save();
+
+          if (norm !== 'failure' && norm !== 'canceled') {
+            const fin = await finalizePaidIfNoConflict(ord);   // ⚠️ N’altère PAS les seatId
+            if (fin.ok) {
+              try { await sendOrderAttestationIfNeeded(ord); } catch (e) {
+                console.warn('[ha/return stub] mail send failed:', e?.message || e);
+              }
+            } else {
+              console.warn('[ha/return stub] conflict', fin);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[ha/return stub] finalize failed:', e?.message || e);
+    }
+  })();
+
+  return res.send(renderNeutral(orderId, label));
+
 });
+
 
 router.get('/back', (_req, res) => {
   res.send(`<!doctype html><meta charset="utf-8">
@@ -282,18 +274,37 @@ router.get('/error', (_req, res) => {
 
 /**
  * POST /ha/webhook
- * Webhook HelloAsso (non signé côté club). On filtre par organizationSlug.
- * Payloads possibles (exemples fournis) :
- *  - eventType: "Payment" → data.order.id = <haOrderId>
- *  - eventType: "Order"   → data.id       = <haOrderId>
+ * Source of truth. On forwarde le payload BRUT (fire-and-forget), puis on vérifie l'état via getCheckoutStatus.
+ * Accepte tout Content-Type ; on conserve req._raw pour le REPOST.
  */
-router.post('/webhook', express.json({ type: '*/*' }), async (req, res) => {
-  try {
-    // Certains reverse/proxys peuvent encapsuler dans { postData: { contents: "<json>" } }
-    let payload = req.body;
-    if (payload?.postData?.contents) {
-      try { payload = JSON.parse(payload.postData.contents); } catch { /* ignore */ }
+router.post('/webhook',
+  // On essaye d'abord de capter le RAW ; si un json parser amont est passé, req.body sera un objet -> géré plus bas.
+  express.raw({ type: '*/*', limit: '1mb' }),
+  async (req, res) => {
+try {
+    // 1) Capture RAW tolérante
+    let rawTxt = '';
+    if (Buffer.isBuffer(req.body)) {
+      rawTxt = req.body.toString('utf8');
+    } else if (typeof req.body === 'string') {
+      rawTxt = req.body;
+    } else if (req.body && typeof req.body === 'object') {
+      // déjà parsé par un middleware amont
+      rawTxt = JSON.stringify(req.body);
+    } else {
+      rawTxt = '';
     }
+    // 🔁 REPOST BRUT en non-bloquant (tel quel) en conservant le Content-Type si possible
+    repostRawFromRequest(
+      { method:'POST', body: rawTxt, headers: req.headers },
+      'bts-ha-webhook'
+    );
+
+    // On tente de parser JSON (si applicable) pour piloter la logique locale
+    let payload = null;
+    try { if ((req.headers['content-type']||'').includes('json')) payload = JSON.parse(rawTxt); } catch {}
+    if (payload?.postData?.contents) { try { payload = JSON.parse(payload.postData.contents); } catch {} }
+
     const data = payload?.data || {};
     const eventType = String(payload?.eventType || data?.eventType || '').toLowerCase();
     const orgSlug   = String(data?.organizationSlug || '').toLowerCase();
@@ -304,70 +315,72 @@ router.post('/webhook', express.json({ type: '*/*' }), async (req, res) => {
       return res.status(202).send('ignored');
     }
 
-    // Récup haOrderId selon le type d’event
-    let haOrderId = null;
-    if (eventType === 'payment') {
-      haOrderId = data?.order?.id ?? null;
-    } else if (eventType === 'order') {
-      haOrderId = data?.id ?? null;
+    // On ne TRAITE que Payment. Les autres events (Order, ...) sont ignorés (mais repostés).
+    if (eventType !== 'payment') {
+      return res.status(202).send('ignored-non-payment');
     }
-    if (!haOrderId) {
-      console.warn('[ha/webhook] no haOrderId in payload', { eventType });
-      return res.status(202).send('ignored');
-    }
-    haOrderId = String(haOrderId);
 
-    // Réconciliation : priorité au mapping déjà établi via /ha/return ; sinon fallback email+montant
-    let order = await Order.findOne({ 'paymentProviderMeta.haOrderId': haOrderId });
+    // Corrélation PRIORITAIRE par metadata.orderId (l’_id BTS passé à HelloAsso)
+    const btsOrderId = String(payload?.metadata?.orderId || payload?.metadata?.orderNo || '').trim();
+    if (!btsOrderId) {
+      console.warn('[ha/webhook] missing metadata.orderId on Payment event');
+      return res.status(202).send('ignored-no-bts-orderid');
+    }
+    let order = null;
+    try { order = await Order.findById(btsOrderId); } catch { /* cast error */ }
     if (!order) {
-      const payerEmail = String(data?.payer?.email || '').trim();
-      const total = Number(
-        (data?.amount && typeof data.amount === 'object' ? data.amount.total : data?.amount) || 0
-      );
-      if (payerEmail && total > 0) {
-        const candidates = await Order.find({
-          status: { $in: ['pending', 'paid'] },
-          payerEmail: new RegExp(`^${payerEmail}$`, 'i'),
-          totalCents: total
-        }).sort({ createdAt: -1 }).limit(2).lean();
-        if (candidates.length === 1) {
-          order = await Order.findById(candidates[0]._id);
-        }
+      console.warn('[ha/webhook] order not found from metadata.orderId', { btsOrderId });
+      return res.status(202).send('ignored-order-not-found');
+    }
+
+    // HelloAsso order id (utile pour rapprochements futurs)
+    const haOrderId = String(data?.order?.id || '').trim() || null;
+
+    // Vérification côté HA via l’intent : on utilise celui stocké en base ;
+    // fallback sur data.checkoutIntentId si présent (peu probable sur Payment).
+    const intentId =
+      String(order?.paymentProviderMeta?.checkoutIntentId || '') ||
+      String(data?.checkoutIntentId || '');    
+
+    let statusFromApi = '';
+    if (intentId) {
+      try {
+        const st = await getCheckoutStatus(intentId);
+        statusFromApi = normalizeHaStatus(st);
+      } catch (e) {
+        console.warn('[ha/webhook] getCheckoutStatus failed:', e?.message || e);
       }
     }
-    if (!order) {
-      console.warn('[ha/webhook] order not matched', { haOrderId, eventType });
-      return res.status(202).send('no order matched');
-    }
 
-    // Màj méta + statut
+    // Fallback très limité : on lit l’état brut du Payment (utile pour traces)
     const rawState = String(data?.state || data?.status || '').toLowerCase();
-    const status   = normalizeHaStatus(rawState);
+    const status   = statusFromApi || normalizeHaStatus(rawState);
 
+    // Journalise + persiste les métadonnées HA (haOrderId, lastWebhook*)
     order.paymentProvider = 'helloasso';
     order.paymentProviderMeta = {
       ...(order.paymentProviderMeta || {}),
       name: 'helloasso',
-      haOrderId,
+      haOrderId: haOrderId || order?.paymentProviderMeta?.haOrderId || null,
       lastWebhookAt: new Date(),
       lastWebhookEvent: eventType,
       lastWebhookRawState: rawState
     };
-
+    await order.save();
+    
     if (isPaidLike(status)) {
-      order.status = 'paid';
-      await order.save();
-      await markSeatsBooked(order);
-      try {
-        const html = await renderOrderEmail(order);
-        const subject = subjectForOrder(order);
-        await sendMail({ to: order.payerEmail, subject, html });
-      } catch (e) {
-        console.warn('sendMail failed:', e.message);
+      const fin = await finalizePaidIfNoConflict(order);
+      if (fin.ok) {
+        await sendOrderAttestationIfNeeded(order);
+        return res.status(200).send('ok');
+      } else {
+        await sendConflictEmail(order);
+        // on renvoie 200: le webhook a été traité (même s’il mène à failed)
+        return res.status(200).send('conflict');
       }
-      return res.status(200).send('ok');
     } else {
-      if (order.status !== 'paid') {
+
+    if (order.status !== 'paid') {
         order.status = 'pending';
         await order.save();
       }

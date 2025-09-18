@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <title>Les Bélougas - Attestation d'abonnement 2025-2026 — TBH7</title>
+  <title>{{clubName}} — Confirmation (Match / Évènement)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
   body{margin:0;padding:0;background:#0b0f17;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif}
@@ -25,9 +25,9 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Les Bélougas - Attestation d'abonnement 2025-2026 — TBH7</h1>
-      <p>Bonjour <b>{{payer.fullName}}</b>,</p>
-      <p>Voici le récapitulatif de votre adhésion à la zone TBH7 pour la saison <b>{{order.seasonCode}}</b> ({{order.venueSlug}}).</p>
+      <h1>Les Bélougas — {{order.eventName}}</h1>
+      <p>Bonjour <b>{{payerFirstName}} {{payerLastName}}</b>,</p>
+      <p>Voici le récapitulatif de votre commande de billets.</p>
 
       <div class="grid">
         <div>
@@ -37,8 +37,7 @@
         </div>
         <div>
           <h2>Paiement</h2>
-          <p class="muted">Échéancier : <b>{{order.split}}</b> fois</p>
-          <p class="muted"><span class="badge">{{order.installmentsHuman}}</span></p>
+          <p class="muted" style="display:none;"><strong>Échéancier :</strong> {{order.split}} fois — {{order.installmentsHuman}}</p>
           <p class="muted">Total réglé : <b>{{order.totalEuro}}</b></p>
         </div>
       </div>
@@ -56,21 +55,23 @@
         <tbody>
           {{LINES_HTML}}
           <tr>
-            <td colspan="3" class="total">Total</td>
+            <td colspan="2" class="total">Total</td>
             <td class="total">{{order.totalEuro}}</td>
           </tr>
         </tbody>
       </table>
 
-      <p class="muted" style="margin-top:12px">
-        N° commande : <b>{{order.id}}</b> — émise le {{order.createdAt}}.
-      </p>
+      {{haOrderBlock}}
+
+      <!-- Bloc billets/QR injecté par le code si disponible -->
+      {{TICKETS_HTML}}
 
       <div class="note">
-        Cet e-mail tient lieu de confirmation. Vous recevrez vos billets/QR ultérieurement selon le calendrier du club.
+        Présentez les QR ci-dessus à l’entrée le jour du match.  
+        Si vous ne voyez pas les QR, un envoi séparé pourra suivre.
       </div>
 
-      <p class="muted" style="margin-top:12px">{{org.clubName}} — Merci pour votre soutien ❤️🖤</p>
+      <p class="muted" style="margin-top:12px">{{clubName}} — Merci pour votre soutien ❤️🖤</p>
     </div>
   </div>
 </body>
