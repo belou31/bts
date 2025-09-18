@@ -156,7 +156,7 @@ export async function buildTicketsPdfBuffer(order) {
       const t = tickets[i] || {};
       // Bénéficiaire : idéalement depuis la ligne correspondante, sinon fallback payer
       const beneficiary = beneficiaryForTicket(t, order);
-
+console.log(JSON.stringify(t));
       // 1) Remplacement des placeholders texte
       const textSvg = applyVars(rawSvg, {
         CLUB_NAME: clubName,
