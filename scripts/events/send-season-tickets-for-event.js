@@ -1,7 +1,7 @@
 // scripts/events/send-season-tickets-for-event.js
 // Usage:
 //  node scripts/events/send-season-tickets-for-event.js --event 2025-09-20-belougas-vs-vipers-123456 [--limit 200] [--dry-run] [--fallback-zone SAME|N4|DEBOUT]
-import 'dotenv/config.js';
+
 import path from 'node:path';
 import mongoose from 'mongoose';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,12 @@ import { Order } from '../../src/models/Order.js';
 import { Seat }  from '../../src/models/Seat.js';
 import { buildTicketsPdfBuffer } from '../../src/services/tickets-pdf.js';
 import { sendMail } from '../../src/loaders/mailer.js';
+
+import dotenv from 'dotenv';
+dotenv.config();
+
+if (!uri || !dbn) throw new Error('MONGO_URI / MONGODB_DB requis');
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
