@@ -54,7 +54,7 @@ function hexZone(evId, zoneKey, orderId, origSeatId='') {
 }
 
 async function main() {
-  const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URL || 'mongodb://localhost:27017/bts';
+  const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/bts';
   await mongoose.connect(mongoUri);
 
   // 1) Evènement
