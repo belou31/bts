@@ -15,8 +15,6 @@ import { sendMail } from '../../src/loaders/mailer.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
-if (!uri || !dbn) throw new Error('MONGO_URI / MONGODB_DB requis');
-
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
