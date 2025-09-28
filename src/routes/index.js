@@ -8,7 +8,6 @@ import tbh7Router from './tbh7.js';
 import subscriptionRouter from './subscription.js';
 import eventRoutes from './event.js';
 import adminRoutes from './admin.js';
-import adminEvents from './admin.events.js';
 import supervisionRoutes from './admin/supervision.routes.js';
 import haRoutes from './ha.js';      
 import adminGuestlist from './admin-guestlist.js';
@@ -40,7 +39,7 @@ export default function routes(router) {
   router.use('/api/event', eventRoutes);
 
   router.use('/admin', adminRoutes);
-  //router.use('/admin', adminEvents);
+
   router.use('/admin/supervision', supervisionRoutes);
 
   router.use('/', adminGuestlist); // donne /bts/admin/event/:eventIdOrSlug/guestlist
