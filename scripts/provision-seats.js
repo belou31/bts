@@ -116,6 +116,7 @@ async function main() {
     // Correctif rapide
     'S5-C-064', 'S5-C-065', 'S5-C-066',
     'N4B-M-063', 'N4B-M-064', 'N4B-M-065', 'N4B-M-066', 'N4B-M-067', 'N4B-M-068', 'N4B-M-069',
+    'N4-H-033','N4-H-035','N4-H-036','N4-H-037','N4-H-042','N4-H-043','N4-H-044','N4-H-045',
     // Manque de visibilité (12 sièges)
     'S5-E-042', 'S5-E-043', 'S5-E-044', 'S5-E-045',
     'S5-F-048', 'S5-F-049', 'S5-F-050',
