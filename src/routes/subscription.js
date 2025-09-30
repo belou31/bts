@@ -278,6 +278,7 @@ router.post('/checkout', async (req, res) => {
 
     // Créer l’order (pending)
     const order = await Order.create({
+      itemName:"ABOBO",
       seasonCode, venueSlug,
       phase: 'subscription',
       groupKey: `SUBSCRIPTION-${seasonCode}`,
