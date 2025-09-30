@@ -66,9 +66,9 @@ export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl
   if (!total || total < 0) throw new Error('totalAmount invalid');
 
   // Intitulé
-  const itemName =
-    order.itemName ||
-    `Aboo ${order.seasonCode || ''}`.trim();
+  const itemName = "Abooo";
+  //  order.itemName ||
+  //  `Aboo ${order.seasonCode || ''}`.trim();
 
   // Répartition des montants (reste sur l’acompte)
   const base = Math.floor(total / n);
