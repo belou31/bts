@@ -215,6 +215,7 @@ router.post('/:eventId/checkout', async (req, res) => {
     const until = new Date(now.getTime() + HOLD_MIN*60*1000);
 
     const ord = await Order.create({
+      itemName:`EVENT-${ev.slug}`,
       phase: 'event',
       paymentProvider: 'helloasso',
       paymentProviderMeta: {},
