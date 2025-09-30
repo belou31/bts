@@ -67,8 +67,7 @@ export async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl
 
   // Intitulé
   const itemName =
-    order.itemName ||
-    `Aboo ${order.seasonCode || ''}`.trim();
+    order.itemName || "MyOrder";
 
   // Répartition des montants (reste sur l’acompte)
   const base = Math.floor(total / n);
