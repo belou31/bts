@@ -10,7 +10,13 @@ const PORT = Number(process.env.PORT || 8080);
 
 const app = await buildApp();
 
-app.listen(PORT, HOST, () => {
+app.set('view engine', 'ejs');
+//app.set('views', path.join(VIEWS_DIR, 'views'));
+
+  app.listen(PORT, HOST, () => {
   const env = process.env.APP_ENV || 'development';
   console.log(`[server] ${env} listening on http://${HOST}:${PORT}`);
 });
+
+
+

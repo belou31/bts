@@ -11,7 +11,8 @@ import adminRoutes from './admin.js';
 import supervisionRoutes from './admin/supervision.routes.js';
 import haRoutes from './ha.js';      
 import adminGuestlist from './admin-guestlist.js';
-
+import qrRoutes   from './qr.js';
+import scanRoutes from './scan.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -30,6 +31,9 @@ export default function routes(router) {
   router.get('/subscription', (req, res) => res.sendFile(path.join(VIEWS_DIR, 'subscription', 'index.html')));
 
   router.get('/event', (req, res) => res.sendFile(path.join(VIEWS_DIR, 'event', 'index.html')));
+
+  router.use(`/api`, qrRoutes);
+  router.use(`/`,    scanRoutes);  // sert /scan (PWA)
 
   // API JSON
   router.use('/api/tbh7', tbh7Router);
