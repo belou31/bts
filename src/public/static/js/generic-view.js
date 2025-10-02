@@ -522,16 +522,19 @@ function updateTotals() {
 }
 
 function updateInstallmentsPreview() {
-  const schedule = Number($('#paySchedule').value || 1);
+  const scheduleEl = $('#paySchedule');
+  const previewEl  = $('#schedulePreview');
+  if (!scheduleEl || !previewEl) return;
+  const schedule = Number(scheduleEl.value || 1);
   const total = CTX.currentTotal || 0;
   if (schedule <= 1 || total <= 0) {
-    $('#schedulePreview').textContent = '—';
+    previewEl.textContent = '—';
     return;
   }
   const base = Math.floor(total / schedule);
   const parts = Array(schedule).fill(base);
   parts[schedule-1] = total - base*(schedule-1);
-  $('#schedulePreview').textContent = parts.map(p => fmtEuro(p)).join(' + ');
+  previewEl.textContent = parts.map(p => fmtEuro(p)).join(' + ');
 }
 
 function syncPayerMaybe() {
@@ -679,7 +682,8 @@ async function submitPayment() {
     return;
   }
 
-  const schedule = Number($('#paySchedule').value || 1);
+  const scheduleEl = $('#paySchedule');
+  const schedule = Number(scheduleEl ? (scheduleEl.value || 1) : 1);
   const totalAmount = CTX.currentTotal || 0;
 
   $('#payBtn').disabled = true;
@@ -980,7 +984,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('#feedback').textContent = 'Impossible de charger les données. Vérifiez votre lien.';
   }
   $('#payBtn').addEventListener('click', submitPayment);
-  $('#paySchedule').addEventListener('change', updateInstallmentsPreview);
+  const scheduleControl = $('#paySchedule');
+  if (scheduleControl) scheduleControl.addEventListener('change', updateInstallmentsPreview);
 
   // ——— actions Plan
   // 1) Toggle layout (verrouille le mode jusqu’à ce que l’utilisateur re-clique)

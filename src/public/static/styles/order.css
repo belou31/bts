@@ -113,27 +113,54 @@ body.order-view {
   display: grid;
   gap: 12px;
   margin-top: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
 }
 
-.order-view .pay-grid .schedule-full {
-  grid-column: 1 / -1;
+.order-view .pay-grid .schedule-select {
+  grid-column: 1;
+}
+
+.order-view .pay-grid .schedule-preview {
+  grid-column: 2;
 }
 
 .order-view .total-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   align-items: end;
-  margin-top: 16px;
+  margin: 16px auto 0;
+  width: 66%;
+  max-width: 560px;
 }
 
 .order-view .total-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  grid-column: 1 / span 2;
 }
 
 .order-view .total-group label {
   color: var(--fg);
+}
+
+.order-view .pay-action {
+  grid-column: 3;
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 768px) {
+  .order-view .total-actions {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .order-view .total-group {
+    grid-column: 1;
+  }
+  .order-view .pay-action {
+    grid-column: 1;
+    justify-content: center;
+  }
 }

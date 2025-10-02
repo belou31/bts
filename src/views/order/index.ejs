@@ -1,0 +1,311 @@
+<!doctype html>
+<% const viewLang = (typeof lang !== 'undefined' && lang) ? lang : 'fr'; %>
+<html lang="<%= viewLang %>">
+<head>
+  <meta charset="utf-8">
+  <% 
+    const localAssets = (typeof assets === 'undefined') ? null : assets;
+    const localColumns = (typeof columns === 'undefined') ? null : columns;
+    const localTitle = (typeof title === 'undefined') ? null : title;
+    const localPageTitle = (typeof pageTitle === 'undefined') ? null : pageTitle;
+    const localHeading = (typeof heading === 'undefined') ? null : heading;
+    const localDocumentTitle = (typeof documentTitle === 'undefined') ? null : documentTitle;
+    const localPlanTitle = (typeof planTitle === 'undefined') ? null : planTitle;
+    const localCartTitle = (typeof cartTitle === 'undefined') ? null : cartTitle;
+    const localPaymentTitle = (typeof paymentTitle === 'undefined') ? null : paymentTitle;
+    const localPlanStatus = (typeof planStatus === 'undefined') ? null : planStatus;
+    const localPlanHelp = (typeof planHelp === 'undefined') ? null : planHelp;
+    const localPayerLabels = (typeof payerLabels === 'undefined') ? null : payerLabels;
+    const localPayerPlaceholders = (typeof payerPlaceholders === 'undefined') ? null : payerPlaceholders;
+    const localOptionLabels = (typeof optionLabels === 'undefined') ? null : optionLabels;
+    const localScheduleOptions = (typeof scheduleOptions === 'undefined') ? null : scheduleOptions;
+    const localPaymentTerms = (typeof paymentTerms === 'undefined') ? null : paymentTerms;
+    const localShowSchedule = (typeof showSchedule === 'undefined') ? undefined : showSchedule;
+    const localZoneSelector = (typeof zoneSelector === 'undefined') ? null : zoneSelector;
+    const localScheduleLabel = (typeof scheduleLabel === 'undefined') ? null : scheduleLabel;
+    const localSchedulePreviewLabel = (typeof schedulePreviewLabel === 'undefined') ? null : schedulePreviewLabel;
+    const localTotalLabel = (typeof totalLabel === 'undefined') ? null : totalLabel;
+    const localPayButtonLabel = (typeof payButtonLabel === 'undefined') ? null : payButtonLabel;
+    const localPaymentHelp = (typeof paymentHelp === 'undefined') ? null : paymentHelp;
+    const localBrand = (typeof brand === 'undefined') ? null : brand;
+    const localLeadHtml = (typeof leadHtml === 'undefined') ? null : leadHtml;
+    const localLead = (typeof lead === 'undefined') ? null : lead;
+    const localInfoBlocks = (typeof infoBlocks === 'undefined') ? null : infoBlocks;
+    const localTermsHtml = (typeof termsHtml === 'undefined') ? null : termsHtml;
+    const localTerms = (typeof terms === 'undefined') ? null : terms;
+    const localBodyClass = (typeof bodyClass === 'undefined') ? null : bodyClass;
+    const localCustomCss = (typeof customCss === 'undefined') ? null : customCss;
+    const localCustomJs = (typeof customJs === 'undefined') ? null : customJs;
+
+    const assetPrefix = typeof localAssets === 'string'
+      ? (localAssets.endsWith('/') ? localAssets : `${localAssets}/`)
+      : 'static/';
+
+    const safeHeading = localHeading || localPageTitle || 'Billetterie BTS';
+    const defaultTitle = localTitle || safeHeading;
+    const htmlTitle = localDocumentTitle || `${defaultTitle} — BTS`;
+    const planTitleText = localPlanTitle || 'Plan';
+    const cartTitleText = localCartTitle || 'Vos places';
+    const paymentTitleText = localPaymentTitle || 'Paiement';
+    const planStatusText = localPlanStatus || 'Molette pour zoomer, cliquer-glisser pour déplacer.';
+    const planHelpText = (localPlanHelp === undefined || localPlanHelp === null) ? '' : localPlanHelp;
+
+    const defaultColumns = ['', 'Place', 'Nom', 'Prénom', 'Tarif (montant)'];
+    const cartColumns = Array.isArray(localColumns) && localColumns.length ? localColumns : defaultColumns;
+
+    const payerLabelsResolved = Object.assign({
+      firstName: 'Prénom',
+      lastName: 'Nom',
+      email: 'Email'
+    }, localPayerLabels || {});
+    const payerPlaceholdersResolved = Object.assign({
+      firstName: 'Prénom',
+      lastName: 'Nom',
+      email: 'email@exemple.com'
+    }, localPayerPlaceholders || {});
+
+    const optionLabelsResolved = Object.assign({
+      '1': 'En 1 fois',
+      '2': 'En 2 fois',
+      '3': 'En 3 fois'
+    }, localOptionLabels || {});
+
+    const scheduleOptionsRaw = Array.isArray(localScheduleOptions)
+      ? localScheduleOptions
+      : (localScheduleOptions === null || localScheduleOptions === undefined
+          ? []
+          : [localScheduleOptions]);
+
+    const normalizedScheduleOptions = scheduleOptionsRaw
+      .map(opt => {
+        if (typeof opt === 'object' && opt !== null) {
+          const value = opt.value ?? opt.count ?? null;
+          if (value === null) return null;
+          return { value: Number(value), label: opt.label || null, disabled: !!opt.disabled };
+        }
+        const value = Number(opt);
+        return Number.isFinite(value) ? { value, label: null, disabled: false } : null;
+      })
+      .filter(Boolean);
+
+    const scheduleOptionValues = normalizedScheduleOptions.map(opt => opt.value);
+
+    const resolvedPaymentTerms = (Array.isArray(localPaymentTerms) && localPaymentTerms.length)
+      ? Number(localPaymentTerms[0])
+      : Number(localPaymentTerms);
+    const scheduleAllowedByTerms = !Number.isFinite(resolvedPaymentTerms) || resolvedPaymentTerms !== 1;
+    const hasScheduleOptions = normalizedScheduleOptions.length > 0;
+
+    const showScheduleSection = (localShowSchedule === undefined)
+      ? (hasScheduleOptions && scheduleAllowedByTerms)
+      : (localShowSchedule !== false && hasScheduleOptions && scheduleAllowedByTerms);
+    const zoneSelectorConfig = (localZoneSelector && localZoneSelector.enabled) ? localZoneSelector : null;
+
+    const scheduleLabelText = localScheduleLabel || 'Échéancier';
+    const schedulePreviewLabelText = localSchedulePreviewLabel || 'Échéance(s)';
+    const totalLabelText = localTotalLabel || 'Total';
+    const payButtonText = localPayButtonLabel || 'Procéder au paiement';
+    const paymentHelpText = localPaymentHelp || 'Le reçu et la confirmation seront envoyés au contact ci-dessous.';
+
+    const brandData = (localBrand && (localBrand.logo || localBrand.text))
+      ? localBrand
+      : { logo: assetPrefix + 'img/logo.png', alt: 'BTS' };
+
+    const leadHtmlContent = (localLeadHtml !== null && localLeadHtml !== undefined && localLeadHtml !== '')
+      ? localLeadHtml
+      : null;
+    const leadPlainText = (!leadHtmlContent && typeof localLead === 'string')
+      ? localLead.trim()
+      : '';
+
+    const infoBlocksList = Array.isArray(localInfoBlocks) ? localInfoBlocks : [];
+    const termsContent = (localTermsHtml !== null && localTermsHtml !== undefined && localTermsHtml !== '')
+      ? localTermsHtml
+      : (localTerms || '');
+
+    const bodyClasses = Array.isArray(localBodyClass)
+      ? localBodyClass.join(' ')
+      : (localBodyClass || '');
+
+    const cssFiles = [assetPrefix + 'styles/generic-view.css', assetPrefix + 'styles/order.css'];
+    const cssExtras = Array.isArray(localCustomCss) ? localCustomCss : [];
+    cssExtras.forEach((href) => cssFiles.push(href));
+  %>
+  <title><%= htmlTitle %></title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="<%= assetPrefix %>img/favicon.ico">
+  <% cssFiles.forEach((href) => { %>
+    <link rel="stylesheet" href="<%= href %>">
+  <% }); %>
+</head>
+<body class="order-view <%= bodyClasses %>">
+  <header class="site-header">
+    <div class="brand">
+      <% if (brandData.logo) { %>
+        <img src="<%= brandData.logo %>" alt="<%= brandData.alt || 'Logo' %>" class="logo">
+      <% } else if (brandData.text) { %>
+        <span class="brand-text"><%= brandData.text %></span>
+      <% } %>
+      <h1 id="pageTitle"><%= safeHeading %></h1>
+    </div>
+    <% if (leadHtmlContent) { %>
+      <div class="lead"><%- leadHtmlContent %></div>
+    <% } else if (leadPlainText) { %>
+      <div class="lead"><p><%= leadPlainText %></p></div>
+    <% } %>
+    <% if (infoBlocksList.length) { %>
+      <div class="info-blocks">
+        <% infoBlocksList.forEach((block) => { %>
+          <section class="info-block">
+            <% if (block.title) { %><h2><%= block.title %></h2><% } %>
+            <% if (block.html)  { %><div class="info-content"><%- block.html %></div><% } %>
+          </section>
+        <% }); %>
+      </div>
+    <% } %>
+  </header>
+
+  <main class="page" id="page">
+    <section class="col plan-col">
+      <div id="plan" class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title"><%= planTitleText %></h2>
+          <div class="plan-actions" role="toolbar" aria-label="Affichage">
+            <button id="layoutToggle" class="tool-btn" type="button" title="Basculer l’affichage">
+              <svg class="icon icon-h" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+                <rect x="2" y="5" width="7" height="10" rx="2" />
+                <rect x="11" y="5" width="7" height="10" rx="2" />
+              </svg>
+              <svg class="icon icon-v" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" hidden>
+                <rect x="5" y="2" width="10" height="7" rx="2" />
+                <rect x="5" y="11" width="10" height="7" rx="2" />
+              </svg>
+            </button>
+            <button id="fsToggle" class="tool-btn" type="button" title="Plein écran du plan">
+              <svg class="icon icon-big" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+                <rect x="3" y="3" width="14" height="14" rx="3" />
+              </svg>
+              <svg class="icon icon-small" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" hidden>
+                <rect x="6" y="6" width="8" height="8" rx="2" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="plan-wrap">
+          <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="Plan de la salle"></object>
+          <div class="plan-status"><%= planStatusText %></div>
+        </div>
+        <% if (planHelpText) { %>
+          <div class="help"><%= planHelpText %></div>
+        <% } %>
+      </div>
+    </section>
+
+    <section class="col form-col">
+      <div id="order" class="panel">
+        <div id="linesPanel" class="block">
+          <h2><%= cartTitleText %></h2>
+          <% if (zoneSelectorConfig) { %>
+            <div class="zone-toolbar">
+              <% if (zoneSelectorConfig.label) { %>
+                <label for="zoneSelect"><small class="help"><%= zoneSelectorConfig.label %></small></label>
+              <% } %>
+              <select id="zoneSelect">
+                <% (zoneSelectorConfig.options || []).forEach((opt) => { %>
+                  <option value="<%= opt.value %>"><%= opt.label %></option>
+                <% }); %>
+              </select>
+              <button type="button" id="addZoneBtn"><%= zoneSelectorConfig.addLabel || 'Ajouter' %></button>
+              <small class="help"><span id="zoneRemain" class="remain"></span></small>
+            </div>
+          <% } %>
+          <div class="lines-head">
+            <% cartColumns.forEach((col) => { %>
+              <div><%= col %></div>
+            <% }); %>
+          </div>
+          <div id="cartRows"></div>
+        </div>
+
+        <div id="payPanel" class="block">
+          <h2><%= paymentTitleText %></h2>
+          <% if (paymentHelpText) { %>
+            <p><small class="help"><%= paymentHelpText %></small></p>
+          <% } %>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="payerLast"><%= payerLabelsResolved.lastName %></label>
+              <input id="payerLast" type="text" placeholder="<%= payerPlaceholdersResolved.lastName %>">
+            </div>
+            <div class="form-group">
+              <label for="payerFirst"><%= payerLabelsResolved.firstName %></label>
+              <input id="payerFirst" type="text" placeholder="<%= payerPlaceholdersResolved.firstName %>">
+            </div>
+            <div class="form-group">
+              <label for="payerEmail"><%= payerLabelsResolved.email %></label>
+              <input id="payerEmail" type="email" placeholder="<%= payerPlaceholdersResolved.email %>">
+            </div>
+          </div>
+
+          <% if (showScheduleSection) { %>
+            <div class="pay-grid">
+              <div class="form-group schedule-select">
+                <label for="paySchedule"><%= scheduleLabelText %></label>
+                <select id="paySchedule">
+                  <% normalizedScheduleOptions.forEach((opt) => {
+                       const value = opt.value;
+                       const disabled = opt.disabled;
+                       const label = opt.label || optionLabelsResolved[String(value)] || `En ${value} fois`;
+                  %>
+                    <option value="<%= value %>" <%= disabled ? 'disabled' : '' %>><%= label %></option>
+                  <% }); %>
+                </select>
+              </div>
+              <div class="form-group schedule-preview">
+                <label><%= schedulePreviewLabelText %></label>
+                <div id="schedulePreview" class="total-box">—</div>
+              </div>
+            </div>
+          <% } %>
+
+          <div class="total-actions">
+            <div class="total-group">
+              <label><%= totalLabelText %></label>
+              <div id="totalBox" class="total-box">0,00 €</div>
+            </div>
+            <div class="pay-action">
+              <button id="payBtn" class="pay-btn"><%= payButtonText %></button>
+            </div>
+          </div>
+          <p id="feedback" class="feedback"></p>
+          <% if (termsContent) { %>
+            <section class="terms"><%- termsContent %></section>
+          <% } %>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const orderPageDefaults = {
+      title: <%- JSON.stringify(defaultTitle) %>,
+      scheduleOptions: <%- JSON.stringify(scheduleOptionValues) %>,
+      allowZoneSelector: <%- JSON.stringify(!!zoneSelectorConfig) %>
+    };
+    window.BTS_ORDER_PAGE = Object.assign({}, orderPageDefaults, <%- JSON.stringify(orderPageConfig || {}) %>);
+    const baseConfig = {
+      title: <%- JSON.stringify(defaultTitle) %>,
+      pageTitle: <%- JSON.stringify(safeHeading) %>,
+      scheduleOptions: orderPageDefaults.scheduleOptions,
+      api: { status: 'api/order/status', checkout: 'api/order/checkout' },
+      selection: { type: 'seats' }
+    };
+    window.BTS_VIEW_CONFIG = Object.assign({}, baseConfig, <%- JSON.stringify(config || {}) %>);
+  </script>
+  <% const jsFiles = [assetPrefix + 'js/generic-view.js', assetPrefix + 'js/order.js']; %>
+  <% (Array.isArray(localCustomJs) ? localCustomJs : []).forEach((src) => jsFiles.push(src)); %>
+  <% jsFiles.forEach((src) => { %>
+    <script defer src="<%= src %>"></script>
+  <% }); %>
+</body>
+</html>
