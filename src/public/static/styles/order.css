@@ -1,0 +1,139 @@
+/* static/styles/order.css */
+
+body.order-view {
+  background: #0b0f14;
+  color: #e8eef5;
+}
+
+.order-view .site-header {
+  padding: 24px 32px;
+  background: #0d141c;
+  color: #fff;
+  border-bottom: 1px solid var(--line);
+}
+
+.order-view .site-header .brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.order-view .site-header .brand .logo {
+  height: 56px;
+  width: auto;
+}
+
+.order-view .site-header .lead {
+  margin-top: 16px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: rgba(255,255,255,0.86);
+}
+
+.order-view .info-blocks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.order-view .info-block {
+  background: rgba(255,255,255,0.12);
+  padding: 16px;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+}
+
+.order-view .info-block h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.8);
+}
+
+.order-view .info-block .info-content {
+  font-size: 0.95rem;
+  color: rgba(255,255,255,0.9);
+}
+
+.order-view .plan-col .help {
+  color: var(--muted);
+}
+
+.order-view .terms {
+  margin-top: 18px;
+  padding: 16px;
+  background: rgba(13, 20, 28, 0.6);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  font-size: 0.9rem;
+  color: var(--fg);
+}
+
+.order-view .terms h3 {
+  margin-top: 0;
+  font-size: 1rem;
+  color: var(--fg);
+}
+
+.order-view .terms ul {
+  margin: 8px 0 0 18px;
+  padding: 0;
+}
+
+.order-view .terms li {
+  margin-bottom: 4px;
+}
+
+.order-view .panel-title,
+.order-view #linesPanel h2,
+.order-view #payPanel h2 {
+  color: #fff;
+}
+
+.order-view label,
+.order-view .lines-head {
+  color: var(--fg);
+}
+
+@media (max-width: 1024px) {
+  .order-view .site-header {
+    padding: 20px;
+  }
+  .order-view .site-header .brand {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .order-view .site-header .brand .logo {
+    height: 48px;
+  }
+}
+.order-view .pay-grid {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.order-view .pay-grid .schedule-full {
+  grid-column: 1 / -1;
+}
+
+.order-view .total-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: end;
+  margin-top: 16px;
+}
+
+.order-view .total-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.order-view .total-group label {
+  color: var(--fg);
+}
