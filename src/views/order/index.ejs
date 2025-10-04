@@ -208,15 +208,9 @@
           <% if (zoneSelectorConfig) { %>
             <div class="zone-toolbar">
               <% if (zoneSelectorConfig.label) { %>
-                <label for="zoneSelect"><small class="help"><%= zoneSelectorConfig.label %></small></label>
+                <p class="help zone-label"><%= zoneSelectorConfig.label %></p>
               <% } %>
-              <select id="zoneSelect">
-                <% (zoneSelectorConfig.options || []).forEach((opt) => { %>
-                  <option value="<%= opt.value %>"><%= opt.label %></option>
-                <% }); %>
-              </select>
-              <button type="button" id="addZoneBtn"><%= zoneSelectorConfig.addLabel || 'Ajouter' %></button>
-              <small class="help"><span id="zoneRemain" class="remain"></span></small>
+              <div id="zoneButtons" class="zone-buttons" role="group" aria-label="Zones disponibles"></div>
             </div>
           <% } %>
           <div class="lines-head">

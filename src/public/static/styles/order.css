@@ -97,6 +97,53 @@ body.order-view {
   color: var(--fg);
 }
 
+.order-view .zone-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.order-view .zone-label {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+.order-view .zone-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.order-view .zone-buttons.hidden {
+  display: none;
+}
+
+.order-view .zone-btn {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #111b28;
+  color: #e8eef5;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color .2s, box-shadow .2s, transform .1s;
+}
+
+.order-view .zone-btn:hover:not([disabled]) {
+  border-color: #3ba0ff;
+  box-shadow: 0 0 0 1px rgba(59,160,255,0.3);
+  transform: translateY(-1px);
+}
+
+.order-view .zone-btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 @media (max-width: 1024px) {
   .order-view .site-header {
     padding: 20px;

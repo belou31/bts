@@ -103,11 +103,12 @@ router.get('/:eventId/status', async (req, res) => {
     // 2) Récupère zones PUBLIC actives + construit zonesMeta { KEY: name }
     let zonesMeta = {};
     let zonesKind = {}; // { KEY: 'seated'|'standing'|'fanclub' }
+    let publics = [];
     try {
-      const publics = await Zone.find(
+      publics = await Zone.find(
         { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, access: 'PUBLIC', isActive: true },
-        { key: 1, name: 1, type: 1, _id: 0 }
-    ).lean();
+        { key: 1, name: 1, type: 1, capacity: 1, quota: 1, _id: 0 }
+      ).lean();
       if (Array.isArray(publics) && publics.length > 0) {
         const publicSet = new Set(publics.map(z => String(z.key).toUpperCase()));
         allowedSet = new Set([...allowedSet].filter(z => publicSet.has(String(z).toUpperCase())));
@@ -132,6 +133,68 @@ router.get('/:eventId/status', async (req, res) => {
         allowedSet.has(String(s.zoneKey || '').toUpperCase())
     }));
 
+    let standingZones = [];
+    const standingDocs = (publics || []).filter(z => String(z.type || '').toLowerCase() === 'standing');
+    if (standingDocs.length) {
+      const zoneCapacity = new Map(standingDocs.map(z => {
+        const key = String(z.key || '').toUpperCase();
+        const quota = Number(z.quota || 0);
+        const capacity = Number(z.capacity || 0);
+        const base = quota > 0 ? quota : capacity;
+        return [key, base > 0 ? base : 0];
+      }));
+
+      const zoneSold = new Map();
+      const [eventOrders, subscriptionOrders] = await Promise.all([
+        Order.find(
+          { 'meta.eventId': String(ev._id), status: { $nin: ['canceled', 'failed'] } },
+          { lines: 1 }
+        ).lean(),
+        Order.find(
+          {
+            phase: 'subscription',
+            seasonCode: ev.seasonCode,
+            venueSlug: ev.venueSlug,
+            status: { $nin: ['canceled', 'failed'] }
+          },
+          { lines: 1 }
+        ).lean()
+      ]);
+
+      for (const ord of eventOrders) {
+        for (const line of ord?.lines || []) {
+          const key = String(line?.zoneKey || '').toUpperCase();
+          if (!zoneCapacity.has(key)) continue;
+          const seatId = typeof line?.seatId === 'string' ? line.seatId.trim() : '';
+          if (seatId) continue;
+          const qtyRaw = Number(line?.qty ?? line?.quantity ?? 1);
+          const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+          zoneSold.set(key, (zoneSold.get(key) || 0) + qty);
+        }
+      }
+
+      for (const ord of subscriptionOrders) {
+        for (const line of ord?.lines || []) {
+          const key = String(line?.zoneKey || '').toUpperCase();
+          if (!zoneCapacity.has(key)) continue;
+          const seatId = typeof line?.seatId === 'string' ? line.seatId.trim() : '';
+          if (seatId) continue;
+          const qtyRaw = Number(line?.qty ?? line?.quantity ?? 1);
+          const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+          zoneSold.set(key, (zoneSold.get(key) || 0) + qty);
+        }
+      }
+
+      standingZones = standingDocs.map(doc => {
+        const key = String(doc.key || '').toUpperCase();
+        const label = doc.name || doc.key || key;
+        const capacity = zoneCapacity.get(key) || 0;
+        const sold = zoneSold.get(key) || 0;
+        const remaining = capacity > 0 ? Math.max(0, capacity - sold) : 0;
+        return { key, label, capacity, sold, remaining };
+      });
+    }
+
     res.json({
       ok: true,
       seasonCode: ev.seasonCode,
@@ -142,7 +205,8 @@ router.get('/:eventId/status', async (req, res) => {
       allowedTariffsByZone,
       zonesMeta,
       zonesKind,
-      seats: seatsOut
+      seats: seatsOut,
+      standingZones
     });
   } catch (e) {
     res.status(404).json({ ok: false, error: e.message || 'Not found' });
