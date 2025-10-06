@@ -20,7 +20,7 @@
   <!-- En-tête -->
   <text x="44" y="64" class="h2 text">{{CLUB_NAME}}</text>
   <text x="44" y="92" class="h2 text">{{EVENT_NAME}}</text>
-  <text x="44" y="112" class="p muted">20 septembre 2025 à 19:30</text>
+  <text x="44" y="112" class="p muted">11 octobre 2025 à 19:30</text>
   <text x="44" y="130" class="p muted">Lieu : {{VENUE_NAME}}</text>
 
   <!-- Slot logo (en haut à droite) -->
