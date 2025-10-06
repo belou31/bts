@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="theme-color" content="#0b0f17"/>
+  <title><%= title %></title>
+  <link rel="manifest" href="<%= scope %>manifest.webmanifest">
+  <link rel="stylesheet" href="<%= assetBase %>styles/scan.css">
+</head>
+<body>
+  <header>
+    <img alt="BTS" src="<%= assetBase %>img/icon-192.png" onerror="this.style.display='none'"/>
+    <strong>Contrôle d'accès — BTS</strong>
+    <span class="pill" id="net">offline</span>
+  </header>
+
+  <main>
+    <div class="grid">
+      <div class="row">
+        <label>Event ID</label>
+        <input id="eventId" placeholder="2025-09-20-belougas-vs-vipers"/>
+      </div>
+      <div class="row auth-mode">
+        <label>Authentification</label>
+        <div class="auth-switch">
+          <label><input type="radio" name="authMode" value="token" checked> Token</label>
+          <label><input type="radio" name="authMode" value="basic"> Login &amp; mot de passe</label>
+        </div>
+      </div>
+      <div class="row auth-row-token">
+        <label>Token</label>
+        <input id="token" placeholder="••••"/>
+      </div>
+      <div class="row auth-row-login auth-hidden">
+        <label>Login</label>
+        <input id="login" placeholder="scanner" autocomplete="username"/>
+      </div>
+      <div class="row auth-row-password auth-hidden">
+        <label>Mot de passe</label>
+        <input id="password" type="password" placeholder="••••" autocomplete="current-password"/>
+      </div>
+    </div>
+
+    <div class="preview-wrapper">
+      <video id="preview" playsinline></video>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <div class="row">
+      <button id="startBtn" class="primary">Démarrer</button>
+      <button id="stopBtn">Stop</button>
+      <button id="installBtn" style="display:none">Installer</button>
+      <span class="pill" id="queueSize">0 en attente</span>
+    </div>
+
+    <div class="status" id="status">Prêt.</div>
+    <section class="results" id="results"></section>
+  </main>
+
+  <script>
+    // Variables fournies par le serveur (fallback côté client si besoin)
+    window.__BTS__ = {
+      basePath: <%- JSON.stringify(basePath) %>,
+      scope:    <%- JSON.stringify(scope) %>
+    };
+  </script>
+  <script src="<%= assetBase %>js/scan.js"></script>
+</body>
+</html>

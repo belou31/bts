@@ -1,5 +1,8 @@
 // src/server.js
 import 'dotenv/config';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
 import { connectDB } from './loaders/mongoose.js';
 import { buildApp } from './loaders/express.js';
 
@@ -10,7 +13,14 @@ const PORT = Number(process.env.PORT || 8080);
 
 const app = await buildApp();
 
-app.listen(PORT, HOST, () => {
+app.set('view engine', 'ejs');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+app.set('views', path.resolve(__dirname, 'views'));
+
+  app.listen(PORT, HOST, () => {
   const env = process.env.APP_ENV || 'development';
   console.log(`[server] ${env} listening on http://${HOST}:${PORT}`);
 });
+
+

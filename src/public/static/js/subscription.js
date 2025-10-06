@@ -4,6 +4,7 @@
   const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
   const cssEscape = (s) =>
     (window.CSS?.escape ? window.CSS.escape(String(s)) : String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&'));
+  const normZoneKey = (key) => String(key || '').toUpperCase();
 
   function start() {
 
@@ -35,9 +36,11 @@
       window.BTS_VIEW.CLASSES.allowed = ALLOWED_CLASS; // 'seat-allowed' par défaut
     }    
 
-    const counters  = new Map(); // zoneKey -> max index seen for virtual ids
-    let zones       = [];        // [{ key, name, remaining, svgSelector }, ...] from /api/sub/status
-    let remaining   = new Map(); // zoneKey -> remaining server quota (minus cart)
+    const counters   = new Map(); // zoneKey -> max index seen for virtual ids
+    const zoneLabels = new Map();
+    const zoneButtons = new Map();
+    let zones        = [];        // [{ key, name, remaining, svgSelector }, ...] from /api/sub/status
+    let remaining    = new Map(); // zoneKey -> remaining server quota (minus cart)
     // Gestion des SIÈGES
     let seats       = [];        // [{ seatId, status, zoneKey }]
     let bySeatId    = new Map();
@@ -45,10 +48,11 @@
 
     /* ---------- Virtual seat id helpers (TBH7 style) ---------- */
     function nextIndexFor(zoneKey) {
-      let max = counters.get(zoneKey) || 0;
+      const key = normZoneKey(zoneKey);
+      let max = counters.get(key) || 0;
       document.querySelectorAll('.cart-row').forEach(row => {
         const z = (row.dataset.zoneKey || '').toUpperCase();
-        if (z === String(zoneKey).toUpperCase()) {
+        if (z === key) {
           const m = String(row.dataset.seatId || '').match(/-Z(\d{3,})$/i);
           if (m) max = Math.max(max, parseInt(m[1], 10));
         }
@@ -56,68 +60,65 @@
       return max + 1;
     }
     function seatIdFor(zoneKey) {
-      const n = nextIndexFor(zoneKey);
-      counters.set(zoneKey, n);
-      return `${zoneKey}-Z${String(n).padStart(3, '0')}`;
+      const key = normZoneKey(zoneKey);
+      const n = nextIndexFor(key);
+      counters.set(key, n);
+      return `${key}-Z${String(n).padStart(3, '0')}`;
     }
 
-    /* ---------- UI: select + label “Restant: X” ---------- */
-    function refreshRemainUI() {
-      const sel = $('#zoneSelect');
-      const lab = $('#zoneRemain');
-      if (!sel) return;
+    /* ---------- UI: boutons de zone ---------- */
+    const buttonsContainer = $('#zoneButtons');
 
-      const z = sel.value;
-      if (z) {
-        const r = remaining.get(z) ?? 0;
-        lab.textContent = (r > 0) ? `Restant: ${r}` : `Complet`;
-      } else {
-        lab.textContent = '';
+    function renderZoneButtons() {
+      if (!buttonsContainer) {
+        zoneButtons.clear();
+        zoneLabels.clear();
+        return;
       }
-      // disable options with no remaining
-      for (const opt of sel.options) {
-        const r = remaining.get(opt.value) ?? 0;
-        opt.disabled = (r <= 0);
-      }
+      buttonsContainer.innerHTML = '';
+      zoneButtons.clear();
+      zoneLabels.clear();
+      zones.forEach(z => {
+        const key = normZoneKey(z.key);
+        zoneLabels.set(key, z.name || z.key || key);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'zone-btn';
+        btn.dataset.zoneKey = key;
+        btn.addEventListener('click', () => addOne(key));
+        buttonsContainer.appendChild(btn);
+        zoneButtons.set(key, btn);
+      });
+      buttonsContainer.classList.toggle('hidden', zoneButtons.size === 0);
+      updateZoneButtons();
     }
 
-    function populateZoneSelect() {
-      const sel = $('#zoneSelect'); if (!sel) return;
-      sel.innerHTML = '';
-      for (const z of zones) {
-        const opt = document.createElement('option');
-        opt.value = z.key;
-        opt.textContent = z.name || z.key;
-        sel.appendChild(opt);
-      }
-      sel.addEventListener('change', refreshRemainUI);
-      refreshRemainUI();
+    function updateZoneButtons() {
+      zoneButtons.forEach((btn, key) => {
+        const remainingCount = Math.max(0, Number(remaining.get(key) ?? 0));
+        const label = zoneLabels.get(key) || key;
+        btn.textContent = `${label} (${remainingCount})`;
+        btn.disabled = remainingCount <= 0;
+      });
     }
 
     /* ---------- Add one virtual line for a zone ---------- */
     function addOne(zoneKey) {
-      const r = remaining.get(zoneKey) ?? 0;
+      const key = normZoneKey(zoneKey);
+      const r = remaining.get(key) ?? 0;
       if (r <= 0) {
         const fb = $('#feedback');
-        if (fb) { fb.className = 'feedback err'; fb.textContent = `Quota atteint pour ${zoneKey}.`; }
+        if (fb) { fb.className = 'feedback err'; fb.textContent = `Quota atteint pour ${key}.`; }
         return;
       }
 
       // Create a virtual seat id and delegate the row creation to generic-view
-      const id = seatIdFor(zoneKey);
-      api.addRowForSeat({ seatId: id, zoneKey, label: zoneKey }); // generic attache dataset.zoneKey & wire la ligne
+      const id = seatIdFor(key);
+      api.addRowForSeat({ seatId: id, zoneKey: key, label: zoneLabels.get(key) || key }); // generic attache dataset.zoneKey & wire la ligne
 
-      remaining.set(zoneKey, r - 1);
-      refreshRemainUI();
+      remaining.set(key, Math.max(0, r - 1));
+      updateZoneButtons();
       syncSeatAllowedClasses(); // hint visuel sur sièges selon quota zone
-    }
-
-    function wireToolbar() {
-      const btn = $('#addZoneBtn');
-      if (btn) btn.addEventListener('click', () => {
-        const sel = $('#zoneSelect'); if (!sel) return;
-        if (sel.value) addOne(sel.value);
-      });
     }
 
     /* ---------- Clickable zones in the SVG ---------- */
@@ -148,23 +149,23 @@
     /* ---------- Keep “remaining” in sync with the cart ---------- */
     function recomputeRemainingFromCart() {
       // Start from server ‘remaining’ values
-      const base = new Map(zones.map(z => [z.key, Number(z.remaining || 0)]));
+      const base = new Map(zones.map(z => [normZoneKey(z.key), Number(z.remaining || 0)]));
 
       // Subtract the count currently in the cart, grouped by row.dataset.zoneKey
       const cartCount = new Map();
       document.querySelectorAll('.cart-row').forEach(row => {
-        const z = (row.dataset.zoneKey || '').toUpperCase();
+        const z = normZoneKey(row.dataset.zoneKey);
         if (!z) return;
         cartCount.set(z, (cartCount.get(z) || 0) + 1);
       });
 
       for (const [key, r0] of base) {
-        const used = cartCount.get(String(key).toUpperCase()) || 0;
+        const used = cartCount.get(key) || 0;
         base.set(key, Math.max(0, r0 - used));
       }
 
       remaining = base;
-      refreshRemainUI();
+      updateZoneButtons();
     }
 
     /* ---------- Hooks from generic-view ---------- */
@@ -181,11 +182,12 @@
       bySeatId = new Map(seats.map(s => [String(s.seatId), s]));
 
       // data.zones must be provided by /api/sub/status
-      zones = Array.isArray(data?.zones) ? data.zones : [];
+      zones = Array.isArray(data?.zones)
+        ? data.zones.map(z => ({ ...z, key: normZoneKey(z.key) }))
+        : [];
       remaining = new Map(zones.map(z => [z.key, Number(z.remaining || 0)]));
 
-      populateZoneSelect();
-      wireToolbar();
+      renderZoneButtons();
       recomputeRemainingFromCart(); // handle restored rows
     });
 
@@ -218,7 +220,6 @@
 
         api.recomputeTotals();
         recomputeRemainingFromCart();
-        refreshRemainUI();
         syncSeatAllowedClasses();
       });
 
@@ -248,7 +249,7 @@
         const el = api.findSeatElement(s.seatId);
         if (!el) continue;
         // Si la zone du siège est suivie et qu'il reste du quota, on marque "allowed"
-        const left = remaining.get(String(s.zoneKey)) ?? null;
+        const left = remaining.get(normZoneKey(s.zoneKey)) ?? null;
         if (left === null) continue; // zone non suivie : ne rien imposer
         if (left > 0) el.classList.add(ALLOWED_CLASS);
         else el.classList.remove(ALLOWED_CLASS);

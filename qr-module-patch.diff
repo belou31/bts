@@ -1,0 +1,151 @@
+*** Begin Patch
+*** Update File: src/views/scan/index.ejs
+@@
+-  <link rel="stylesheet" href="static/styles/scan.css">
++  <!-- Le CSS est servi via /scan/ -->
++  <link rel="stylesheet" href="<%= scope %>scan.css">
+@@
+-  <script src="static/js/scan.js"></script>
++  <!-- Charge la librairie QR (MIT) depuis CDN -->
++  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
++  <!-- Script de la page scan -->
++  <script src="<%= scope %>scan.js"></script>
+*** End Patch
+
+*** Begin Patch
+*** Add File: src/public/scan/scan.css
++/* Styles pour la PWA scan */
++body {
++  margin: 0;
++  font-family: system-ui, sans-serif;
++  background: #0b0f17;
++  color: #f5f5f5;
++}
++header {
++  display:flex;
++  align-items:center;
++  justify-content:space-between;
++  padding:8px 12px;
++  background:#111827;
++  color:#f5f5f5;
++}
++header img {
++  height:32px;
++}
++.grid .row {
++  margin:8px 0;
++}
++input {
++  padding:6px 8px;
++  font-size:14px;
++  width:100%;
++  box-sizing: border-box;
++}
++button {
++  margin-right:8px;
++  padding:6px 12px;
++  font-size:14px;
++}
++.primary {
++  background:#2563eb;
++  color:white;
++  border:none;
++}
++.status {
++  margin-top:12px;
++  min-height:1.2em;
++}
++#preview {
++  width: 100%;
++  min-height:300px;
++  background:black;
++}
+*** End Patch
+
+*** Begin Patch
+*** Add File: src/public/scan/scan.js
++// client-side script pour la page scan PWA
++// Nécessite la lib html5-qrcode (MIT) chargée via CDN (voir index.ejs).
++
++document.addEventListener('DOMContentLoaded', () => {
++  const eventIdInput = document.getElementById('eventId');
++  const tokenInput   = document.getElementById('token');
++  const startBtn     = document.getElementById('startBtn');
++  const stopBtn      = document.getElementById('stopBtn');
++  const statusEl     = document.getElementById('status');
++  const previewId    = 'preview';
++  let scanner        = null;
++
++  async function handleScan(value) {
++    const eventId = eventIdInput.value.trim();
++    const token   = tokenInput.value.trim();
++    if (!eventId || !token) {
++      statusEl.textContent = 'Renseignez un Event ID et un token.';
++      return;
++    }
++    try {
++      const res = await fetch(`${window.__BTS__.basePath}/api/scan`, {
++        method: 'POST',
++        headers: {
++          'Content-Type': 'application/json',
++          'Authorization': `Bearer ${token}`
++        },
++        body: JSON.stringify({
++          value,
++          eventId,
++          deviceId: navigator.userAgent
++        })
++      });
++      const data = await res.json();
++      if (data.ok) {
++        statusEl.textContent = `✔️ Place ${data.ticket.seatId} reconnue.`;
++      } else {
++        statusEl.textContent = `❌ Erreur: ${data.reason || data.error}`;
++      }
++    } catch (e) {
++      statusEl.textContent = `⛔ Réseau impossible: ${e.message}`;
++    }
++  }
++
++  async function startScan() {
++    if (scanner) return; // déjà en cours
++    const { Html5Qrcode } = window; // la lib html5-qrcode est chargée globalement
++    if (!Html5Qrcode) {
++      statusEl.textContent = 'Bibliothèque QR non chargée.';
++      return;
++    }
++    scanner = new Html5Qrcode(previewId);
++    try {
++      await scanner.start(
++        { facingMode: 'environment' },
++        { fps: 10, qrbox: 250 },
++        async (decodedText) => {
++          // pause pour éviter de multiples lectures
++          await scanner.pause();
++          await handleScan(decodedText);
++          await scanner.resume();
++        },
++        (errorMessage) => {
++          console.debug('QR scan error:', errorMessage);
++        }
++      );
++      statusEl.textContent = 'Lecture en cours…';
++    } catch (err) {
++      statusEl.textContent = 'Impossible de démarrer la caméra: ' + err;
++      scanner = null;
++    }
++  }
++
++  async function stopScan() {
++    if (scanner) {
++      await scanner.stop();
++      scanner = null;
++      statusEl.textContent = 'Scan arrêté.';
++    }
++  }
++
++  startBtn.addEventListener('click', startScan);
++  stopBtn.addEventListener('click', stopScan);
++});
+*** End Patch
+*** End Patch

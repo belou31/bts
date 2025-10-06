@@ -1,6 +1,7 @@
 //src/services/order-finalization.js
 import mongoose from 'mongoose';
 import { Seat } from '../models/Seat.js';
+import { Ticket } from '../models/Ticket.js';
 import { renderOrderEmail, subjectForOrder, attachQrFromBank } from './mailer.js';
 import { buildTicketsPdfBuffer } from './tickets-pdf.js';
 import { sendMail } from '../loaders/mailer.js';
@@ -33,6 +34,157 @@ export function realSeatIdsFromOrder(order) {
       // Ne garder que les vrais seatIds (ZONE-ROW-###) et exclure explicitement les IDs virtuels de zone
       .filter(s => s && isRealSeatId(s) && !isVirtualZoneSeatId(s))
     ));
+}
+
+
+async function ensureTicketsForEventOrder(order) {
+  const eventIdRaw = order?.meta?.eventId;
+  if (!eventIdRaw) return { created: 0, updated: 0 };
+
+  const metaTickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+  if (!metaTickets.length) return { created: 0, updated: 0 };
+
+  const lines = Array.isArray(order?.lines) ? order.lines : [];
+  const orderId = order._id;
+  const now = new Date();
+  let created = 0;
+  let updated = 0;
+  let metaChanged = false;
+
+  for (let i = 0; i < metaTickets.length; i++) {
+    const metaTicket = metaTickets[i] || {};
+    const line = lines[i] || {};
+
+    const qrValue = String(metaTicket.hex || metaTicket.value || '').trim();
+    if (!qrValue) continue;
+
+    const zoneKey = String(metaTicket.zoneKey || line.zoneKey || '').toUpperCase();
+    const seatFromMeta = String(metaTicket.seatId || '').trim();
+    const seatFromLine = String(line.seatId || '').trim();
+    let seatId = seatFromMeta || seatFromLine;
+    let usedPlaceholder = false;
+
+    if (!seatId) {
+      const suffix = String(orderId).slice(-6).toUpperCase();
+      const index = String(i + 1).padStart(2, '0');
+      const zoneLabel = zoneKey || 'ZONE';
+      seatId = `${zoneLabel}-GA-${suffix}-${index}`;
+      usedPlaceholder = true;
+    }
+
+    const holderFirstName = String(line.holderFirstName || '').trim();
+    const holderLastName = String(line.holderLastName || '').trim();
+    const holderEmail = String(line.holderEmail || order.payerEmail || '').trim();
+    const tariffCode = String(line.tariffCode || metaTicket.tariff || metaTicket.tariffCode || '').toUpperCase();
+
+    let ticketDoc = await Ticket.findOne({ orderId, 'qr.value': qrValue });
+    if (!ticketDoc) {
+      try {
+        ticketDoc = await Ticket.create({
+          seasonCode: order.seasonCode,
+          venueSlug: order.venueSlug,
+          eventId: String(eventIdRaw),
+          orderId,
+          seatId,
+          tariffCode,
+          holder: {
+            firstName: holderFirstName,
+            lastName: holderLastName,
+            email: holderEmail,
+          },
+          qr: {
+            value: qrValue,
+            kind: 'text',
+            createdAt: metaTicket.createdAt ? new Date(metaTicket.createdAt) : now,
+          },
+        });
+        created++;
+      } catch (err) {
+        if (err?.code === 11000) {
+          ticketDoc = await Ticket.findOne({ orderId, 'qr.value': qrValue });
+          if (!ticketDoc) throw err;
+        } else {
+          throw err;
+        }
+      }
+    } else {
+      let docDirty = false;
+      if (ticketDoc.seasonCode !== order.seasonCode) {
+        ticketDoc.seasonCode = order.seasonCode;
+        docDirty = true;
+      }
+      if (ticketDoc.venueSlug !== order.venueSlug) {
+        ticketDoc.venueSlug = order.venueSlug;
+        docDirty = true;
+      }
+      if (ticketDoc.eventId !== String(eventIdRaw)) {
+        ticketDoc.eventId = String(eventIdRaw);
+        docDirty = true;
+      }
+      const seatIdTrimmed = String(ticketDoc.seatId || '').trim();
+      if (seatIdTrimmed !== seatId) {
+        ticketDoc.seatId = seatId;
+        docDirty = true;
+      }
+      if (String(ticketDoc.tariffCode || '').toUpperCase() !== tariffCode) {
+        ticketDoc.tariffCode = tariffCode;
+        docDirty = true;
+      }
+      const holder = ticketDoc.holder || {};
+      if ((holder.firstName || '') !== holderFirstName) {
+        holder.firstName = holderFirstName;
+        docDirty = true;
+      }
+      if ((holder.lastName || '') !== holderLastName) {
+        holder.lastName = holderLastName;
+        docDirty = true;
+      }
+      if ((holder.email || '') !== holderEmail) {
+        holder.email = holderEmail;
+        docDirty = true;
+      }
+      if (!ticketDoc.holder) ticketDoc.holder = holder;
+      if (!ticketDoc.qr || ticketDoc.qr.value !== qrValue) {
+        ticketDoc.qr = {
+          value: qrValue,
+          kind: 'text',
+          createdAt: metaTicket.createdAt ? new Date(metaTicket.createdAt) : (ticketDoc.qr?.createdAt || now),
+        };
+        docDirty = true;
+      } else {
+        if (ticketDoc.qr.kind !== 'text') {
+          ticketDoc.qr.kind = 'text';
+          docDirty = true;
+        }
+        if (!ticketDoc.qr.createdAt) {
+          ticketDoc.qr.createdAt = metaTicket.createdAt ? new Date(metaTicket.createdAt) : now;
+          docDirty = true;
+        }
+      }
+      if (docDirty) {
+        await ticketDoc.save();
+        updated++;
+      }
+    }
+
+    const ticketIdStr = String(ticketDoc._id);
+    if (metaTicket.ticketId !== ticketIdStr) {
+      metaTicket.ticketId = ticketIdStr;
+      metaChanged = true;
+    }
+    if (!usedPlaceholder && seatFromMeta !== seatId) {
+      metaTicket.seatId = seatId;
+      metaChanged = true;
+    }
+    metaTickets[i] = metaTicket;
+  }
+
+  if (metaChanged) {
+    order.markModified('meta.tickets');
+    await order.save();
+  }
+
+  return { created, updated };
 }
 
 
@@ -145,13 +297,19 @@ export async function sendOrderAttestationIfNeeded(order) {
    // 1) Banque de QR → order.meta.tickets
    try {
      const r = await attachQrFromBank(mongoose.connection.db, order);
-     if (r?.ok && Array.isArray(r.tickets) && r.tickets.length) {
-       order.meta = { ...(order.meta || {}), tickets: r.tickets };
-       await order.save();
-     }
-   } catch (e) {
-     console.warn('[mail] attachQrFromBank failed:', e.message);
-   }
+   if (r?.ok && Array.isArray(r.tickets) && r.tickets.length) {
+     order.meta = { ...(order.meta || {}), tickets: r.tickets };
+      await order.save();
+    }
+  } catch (e) {
+    console.warn('[mail] attachQrFromBank failed:', e.message);
+  }
+
+  try {
+    await ensureTicketsForEventOrder(order);
+  } catch (e) {
+    console.warn('[mail] ensureTicketsForEventOrder failed:', e.message);
+  }
 
    // 2) Génère le PDF si tickets présents
    let attachments = [];
