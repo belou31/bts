@@ -32,6 +32,8 @@ const OrderSchema = new mongoose.Schema({
 
   groupKey:   { type: String, index: true },
 
+  itemName:   { type: String, index: true },
+
   payerFirstName: { type: String, default: '' },
   payerLastName:  { type: String, default: '' },
   payerEmail:     { type: String, index: true, default: '' },

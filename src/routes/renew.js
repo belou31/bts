@@ -247,6 +247,7 @@ router.post('/renew', async (req, res) => {
 
     // Créer la commande (pending)
     const order = await Order.create({
+      itemName:`RENEW_${seasonCode}`,
       seasonCode,
       venueSlug,
       phase: 'renew',

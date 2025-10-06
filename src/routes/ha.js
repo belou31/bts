@@ -1,13 +1,11 @@
 // src/routes/ha.js
 import express from 'express';
-import crypto from 'crypto';
-import util from 'util';
 
 import http from 'node:http';
 import https from 'node:https';
 import { URL as NodeURL } from 'node:url';
 
-import { Order, Seat } from '../models/index.js';
+import { Order } from '../models/index.js';
 import { getCheckoutStatus } from '../services/helloasso.js';
 import { normalizeHaStatus, isPaidLike,
          finalizePaidIfNoConflict,
@@ -23,7 +21,7 @@ const REPOST_TIMEOUT_MS = Number(process.env.HELLOASSO_REPOST_TIMEOUT_MS || 1000
 // ----- REPOST RAW (forward tel quel, avec fallback http/https) -----
 function repostRawFromRequest(reqLike, sourceTag) {
 try {
-    if (!REPOST_URL || typeof fetch !== 'function') return;
+    if (!REPOST_URL) return;
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), REPOST_TIMEOUT_MS);
 
@@ -63,7 +61,7 @@ try {
       // fire-and-forget, on n'attend pas la réponse
       fetch(REPOST_URL, { method: 'POST', headers, body })
         .catch(err => console.warn('[ha/repost-raw:fetch] failed:', err?.message || err));
-      return;
+      return; // on ne passe au fallback http/https QUE si fetch est absent
     }
 
     // 2) Fallback http/https natif
@@ -118,62 +116,17 @@ function renderNeutral(orderId, statusLabel) {
       <p>Votre paiement a été pris en charge. Deux emails distincts vont vous parvenir&nbsp;:</p>
       <ul>
         <li><strong>Le reçu HelloAsso</strong> pour la transaction bancaire,</li>
-        <li><strong>L’attestation d’abonnement</strong> envoyée par <em>billetterie@tbhc.fr</em>.</li>
+        <li><strong>L’attestation Billetterie</strong> envoyée par <em>billetterie@tbhc.fr</em>.</li>
       </ul>
       <div class="warn">
         <strong>Important&nbsp;:</strong>
-        si vous recevez le reçu HelloAsso mais <em>pas</em> l’attestation d’abonnement,
+        si vous recevez le reçu HelloAsso mais <em>pas</em> l’attestation Billetterie,
         vos places ne sont <strong>pas</strong> bloquées et nous procéderons au remboursement.
       </div>
     </div>`;
 }
 
 
-
-async function findOrderFromQuery(q) {
-  const oid = q.oid || q._id; // flux STUB (DEV)
-  const h   = q.h;            // éventuel token hash si tu l'ajoutes un jour
-  const ci  = q.checkoutIntentId || q.ci; // SANDBOX / STUB
-  const haOrderId = q.orderId;            // ID HelloAsso (numérique)
-
-  // 1) ID local Mongo (si fourni)
-  if (oid) {
-    try {
-      const o = await Order.findById(String(oid));
-      if (o) return o;
-    } catch { /* ignore cast */ }
-  }
-  // 2) Token hash (si utilisé)
-  if (h) {
-    const o = await Order.findOne({ 'paymentProviderMeta.tokenHash': String(h) });
-    if (o) return o;
-  }
-  // 3) checkoutIntentId (SANDBOX/PROD)
-  if (ci) {
-    const o = await Order.findOne({ 'paymentProviderMeta.checkoutIntentId': String(ci) });
-    if (o) return o;
-  }
-  // 4) HelloAsso orderId (si on l’a déjà enregistré dans meta, voir plus bas)
-  if (haOrderId) {
-    const o = await Order.findOne({ 'paymentProviderMeta.haOrderId': String(haOrderId) });
-    if (o) return o;
-  }
-  return null;
-}
-
-
-// Helpers
-const isStub = () => String(process.env.HELLOASSO_STUB || '').toLowerCase() === 'true';
-const stubResultEnv = () => String(process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
-
-// ---- Helpers seats (conflit-safe) ----
-function realSeatIdsFromOrder(order) {
-  const lines = Array.isArray(order?.lines) ? order.lines : [];
-  return Array.from(new Set(
-    lines.map(l => String(l.seatId || '').trim())
-         .filter(s => s && !/-Z\d{3,}$/i.test(s)) // exclut les pseudo-IDs de zone
-  ));
-}
 
 
 /**
@@ -340,8 +293,8 @@ try {
     // fallback sur data.checkoutIntentId si présent (peu probable sur Payment).
     const intentId =
       String(order?.paymentProviderMeta?.checkoutIntentId || '') ||
-      String(data?.checkoutIntentId || '');    
-
+      String(checkoutIntentIdFromPayload || '');
+      
     let statusFromApi = '';
     if (intentId) {
       try {
@@ -362,6 +315,7 @@ try {
       ...(order.paymentProviderMeta || {}),
       name: 'helloasso',
       haOrderId: haOrderId || order?.paymentProviderMeta?.haOrderId || null,
+      checkoutIntentId: order?.paymentProviderMeta?.checkoutIntentId || checkoutIntentIdFromPayload || null,      
       lastWebhookAt: new Date(),
       lastWebhookEvent: eventType,
       lastWebhookRawState: rawState
