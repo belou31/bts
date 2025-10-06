@@ -28,7 +28,7 @@ try {
     const method = (reqLike.method || 'POST').toUpperCase();
     const origCT = reqLike.headers?.['content-type'] || reqLike.headers?.['Content-Type'] || '';
     let body = '';
-    let headers = { 'X-Source': sourceTag };
+    const headers = { 'X-Source': sourceTag };
 
     if (method === 'POST') {
       // Si on nous donne déjà une string brute -> on la renvoie telle quelle
@@ -42,8 +42,12 @@ try {
         else headers['Content-Type'] = 'application/octet-stream';
       } else {
         // Objet déjà parsé -> on reconstruit en JSON
-        body = JSON.stringify(reqLike.body ?? {});
-        headers['Content-Type'] = 'application/json';
+        try {
+          body = JSON.stringify(reqLike.body ?? {});
+        } catch (e) {
+          body = typeof reqLike.body === 'object' ? String(reqLike.body) : '';
+        }
+        headers['Content-Type'] = origCT || 'application/json';
       }
     } else {
       // GET -> on reconstruit le form-urlencoded depuis query
@@ -72,11 +76,11 @@ try {
       hostname: u.hostname,
       port: u.port || (isHttps ? 443 : 80),
       path: u.pathname + (u.search || ''),
-      headers: {
-        ...headers,
-        'Content-Length': Buffer.byteLength(body)
-      }
+      headers: Object.assign({}, headers)
     };
+    if (body != null && typeof body !== 'undefined') {
+      opts.headers['Content-Length'] = Buffer.isBuffer(body) ? body.length : Buffer.byteLength(body);
+    }
     const client = isHttps ? https : http;
     const req2 = client.request(opts, (res2) => {
       // on consomme la réponse pour éviter les warnings, mais sans rien en faire
@@ -290,10 +294,14 @@ try {
     const haOrderId = String(data?.order?.id || '').trim() || null;
 
     // Vérification côté HA via l’intent : on utilise celui stocké en base ;
-    // fallback sur data.checkoutIntentId si présent (peu probable sur Payment).
+    // fallback sur data.checkoutIntentId si présent.
+    const checkoutIntentIdFromPayload =
+      String(data?.checkoutIntentId || '').trim() ||
+      String(payload?.metadata?.checkoutIntentId || '').trim();
+
     const intentId =
-      String(order?.paymentProviderMeta?.checkoutIntentId || '') ||
-      String(checkoutIntentIdFromPayload || '');
+      (order?.paymentProviderMeta?.checkoutIntentId ? String(order.paymentProviderMeta.checkoutIntentId) : '') ||
+      checkoutIntentIdFromPayload;
       
     let statusFromApi = '';
     if (intentId) {
