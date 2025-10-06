@@ -79,6 +79,8 @@ const passwordInput = document.getElementById('password');
 const authFields = document.querySelector('.auth-fields');
 const authToggle = document.getElementById('authToggle');
 const scanToggle = document.getElementById('scanToggle');
+const authToggleLabel = authToggle?.querySelector('.toggle-label');
+const scanToggleLabel = scanToggle?.querySelector('.toggle-label');
 const knownEvents = new Map();
 let scanActive = false;
 
@@ -268,6 +270,9 @@ function updateAuthToggleUI() {
   const isBasic = authMode === 'basic';
   authToggle.classList.toggle('on', isBasic);
   authToggle.setAttribute('aria-checked', isBasic ? 'true' : 'false');
+  if (authToggleLabel) {
+    authToggleLabel.textContent = isBasic ? 'LOGIN' : 'TOKEN';
+  }
 }
 
 applyAuthMode(authMode);
@@ -386,6 +391,9 @@ function setScanToggleState(state) {
   if (scanToggle) {
     scanToggle.classList.toggle('on', scanActive);
     scanToggle.setAttribute('aria-checked', scanActive ? 'true' : 'false');
+    if (scanToggleLabel) {
+      scanToggleLabel.textContent = scanActive ? 'SCAN ON' : 'SCAN OFF';
+    }
   }
 }
 
@@ -406,6 +414,7 @@ function stopScanning() {
   clearOverlay();
   detectionLocked = false;
   recentScanTimestamps.clear();
+  lastPreviewLookup.clear();
 }
 
 async function showQueueSize(){
@@ -424,6 +433,7 @@ const historyOrder = [];
 const historyMap = new Map();
 const HISTORY_LIMIT = 20;
 const ENTRY_LOG_LIMIT = 10;
+const lastPreviewLookup = new Map();
 
 const REASON_MESSAGES = {
   unknown: 'Statut inconnu',
@@ -448,7 +458,8 @@ const REASON_MESSAGES = {
   sync: 'Synchronisation effectuée',
   error: 'Erreur',
   invalid_response: 'Réponse inattendue du serveur',
-  invalid_json: 'Réponse serveur invalide'
+  invalid_json: 'Réponse serveur invalide',
+  sortie: 'Sortie enregistrée'
 };
 
 const ACTION_LABELS = {
@@ -458,7 +469,8 @@ const ACTION_LABELS = {
   confirm: 'Confirmation',
   queued: 'Hors ligne',
   sync: 'Synchronisation',
-  error: 'Erreur'
+  error: 'Erreur',
+  exit: 'Sortie'
 };
 
 function deviceFingerprint() {
@@ -598,9 +610,12 @@ function upsertHistory(entry) {
 
 function removeHistoryEntry(entry) {
   const key = typeof entry === 'string' ? entry : keyForEntry(entry);
+  const existing = historyMap.get(key);
   const idx = historyOrder.indexOf(key);
   if (idx >= 0) historyOrder.splice(idx, 1);
   historyMap.delete(key);
+  const raw = existing?.qrValue || (typeof entry === 'object' ? entry?.qrValue : null);
+  if (raw) lastPreviewLookup.delete(raw);
 }
 
 function getHistoryEntries() {
@@ -612,6 +627,10 @@ function logAction({ action, status, entryKey, info, event }) {
   const entry = historyMap.get(entryKey);
   if (!entry) return;
   entry.logs = Array.isArray(entry.logs) ? entry.logs : [];
+  const last = entry.logs[0];
+  if (last && last.action === action && last.status === status && last.info === info) {
+    return;
+  }
   entry.logs.unshift({
     timestamp: Date.now(),
     action,
@@ -628,7 +647,7 @@ function renderTicketHistory(logs) {
   wrap.className = 'ticket-history';
   const table = document.createElement('table');
   const thead = document.createElement('thead');
-  thead.innerHTML = '<tr><th>Date</th><th>Action</th><th>Statut</th><th>Info</th></tr>';
+  thead.innerHTML = '<tr><th>Date</th><th>Action</th><th>Statut</th></tr>';
   const tbody = document.createElement('tbody');
   logs.forEach((log) => {
     const tr = document.createElement('tr');
@@ -636,8 +655,7 @@ function renderTicketHistory(logs) {
     const statusLabel = translateReason(log.status);
     tr.innerHTML = `<td>${formatDate(log.timestamp)}</td>` +
       `<td>${actionLabel}</td>` +
-      `<td>${statusLabel}</td>` +
-      `<td>${log.info || ''}</td>`;
+      `<td>${statusLabel}</td>`;
     tbody.append(tr);
   });
   table.append(thead, tbody);
@@ -667,17 +685,17 @@ function buildTicketCard(match) {
   card.dataset.entryKey = keyForEntry(match);
 
   const head = document.createElement('div');
-  head.className = 'card-head';
+  head.className = 'card-head visually-hidden';
 
   const headInfo = document.createElement('div');
   const title = document.createElement('div');
   title.className = 'card-title';
-  title.textContent = match.ticketId ? (match.tariffCode || 'Billet') : 'QR inconnu';
+  title.textContent = match.ticketId ? shortId(match.ticketId) : (match.qrValue || 'QR');
   const sub = document.createElement('div');
   sub.className = 'card-sub';
-  const secondary = match.ticketId ? (match.location || '') : '';
-  sub.textContent = secondary || match.qrValue || '—';
-  headInfo.append(title, sub);
+  sub.textContent = match.status ? translateReason(match.status) : '';
+  headInfo.append(title);
+  if (sub.textContent) headInfo.append(sub);
 
   head.append(headInfo);
   card.append(head);
@@ -685,58 +703,105 @@ function buildTicketCard(match) {
   const body = document.createElement('div');
   body.className = 'card-body';
 
-  if (match.ticketId) {
-    const holderName = [match?.holder?.firstName, match?.holder?.lastName].filter(Boolean).join(' ').trim();
-    const holderEmail = (match?.holder?.email || '').trim();
-    body.append(createItem('Bénéficiaire', holderName || '—', holderEmail));
-
-    if (match.order) {
-      const contactName = [match.order.payerFirstName, match.order.payerLastName].filter(Boolean).join(' ').trim();
-      const contactSub = [contactName, match.order.payerEmail].filter(Boolean).join(' • ');
-      body.append(createItem('Commande', shortId(match.order.id || ''), contactSub));
-
-      const total = Number(match.order.totalTickets || 0);
-      if (total > 0) {
-        const scanned = Math.min(Number(match.order.scannedTickets || 0), total);
-        const index = Number(match.order.ticketIndex || 0);
-        const subLine = index > 0 ? `Billet ${index}/${total}` : '';
-        body.append(createItem('Billets scannés', `${scanned}/${total}`, subLine));
-      }
-    }
-  }
-
+  const sectionTariff = document.createElement('div');
+  sectionTariff.className = 'card-section section-tariff';
+  const tariffTitle = document.createElement('div');
+  tariffTitle.className = 'section-title';
+  tariffTitle.textContent = 'Tarif';
+  sectionTariff.append(tariffTitle);
+  const tariffCode = document.createElement('div');
+  tariffCode.className = 'card-item highlight';
+  tariffCode.innerHTML = `<strong>${match.tariffCode || (match.ticketId ? '—' : 'QR')}</strong>`;
+  sectionTariff.append(tariffCode);
   if (Array.isArray(match.conditions) && match.conditions.length) {
-    const condWrap = document.createElement('div');
-    condWrap.className = 'card-item';
-    const label = document.createElement('span');
-    label.textContent = 'Justificatifs';
-    const list = document.createElement('ul');
-    list.className = 'conditions';
-    match.conditions.forEach((cond) => {
-      const li = document.createElement('li');
-      li.textContent = cond;
-      list.append(li);
+    match.conditions.forEach((cond, idx) => {
+      const badgeWrap = document.createElement('div');
+      badgeWrap.className = 'card-item';
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = cond;
+      if (idx % 2 === 1) badge.classList.add('alt');
+      badgeWrap.append(badge);
+      sectionTariff.append(badgeWrap);
     });
-    condWrap.append(label, list);
-    body.append(condWrap);
   }
+  body.append(sectionTariff);
 
-  const reasonText = match.reason ? translateReason(match.reason) : (match.status && match.status !== 'ready' ? translateReason(match.status) : '');
-  if (reasonText) {
-    body.append(createItem('Information', reasonText, ''));
-  }
-
-  if (match.createdAt) {
-    body.append(createItem('Ajout', formatDate(match.createdAt), ''));
-  }
-
+  const sectionSeat = document.createElement('div');
+  sectionSeat.className = 'card-section section-seat';
+  const seatTitle = document.createElement('div');
+  seatTitle.className = 'section-subtitle';
+  seatTitle.textContent = 'Place';
+  sectionSeat.append(seatTitle);
+  const seatInfo = document.createElement('div');
+  seatInfo.className = 'card-item highlight';
+  seatInfo.innerHTML = `<strong>${match.location || match.qrValue || '—'}</strong>`;
+  sectionSeat.append(seatInfo);
+  const holderName = [match?.holder?.firstName, match?.holder?.lastName].filter(Boolean).join(' ').trim();
+  const holderEmail = (match?.holder?.email || '').trim();
+  const beneficiary = document.createElement('div');
+  beneficiary.className = 'card-item';
+  const beneficiaryLineRaw = [holderName, holderEmail].filter(Boolean).join(' • ');
+  const beneficiaryLine = beneficiaryLineRaw || '—';
+  beneficiary.innerHTML = `<span>Bénéficiaire</span><strong>${beneficiaryLine || '—'}</strong>`;
+  sectionSeat.append(beneficiary);
   if (!match.ticketId) {
     const qrWrap = document.createElement('div');
     qrWrap.className = 'qr-preview';
     qrWrap.textContent = 'QR';
-    body.append(qrWrap);
+    sectionSeat.append(qrWrap);
     drawQrInline(qrWrap, match.qrValue);
   }
+  body.append(sectionSeat);
+
+  const sectionInfo = document.createElement('div');
+  sectionInfo.className = 'card-section section-info';
+  const infoTitle = document.createElement('div');
+  infoTitle.className = 'section-subtitle';
+  infoTitle.textContent = 'Information';
+  sectionInfo.append(infoTitle);
+  const reasonText = match.reason ? translateReason(match.reason) : (match.status && match.status !== 'ready' ? translateReason(match.status) : '');
+  const infoContent = document.createElement('div');
+  infoContent.className = 'card-item highlight';
+  const parts = [];
+  if (match.ticketId) parts.push(shortId(match.ticketId));
+  if (reasonText) parts.push(reasonText);
+  if (match.scanCount) parts.push(`${match.scanCount} passage(s)`);
+  infoContent.innerHTML = `<strong>${parts.join(' • ') || '—'}</strong>`;
+  sectionInfo.append(infoContent);
+  body.append(sectionInfo);
+
+  const sectionOrder = document.createElement('div');
+  sectionOrder.className = 'card-section section-order';
+  const orderTitle = document.createElement('div');
+  orderTitle.className = 'section-title';
+  orderTitle.textContent = 'Commande';
+  sectionOrder.append(orderTitle);
+  if (match.order) {
+    const idLine = document.createElement('div');
+    idLine.className = 'card-item highlight';
+    idLine.innerHTML = `<strong>#${match.order.id || '—'}</strong>`;
+    sectionOrder.append(idLine);
+    const total = Number(match.order.totalTickets || 0);
+    if (total > 0) {
+      const scanned = Math.min(Number(match.order.scannedTickets || 0), total);
+      const index = Number(match.order.ticketIndex || 0);
+      const billetLabel = index > 0 ? `${index}/${total}` : `${scanned}/${total}`;
+      sectionOrder.querySelector('.section-title').innerHTML = `Commande — Billet <strong>${billetLabel}</strong>`;
+    }
+    const contactName = [match.order.payerFirstName, match.order.payerLastName].filter(Boolean).join(' ').trim();
+    const contactLabel = document.createElement('div');
+    contactLabel.className = 'card-item';
+    const contactLine = [contactName, match.order.payerEmail].filter(Boolean).join(' • ') || '—';
+    contactLabel.innerHTML = `<strong>${contactLine}</strong>`;
+    sectionOrder.append(contactLabel);
+  } else {
+    const fallback = document.createElement('div');
+    fallback.className = 'card-item';
+    fallback.innerHTML = '<strong>—</strong>';
+    sectionOrder.append(fallback);
+  }
+  body.append(sectionOrder);
 
   card.append(body);
 
@@ -752,17 +817,18 @@ function buildTicketCard(match) {
   };
 
   if (!match.ticketId) {
-    addBtn('Confirmer', 'confirm', () => handleConfirm(match));
+    addBtn('Accepter', 'action-accept', () => handleConfirm(match));
+    addBtn('Refuser', 'action-reject', () => { removeHistoryEntry(match); renderTicketList(); });
   } else if (match.status === 'ready') {
-    addBtn('Valider', 'accept', () => handleAccept(match));
-    addBtn('Rejeter', 'reject', () => handleReject(match));
+    addBtn('Accepter', 'action-accept', () => handleAccept(match));
+    addBtn('Refuser', 'action-reject', () => handleReject(match));
   } else if (match.status === 'already_scanned') {
-    addBtn('Confirmer', 'confirm', () => handleConfirm(match));
-    addBtn('Forcer l\'entrée', 'accept', () => handleAccept(match, { force: true }));
-    addBtn('Rejeter', 'reject', () => handleReject(match));
+    addBtn('SORTIR', 'action-cancel', () => handleExit(match));
+    addBtn('Forcer', 'action-force', () => handleAccept(match, { force: true }));
+    addBtn('Refuser', 'action-reject', () => handleReject(match));
   } else {
-    addBtn('Confirmer', 'confirm', () => handleConfirm(match));
-    addBtn('Rejeter', 'reject', () => handleReject(match));
+    addBtn('SORTIR', 'action-cancel', () => handleExit(match));
+    addBtn('Refuser', 'action-reject', () => handleReject(match));
   }
 
   if (actions.childElementCount > 0) {
@@ -840,6 +906,10 @@ async function postScanOnline(payload) {
 
 async function previewScan(raw) {
   if (!raw) return;
+  const lastTs = lastPreviewLookup.get(raw);
+  if (lastTs && (Date.now() - lastTs) < 15000) {
+    return;
+  }
   const auth = getAuthContext();
   const eventValue = getEventValueForRequest();
   if (!eventValue) {
@@ -868,6 +938,7 @@ async function previewScan(raw) {
   };
   try {
     const data = await postScanOnline(payload);
+    lastPreviewLookup.set(raw, Date.now());
     const context = {
       qrValue: raw,
       eventId: data.event?.id || eventValue,
@@ -923,6 +994,7 @@ async function previewScan(raw) {
       updateStatus('ko', translateReason(data.reason || 'unknown_qr'));
     }
   } catch (e) {
+    lastPreviewLookup.set(raw, Date.now());
     if (e.server) {
       const reason = e.body?.reason || 'error';
       updateStatus('ko', translateReason(reason) || e.body?.error || ('HTTP ' + e.status));
@@ -1140,6 +1212,50 @@ async function handleConfirm(match) {
     }
     logAction({ action: 'confirm', status: 'error', entryKey, entry: match.ticketId ? shortId(match.ticketId) : match.qrValue, info: 'Hors ligne', event: match.eventSlug || eventId });
     renderTicketList();
+    updateStatus('ko', 'Hors-ligne — action impossible');
+  }
+}
+
+async function handleExit(match) {
+  const auth = getAuthContext();
+  const eventId = match.eventId || lastContext?.eventId || getEventValueForRequest();
+  if (!eventId) {
+    updateStatus('ko', 'Event requis');
+    return;
+  }
+  if (auth.mode === 'token' && !auth.token) {
+    updateStatus('ko', 'Token requis');
+    return;
+  }
+  if (auth.mode === 'basic' && (!auth.login || !auth.password)) {
+    updateStatus('ko', 'Identifiants requis');
+    return;
+  }
+
+  const payload = {
+    value: match.qrValue || lastContext?.qrValue || '',
+    eventId,
+    authMode: auth.mode,
+    token: auth.token,
+    login: auth.login,
+    password: auth.password,
+    decision: 'exit',
+    ticketId: match.ticketId || undefined,
+    deviceId: deviceFingerprint(),
+    gate: getGateName()
+  };
+
+  try {
+    await postScanOnline(payload);
+    logAction({ action: 'exit', status: 'sortie', entryKey: keyForEntry(match), entry: match.ticketId ? shortId(match.ticketId) : match.qrValue, info: 'Sortie', event: match.eventSlug || eventId });
+    removeHistoryEntry(match);
+    renderTicketList();
+    updateStatus('ok', 'Sortie effectuée');
+  } catch (e) {
+    if (e.server) {
+      updateStatus('ko', translateReason(e.body?.reason) || e.body?.error || ('HTTP ' + e.status));
+      return;
+    }
     updateStatus('ko', 'Hors-ligne — action impossible');
   }
 }
