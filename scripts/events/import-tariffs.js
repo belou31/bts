@@ -98,11 +98,29 @@ async function main(){
   // Upsert par priceTableKey + zoneKey + tariffCode
   let pUpserts = 0;
   for (const p of priceDocs) {
-    await TariffPrice.updateOne(
-      { priceTableKey: ev.priceTableKey, zoneKey: p.zoneKey, tariffCode: p.tariffCode },
-      { $set: p },
-      { upsert: true }
-    );
+    const filter = {
+      zoneKey: p.zoneKey,
+      tariffCode: p.tariffCode,
+      $or: [
+        { priceTableKey: ev.priceTableKey },
+        {
+          priceTableKey: { $in: [null, ''] },
+          seasonCode: { $in: [null, ''] },
+          venueSlug: { $in: [null, ''] }
+        }
+      ]
+    };
+
+    const update = {
+      $set: {
+        priceTableKey: ev.priceTableKey,
+        zoneKey: p.zoneKey,
+        tariffCode: p.tariffCode,
+        priceCents: p.priceCents
+      }
+    };
+
+    await TariffPrice.updateOne(filter, update, { upsert: true, setDefaultsOnInsert: true });
     pUpserts++;
   }
 
