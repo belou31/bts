@@ -692,6 +692,44 @@ function renderScanView(_req, res) {
     assetBase
   });
 }
+router.get('/scan/events.json', async (req, res) => {
+  try {
+    const season = String(req.query.season || '').trim();
+    const limitRaw = Number(req.query.limit || 200);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 500) : 200;
+    const filter = {};
+    if (season) filter.seasonCode = season;
+
+    const docs = await Event.find(filter, {
+      _id: 1,
+      slug: 1,
+      name: 1,
+      startsAt: 1,
+      seasonCode: 1,
+      venueSlug: 1,
+      isOnSale: 1
+    })
+      .sort({ startsAt: 1 })
+      .limit(limit)
+      .lean();
+
+    const events = docs.map((doc) => ({
+      id: String(doc._id),
+      slug: doc.slug || '',
+      name: doc.name || doc.slug || '',
+      startsAt: doc.startsAt || null,
+      seasonCode: doc.seasonCode || null,
+      venueSlug: doc.venueSlug || null,
+      isOnSale: doc.isOnSale === true
+    }));
+
+    res.json({ ok: true, events });
+  } catch (err) {
+    req.log?.error?.({ err }, 'scan_events_list_failed');
+    res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
 router.get('/scan/qr.svg', async (req, res) => {
   const rawValue = String(req.query.value ?? '').trim();
   if (!rawValue) {
