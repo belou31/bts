@@ -103,7 +103,7 @@ async function main() {
   const specialeFilter = { ...base, zoneKey: { $in: ['S3', 'S4A'] } };
 
   // --- Règle VISITORS: zone S2, rangées F ou G (seatId "S2-F-XXX" / "S2-G-XXX") ---
-  const visitorsFilter = { ...base, seatId: { $regex: /^(?:S2)-(?:F|G)-\d+$/ } };
+  const visitorsFilter = { ...base, seatId: { $regex: /^(?:S2)-(?:D|E|F|G)-\d+$/ } };
 
   // --- Règle FANCLUB (TBH7): zones N5,N6,N7, rangées L,M,N ---
   const fanclubFilter = { ...base, seatId: { $regex: /^(?:N5|N6|N7)-(?:L|M|N)-\d+$/ } };
