@@ -34,23 +34,40 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 
 
 .results{margin-top:16px;display:flex;flex-direction:column;gap:12px}
-.ticket-card{background:#0f1622;border:1px solid #1f2937;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.ticket-card{background:#0f1622;border:1px solid #1f2937;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:16px}
 .ticket-card .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-.ticket-card .card-title{font-size:16px;font-weight:600}
-.ticket-card .card-sub{color:#9ca3af;font-size:13px;margin-top:2px}
+.ticket-card .card-title{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.ticket-card .card-sub{color:#9ca3af;font-size:11px;margin-top:2px;text-transform:uppercase;letter-spacing:.08em}
 .status-pill{display:inline-flex;align-items:center;justify-content:center;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid transparent}
 .status-ready{background:rgba(34,197,94,0.12);color:#22c55e;border-color:rgba(34,197,94,0.3)}
 .status-already{background:rgba(249,115,22,0.12);color:#f97316;border-color:rgba(249,115,22,0.3)}
 .status-wrong{background:rgba(239,68,68,0.12);color:#ef4444;border-color:rgba(239,68,68,0.3)}
 .status-accepted{background:rgba(14,116,144,0.15);color:#38bdf8;border-color:rgba(14,116,144,0.3)}
-.ticket-card .card-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.ticket-card .card-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.ticket-card .section-tariff,.ticket-card .section-seat,.ticket-card .section-info,.ticket-card .section-order{width:100%}
+@media (min-width:820px){
+  .ticket-card .card-body{grid-template-columns:repeat(2,minmax(240px,1fr));grid-template-areas:"tariff seat" "info order"}
+  .ticket-card .section-tariff{grid-area:tariff}
+  .ticket-card .section-seat{grid-area:seat}
+  .ticket-card .section-info{grid-area:info}
+  .ticket-card .section-order{grid-area:order}
+}
+.ticket-card .card-section{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.ticket-card .section-title{font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em}
+.ticket-card .section-subtitle{font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em}
 .ticket-card .card-item{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#9ca3af}
+.card-item.highlight strong{font-size:18px;color:#f9fafb}
 .ticket-card .card-item strong{font-size:15px;color:#f9fafb;font-weight:600}
+.ticket-card .card-item .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;background:rgba(34,197,94,0.12);color:#22c55e}
+.ticket-card .card-item .badge.alt{background:rgba(59,130,246,0.12);color:#60a5fa}
 .ticket-card .conditions{margin:0;padding-left:16px;list-style:disc;color:#d1d5db;font-size:13px}
-.ticket-card .card-actions{display:flex;gap:8px;flex-wrap:wrap}
-.ticket-card .card-actions button{flex:0 0 auto;padding:9px 14px;border-radius:8px;border:1px solid #1f2937;background:#111827;color:#f9fafb;cursor:pointer}
-.ticket-card .card-actions button.accept{background:#14532d;border-color:#14532d}
-.ticket-card .card-actions button.reject{background:#3f1d1d;border-color:#7f1d1d}
+.ticket-card .card-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+.ticket-card .card-actions button{flex:0 0 auto;padding:10px 16px;border-radius:999px;border:1px solid #1f2937;background:#111827;color:#f9fafb;font-weight:600;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;transition:background .2s ease,transform .2s ease}
+.ticket-card .card-actions button:hover{transform:translateY(-1px)}
+.ticket-card .card-actions button.action-accept{background:#14532d;border-color:#14532d}
+.ticket-card .card-actions button.action-force{background:#1d4ed8;border-color:#1d4ed8}
+.ticket-card .card-actions button.action-reject{background:#7f1d1d;border-color:#7f1d1d}
+.ticket-card .card-actions button.action-cancel{background:#374151;border-color:#4b5563}
 .ticket-card .card-actions button[disabled]{opacity:.5;cursor:not-allowed}
 .results-empty{padding:12px;border-radius:12px;background:#111827;border:1px dashed #1f2937;color:#9ca3af;text-align:center}
 @media (max-width:600px){.ticket-card .card-body{grid-template-columns:1fr}}
@@ -68,14 +85,16 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 
 .toggle{display:flex;align-items:center;cursor:pointer;user-select:none}
 .toggle:focus-visible{outline:2px solid #1d4ed8;outline-offset:2px;border-radius:999px}
-.toggle-track{position:relative;display:grid;grid-template-columns:1fr 1fr;align-items:center;background:#111827;border:1px solid #1f2937;border-radius:999px;padding:6px;min-width:180px}
-.toggle-option{font-size:13px;font-weight:600;color:#9ca3af;pointer-events:none;text-transform:uppercase;letter-spacing:.05em;text-align:center}
-.toggle-thumb{position:absolute;top:6px;bottom:6px;left:6px;width:calc(50% - 6px);background:#1d4ed8;border-radius:999px;transition:transform .25s ease,background .25s ease}
+.toggle-track{position:relative;display:grid;grid-template-columns:1fr 1fr;align-items:center;background:#111827;border:1px solid #1f2937;border-radius:999px;padding:6px;min-width:200px;gap:8px}
+.toggle-option{font-size:13px;font-weight:600;color:#9ca3af;pointer-events:none;text-transform:uppercase;letter-spacing:.05em;text-align:center;opacity:.45}
+.toggle-thumb{position:absolute;top:6px;bottom:6px;left:6px;width:calc(50% - 6px);background:#1d4ed8;border-radius:999px;transition:transform .25s ease,background .25s ease;display:flex;align-items:center;justify-content:center}
+.toggle-thumb .toggle-label{font-size:13px;font-weight:700;color:#f9fafb;letter-spacing:.05em;text-transform:uppercase}
 .toggle.on .toggle-thumb{transform:translateX(100%)}
-.toggle.on .toggle-option.on,.toggle:not(.on) .toggle-option.off{color:#f9fafb}
-.toggle.auth-toggle .toggle-thumb{width:calc(50% - 6px)}
+.toggle.on .toggle-option.on{opacity:0}
+.toggle:not(.on) .toggle-option.off{opacity:0}
 .toggle.auth-toggle.on .toggle-thumb{transform:translateX(100%)}
-.toggle.auth-toggle.on .toggle-option.login,.toggle.auth-toggle:not(.on) .toggle-option.token{color:#f9fafb}
+.toggle.scan-toggle.on .toggle-thumb{background:#22c55e}
+.toggle.scan-toggle:not(.on) .toggle-thumb{background:#ef4444}
 .toggle.scan-toggle{min-width:220px}
 .toggle.scan-toggle .toggle-thumb{width:calc(50% - 6px);background:#22c55e}
 .toggle.scan-toggle:not(.on) .toggle-thumb{background:#ef4444}

@@ -543,7 +543,14 @@ router.post('/api/scan', requireScanner, async (req, res) => {
           scannedAt: now,
           scannedBy: gateName
         },
-        $inc: { scanCount: 1 }
+        $inc: { scanCount: 1 },
+        $push: {
+          scanHistory: {
+            when: now,
+            by: gateName,
+            action: 'auto'
+          }
+        }
       },
       { new: true }
     );
@@ -653,7 +660,14 @@ router.post('/api/scan', requireScanner, async (req, res) => {
           scannedAt: now,
           scannedBy: gateName
         },
-        $inc: { scanCount: 1 }
+        $inc: { scanCount: 1 },
+        $push: {
+          scanHistory: {
+            when: now,
+            by: gateName,
+            action: force ? 'force' : 'accept'
+          }
+        }
       },
       { new: true }
     );
@@ -673,6 +687,47 @@ router.post('/api/scan', requireScanner, async (req, res) => {
     const refreshed = composeMatch(updated, orderDoc, canonicalEventId, eventResolved.slug);
 
     return res.json({ ok: true, decision: 'accept', ticket: refreshed, event: eventPayload });
+  }
+
+  if (decision === 'exit') {
+    if (!ticketId) {
+      return res.status(400).json({ ok: false, error: 'ticket_required' });
+    }
+
+    const ticket = await Ticket.findById(ticketId);
+    if (!ticket) {
+      return res.json({ ok: false, reason: 'unknown_ticket', event: eventPayload });
+    }
+
+    const valuesSet = new Set(lookupValues.map(String));
+    if (!valuesSet.has(String(ticket.qr?.value || ''))) {
+      return res.json({ ok: false, reason: 'mismatch_qr', event: eventPayload });
+    }
+
+    if (ticket.scanCount && ticket.scanCount > 0) {
+      ticket.scanCount = Math.max(0, Number(ticket.scanCount) - 1);
+    }
+    ticket.scannedAt = null;
+    ticket.scannedBy = gateName;
+    if (!Array.isArray(ticket.scanHistory)) ticket.scanHistory = [];
+    ticket.scanHistory.push({ when: now, by: gateName, action: 'exit' });
+    await ticket.save();
+
+    await ScanLog.create({
+      when: now,
+      eventId: canonicalEventId,
+      ticketId,
+      qrValue: raw,
+      ok: true,
+      reason: 'exit',
+      deviceId,
+      gate: gateName
+    });
+
+    const orderDoc = ticket?.orderId ? await Order.findById(ticket.orderId).lean() : null;
+    const refreshed = composeMatch(ticket, orderDoc, canonicalEventId, eventResolved.slug);
+
+    return res.json({ ok: true, decision: 'exit', ticket: refreshed, event: eventPayload });
   }
 
   return res.status(400).json({ ok: false, error: 'invalid_decision' });
