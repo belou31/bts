@@ -41,6 +41,35 @@ const overlayCtx = overlay ? overlay.getContext('2d') : null;
 let stream, stopFn = null;
 let detectionLocked = false;
 
+function encodeBasicCredentials(login, password) {
+  const pair = `${login}:${password}`;
+  try {
+    return btoa(pair);
+  } catch {
+    try {
+      if (typeof TextEncoder !== 'undefined') {
+        const bytes = new TextEncoder().encode(pair);
+        let binary = '';
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        return btoa(binary);
+      }
+    } catch {}
+    // Fallback for browsers without TextEncoder
+    return btoa(unescape(encodeURIComponent(pair)));
+  }
+}
+
+function updateStatus(state, text) {
+  if (!statusEl) return;
+  statusEl.textContent = text || '';
+  statusEl.classList.remove('ok', 'ko');
+  if (state === 'ok') {
+    statusEl.classList.add('ok');
+  } else if (state === 'ko') {
+    statusEl.classList.add('ko');
+  }
+}
+
 const eventInput = document.getElementById('eventId');
 const tokenInput = document.getElementById('token');
 const loginInput = document.getElementById('login');
@@ -266,7 +295,9 @@ const REASON_MESSAGES = {
   rejected: 'Billet rejeté',
   queued: 'Enregistré hors ligne',
   sync: 'Synchronisation effectuée',
-  error: 'Erreur'
+  error: 'Erreur',
+  invalid_response: 'Réponse inattendue du serveur',
+  invalid_json: 'Réponse serveur invalide'
 };
 
 const ACTION_LABELS = {
@@ -308,35 +339,28 @@ function formatDate(value) {
   }
 }
 
-let qrLibPromise = null;
-function ensureQrLib() {
-  if (window.QRCode) return Promise.resolve(window.QRCode);
-  if (!qrLibPromise) {
-    qrLibPromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js';
-      script.async = true;
-      script.onload = () => resolve(window.QRCode);
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
+async function drawQrInline(container, value) {
+  if (!container) return;
+  const text = String(value || '').trim();
+  if (!text) {
+    container.textContent = 'QR';
+    return;
   }
-  return qrLibPromise;
-}
 
-function drawQrInline(container, value) {
-  ensureQrLib().then((QRCode) => {
-    if (!QRCode || !container) return;
-    QRCode.toString(String(value || ''), { type: 'svg', margin: 0 }, (err, svg) => {
-      if (err || !svg) {
-        container.textContent = String(value || 'QR');
-        return;
-      }
-      container.innerHTML = svg;
-    });
-  }).catch(() => {
-    if (container) container.textContent = String(value || 'QR');
-  });
+  const url = `${SCOPE}qr.svg?value=${encodeURIComponent(text)}`;
+  try {
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('http_' + res.status);
+    const svg = await res.text();
+    const trimmed = svg.trim();
+    if (!trimmed.startsWith('<svg')) {
+      container.textContent = text;
+      return;
+    }
+    container.innerHTML = trimmed;
+  } catch {
+    container.textContent = text;
+  }
 }
 function createItem(label, main, sub) {
   const wrap = document.createElement('div');
@@ -364,6 +388,39 @@ function cloneEntry(entry) {
   if (Array.isArray(entry.conditions)) copy.conditions = [...entry.conditions];
   if (Array.isArray(entry.logs)) copy.logs = [...entry.logs];
   return copy;
+}
+
+function enrichEntryBase(source = {}, context = {}) {
+  const entry = cloneEntry(source || {});
+
+  entry.ticketId = entry.ticketId || source.ticketId || null;
+  entry.qrValue = entry.qrValue || source.qrValue || context.qrValue || '';
+  entry.status = entry.status || source.status || (entry.ticketId ? 'ready' : 'unknown');
+  entry.reason = entry.reason || source.reason || (entry.ticketId ? '' : 'unknown_qr');
+  entry.eventId = entry.eventId || source.eventId || context.eventId || '';
+  entry.eventSlug = entry.eventSlug || source.eventSlug || context.eventSlug || '';
+  entry.createdAt = entry.createdAt || source.createdAt || Date.now();
+
+  if (!entry.holder && source.holder) entry.holder = { ...source.holder };
+  entry.holder = entry.holder || { firstName: '', lastName: '', email: '' };
+
+  if (source.order) {
+    entry.order = { ...source.order };
+    entry.order.id = entry.order.id || entry.order._id || '';
+    entry.order.payerFirstName = entry.order.payerFirstName || '';
+    entry.order.payerLastName = entry.order.payerLastName || '';
+    entry.order.payerEmail = entry.order.payerEmail || '';
+    entry.order.totalTickets = entry.order.totalTickets ?? 0;
+    entry.order.scannedTickets = entry.order.scannedTickets ?? 0;
+    entry.order.ticketIndex = entry.order.ticketIndex ?? null;
+  } else if (!entry.order) {
+    entry.order = null;
+  }
+
+  if (!Array.isArray(entry.conditions)) entry.conditions = [];
+  if (!Array.isArray(entry.logs)) entry.logs = Array.isArray(source.logs) ? [...source.logs] : [];
+
+  return entry;
 }
 
 function keyForEntry(match) {
@@ -572,7 +629,7 @@ async function postScanOnline(payload) {
   const headers = { 'Content-Type': 'application/json' };
   const authMode = payload.authMode || ((payload.login && payload.password) ? 'basic' : 'token');
   if (authMode === 'basic' && payload.login && payload.password) {
-    headers['Authorization'] = 'Basic ' + btoa(`${payload.login}:${payload.password}`);
+    headers['Authorization'] = 'Basic ' + encodeBasicCredentials(payload.login, payload.password);
   } else if (authMode === 'token' && payload.token) {
     headers['Authorization'] = 'Bearer ' + payload.token;
   }
@@ -587,18 +644,46 @@ async function postScanOnline(payload) {
   if (payload.ticketId) body.ticketId = payload.ticketId;
   if (payload.force) body.force = true;
 
-  const res = await fetch(BASE + '/api/scan', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body)
-  });
-  if (res.ok) return res.json();
-  let bodyJson = {};
-  try { bodyJson = await res.json(); } catch {}
+  let res;
+  try {
+    res = await fetch(BASE + '/api/scan', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
+  } catch (err) {
+    err.network = true;
+    throw err;
+  }
+
+  const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+  const isJson = contentType.includes('application/json');
+
+  if (res.ok) {
+    if (isJson) {
+      return res.json();
+    }
+    const text = await res.text().catch(() => '');
+    const err = new Error('server');
+    err.server = true;
+    err.status = res.status;
+    err.body = { error: 'invalid_response', body: text.slice(0, 2000) };
+    throw err;
+  }
+
   const err = new Error('server');
   err.server = true;
   err.status = res.status;
-  err.body = bodyJson;
+  if (isJson) {
+    try {
+      err.body = await res.json();
+    } catch {
+      err.body = { error: 'invalid_json' };
+    }
+  } else {
+    const text = await res.text().catch(() => '');
+    err.body = { error: 'invalid_response', body: text.slice(0, 2000) };
+  }
   throw err;
 }
 
@@ -721,7 +806,8 @@ async function previewScan(raw) {
       gate: getGateName()
     }});
     await showQueueSize();
-    updateStatus('ko', 'Hors-ligne — validation différée');
+    const networkMsg = e?.message ? `Connexion perdue — ${e.message}` : 'Hors-ligne — validation différée';
+    updateStatus('ko', networkMsg);
     if (navigator.serviceWorker?.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'flush-request' });
     }

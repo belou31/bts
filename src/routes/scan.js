@@ -70,6 +70,64 @@ function requireScanner(req, res, next) {
 
 const EVENT_CACHE_TTL_MS = 60 * 1000;
 const eventCache = new Map();
+const ALLOWED_CTRL_CODES = new Set([9, 10, 13]);
+
+function extractLookupVariants(rawValue) {
+  const variants = new Set();
+  const base = String(rawValue || '').trim();
+  if (!base) return variants;
+  variants.add(base);
+
+  const containsCtrl = (str) => {
+    for (const ch of str) {
+      const code = ch.charCodeAt(0);
+      if ((code >= 0 && code < 32 && !ALLOWED_CTRL_CODES.has(code)) || code === 127) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const pushIfAscii = (candidate) => {
+    if (!candidate) return;
+    const str = String(candidate).trim();
+    if (!str || containsCtrl(str)) return;
+    variants.add(str);
+  };
+
+  const pushFragmentVariants = (value) => {
+    const collapsed = value.replace(/\s+/g, '');
+    if (collapsed && collapsed !== value) pushIfAscii(collapsed);
+    if (value.includes(':')) {
+      const parts = value.split(':').map((part) => part.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        pushIfAscii(parts[0]);
+        pushIfAscii(parts.slice(1).join(':'));
+      }
+    }
+  };
+
+  const attemptBase64 = (value) => {
+    try {
+      if (!value || value.length % 4 !== 0) return;
+      if (!/^[A-Za-z0-9+/=]+$/.test(value)) return;
+      const decoded = Buffer.from(value, 'base64').toString('utf8');
+      pushIfAscii(decoded);
+      pushFragmentVariants(decoded);
+    } catch {}
+  };
+
+  attemptBase64(base);
+
+  if (/^[A-Za-z0-9_-]+=?=?$/.test(base)) {
+    const normalized = base.replace(/-/g, '+').replace(/_/g, '/');
+    attemptBase64(normalized);
+  }
+
+  pushFragmentVariants(base);
+
+  return variants;
+}
 
 async function resolveEventKey(eventIdOrSlug) {
   const raw = String(eventIdOrSlug || '').trim();
@@ -360,7 +418,7 @@ router.post('/api/scan', requireScanner, async (req, res) => {
   const canonicalEventId = eventResolved.id;
   const eventPayload = { id: canonicalEventId, slug: eventResolved.slug || null };
 
-  let lookupValues = [raw];
+  const lookupSet = extractLookupVariants(raw);
   if (process.env.QR_SECRET) {
     const { ok, value: unsignedValue, reason } = verifySignature(raw);
     if (!ok && reason !== 'no_sig') {
@@ -376,8 +434,15 @@ router.post('/api/scan', requireScanner, async (req, res) => {
       return res.json({ ok: false, reason: 'invalid_signature', event: eventPayload });
     }
     if (ok) {
-      lookupValues = [unsignedValue, raw];
+      for (const variant of extractLookupVariants(unsignedValue)) {
+        lookupSet.add(variant);
+      }
     }
+  }
+
+  const lookupValues = Array.from(lookupSet);
+  if (!lookupValues.length) {
+    lookupValues.push(String(raw));
   }
 
   const gateName = req.headers['x-gate'] || process.env.SCAN_GATE_NAME || deviceId || '';
@@ -627,8 +692,26 @@ function renderScanView(_req, res) {
     assetBase
   });
 }
-router.get('/scan', renderScanView);
-router.get('/scan/:eventSlug', renderScanView);
+router.get('/scan/qr.svg', async (req, res) => {
+  const rawValue = String(req.query.value ?? '').trim();
+  if (!rawValue) {
+    return res.status(400).type('text/plain').send('value_required');
+  }
+  if (rawValue.length > 256) {
+    return res.status(400).type('text/plain').send('value_too_long');
+  }
+
+  try {
+    const svg = await renderQrSvg({ text: rawValue, size: 160 });
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.type('image/svg+xml; charset=utf-8').send(svg);
+  } catch (err) {
+    req.log?.error?.({ err }, 'qr_svg_render_failed');
+    res.status(500).type('text/plain').send('qr_render_failed');
+  }
+});
+
+router.get(['/scan', '/scan/:eventSlug([\w-]+)'], renderScanView);
 
 // GET /bts/scan/manifest.webmanifest
 router.get('/scan/manifest.webmanifest', (req,res) => {

@@ -18,6 +18,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const VIEWS_DIR  = path.resolve(__dirname, '..', 'views');
 
+
+// Préfixes d'URL (utilisés par la vue EJS "order")
+// IMPORTANT : en DEV BASE_PATH == '' -> assets doit commencer par /static (absolu)
+const BASE_PATH = (process.env.BASE_PATH || '').trim();
+const ASSET_PREFIX = path.posix.join(BASE_PATH, '/static/').replace(/\/{2,}/g, '/');
+
+
 export default function routes(router) {
   // Page HTML "renew"
   router.get('/renew', (req, res) => {
@@ -31,6 +38,7 @@ export default function routes(router) {
       planHelp: 'Cliquez sur votre siège pour le renouveler. Les zones TBH7 et Debout restent accessibles via le plan.',
       scheduleOptions: null,
       paymentHelp: 'Le reçu HelloAsso et la confirmation d’abonnement seront envoyés à l’email de contact.',
+      assets: ASSET_PREFIX,
       config: {
         api: {
           status: `s/renew${suffix}`,
@@ -59,6 +67,7 @@ export default function routes(router) {
         options: []
       },
       paymentHelp: "Le reçu HelloAsso et la confirmation d’abonnement seront envoyés à l’email de contact.",
+      assets: ASSET_PREFIX,
       config: {
         title: 'Les Bélougas - Abonnements 2025-2026',
         api: {
@@ -76,13 +85,54 @@ export default function routes(router) {
     });
   });
 
+  // NEW: route "slug" (/event/:ev) – recommandée
+  router.get('/event/:ev', (req, res) => {
+    const eventKey = String(req.params.ev || '').trim();
+    if (!eventKey) return res.status(400).send('Missing event slug');
+
+    const encodedKey = encodeURIComponent(eventKey);
+    const baseForJoin = BASE_PATH || '/';
+    const statusPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'status');
+    const checkoutPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'checkout');
+
+    // ⚠️ Comme on est sous /event/<slug>, utiliser des endpoints RELATIFS remontant d’un cran ("../")
+    // pour viser /api/... (et pas /event/api/...)
+    res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
+      title:   'Billetterie Match — BTS',
+      heading: 'Billetterie Match',
+      lead:    'Choisissez vos places pour ce match et suivez le tunnel de paiement sécurisé HelloAsso.',
+      planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
+      scheduleOptions: [1],
+      paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
+      assets: ASSET_PREFIX,
+      config: {
+        api: {
+          // ✅ endpoints absolus (compat /bts) — pas de préfixe /event/
+          status: statusPath,
+          checkout: checkoutPath
+        },
+        selection: { type: 'seats' },
+        buildRowsFromData: false,
+        svgSeatClasses: { allowed: 'seat-allowed' }
+      },
+      orderPageConfig: { focusField: 'payerEmail' },
+      // ✅ script spécifique en chemin absolu
+      customJs: [ ASSET_PREFIX + 'js/event.js' ]
+    });
+  });
+
+  // Legacy: /event?eventId=<slug> – conservé pour compat
   router.get('/event', (req, res) => {
-    const eventKey = String(req.query.eventId || req.query.slug || '').trim();
+
+  const eventKey = String(req.query.eventId || req.query.slug || '').trim();
     if (!eventKey) {
       return res.status(400).send('Missing eventId parameter');
     }
 
     const encodedKey = encodeURIComponent(eventKey);
+    const baseForJoin = BASE_PATH || '/';
+    const statusPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'status');
+    const checkoutPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'checkout');
 
     res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
       title: 'Billetterie Match — BTS',
@@ -91,10 +141,12 @@ export default function routes(router) {
       planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
       scheduleOptions: [1],
       paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
+      assets: ASSET_PREFIX,
       config: {
         api: {
-          status: `../api/event/${encodedKey}/status`,
-          checkout: `../api/event/${encodedKey}/checkout`
+          // La version legacy reste au niveau /event (pas de sous-dossier), on peut rester en relatif simple
+          status:  statusPath,
+          checkout: checkoutPath
         },
         selection: { type: 'seats' },
         buildRowsFromData: false,
@@ -121,6 +173,7 @@ export default function routes(router) {
       planHelp: 'Sélectionnez votre zone TBH7 directement sur le plan ou via les boutons dédiés.',
       scheduleOptions: [1, 2, 3],
       paymentHelp: 'Un email de confirmation vous sera envoyé dès validation du paiement.',
+      assets: ASSET_PREFIX,
       config: {
         title: 'TBH7 — Fan Club',
         api: {

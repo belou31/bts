@@ -46,6 +46,12 @@ window.BTS_VIEW = {
 
 
 // Classes SVG utilisées (tu peux les surcharger via window.BTS_VIEW_CONFIG.svgSeatClasses)
+const ASSET_BASE = (() => {
+  const raw = CONFIG.assetsBase || CONFIG.assetBase || CONFIG.assetPrefix || 'static/';
+  if (!raw) return 'static/';
+  return raw.endsWith('/') ? raw : `${raw}/`;
+})();
+
 const CLASSES = Object.assign({
   allowed:   'seat-allowed',    // sièges "autorisés" par le token (highlight doux)
   selected:  'seat-selected',   // sièges présents dans le panier
@@ -913,8 +919,26 @@ if (Array.isArray(CTX.seatSubscribers)) {
 
   // Plan
   const $planObj = $('#venuePlan');
-  const planPath = (CONFIG.venuePlanPath ? CONFIG.venuePlanPath(CTX.venueSlug) : `static/venues/${CTX.venueSlug}/plan.svg`);
-  $planObj.setAttribute('data', planPath);
+  let planPath = null;
+  if (typeof CONFIG.venuePlanPath === 'function') {
+    try {
+      planPath = CONFIG.venuePlanPath(CTX.venueSlug, { assetsBase: ASSET_BASE });
+    } catch (err) {
+      console.warn('venuePlanPath failed:', err);
+    }
+  }
+  if (!planPath) {
+    const slug = String(CTX.venueSlug || '').trim();
+    if (slug) {
+      const safeSlug = encodeURIComponent(slug);
+      const base = (CONFIG.venuePlanBase || `${ASSET_BASE}venues/`);
+      const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+      planPath = `${normalizedBase}${safeSlug}/plan.svg`;
+    }
+  }
+  if (planPath) {
+    $planObj.setAttribute('data', planPath);
+  }
   $planObj.addEventListener('load', () => { try { onPlanReady($planObj); } catch(e){ console.warn('plan init failed:', e); } }, { once:true });
 
 // Lignes (renew = sièges connus) — activable/désactivable par config

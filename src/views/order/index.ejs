@@ -291,6 +291,7 @@
       title: <%- JSON.stringify(defaultTitle) %>,
       pageTitle: <%- JSON.stringify(safeHeading) %>,
       scheduleOptions: orderPageDefaults.scheduleOptions,
+      assetsBase: <%- JSON.stringify(assetPrefix) %>,
       api: { status: 'api/order/status', checkout: 'api/order/checkout' },
       selection: { type: 'seats' }
     };
