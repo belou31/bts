@@ -102,7 +102,7 @@ export default function routes(router) {
       heading: 'Billetterie Match',
       lead:    'Choisissez vos places pour ce match et suivez le paiement sécurisé HelloAsso.',
       planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
-      scheduleOptions: [1],
+      scheduleOptions: [],
       paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
       assets: ASSET_PREFIX,
       zoneSelector: {

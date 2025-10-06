@@ -116,11 +116,11 @@ function renderNeutral(orderId, statusLabel) {
       <p>Votre paiement a été pris en charge. Deux emails distincts vont vous parvenir&nbsp;:</p>
       <ul>
         <li><strong>Le reçu HelloAsso</strong> pour la transaction bancaire,</li>
-        <li><strong>L’attestation d’abonnement</strong> envoyée par <em>billetterie@tbhc.fr</em>.</li>
+        <li><strong>L’attestation Billetterie</strong> envoyée par <em>billetterie@tbhc.fr</em>.</li>
       </ul>
       <div class="warn">
         <strong>Important&nbsp;:</strong>
-        si vous recevez le reçu HelloAsso mais <em>pas</em> l’attestation d’abonnement,
+        si vous recevez le reçu HelloAsso mais <em>pas</em> l’attestation Billetterie,
         vos places ne sont <strong>pas</strong> bloquées et nous procéderons au remboursement.
       </div>
     </div>`;
