@@ -10,35 +10,46 @@
 </head>
 <body>
   <header>
-    <img alt="BTS" src="<%= assetBase %>img/icon-192.png" onerror="this.style.display='none'"/>
+    <img alt="BTS" src="<%= assetBase %>img/logo.png" onerror="this.style.display='none'"/>
     <strong>Contrôle d'accès — BTS</strong>
     <span class="pill" id="net">offline</span>
   </header>
 
   <main>
     <div class="grid">
-      <div class="row">
-        <label>Event ID</label>
-        <input id="eventId" placeholder="2025-09-20-belougas-vs-vipers"/>
-      </div>
-      <div class="row auth-mode">
-        <label>Authentification</label>
-        <div class="auth-switch">
-          <label><input type="radio" name="authMode" value="token" checked> Token</label>
-          <label><input type="radio" name="authMode" value="basic"> Login &amp; mot de passe</label>
+      <div class="row row-config">
+        <div class="event-group">
+          <label for="eventSelect">Événement</label>
+          <div class="event-selector">
+            <select id="eventSelect">
+              <option value="">Chargement…</option>
+            </select>
+            <input id="eventId" type="hidden" />
+          </div>
         </div>
-      </div>
-      <div class="row auth-row-token">
-        <label>Token</label>
-        <input id="token" placeholder="••••"/>
-      </div>
-      <div class="row auth-row-login auth-hidden">
-        <label>Login</label>
-        <input id="login" placeholder="scanner" autocomplete="username"/>
-      </div>
-      <div class="row auth-row-password auth-hidden">
-        <label>Mot de passe</label>
-        <input id="password" type="password" placeholder="••••" autocomplete="current-password"/>
+        <div class="auth-group">
+          <div class="auth-header">
+            <span>Authentification</span>
+            <div class="toggle auth-toggle" id="authToggle" role="switch" aria-checked="false" tabindex="0">
+              <div class="toggle-track">
+                <span class="toggle-option token">Token</span>
+                <span class="toggle-option login">Login</span>
+                <span class="toggle-thumb"></span>
+              </div>
+            </div>
+          </div>
+          <div class="auth-fields">
+            <div class="auth-row auth-row-token">
+              <input id="token" placeholder="Token" aria-label="Token"/>
+            </div>
+            <div class="auth-row auth-row-login auth-row-basic auth-hidden">
+              <input id="login" placeholder="Login" autocomplete="username" aria-label="Login"/>
+            </div>
+            <div class="auth-row auth-row-password auth-row-basic auth-hidden">
+              <input id="password" type="password" placeholder="Mot de passe" autocomplete="current-password" aria-label="Mot de passe"/>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -47,9 +58,14 @@
       <canvas id="overlay"></canvas>
     </div>
 
-    <div class="row">
-      <button id="startBtn" class="primary">Démarrer</button>
-      <button id="stopBtn">Stop</button>
+    <div class="row controls-row">
+      <div class="toggle scan-toggle" id="scanToggle" role="switch" aria-checked="false" tabindex="0">
+        <div class="toggle-track">
+          <span class="toggle-option off">Scan OFF</span>
+          <span class="toggle-option on">Scan ON</span>
+          <span class="toggle-thumb"></span>
+        </div>
+      </div>
       <button id="installBtn" style="display:none">Installer</button>
       <span class="pill" id="queueSize">0 en attente</span>
     </div>

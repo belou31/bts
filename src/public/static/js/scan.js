@@ -40,6 +40,7 @@ const overlay = document.getElementById('overlay');
 const overlayCtx = overlay ? overlay.getContext('2d') : null;
 let stream, stopFn = null;
 let detectionLocked = false;
+const recentScanTimestamps = new Map();
 
 function encodeBasicCredentials(login, password) {
   const pair = `${login}:${password}`;
@@ -71,9 +72,15 @@ function updateStatus(state, text) {
 }
 
 const eventInput = document.getElementById('eventId');
+const eventSelect = document.getElementById('eventSelect');
 const tokenInput = document.getElementById('token');
 const loginInput = document.getElementById('login');
 const passwordInput = document.getElementById('password');
+const authFields = document.querySelector('.auth-fields');
+const authToggle = document.getElementById('authToggle');
+const scanToggle = document.getElementById('scanToggle');
+const knownEvents = new Map();
+let scanActive = false;
 
 function detectSlugFromPath() {
   try {
@@ -99,11 +106,123 @@ const initialContext = (() => {
   return { slug, token, login, password, gate };
 })();
 
+function formatEventOptionLabel(event) {
+  const name = event?.name || event?.slug || 'Événement';
+  if (!event?.startsAt) return name;
+  const date = new Date(event.startsAt);
+  if (!Number.isFinite(date.getTime())) return name;
+  const formatter = new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  return `${formatter.format(date)} — ${name}`;
+}
+
+function updateEventInput(slug, eventData = null) {
+  if (!eventInput) return;
+  const value = String(slug || '').trim();
+  eventInput.value = value;
+  if (value) {
+    eventInput.dataset.prefilled = 'true';
+    if (eventData?.id) eventInput.dataset.resolvedId = eventData.id;
+    else delete eventInput.dataset.resolvedId;
+    if (eventData?.slug) eventInput.dataset.resolvedSlug = eventData.slug;
+    else eventInput.dataset.resolvedSlug = value;
+  } else {
+    delete eventInput.dataset.prefilled;
+    delete eventInput.dataset.resolvedId;
+    delete eventInput.dataset.resolvedSlug;
+  }
+  if (eventSelect) eventSelect.value = value || '';
+}
+
+async function loadEventOptions() {
+  if (!eventSelect) return;
+  try {
+    const res = await fetch(`${SCOPE}events.json`, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const list = Array.isArray(data?.events) ? data.events : [];
+    knownEvents.clear();
+    const currentValue = eventInput ? String(eventInput.value || '').trim() : '';
+
+    eventSelect.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Sélectionner un événement';
+    eventSelect.append(placeholder);
+
+    list
+      .slice()
+      .sort((a, b) => {
+        const da = a?.startsAt ? new Date(a.startsAt).getTime() : 0;
+        const db = b?.startsAt ? new Date(b.startsAt).getTime() : 0;
+        return da - db;
+      })
+      .forEach((ev) => {
+        const slug = String(ev?.slug || '').trim();
+        if (!slug) return;
+        const normalized = {
+          id: String(ev?._id || ev?.id || ''),
+          slug,
+          name: ev?.name || slug,
+          startsAt: ev?.startsAt || null,
+          seasonCode: ev?.seasonCode || null,
+          venueSlug: ev?.venueSlug || null
+        };
+        knownEvents.set(slug, normalized);
+        if (normalized.id) knownEvents.set(normalized.id, normalized);
+        const opt = document.createElement('option');
+        opt.value = slug;
+        opt.textContent = formatEventOptionLabel(normalized);
+        eventSelect.append(opt);
+      });
+
+    if (currentValue && !knownEvents.has(currentValue)) {
+      const fallback = {
+        id: null,
+        slug: currentValue,
+        name: currentValue,
+        startsAt: null,
+        seasonCode: null,
+        venueSlug: null
+      };
+      knownEvents.set(currentValue, fallback);
+      const opt = document.createElement('option');
+      opt.value = currentValue;
+      opt.textContent = fallback.name;
+      eventSelect.append(opt);
+    }
+
+    if (currentValue && knownEvents.has(currentValue)) {
+      eventSelect.value = currentValue;
+      updateEventInput(currentValue, knownEvents.get(currentValue));
+    } else {
+      eventSelect.value = '';
+      updateEventInput('', null);
+    }
+  } catch (err) {
+    console.warn('[scan] events fetch failed:', err?.message || err);
+    if (eventSelect && !eventSelect.children.length) {
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Sélectionner un événement';
+      eventSelect.append(placeholder);
+      if (eventInput?.value) {
+        const opt = document.createElement('option');
+        opt.value = eventInput.value;
+        opt.textContent = eventInput.value;
+        eventSelect.append(opt);
+      }
+    }
+  }
+}
 
 if (eventInput && initialContext.slug) {
-  eventInput.value = initialContext.slug;
-  eventInput.dataset.prefilled = 'true';
-  eventInput.dataset.resolvedSlug = initialContext.slug;
+  updateEventInput(initialContext.slug, { slug: initialContext.slug });
 }
 if (tokenInput && initialContext.token) {
   tokenInput.value = initialContext.token;
@@ -118,10 +237,20 @@ if (passwordInput && initialContext.password) {
   passwordInput.dataset.prefilled = 'true';
 }
 
+if (eventSelect) {
+  eventSelect.addEventListener('change', () => {
+    const value = eventSelect.value;
+    const ev = knownEvents.get(value) || null;
+    updateEventInput(value, ev);
+  });
+}
+
+loadEventOptions();
+setScanToggleState(false);
+
 const tokenRow = document.querySelector('.auth-row-token');
 const loginRow = document.querySelector('.auth-row-login');
 const passwordRow = document.querySelector('.auth-row-password');
-const authModeInputs = Array.from(document.querySelectorAll('input[name="authMode"]'));
 
 let authMode = 'token';
 if (initialContext.token) authMode = 'token';
@@ -134,21 +263,32 @@ const authContext = {
   password: passwordInput ? String(passwordInput.value || '').trim() : ''
 };
 
-authModeInputs.forEach((input) => {
-  input.checked = input.value === authMode;
-  input.addEventListener('change', () => applyAuthMode(input.value));
-});
+function updateAuthToggleUI() {
+  if (!authToggle) return;
+  const isBasic = authMode === 'basic';
+  authToggle.classList.toggle('on', isBasic);
+  authToggle.setAttribute('aria-checked', isBasic ? 'true' : 'false');
+}
 
 applyAuthMode(authMode);
+updateAuthToggleUI();
+authToggle?.addEventListener('click', () => {
+  applyAuthMode(authMode === 'token' ? 'basic' : 'token');
+});
+authToggle?.addEventListener('keydown', (e) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    applyAuthMode(authMode === 'token' ? 'basic' : 'token');
+  }
+});
 
 function applyAuthMode(mode) {
   authMode = mode === 'basic' ? 'basic' : 'token';
-  authModeInputs.forEach((input) => {
-    input.checked = input.value === authMode;
-  });
   tokenRow?.classList.toggle('auth-hidden', authMode !== 'token');
   loginRow?.classList.toggle('auth-hidden', authMode !== 'basic');
   passwordRow?.classList.toggle('auth-hidden', authMode !== 'basic');
+  authFields?.classList.toggle('basic-mode', authMode === 'basic');
+  updateAuthToggleUI();
 }
 
 function getAuthContext() {
@@ -194,67 +334,78 @@ function clearOverlay() {
   if (!overlay || !overlayCtx) return;
   overlayCtx.clearRect(0, 0, overlay.width || 0, overlay.height || 0);
   overlay.classList.remove('show');
-  video.style.visibility = '';
 }
 
-function captureFrameToOverlay() {
-  if (!overlay || !overlayCtx) return;
+function flashBoundingBox(box, color = '#38bdf8', duration = 320) {
+  if (!overlay || !overlayCtx || !box) return;
   matchOverlaySize();
-  if (overlay.width && overlay.height) {
-    overlayCtx.drawImage(video, 0, 0, overlay.width, overlay.height);
-    overlay.classList.add('show');
-  }
-}
-
-function drawBoundingBox(box) {
-  if (!overlay || !overlayCtx) return;
-  if (!box || !overlay.width || !overlay.height || !video.videoWidth || !video.videoHeight) return;
+  if (!overlay.width || !overlay.height || !video.videoWidth || !video.videoHeight) return;
   const scaleX = overlay.width / video.videoWidth;
   const scaleY = overlay.height / video.videoHeight;
   overlayCtx.save();
-  overlayCtx.strokeStyle = '#38bdf8';
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+  overlayCtx.strokeStyle = color;
   overlayCtx.lineWidth = Math.max(overlay.width, overlay.height) / 200;
-  overlayCtx.shadowColor = 'rgba(56,189,248,0.6)';
+  overlayCtx.shadowColor = color;
   overlayCtx.shadowBlur = 8;
   overlayCtx.strokeRect(box.x * scaleX, box.y * scaleY, box.width * scaleX, box.height * scaleY);
   overlayCtx.restore();
+  overlay.classList.add('show');
+  setTimeout(clearOverlay, duration);
 }
 
-function freezeFrame({ box } = {}) {
-  captureFrameToOverlay();
-  if (box) drawBoundingBox(box);
-  video.style.visibility = 'hidden';
-  if (stream) {
-    try { stream.getTracks().forEach(t => t.stop()); } catch {}
-    stream = null;
-  }
-  try { video.pause(); } catch {}
-  video.srcObject = null;
-  stopFn = null;
-  detectionLocked = true;
-}
-
-function showDetectionResult({ code, box } = {}) {
+function showDetectionVisual({ code, box } = {}) {
   if (typeof code === 'string') {
     console.info('[scan] decoded QR:', code);
   }
-  freezeFrame({ box });
+  if (box) {
+    flashBoundingBox(box);
+  }
 }
 
-async function resetScanner() {
-  if (stream) {
-    try { stream.getTracks().forEach(t => t.stop()); } catch {}
-    stream = null;
+function markRecentScan(value) {
+  const key = String(value || '').trim();
+  if (!key) return;
+  const now = Date.now();
+  recentScanTimestamps.set(key, now);
+  setTimeout(() => {
+    const stored = recentScanTimestamps.get(key);
+    if (stored && stored <= now) recentScanTimestamps.delete(key);
+  }, 5000);
+}
+
+function isRecentlyScanned(value, withinMs = 2000) {
+  const key = String(value || '').trim();
+  if (!key) return false;
+  const last = recentScanTimestamps.get(key) || 0;
+  return last && (Date.now() - last) < withinMs;
+}
+
+function setScanToggleState(state) {
+  scanActive = !!state;
+  if (scanToggle) {
+    scanToggle.classList.toggle('on', scanActive);
+    scanToggle.setAttribute('aria-checked', scanActive ? 'true' : 'false');
   }
+}
+
+function stopScanning() {
   if (stopFn) {
     try { stopFn(); } catch {}
     stopFn = null;
   }
-  video.srcObject = null;
-  try { video.pause(); video.currentTime = 0; } catch {}
-  video.style.visibility = '';
+  if (stream) {
+    try { stream.getTracks().forEach((t) => t.stop()); } catch {}
+    stream = null;
+  }
+  if (video) {
+    try { video.pause(); video.currentTime = 0; } catch {}
+    video.srcObject = null;
+    video.style.visibility = '';
+  }
   clearOverlay();
   detectionLocked = false;
+  recentScanTimestamps.clear();
 }
 
 async function showQueueSize(){
@@ -271,7 +422,7 @@ showQueueSize();
 const resultsEl = document.getElementById('results');
 const historyOrder = [];
 const historyMap = new Map();
-const HISTORY_LIMIT = 50;
+const HISTORY_LIMIT = 20;
 const ENTRY_LOG_LIMIT = 10;
 
 const REASON_MESSAGES = {
@@ -1030,11 +1181,16 @@ window.addEventListener('online', flushQueue);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') flushQueue();
 });
+window.addEventListener('beforeunload', () => {
+  stopScanning();
+  setScanToggleState(false);
+});
 
 // ----- Caméra + décodage -----
 // 1) BarcodeDetector si dispo
 async function startBarcodeDetector() {
   const det = new BarcodeDetector({ formats: ['qr_code'] });
+  stopScanning();
   detectionLocked = false;
   clearOverlay();
   stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
@@ -1056,7 +1212,8 @@ async function startBarcodeDetector() {
 
       const raw = codes[0]?.rawValue;
       const box = codes[0]?.boundingBox || null;
-      if (!raw) {
+      const normalized = typeof raw === 'string' ? raw.trim() : '';
+      if (!normalized) {
         requestAnimationFrame(tick);
         return;
       }
@@ -1080,8 +1237,19 @@ async function startBarcodeDetector() {
       }
 
       detectionLocked = true;
-      showDetectionResult({ code: raw, box });
-      await previewScan(raw);
+      if (isRecentlyScanned(normalized)) {
+        detectionLocked = false;
+        requestAnimationFrame(tick);
+        return;
+      }
+      showDetectionVisual({ code: normalized, box });
+      markRecentScan(normalized);
+      try {
+        await previewScan(normalized);
+      } finally {
+        detectionLocked = false;
+        requestAnimationFrame(tick);
+      }
     } catch (err) {
       frame?.close?.();
       console.error(err);
@@ -1092,17 +1260,17 @@ async function startBarcodeDetector() {
 
   stopFn = () => {
     if (stream) {
-      try { stream.getTracks().forEach(t => t.stop()); } catch {}
+      try { stream.getTracks().forEach((t) => t.stop()); } catch {}
       stream = null;
     }
     try { video.pause(); } catch {}
     video.srcObject = null;
   };
-  statusEl.textContent = 'Lecture QR (BarcodeDetector)…';
 }
 
 // 2) Fallback ZXing (corrigé)
 async function startZXing() {
+  stopScanning();
   const s = document.createElement('script');
   s.src = 'https://unpkg.com/@zxing/library@0.20.0';
   await new Promise((ok,ko)=>{ s.onload=ok; s.onerror=ko; document.head.appendChild(s);});
@@ -1146,20 +1314,84 @@ async function startZXing() {
     if (!eventValue) { statusEl.innerHTML='<span class="ko">Event requis</span>'; return; }
     if (auth.mode === 'token' && !auth.token) { statusEl.innerHTML='<span class="ko">Token requis</span>'; return; }
     if (auth.mode === 'basic' && (!auth.login || !auth.password)) { statusEl.innerHTML='<span class="ko">Identifiants requis</span>'; return; }
+    const normalized = result.text.trim();
+    if (isRecentlyScanned(normalized)) return;
     detectionLocked = true;
-    console.info('[scan] decoded QR (ZXing):', result.text);
-    await previewScan(result.text);
+    showDetectionVisual({ code: normalized });
+    markRecentScan(normalized);
+    try {
+      await previewScan(normalized);
+    } finally {
+      detectionLocked = false;
+    }
   });
-  stopFn = ()=>controls && typeof controls.stop === 'function' && controls.stop();
-  statusEl.textContent = 'Lecture QR (ZXing)…';
+  stopFn = () => {
+    controls && typeof controls.stop === 'function' && controls.stop();
+    try { video.pause(); } catch {}
+    video.srcObject = null;
+    stream = null;
+  };
 }
 
 async function start() {
   statusEl.textContent = 'Initialisation caméra…';
   try {
-    if ('BarcodeDetector' in window) return await startBarcodeDetector();
-    return await startZXing();
-  } catch(e) { console.error(e); statusEl.innerHTML='<span class="ko">Erreur caméra</span>'; }
+    if ('BarcodeDetector' in window) {
+      await startBarcodeDetector();
+    } else {
+      await startZXing();
+    }
+  } catch(e) {
+    console.error(e);
+    statusEl.innerHTML = '<span class="ko">Erreur caméra</span>';
+    throw e;
+  }
 }
-document.getElementById('startBtn').onclick = start;
-document.getElementById('stopBtn').onclick  = ()=>{ stopFn && stopFn(); statusEl.textContent=''; };
+
+async function enableScan() {
+  if (scanActive) return;
+  try {
+    await start();
+    setScanToggleState(true);
+    statusEl.classList.remove('ok', 'ko');
+    statusEl.textContent = 'Scan actif.';
+  } catch (err) {
+    setScanToggleState(false);
+    throw err;
+  }
+}
+
+function disableScan() {
+  if (!scanActive && !stream && !stopFn) return;
+  stopScanning();
+  setScanToggleState(false);
+  statusEl.classList.remove('ok', 'ko');
+  statusEl.textContent = 'Prêt.';
+}
+
+scanToggle?.addEventListener('click', async () => {
+  try {
+    if (scanActive) {
+      disableScan();
+    } else {
+      await enableScan();
+    }
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+scanToggle?.addEventListener('keydown', async (e) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    try {
+      if (scanActive) {
+        disableScan();
+      } else {
+        await enableScan();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+});
