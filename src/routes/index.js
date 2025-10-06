@@ -98,13 +98,19 @@ export default function routes(router) {
     // ⚠️ Comme on est sous /event/<slug>, utiliser des endpoints RELATIFS remontant d’un cran ("../")
     // pour viser /api/... (et pas /event/api/...)
     res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
-      title:   'Billetterie Match — BTS',
+      title:   'Billetterie Match — Valence 11/10/2025' ,
       heading: 'Billetterie Match',
-      lead:    'Choisissez vos places pour ce match et suivez le tunnel de paiement sécurisé HelloAsso.',
+      lead:    'Choisissez vos places pour ce match et suivez le paiement sécurisé HelloAsso.',
       planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
       scheduleOptions: [1],
       paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
       assets: ASSET_PREFIX,
+      zoneSelector: {
+        enabled: true,
+        label: 'Choisir sur Plan ou Ajouter Zone:',
+        addLabel: 'Ajouter',
+        options: []
+      },
       config: {
         api: {
           // ✅ endpoints absolus (compat /bts) — pas de préfixe /event/
