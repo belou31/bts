@@ -40,6 +40,8 @@ const overlay = document.getElementById('overlay');
 const overlayCtx = overlay ? overlay.getContext('2d') : null;
 let stream, stopFn = null;
 let detectionLocked = false;
+const RECENT_SCAN_WINDOW_MS = 8000;
+const RECENT_SCAN_TTL_MS = 15000;
 const recentScanTimestamps = new Map();
 
 function encodeBasicCredentials(login, password) {
@@ -79,10 +81,19 @@ const passwordInput = document.getElementById('password');
 const authFields = document.querySelector('.auth-fields');
 const authToggle = document.getElementById('authToggle');
 const scanToggle = document.getElementById('scanToggle');
+const modeToggle = document.getElementById('modeToggle');
 const authToggleLabel = authToggle?.querySelector('.toggle-label');
 const scanToggleLabel = scanToggle?.querySelector('.toggle-label');
+const modeToggleLabel = modeToggle?.querySelector('.toggle-label');
 const knownEvents = new Map();
+const HISTORY_ACTION_MAP = {
+  accept: { action: 'accept', status: 'accepted' },
+  force: { action: 'accept', status: 'forced_accept' },
+  auto: { action: 'accept', status: 'auto_accept' },
+  exit: { action: 'exit', status: 'sortie' }
+};
 let scanActive = false;
+let loadMode = 'order';
 
 function detectSlugFromPath() {
   try {
@@ -287,6 +298,27 @@ authToggle?.addEventListener('keydown', (e) => {
   }
 });
 
+function updateModeToggleUI() {
+  if (!modeToggle) return;
+  const isOrder = loadMode === 'order';
+  modeToggle.classList.toggle('on', isOrder);
+  modeToggle.setAttribute('aria-checked', isOrder ? 'true' : 'false');
+  if (modeToggleLabel) modeToggleLabel.textContent = isOrder ? 'Commande' : 'Ticket';
+}
+
+updateModeToggleUI();
+modeToggle?.addEventListener('click', () => {
+  loadMode = loadMode === 'order' ? 'ticket' : 'order';
+  updateModeToggleUI();
+});
+modeToggle?.addEventListener('keydown', (e) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    loadMode = loadMode === 'order' ? 'ticket' : 'order';
+    updateModeToggleUI();
+  }
+});
+
 function applyAuthMode(mode) {
   authMode = mode === 'basic' ? 'basic' : 'token';
   tokenRow?.classList.toggle('auth-hidden', authMode !== 'token');
@@ -376,10 +408,10 @@ function markRecentScan(value) {
   setTimeout(() => {
     const stored = recentScanTimestamps.get(key);
     if (stored && stored <= now) recentScanTimestamps.delete(key);
-  }, 5000);
+  }, RECENT_SCAN_TTL_MS);
 }
 
-function isRecentlyScanned(value, withinMs = 2000) {
+function isRecentlyScanned(value, withinMs = RECENT_SCAN_WINDOW_MS) {
   const key = String(value || '').trim();
   if (!key) return false;
   const last = recentScanTimestamps.get(key) || 0;
@@ -563,6 +595,7 @@ function enrichEntryBase(source = {}, context = {}) {
   entry.eventId = entry.eventId || source.eventId || context.eventId || '';
   entry.eventSlug = entry.eventSlug || source.eventSlug || context.eventSlug || '';
   entry.createdAt = entry.createdAt || source.createdAt || Date.now();
+  entry.scanCount = typeof source.scanCount === 'number' ? source.scanCount : (entry.scanCount || 0);
 
   if (!entry.holder && source.holder) entry.holder = { ...source.holder };
   entry.holder = entry.holder || { firstName: '', lastName: '', email: '' };
@@ -576,12 +609,31 @@ function enrichEntryBase(source = {}, context = {}) {
     entry.order.totalTickets = entry.order.totalTickets ?? 0;
     entry.order.scannedTickets = entry.order.scannedTickets ?? 0;
     entry.order.ticketIndex = entry.order.ticketIndex ?? null;
+    if (Array.isArray(source.order.tickets)) {
+      entry.order.tickets = source.order.tickets.map((t) => ({ ...t }));
+    }
   } else if (!entry.order) {
     entry.order = null;
   }
 
   if (!Array.isArray(entry.conditions)) entry.conditions = [];
   if (!Array.isArray(entry.logs)) entry.logs = Array.isArray(source.logs) ? [...source.logs] : [];
+
+  if (Array.isArray(source.scanHistory)) {
+    const historyLogs = source.scanHistory.map((item) => {
+      const mapping = HISTORY_ACTION_MAP[item.action] || { action: 'preview', status: item.action || 'info' };
+      return {
+        timestamp: item.when ? new Date(item.when).getTime() : Date.now(),
+        action: mapping.action,
+        status: mapping.status,
+        info: item.by || ''
+      };
+    });
+    entry.logs = Array.isArray(entry.logs) ? [...entry.logs, ...historyLogs] : historyLogs;
+  }
+
+  entry.logs = Array.isArray(entry.logs) ? entry.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)) : [];
+  if (entry.logs.length > ENTRY_LOG_LIMIT) entry.logs = entry.logs.slice(0, ENTRY_LOG_LIMIT);
 
   return entry;
 }
@@ -602,6 +654,7 @@ function upsertHistory(entry) {
   if (existingIndex >= 0) historyOrder.splice(existingIndex, 1);
   historyOrder.unshift(key);
   historyMap.set(key, copy);
+  if (copy.logs.length > ENTRY_LOG_LIMIT) copy.logs = copy.logs.slice(0, ENTRY_LOG_LIMIT);
   while (historyOrder.length > HISTORY_LIMIT) {
     const removed = historyOrder.pop();
     historyMap.delete(removed);
@@ -627,10 +680,6 @@ function logAction({ action, status, entryKey, info, event }) {
   const entry = historyMap.get(entryKey);
   if (!entry) return;
   entry.logs = Array.isArray(entry.logs) ? entry.logs : [];
-  const last = entry.logs[0];
-  if (last && last.action === action && last.status === status && last.info === info) {
-    return;
-  }
   entry.logs.unshift({
     timestamp: Date.now(),
     action,
@@ -731,7 +780,7 @@ function buildTicketCard(match) {
   sectionSeat.className = 'card-section section-seat';
   const seatTitle = document.createElement('div');
   seatTitle.className = 'section-subtitle';
-  seatTitle.textContent = 'Place';
+  seatTitle.textContent = 'Place — Bénéficiaire';
   sectionSeat.append(seatTitle);
   const seatInfo = document.createElement('div');
   seatInfo.className = 'card-item highlight';
@@ -743,7 +792,7 @@ function buildTicketCard(match) {
   beneficiary.className = 'card-item';
   const beneficiaryLineRaw = [holderName, holderEmail].filter(Boolean).join(' • ');
   const beneficiaryLine = beneficiaryLineRaw || '—';
-  beneficiary.innerHTML = `<span>Bénéficiaire</span><strong>${beneficiaryLine || '—'}</strong>`;
+  beneficiary.innerHTML = `<strong>${beneficiaryLine}</strong>`;
   sectionSeat.append(beneficiary);
   if (!match.ticketId) {
     const qrWrap = document.createElement('div');
@@ -761,22 +810,30 @@ function buildTicketCard(match) {
   infoTitle.textContent = 'Information';
   sectionInfo.append(infoTitle);
   const reasonText = match.reason ? translateReason(match.reason) : (match.status && match.status !== 'ready' ? translateReason(match.status) : '');
+  const qrLine = document.createElement('div');
+  qrLine.className = 'card-item inline';
+  const qrValue = match.ticketId ? shortId(match.ticketId) : (match.qrValue || '—');
+  qrLine.innerHTML = `<span>QR :</span><strong>${qrValue}</strong>`;
+  sectionInfo.append(qrLine);
+
   const infoContent = document.createElement('div');
   infoContent.className = 'card-item highlight';
-  const parts = [];
-  if (match.ticketId) parts.push(shortId(match.ticketId));
-  if (reasonText) parts.push(reasonText);
-  if (match.scanCount) parts.push(`${match.scanCount} passage(s)`);
-  infoContent.innerHTML = `<strong>${parts.join(' • ') || '—'}</strong>`;
+  const details = [];
+  if (reasonText) details.push(reasonText);
+  if (match.scanCount) details.push(`${match.scanCount} passage(s)`);
+  infoContent.innerHTML = `<strong>${details.join(' • ') || '—'}</strong>`;
   sectionInfo.append(infoContent);
   body.append(sectionInfo);
 
   const sectionOrder = document.createElement('div');
   sectionOrder.className = 'card-section section-order';
+  const orderHeader = document.createElement('div');
+  orderHeader.className = 'section-title-row';
   const orderTitle = document.createElement('div');
   orderTitle.className = 'section-title';
   orderTitle.textContent = 'Commande';
-  sectionOrder.append(orderTitle);
+  orderHeader.append(orderTitle);
+  sectionOrder.append(orderHeader);
   if (match.order) {
     const idLine = document.createElement('div');
     idLine.className = 'card-item highlight';
@@ -795,6 +852,7 @@ function buildTicketCard(match) {
     const contactLine = [contactName, match.order.payerEmail].filter(Boolean).join(' • ') || '—';
     contactLabel.innerHTML = `<strong>${contactLine}</strong>`;
     sectionOrder.append(contactLabel);
+
   } else {
     const fallback = document.createElement('div');
     fallback.className = 'card-item';
@@ -955,7 +1013,9 @@ async function previewScan(raw) {
 
     const matches = Array.isArray(data.matches) ? data.matches : [];
     if (matches.length) {
-      matches.forEach((match) => {
+      const cards = matches.filter((match) => loadMode === 'order' ? true : (match.isPrimary || (!match.ticketId && match.qrValue === raw)));
+
+      cards.forEach((match) => {
         const entry = enrichEntryBase(match, context);
         const entryKey = keyForEntry(entry);
         upsertHistory(entry);
@@ -970,28 +1030,14 @@ async function previewScan(raw) {
         });
       });
       renderTicketList();
-      const readyCount = matches.filter((m) => m.status === 'ready').length;
+      const readyCount = cards.filter((m) => m.status === 'ready').length;
       if (readyCount > 0) {
         updateStatus('ok', readyCount > 1 ? `${readyCount} billets prêts à valider` : 'Billet prêt à valider');
       } else {
-        updateStatus('ko', 'Billet déjà scanné ou invalide');
+        updateStatus('', '');
       }
     } else {
-      const entry = {
-        ticketId: '',
-        qrValue: raw,
-        status: 'unknown',
-        reason: data.reason || 'unknown_qr',
-        eventId: context.eventId,
-        eventSlug: context.eventSlug,
-        createdAt: Date.now(),
-        logs: []
-      };
-      const entryKey = keyForEntry(entry);
-      upsertHistory(entry);
-      logAction({ action: 'preview', status: data.reason || 'unknown_qr', entryKey, entry: raw, info: 'Aucun billet', event: context.eventSlug });
-      renderTicketList();
-      updateStatus('ko', translateReason(data.reason || 'unknown_qr'));
+      // No card, keep status unchanged
     }
   } catch (e) {
     lastPreviewLookup.set(raw, Date.now());

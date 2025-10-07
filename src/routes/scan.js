@@ -187,7 +187,7 @@ function buildConditions(line = {}, metaTicket = {}) {
 }
 
 
-function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats) {
+function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats, orderTicketMap = new Map(), { isPrimary = false } = {}) {
   const ticket = ticketDoc?.toObject ? ticketDoc.toObject() : ticketDoc;
   if (!ticket) return null;
 
@@ -296,7 +296,50 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats) {
     orderOut.totalTickets = typeof totalTickets === 'number' ? totalTickets : 0;
     orderOut.scannedTickets = typeof scannedTickets === 'number' ? scannedTickets : 0;
     orderOut.ticketIndex = ticketIndex;
+    const orderTickets = [];
+    const additionalDocs = orderTicketMap.get(orderId);
+    if (Array.isArray(additionalDocs) && additionalDocs.length) {
+      additionalDocs.sort((a, b) => String(a.seatId || '').localeCompare(String(b.seatId || '')));
+      additionalDocs.forEach((doc, idx) => {
+        const docSeat = String(doc.seatId || '').trim();
+        const docZone = docSeat.includes('-') ? docSeat.split('-')[0].toUpperCase() : '';
+        orderTickets.push({
+          ticketId: normalizeId(doc._id),
+          seatId: docSeat,
+          zoneKey: docZone,
+          tariffCode: String(doc.tariffCode || '').toUpperCase(),
+          index: idx + 1,
+          isCurrent: normalizeId(doc._id) === normalizeId(ticket._id),
+          scanned: !!doc.scannedAt
+        });
+      });
+    } else {
+      const sourceArray = Array.isArray(metaTickets) && metaTickets.length ? metaTickets : lines;
+      sourceArray.forEach((item, idx) => {
+        if (!item) return;
+        const derivedId = normalizeId(item.ticketId || item._id);
+        const seatVal = String(item.seatId || '').trim();
+        orderTickets.push({
+          ticketId: derivedId,
+          seatId: seatVal,
+          zoneKey: String(item.zoneKey || '').toUpperCase(),
+          tariffCode: String(item.tariff || item.tariffCode || '').toUpperCase(),
+          index: idx + 1,
+          isCurrent: derivedId && normalizeId(ticket._id) === derivedId,
+          scanned: derivedId === normalizeId(ticket._id) ? !!ticket.scannedAt : false
+        });
+      });
+    }
+    orderOut.tickets = orderTickets;
   }
+
+  const history = Array.isArray(ticket.scanHistory)
+    ? ticket.scanHistory.map((h) => ({
+        when: h.when || ticket.scannedAt || ticket.updatedAt || ticket.createdAt,
+        action: h.action || 'accept',
+        by: h.by || ''
+      })).sort((a, b) => new Date(b.when || 0) - new Date(a.when || 0))
+    : [];
 
   return {
     ticketId: normalizeId(ticket._id),
@@ -310,8 +353,10 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats) {
     scannedAt: ticket.scannedAt || null,
     scannedBy: ticket.scannedBy || null,
     scanCount: ticket.scanCount || 0,
+    scanHistory: history,
     order: orderOut,
-    conditions: buildConditions(line, metaTicket)
+    conditions: buildConditions(line, metaTicket),
+    isPrimary
   };
 }
 
@@ -353,6 +398,8 @@ async function fetchMatches(lookupValues, resolvedEvent) {
   const orderMap = new Map(orders.map((ord) => [normalizeId(ord._id), ord]));
   const orderStats = new Map();
 
+  let orderTicketDocsByOrder = new Map();
+
   if (uniqueOrderIds.length) {
     const statsDocs = await Ticket.find({ orderId: { $in: uniqueOrderIds }, eventId: { $in: [canonicalId, resolvedEvent?.slug].filter(Boolean) } }, { orderId: 1, scannedAt: 1 }).lean();
     for (const doc of statsDocs) {
@@ -374,13 +421,34 @@ async function fetchMatches(lookupValues, resolvedEvent) {
         orderStats.set(orderId, { total: 0, scanned: 0 });
       }
     }
+    const orderTicketDocs = await Ticket.find({ orderId: { $in: uniqueOrderIds } }).lean();
+    for (const doc of orderTicketDocs) {
+      const key = normalizeId(doc.orderId);
+      if (!key) continue;
+      if (!orderTicketDocsByOrder.has(key)) orderTicketDocsByOrder.set(key, []);
+      orderTicketDocsByOrder.get(key).push(doc);
+    }
   }
 
   const matches = tickets
-    .map((ticket) => composeMatch(ticket, orderMap.get(normalizeId(ticket.orderId)), canonicalId, slug, orderStats))
+    .map((ticket) => composeMatch(ticket, orderMap.get(normalizeId(ticket.orderId)), canonicalId, slug, orderStats, orderTicketDocsByOrder, { isPrimary: true }))
     .filter(Boolean);
 
-  return { matches, orderMap, orderStats };
+  const matchById = new Map(matches.map((m) => [normalizeId(m.ticketId), m]));
+
+  for (const [orderId, docs] of orderTicketDocsByOrder.entries()) {
+    for (const doc of docs) {
+      const docId = normalizeId(doc._id);
+      if (!docId || matchById.has(docId)) continue;
+      const extra = composeMatch(doc, orderMap.get(orderId), canonicalId, slug, orderStats, orderTicketDocsByOrder, { isPrimary: false });
+      if (extra) {
+        matches.push(extra);
+        matchById.set(docId, extra);
+      }
+    }
+  }
+
+  return { matches, orderMap, orderStats, orderTicketDocsByOrder };
 }
 /**
  * POST /api/scan

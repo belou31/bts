@@ -32,4 +32,4 @@ const TicketSchema = new mongoose.Schema({
   }],
 }, { timestamps: true });
 
-export const Ticket = mongoose.model('Ticket', TicketSchema);
+export const Ticket = mongoose.models.Ticket || mongoose.model('Ticket', TicketSchema);
