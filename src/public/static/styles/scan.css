@@ -6,7 +6,7 @@ header img{height:28px}
 main{padding:16px;max-width:900px;margin:0 auto}
 .row{margin:10px 0}
 input,button{font:inherit}
-input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #1f2937;background:#0f1622;color:var(--fg)}
+select,input{width:100%;padding:12px;border-radius:8px;border:1px solid #1f2937;background:#0f1622;color:var(--fg);font-size:16px;line-height:1.4;appearance:none;-webkit-appearance:none;-moz-appearance:none}
 button{padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#111827;color:#fff;cursor:pointer}
 button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .preview-wrapper{position:relative;width:100%;max-height:54vh}
@@ -15,6 +15,7 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .preview-wrapper canvas.show{opacity:1}
 .status{min-height:24px;margin-top:8px;color:var(--muted)}
 .ok{color:var(--ok)} .ko{color:var(--ko)}
+.status:empty::before{display:none}
 .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#0f1622;border:1px solid #1f2937;color:#d1d5db;font-size:12px}
 .grid{display:grid;grid-template-columns:1fr; gap:12px}
 @media (min-width:900px){.grid{grid-template-columns:1fr}}
@@ -53,16 +54,20 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
   .ticket-card .section-order{grid-area:order}
 }
 .ticket-card .card-section{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.ticket-card .section-title-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .ticket-card .section-title{font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em}
 .ticket-card .section-subtitle{font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em}
 .ticket-card .card-item{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#9ca3af}
+.ticket-card .card-item.inline{flex-direction:row;align-items:center;gap:6px}
+.ticket-card .card-item.inline span{color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.ticket-card .card-item.inline strong{font-size:15px;color:#f9fafb;font-weight:600}
 .card-item.highlight strong{font-size:18px;color:#f9fafb}
 .ticket-card .card-item strong{font-size:15px;color:#f9fafb;font-weight:600}
 .ticket-card .card-item .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;background:rgba(34,197,94,0.12);color:#22c55e}
 .ticket-card .card-item .badge.alt{background:rgba(59,130,246,0.12);color:#60a5fa}
 .ticket-card .conditions{margin:0;padding-left:16px;list-style:disc;color:#d1d5db;font-size:13px}
-.ticket-card .card-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
-.ticket-card .card-actions button{flex:0 0 auto;padding:10px 16px;border-radius:999px;border:1px solid #1f2937;background:#111827;color:#f9fafb;font-weight:600;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;transition:background .2s ease,transform .2s ease}
+.ticket-card .card-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:4px}
+.ticket-card .card-actions button{width:100%;padding:12px 18px;border-radius:999px;border:1px solid #1f2937;background:#111827;color:#f9fafb;font-weight:600;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;transition:background .2s ease,transform .2s ease}
 .ticket-card .card-actions button:hover{transform:translateY(-1px)}
 .ticket-card .card-actions button.action-accept{background:#14532d;border-color:#14532d}
 .ticket-card .card-actions button.action-force{background:#1d4ed8;border-color:#1d4ed8}
@@ -93,13 +98,18 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .toggle.on .toggle-option.on{opacity:0}
 .toggle:not(.on) .toggle-option.off{opacity:0}
 .toggle.auth-toggle.on .toggle-thumb{transform:translateX(100%)}
+.toggle.mode-toggle .toggle-thumb{background:#1d4ed8}
+.toggle.mode-toggle.on .toggle-thumb{transform:translateX(100%)}
+.toggle.mode-toggle.on .toggle-option.order,.toggle.mode-toggle:not(.on) .toggle-option.ticket{color:#f9fafb;opacity:1}
 .toggle.scan-toggle.on .toggle-thumb{background:#22c55e}
 .toggle.scan-toggle:not(.on) .toggle-thumb{background:#ef4444}
 .toggle.scan-toggle{min-width:220px}
 .toggle.scan-toggle .toggle-thumb{width:calc(50% - 6px);background:#22c55e}
 .toggle.scan-toggle:not(.on) .toggle-thumb{background:#ef4444}
-.toggle.scan-toggle.on .toggle-option.on,.toggle.scan-toggle:not(.on) .toggle-option.off{color:#f9fafb}
-.controls-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.toggle.scan-toggle.on .toggle-option.on,.toggle.scan-toggle:not(.on) .toggle-option.off{color:#f9fafb;opacity:1}
+.controls-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:space-between}
+.controls-row .left-group{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.controls-row .right-group{display:flex;align-items:center;gap:16px}
 .controls-row .toggle{flex:0 0 auto}
 
 .auth-hidden{display:none!important}
