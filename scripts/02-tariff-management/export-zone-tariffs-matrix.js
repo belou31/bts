@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// scripts/03-event-management/pricing/export-zone-tariffs-matrix.js
+// scripts/02-tariff-management/export-zone-tariffs-matrix.js
 //
 // Usage:
-//   node scripts/03-event-management/pricing/export-zone-tariffs-matrix.js <seasonCode> <venueSlug> [outCsvPath]
+//   node scripts/02-tariff-management/export-zone-tariffs-matrix.js <seasonCode> <venueSlug> [outCsvPath]
 //
 // Sortie CSV :
 //   tariffCode,<zoneKey1>,<zoneKey2>,...
@@ -15,7 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
 
-import { TariffPrice } from '../../../src/models/TariffPrice.js';
+import { TariffPrice } from '../../src/models/TariffPrice.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -26,7 +26,7 @@ function die(msg){ console.error(msg); process.exit(1); }
 (async () => {
   const [,, seasonCode, venueSlug, outArg] = process.argv;
   if (!seasonCode || !venueSlug) {
-    die('Usage: node scripts/03-event-management/pricing/export-zone-tariffs-matrix.js <seasonCode> <venueSlug> [outCsvPath]');
+    die('Usage: node scripts/02-tariff-management/export-zone-tariffs-matrix.js <seasonCode> <venueSlug> [outCsvPath]');
   }
   const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
   if (!uri) die('Missing MONGO_URI/MONGODB_URI');

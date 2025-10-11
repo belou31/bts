@@ -6,19 +6,18 @@
  * links can reserve them. Runs in dry-run mode unless --apply is provided.
  *
  * Usage:
- *   node scripts/02-season-generation/renewal/provision-seats.js <seasonCode> [--venue=slug] [--verbose] [--apply]
+ *   node scripts/03-season-management/renewal-provision-seats.js <seasonCode> [--venue=slug] [--verbose] [--apply]
  *
  * Environment:
  *   - MONGO_URI or MONGODB_URI (required)
  *
  * Template:
- *   - data/templates/env/.env.template
  */
 import mongoose from 'mongoose';
 
-import { Season } from '../../../src/models/Season.js';
-import { Subscriber } from '../../../src/models/Subscriber.js';
-import { Seat } from '../../../src/models/Seat.js';
+import { Season } from '../../src/models/Season.js';
+import { Subscriber } from '../../src/models/Subscriber.js';
+import { Seat } from '../../src/models/Seat.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -44,7 +43,7 @@ function parseArgs(argv) {
   const { positional, options } = parseArgs(process.argv.slice(2));
   const seasonCode = positional[0];
   if (!seasonCode) {
-    console.error('Usage: node scripts/02-season-generation/renewal/provision-seats.js <seasonCode> [--venue=slug] [--verbose] [--apply]');
+    console.error('Usage: node scripts/03-season-management/renewal-provision-seats.js <seasonCode> [--venue=slug] [--verbose] [--apply]');
     process.exit(1);
   }
 

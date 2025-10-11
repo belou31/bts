@@ -12,18 +12,18 @@
 export const adminScriptGroups = [
   {
     id: '00-baseline',
-    label: '00 — Baseline & Reset',
+    label: '00 — Initialization',
     order: 0,
-    description: 'Foundation tasks that prepare a clean database or environment prior to provisioning data.',
+    description: 'Initialization tasks that prepare the environment, validate configuration, and stage tenant-specific assets.',
     scripts: [
       {
         id: 'reset-db',
         label: 'Reset MongoDB Database',
         order: 0,
-        path: 'scripts/00-baseline-reset/reset-db.js',
-        command: 'node scripts/00-baseline-reset/reset-db.js --force',
+        path: 'scripts/00-initialization/reset-db.js',
+        command: 'node scripts/00-initialization/reset-db.js --force',
         run: {
-          script: 'scripts/00-baseline-reset/reset-db.js',
+          script: 'scripts/00-initialization/reset-db.js',
           args: ['--force']
         },
         description: 'Drops the MongoDB database defined in .env. Requires the --force flag to avoid accidental wipes.',
@@ -33,181 +33,289 @@ export const adminScriptGroups = [
           'Make sure the MongoDB URI points to the intended environment before running.',
           'Include --force to acknowledge the drop command.'
         ]
+      },
+      {
+        id: 'check-env',
+        label: 'Validate Environment (.env)',
+        order: 1,
+        path: 'scripts/00-initialization/check-env.js',
+        command: 'node scripts/00-initialization/check-env.js',
+        run: {
+          script: 'scripts/00-initialization/check-env.js',
+          args: []
+        },
+        description: 'Verifies the consistency of APP_URL/BASE_PATH and HelloAsso configuration for the current APP_ENV.'
+      },
+      {
+        id: 'customize-app',
+        label: 'Customize Application',
+        order: 2,
+        path: 'scripts/00-initialization/customize-app.js',
+        command: 'node scripts/00-initialization/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--email-template=template.json]',
+        run: {
+          script: 'scripts/00-initialization/customize-app.js',
+          args: []
+        },
+        description: 'Copies organization assets (favicon, logos, app icons) to public/static/img and stores optional metadata/templates under data/customization.',
+        templates: ['data/templates/customization/app.json'],
+        notes: [
+          'Input files can be referenced by absolute path or relative to data/inputs.',
+          'Use --dry-run to preview the configuration without writing files.',
+          'Run with --show to print the current customization metadata.'
+        ]
       }
     ]
   },
   {
-    id: '01-initialization',
-    label: '01 — Initialization (DB, Venue, Season)',
+    id: '01-venue-management',
+    label: '01 — Venue Management',
     order: 1,
-    description: 'First-time setup scripts that prepare the venue, seats, base tariffs, and subscribers.',
+    description: 'Register venues and keep their seating layout in sync with the database.',
     scripts: [
-      {
-        id: 'check-env',
-        label: 'Validate Environment (.env)',
-        order: 0,
-        path: 'scripts/01-initialization/check-env.js',
-        command: 'node scripts/01-initialization/check-env.js',
-        run: {
-          script: 'scripts/01-initialization/check-env.js',
-          args: []
-        },
-        description: 'Verifies the consistency of APP_URL/BASE_PATH and HelloAsso configuration for the current APP_ENV.',
-        templates: ['data/templates/env/.env.template']
-      },
-      {
-        id: 'seed-dev',
-        label: 'Seed Development Dataset',
-        order: 1,
-        path: 'scripts/01-initialization/seed-dev.js',
-        command: 'node scripts/01-initialization/seed-dev.js',
-        run: {
-          script: 'scripts/01-initialization/seed-dev.js',
-          args: []
-        },
-        description: 'Seeds a minimal development dataset (season, zones, seats, price tables, TBH7 campaign).',
-        templates: ['data/templates/env/.env.template']
-      },
-      {
-        id: 'seed-zones',
-        label: 'Import Zones from CSV',
-        order: 2,
-        path: 'scripts/01-initialization/seed-zones.js',
-        command: 'node scripts/01-initialization/seed-zones.js --csv=<path/to/zones.csv> --venue=<slug>',
-        run: {
-          script: 'scripts/01-initialization/seed-zones.js',
-          args: []
-        },
-        description: 'Upserts zones for the target venue and season from a CSV file.',
-        templates: [
-          'data/templates/env/.env.template',
-          'data/templates/csv/zones.template.csv'
-        ]
-      },
       {
         id: 'register-venue',
         label: 'Register Venue',
-        order: 3,
-        path: 'scripts/01-initialization/venues/register-venue.js',
-        command: 'node scripts/01-initialization/venues/register-venue.js <slug> "<Venue Name>"',
+        order: 0,
+        path: 'scripts/01-venue-management/register-venue.js',
+        command: 'node scripts/01-venue-management/register-venue.js <slug> "<Venue Name>" [plan.svg] [--overwrite]',
         run: {
-          script: 'scripts/01-initialization/venues/register-venue.js',
+          script: 'scripts/01-venue-management/register-venue.js',
           args: []
         },
-        description: 'Creates a new venue document with the provided slug and display name.',
-        templates: [
-          'data/templates/env/.env.template'
-        ]
-      },
-      {
-        id: 'register-venue-with-plan',
-        label: 'Register Venue (with plan import)',
-        order: 4,
-        path: 'scripts/01-initialization/venues/register-venue-with-plan.js',
-        command: 'node scripts/01-initialization/venues/register-venue-with-plan.js <slug> "<Venue Name>" <path/to/plan.svg>',
-        run: {
-          script: 'scripts/01-initialization/venues/register-venue-with-plan.js',
-          args: []
-        },
-        description: 'Registers a venue and stores the seating plan SVG in one pass.',
-        templates: [
-          'data/templates/env/.env.template',
-          'data/templates/files/plan.svg'
-        ]
+        description: 'Creates or updates the venue document with the provided slug and display name. Add --overwrite to replace an existing SVG plan.',
+        templates: ['data/templates/files/plan.svg']
       },
       {
         id: 'import-seats',
         label: 'Import Seats from SVG',
-        order: 5,
-        path: 'scripts/01-initialization/venues/import-seats-from-svg.js',
-        command: 'node scripts/01-initialization/venues/import-seats-from-svg.js <venueSlug> <path/to/plan.svg>',
+        order: 1,
+        path: 'scripts/01-venue-management/import-seats.js',
+        command: 'node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=<path/to/seats.csv>] [--plan=<override.svg>]',
         run: {
-          script: 'scripts/01-initialization/venues/import-seats-from-svg.js',
+          script: 'scripts/01-venue-management/import-seats.js',
           args: []
         },
-        description: 'Parses the venue plan SVG and imports seats into MongoDB.',
+        description: 'Parses the persisted venue plan SVG (copied via register-venue) and stores seats in the catalog. Optionally merge overrides from a CSV mapping (seatId, zoneKey, row, number).',
         templates: [
-          'data/templates/env/.env.template',
-          'data/templates/files/plan.svg'
+          'data/templates/files/plan.svg',
+          'data/templates/csv/seats.template.csv'
         ]
       },
       {
-        id: 'instantiate-seats',
-        label: 'Instantiate Seats for Season',
-        order: 6,
-        path: 'scripts/01-initialization/venues/instantiate-seats-for-season.js',
-        command: 'node scripts/01-initialization/venues/instantiate-seats-for-season.js <seasonCode> <venueSlug>',
+        id: 'import-zones',
+        label: 'Import Zones',
+        order: 2,
+        path: 'scripts/01-venue-management/import-zones.js',
+        command: 'node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--plan=<path/to/plan.svg>]',
         run: {
-          script: 'scripts/01-initialization/venues/instantiate-seats-for-season.js',
+          script: 'scripts/01-venue-management/import-zones.js',
           args: []
         },
-        description: 'Clones base venue seats into a season-specific collection with default availability.',
-        templates: ['data/templates/env/.env.template']
+        description: 'Maintains the ZoneCatalog for a venue from CSV and/or the persisted SVG plan (data-zone-id by default). Instantiate zones per season afterwards.',
+        templates: ['data/templates/csv/zones.template.csv']
       },
       {
-        id: 'import-subscribers-flat',
-        label: 'Import Subscribers (flat CSV)',
-        order: 7,
-        path: 'scripts/01-initialization/import-subscribers-flat.js',
-        command: 'node scripts/01-initialization/import-subscribers-flat.js <path/to/subscribers.csv> <seasonCode> --venue=<slug>',
+        id: 'validate-venue-svg',
+        label: 'Validate Venue SVG',
+        order: 3,
+        path: 'scripts/01-venue-management/validate-svg.js',
+        command: 'node scripts/01-venue-management/validate-svg.js --svg=<path/to/plan.svg> --selectors="ZONE:#selector" [--min-seats=500] [--fail-on-missing]',
         run: {
-          script: 'scripts/01-initialization/import-subscribers-flat.js',
+          script: 'scripts/01-venue-management/validate-svg.js',
           args: []
         },
-        description: 'Loads subscribers from a simple CSV (one subscriber per row) and links seats when possible.',
-        templates: [
-          'data/templates/env/.env.template',
-          'data/templates/csv/subscribers-flat.template.csv'
-        ]
+        description: 'Checks that the SVG seating plan contains the expected selectors and seat count.'
       }
     ]
   },
   {
-    id: '02-season-generation',
-    label: '02 — Season Generation & Renewal',
+    id: '02-tariff-management',
+    label: '02 — Tariff Management',
     order: 2,
-    description: 'Scripts that prepare and manage renewal campaigns for a given season.',
+    description: 'Maintain the tariff catalog and zone-specific pricing matrices.',
+    scripts: [
+      {
+        id: 'import-tariff-catalog',
+        label: 'Import Tariff Catalog',
+        order: 0,
+        path: 'scripts/02-tariff-management/import-tariffs.js',
+        command: 'node scripts/02-tariff-management/import-tariffs.js <path/to/tariff_catalog.csv>',
+        run: {
+          script: 'scripts/02-tariff-management/import-tariffs.js',
+          args: []
+        },
+        description: 'Imports the master tariff catalog (code, label, justification requirements).',
+        templates: ['data/templates/csv/tariff-catalog.template.csv']
+      },
+      {
+        id: 'export-tariff-catalog',
+        label: 'Export Tariff Catalog',
+        order: 1,
+        path: 'scripts/02-tariff-management/export-tariffs.js',
+        command: 'node scripts/02-tariff-management/export-tariffs.js [--out=<tariff_catalog.csv>]',
+        run: {
+          script: 'scripts/02-tariff-management/export-tariffs.js',
+          args: []
+        },
+        description: 'Exports the current tariff catalog (code, labels, requirements) to CSV.',
+        notes: [
+          'Default output is data/outputs/tariff_catalog.csv; override with --out.'
+        ]
+      },
+      {
+        id: 'import-tariff-prices',
+        label: 'Import Tariff Prices Catalog',
+        order: 2,
+        path: 'scripts/02-tariff-management/import-tariff-prices.js',
+        command: 'node scripts/02-tariff-management/import-tariff-prices.js <catalogSlug> <path/to/prices.csv> [--venue=<slug>]',
+        run: {
+          script: 'scripts/02-tariff-management/import-tariff-prices.js',
+          args: []
+        },
+        description: 'Loads reusable tariff prices (list CSV by default) that can later be instantiated for seasons or events.',
+        notes: [
+          'Supports list and matrix CSV formats; override detection with --format=list|matrix.',
+          'Use --venue=<slug> to scope prices to a specific arena; omit to keep them global.'
+        ],
+        templates: ['data/templates/csv/tariff-prices.template.csv']
+      },
+      {
+        id: 'export-zone-tariffs',
+        label: 'Export Zone Tariffs',
+        order: 3,
+        path: 'scripts/02-tariff-management/export-zone-tariffs.js',
+        command: 'node scripts/02-tariff-management/export-zone-tariffs.js <seasonCode> <venueSlug> --out=<file.csv>',
+        run: {
+          script: 'scripts/02-tariff-management/export-zone-tariffs.js',
+          args: []
+        },
+        description: 'Exports the price matrix for verification or sharing.',
+        notes: [
+          'Default filename is prices.csv; override with --out=<file>. Les exports sont déposés dans data/outputs.'
+        ]
+      },
+      {
+        id: 'export-zone-tariffs-matrix',
+        label: 'Export Tariffs (matrix)',
+        order: 6,
+        path: 'scripts/02-tariff-management/export-zone-tariffs-matrix.js',
+        command: 'node scripts/02-tariff-management/export-zone-tariffs-matrix.js <seasonCode> <venueSlug> [outCsvPath]',
+        run: {
+          script: 'scripts/02-tariff-management/export-zone-tariffs-matrix.js',
+          args: []
+        },
+        description: 'Produces a tariffCode × zone matrix (euros) to ease comparisons.'
+      },
+      {
+        id: 'clone-zone-tariffs',
+        label: 'Clone Zone Tariffs',
+        order: 7,
+        path: 'scripts/02-tariff-management/clone-zone-tariffs.mjs',
+        command: 'node scripts/02-tariff-management/clone-zone-tariffs.mjs --season=<code> --venue=<slug> --from-zone=<A1> --to-zones=<B1,B2> [--discount=30]',
+        run: {
+          script: 'scripts/02-tariff-management/clone-zone-tariffs.mjs',
+          args: []
+        },
+        description: 'Copies pricing from one zone to others, optionally applying a discount.'
+      }
+    ]
+  },
+  {
+    id: '03-season-management',
+    label: '03 — Season Management',
+    order: 3,
+    description: 'Season setup tasks (data seeding, subscriber imports, renewal workflows).',
     scripts: [
       {
         id: 'upsert-season',
         label: 'Upsert Season & Phases',
         order: 0,
-        path: 'scripts/02-season-generation/upsert-season.js',
-        command: 'node scripts/02-season-generation/upsert-season.js <seasonCode> --name="<Display Name>" [--venue=<slug>] [--enable-renewal]',
+        path: 'scripts/03-season-management/upsert-season.js',
+        command: 'node scripts/03-season-management/upsert-season.js <seasonCode> --name="<Display Name>" [--venue=<slug>] [--enable-renewal]',
         run: {
-          script: 'scripts/02-season-generation/upsert-season.js',
+          script: 'scripts/03-season-management/upsert-season.js',
           args: []
         },
         description: 'Creates or updates a season document and optionally toggles renewal/public phases.',
         notes: [
           'Use --enable-<phase>/--disable-<phase> and --<phase>-open=ISO / --<phase>-close=ISO to manage scheduling.'
-        ],
-        templates: ['data/templates/env/.env.template']
+        ]
+      },
+      {
+        id: 'instantiate-venue-for-season',
+        label: 'Instantiate Venue for Season',
+        order: 1,
+        path: 'scripts/03-season-management/instantiate-venue-for-season.js',
+        command: 'node scripts/03-season-management/instantiate-venue-for-season.js <seasonCode> <venueSlug> [--skip-seats] [--skip-zones]',
+        run: {
+          script: 'scripts/03-season-management/instantiate-venue-for-season.js',
+          args: []
+        },
+        description: 'Clones seat and zone catalogs into season-specific collections. Use the skip flags to target only seats or zones.'
+      },
+      {
+        id: 'instantiate-tariffs',
+        label: 'Instantiate Tariffs for Season',
+        order: 2,
+        path: 'scripts/03-season-management/instantiate-tariffs.js',
+        command: 'node scripts/03-season-management/instantiate-tariffs.js <seasonCode> <venueSlug> --catalog=<slug[,slug2]>',
+        run: {
+          script: 'scripts/03-season-management/instantiate-tariffs.js',
+          args: []
+        },
+        description: 'Applies one or more tariff matrix catalogs to populate TariffPrice for the season/venue. Add --clear to purge existing rows first.'
+      },
+      {
+        id: 'import-subscribers-flat',
+        label: 'Import Subscribers (flat CSV)',
+        order: 3,
+        path: 'scripts/03-season-management/import-subscribers-flat.js',
+        command: 'node scripts/03-season-management/import-subscribers-flat.js <path/to/subscribers.csv> <seasonCode> --venue=<slug>',
+        run: {
+          script: 'scripts/03-season-management/import-subscribers-flat.js',
+          args: []
+        },
+        description: 'Loads subscribers from a simple CSV (one subscriber per row) and links seats when possible.',
+        templates: ['data/templates/csv/subscribers-flat.template.csv']
+      },
+      {
+        id: 'season-provision',
+        label: 'Provision Seats (season rules)',
+        order: 4,
+        path: 'scripts/03-season-management/provision-season-seats.js',
+        command: 'node scripts/03-season-management/provision-season-seats.js [--apply]',
+        run: {
+          script: 'scripts/03-season-management/provision-season-seats.js',
+          args: []
+        },
+        description: 'Applies business rules (VIP, visitors, unavailable…) to mark seats as busy.',
+        notes: [
+          'Dry-run by default; add --apply to persist updates in MongoDB.'
+        ]
       },
       {
         id: 'renewal-provision',
         label: 'Provision Seats for Renewal',
-        order: 1,
-        path: 'scripts/02-season-generation/renewal/provision-seats.js',
-        command: 'node scripts/02-season-generation/renewal/provision-seats.js <seasonCode> --venue=<slug> [--apply]',
+        order: 5,
+        path: 'scripts/03-season-management/renewal-provision-seats.js',
+        command: 'node scripts/03-season-management/renewal-provision-seats.js <seasonCode> --venue=<slug> [--apply]',
         run: {
-          script: 'scripts/02-season-generation/renewal/provision-seats.js',
+          script: 'scripts/03-season-management/renewal-provision-seats.js',
           args: []
         },
-        description: 'Prepares renewal seat allocations and tags subscribers, apply changes with --apply.',
+        description: 'Tags previous-season seats as provisioned so subscribers can renew them.',
         notes: [
           'Dry-run by default; add --apply to persist updates in MongoDB.'
-        ],
-        templates: ['data/templates/env/.env.template']
+        ]
       },
       {
         id: 'export-renew-groups',
         label: 'Export Renewal Tokens',
-        order: 2,
-        path: 'scripts/02-season-generation/exports/export-renew-groups.js',
-        command: 'node scripts/02-season-generation/exports/export-renew-groups.js <seasonCode> --venue=<slug> --base=<https://host/bts> --out=<file.csv>',
+        order: 6,
+        path: 'scripts/03-season-management/export-renew-groups.js',
+        command: 'node scripts/03-season-management/export-renew-groups.js <seasonCode> --venue=<slug> --base=<https://host/bts> --out=<file.csv>',
         run: {
-          script: 'scripts/02-season-generation/exports/export-renew-groups.js',
+          script: 'scripts/03-season-management/export-renew-groups.js',
           args: []
         },
         description: 'Generates renewal tokens grouped by subscriber, exporting a CSV ready for emailing.',
@@ -215,19 +323,16 @@ export const adminScriptGroups = [
           'Requires JWT_SECRET and a public base URL (use --base to override APP_URL).',
           'Résultats déposés par défaut dans data/outputs.'
         ],
-        templates: [
-          'data/templates/env/.env.template',
-          'data/templates/csv/renew-groups.template.csv'
-        ]
+        templates: ['data/templates/csv/renew-groups.template.csv']
       },
       {
         id: 'export-renew-seats',
         label: 'Export Renewal Seats',
-        order: 3,
-        path: 'scripts/02-season-generation/exports/export-renew-seats.js',
-        command: 'node scripts/02-season-generation/exports/export-renew-seats.js <seasonCode> --venue=<slug> --out=<file.csv>',
+        order: 7,
+        path: 'scripts/03-season-management/export-renew-seats.js',
+        command: 'node scripts/03-season-management/export-renew-seats.js <seasonCode> --venue=<slug> --out=<file.csv>',
         run: {
-          script: 'scripts/02-season-generation/exports/export-renew-seats.js',
+          script: 'scripts/03-season-management/export-renew-seats.js',
           args: []
         },
         description: 'Exports the list of seats involved in the renewal campaign for auditing.',
@@ -235,18 +340,15 @@ export const adminScriptGroups = [
           'Supports filters (--email, --group) and token expiration via --expires (ex: 30d).',
           'Fichier généré dans data/outputs (nom par défaut basé sur la saison).'
         ],
-        templates: [
-          'data/templates/env/.env.template',
-          'data/templates/csv/renew-seats.template.csv'
-        ]
+        templates: ['data/templates/csv/renew-seats.template.csv']
       }
     ]
   },
   {
-    id: '03-event-management',
-    label: '03 — Event Management & Tariffs',
-    order: 3,
-    description: 'Scripts that create events, control ticket sales, and manage tariff matrices.',
+    id: '04-event-management',
+    label: '04 — Event Management',
+    order: 4,
+    description: 'Create events, configure their sales windows, and manage ancillary assets (QR banks, PDFs…).',
     scripts: [
       {
         id: 'event-create',
@@ -261,8 +363,7 @@ export const adminScriptGroups = [
         description: 'Creates a new event bound to a season and venue with scheduling metadata.',
         notes: [
           'The script auto-generates priceTableKey=ev:<slug>; adjust afterwards if you need an existing table.'
-        ],
-        templates: ['data/templates/env/.env.template']
+        ]
       },
       {
         id: 'event-set-onsale',
@@ -277,63 +378,90 @@ export const adminScriptGroups = [
         description: 'Opens or closes ticket sales for an event (use --open / --close / --on=true|false).',
         notes: [
           'Accepts either the event slug or its MongoDB ObjectId.'
-        ],
-        templates: ['data/templates/env/.env.template']
+        ]
       },
       {
-        id: 'import-tariff-catalog',
-        label: 'Import Tariff Catalog',
+        id: 'event-build-allowed',
+        label: 'Build Allowed-From Prices',
         order: 2,
-        path: 'scripts/03-event-management/tariffs/import-catalog.js',
-        command: 'node scripts/03-event-management/tariffs/import-catalog.js <path/to/tariff_catalog.csv>',
+        path: 'scripts/03-event-management/events/build-allowed-from-prices.js',
+        command: 'node scripts/03-event-management/events/build-allowed-from-prices.js --event=<slug> --season=<code> --venue=<slug>',
         run: {
-          script: 'scripts/03-event-management/tariffs/import-catalog.js',
+          script: 'scripts/03-event-management/events/build-allowed-from-prices.js',
           args: []
         },
-        description: 'Imports the master tariff catalog (code, label, justification requirements).',
-        notes: [
-          'Columns: code,label,requiresField,fieldLabel,requiresInfo,sortOrder,active.'
-        ],
-        templates: ['data/templates/csv/tariff-catalog.template.csv']
+        description: 'Recomputes allowed-from pricing for an event based on zone tariffs.'
       },
       {
-        id: 'import-zone-tariffs',
-        label: 'Import Zone Tariffs',
+        id: 'event-import-qr-bank',
+        label: 'Import QR Bank',
         order: 3,
-        path: 'scripts/03-event-management/pricing/import-zone-tariffs.js',
-        command: 'node scripts/03-event-management/pricing/import-zone-tariffs.js <seasonCode> <venueSlug> <path/to/prices.csv>',
+        path: 'scripts/03-event-management/events/import-qr-bank.js',
+        command: 'node scripts/03-event-management/events/import-qr-bank.js --event=<slug> --csv=<codes.csv> [--append]',
         run: {
-          script: 'scripts/03-event-management/pricing/import-zone-tariffs.js',
+          script: 'scripts/03-event-management/events/import-qr-bank.js',
           args: []
         },
-        description: 'Imports the price matrix per zone for the given season/venue.',
-        notes: [
-          'Supports list and matrix CSV formats; override detection with --format=list|matrix.'
-        ],
-        templates: ['data/templates/csv/zone-tariffs.template.csv']
+        description: 'Imports QR codes for an event, grouped by tariff buckets.'
       },
       {
-        id: 'export-zone-tariffs',
-        label: 'Export Zone Tariffs',
+        id: 'event-import-tariffs',
+        label: 'Import Event Tariffs',
         order: 4,
-        path: 'scripts/03-event-management/pricing/export-zone-tariffs.js',
-        command: 'node scripts/03-event-management/pricing/export-zone-tariffs.js <seasonCode> <venueSlug> --out=<file.csv>',
+        path: 'scripts/03-event-management/events/import-tariffs.js',
+        command: 'node scripts/03-event-management/events/import-tariffs.js --event=<slug> --tariffs=<catalog.csv> --zoneprices=<prices.csv>',
         run: {
-          script: 'scripts/03-event-management/pricing/export-zone-tariffs.js',
+          script: 'scripts/03-event-management/events/import-tariffs.js',
           args: []
         },
-        description: 'Exports the price matrix for verification or sharing.',
+        description: 'Loads event-specific tariffs and price tables from CSV files.'
+      },
+      {
+        id: 'event-seats-hold-release',
+        label: 'Seat Holds (block/free)',
+        order: 5,
+        path: 'scripts/04-event-management/seats-hold-release.js',
+        command: 'node scripts/04-event-management/seats-hold-release.js --file=<holds.csv> [--commit] [--force]',
+        run: {
+          script: 'scripts/04-event-management/seats-hold-release.js',
+          args: []
+        },
+        description: 'Blocks or frees event seat holds based on a CSV describing action, eventId, seatId/zoneKey, reason, and expiry.',
         notes: [
-          'Default filename is prices.csv; override with --out=<file>. Les exports sont déposés dans data/outputs.'
+          'Without --commit the script runs in dry-run mode; add --force to overwrite existing holds.'
         ],
-        templates: ['data/templates/env/.env.template']
+        templates: ['data/templates/csv/seats-hold-release.template.csv']
+      },
+      {
+        id: 'event-send-season-tickets',
+        label: 'Send Season Tickets (PDF)',
+        order: 6,
+        path: 'scripts/03-event-management/events/send-season-tickets-for-event.js',
+        command: 'node scripts/03-event-management/events/send-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run]',
+        run: {
+          script: 'scripts/03-event-management/events/send-season-tickets-for-event.js',
+          args: []
+        },
+        description: 'Generates and emails season tickets for a specific event, optionally in dry-run mode.'
+      },
+      {
+        id: 'event-tickets-pdf',
+        label: 'Generate Tickets PDF',
+        order: 7,
+        path: 'scripts/03-event-management/events/tickets-pdf.js',
+        command: 'node scripts/03-event-management/events/tickets-pdf.js <orderId>',
+        run: {
+          script: 'scripts/03-event-management/events/tickets-pdf.js',
+          args: []
+        },
+        description: 'Builds a PDF of tickets for a given order, reusing QR codes from the bank.'
       }
     ]
   },
   {
-    id: '04-admin-monitoring',
-    label: '04 — Admin & Monitoring',
-    order: 4,
+    id: '05-admin-monitoring',
+    label: '05 — Admin & Monitoring',
+    order: 5,
     description: 'Day-to-day operational scripts: exports, audits, order management, and sentinels.',
     scripts: [
       {
@@ -353,9 +481,41 @@ export const adminScriptGroups = [
         templates: ['data/templates/csv/orders-export.template.csv']
       },
       {
+        id: 'orders-import-csv',
+        label: 'Import Orders from CSV',
+        order: 1,
+        path: 'scripts/orders-import-csv.js',
+        command: 'node scripts/orders-import-csv.js --file=<orders.csv> [--send] [--commit]',
+        run: {
+          script: 'scripts/orders-import-csv.js',
+          args: []
+        },
+        description: 'Creates paid orders (with tickets) from a CSV and optionally emails confirmations.',
+        notes: [
+          'Columns: eventId, quantity, payerFirstName, payerLastName, payerEmail, seatId, zoneKey, tariffCode.',
+          'Runs in dry-run mode unless --commit; add --send to trigger confirmations.'
+        ]
+      },
+      {
+        id: 'orders-delete-csv',
+        label: 'Delete Orders from CSV',
+        order: 2,
+        path: 'scripts/orders-delete-csv.js',
+        command: 'node scripts/orders-delete-csv.js --file=<orders.csv> [--commit] [--force]',
+        run: {
+          script: 'scripts/orders-delete-csv.js',
+          args: []
+        },
+        description: 'Cancels (soft) or deletes (hard) orders listed in a CSV, voiding their tickets.',
+        notes: [
+          'Columns: orderId, mode=soft|hard. Soft marks as cancelled; hard removes the order and voids tickets.',
+          'Dry-run unless --commit. Use --force to insist on hard deletes.'
+        ]
+      },
+      {
         id: 'export-seats',
         label: 'Export Seats (CSV)',
-        order: 1,
+        order: 3,
         path: 'scripts/04-admin-monitoring/reports/export-seats.js',
         command: 'node scripts/04-admin-monitoring/reports/export-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>]',
         run: {
@@ -371,7 +531,7 @@ export const adminScriptGroups = [
       {
         id: 'export-subscribers',
         label: 'Export Subscribers (CSV)',
-        order: 2,
+        order: 4,
         path: 'scripts/04-admin-monitoring/reports/export-subscribers.js',
         command: 'node scripts/04-admin-monitoring/reports/export-subscribers.js <seasonCode> --venue=<slug> --out=<file.csv>',
         run: {
@@ -387,18 +547,15 @@ export const adminScriptGroups = [
       {
         id: 'orders-resend-confirmation',
         label: 'Resend Order Confirmation',
-        order: 3,
+        order: 5,
         path: 'scripts/04-admin-monitoring/orders-resend-confirmation.js',
-        command: 'node scripts/04-admin-monitoring/orders-resend-confirmation.js <orderId>',
+        command: 'node scripts/04-admin-monitoring/orders-resend-confirmation.js --file=orders.csv [--commit]',
         run: {
           script: 'scripts/04-admin-monitoring/orders-resend-confirmation.js',
           args: []
         },
         description: 'Resends the HelloAsso confirmation email for a specific order.',
-        templates: [
-          'data/templates/env/.env.template',
-          'data/templates/csv/orders-resend.template.csv'
-        ],
+        templates: ['data/templates/csv/orders-resend.template.csv'],
         notes: [
           'Dry-run unless --commit is provided.'
         ]
@@ -416,8 +573,7 @@ export const adminScriptGroups = [
         description: 'Reports orders stuck in pending state beyond the expected delay.',
         notes: [
           'Use --sinceMinutes to widen the scan window; defaults to 180 minutes.'
-        ],
-        templates: ['data/templates/env/.env.template']
+        ]
       },
       {
         id: 'audit-missing-seats',
@@ -433,8 +589,7 @@ export const adminScriptGroups = [
         notes: [
           'Produces detailed and grouped CSV outputs; configure --out and --grouped paths as needed.',
           'Les fichiers sont écrits par défaut dans data/outputs.'
-        ],
-        templates: ['data/templates/env/.env.template']
+        ]
       }
     ]
   }

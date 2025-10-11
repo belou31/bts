@@ -10,7 +10,6 @@
  *   - MONGODB_DB (optional database name)
  *
  * Template:
- *   - data/templates/env/.env.template
  */
 import mongoose from 'mongoose';
 import yargs from 'yargs';

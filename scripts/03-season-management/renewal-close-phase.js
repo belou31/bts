@@ -1,14 +1,14 @@
-// scripts/02-season-generation/renewal/close-renewal-phase.js
-// Usage: node scripts/02-season-generation/renewal/close-renewal-phase.js <seasonCode> [--venue=slug]
+// scripts/03-season-management/renewal-close-phase.js
+// Usage: node scripts/03-season-management/renewal-close-phase.js <seasonCode> [--venue=slug]
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { Seat, Season } from '../../../src/models/index.js';
+import { Seat, Season } from '../../src/models/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 function arg(name, def=null) {
   const p = process.argv.find(a => a.startsWith(`--${name}=`));
@@ -18,7 +18,7 @@ function arg(name, def=null) {
 async function main() {
   const seasonCode = process.argv[2];
   if (!seasonCode) {
-    console.error('Usage: node scripts/02-season-generation/renewal/close-renewal-phase.js <seasonCode> [--venue=slug]');
+    console.error('Usage: node scripts/03-season-management/renewal-close-phase.js <seasonCode> [--venue=slug]');
     process.exit(1);
   }
   const venueSlug = arg('venue', null);

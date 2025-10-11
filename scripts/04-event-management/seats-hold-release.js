@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { connectMongo, readCsv, logDryRun } from './_utils.js';
-import { SeatHold } from '../src/models/SeatHold.js';
+import { connectMongo, readCsv, logDryRun } from '../_utils.js';
+import { SeatHold } from '../../src/models/SeatHold.js';
+import { Event } from '../../src/models/Event.js';
 
 const argv = yargs(hideBin(process.argv))
   .option('file',  { type: 'string', demandOption: true })
@@ -19,10 +20,24 @@ const argv = yargs(hideBin(process.argv))
 
   for (const r of rows) {
     const action = (r.action || '').toLowerCase(); // block | free
+    const identifier = (r.eventSlug || r.eventId || '').trim();
+    if (!identifier) {
+      console.warn('⏭️  ligne sans eventSlug/eventId, skip');
+      continue;
+    }
+    let eventId = identifier;
+    if (!/^[0-9a-fA-F]{24}$/.test(identifier)) {
+      const ev = await Event.findOne({ slug: identifier }).select({ _id: 1 }).lean();
+      if (!ev?._id) {
+        console.warn(`⏭️  event introuvable pour slug "${identifier}", ligne ignorée`);
+        continue;
+      }
+      eventId = ev._id.toString();
+    }
     const q = {
-      eventId: r.eventId,
+      eventId,
       ...(r.seatId ? { seatId: r.seatId } : {}),
-      ...(r.zoneKey ? { zoneKey: r.zoneKey } : {}),
+      ...(r.zoneKey ? { zoneKey: r.zoneKey } : {})
     };
 
     if (action === 'block') {

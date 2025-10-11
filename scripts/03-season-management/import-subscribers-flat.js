@@ -5,7 +5,7 @@
  * Each CSV line represents a single seat/subscriber entry to upsert.
  *
  * Usage:
- *   node scripts/01-initialization/import-subscribers-flat.js <csvPath> <seasonCode> --venue=<slug>
+ *   node scripts/03-season-management/import-subscribers-flat.js <csvPath> <seasonCode> --venue=<slug>
  *
  * Accepted columns (case-insensitive):
  *   firstName,lastName,email,phone,seasonCode,venueSlug,seatId|prefSeatId|seat,group
@@ -16,7 +16,6 @@
  *   - MONGO_URI or MONGODB_URI: Mongo database connection (required)
  *
  * Templates:
- *   - data/templates/env/.env.template
  *   - data/templates/csv/subscribers-flat.template.csv
  */
 
@@ -133,7 +132,7 @@ function normGroupKey(v) {
 (async () => {
   const { csvPath, seasonCode, venueSlug } = parseArgs(process.argv);
   if (!csvPath || !seasonCode) {
-    die('Usage: node scripts/import-subscribers-flat.js <csvPath> <seasonCode> --venue=<slug>');
+    die('Usage: node scripts/03-season-management/import-subscribers-flat.js <csvPath> <seasonCode> --venue=<slug>');
   }
 
   const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;

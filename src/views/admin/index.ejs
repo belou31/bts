@@ -197,6 +197,42 @@
     .notes li {
       margin-bottom: 4px;
     }
+    .script-form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px 12px;
+      margin-top: 4px;
+    }
+    .script-form-grid label {
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .script-form-grid label span {
+      font-weight: 500;
+      color: inherit;
+    }
+    .script-form-grid label input[type="text"] {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+      color: var(--fg);
+    }
+    .script-form-grid label.checkbox {
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .script-form-grid label.checkbox input[type="checkbox"] {
+      margin: 0;
+    }
+    .script-form-grid label.checkbox span {
+      font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -332,7 +368,9 @@
                 <ul class="templates">
                   <% script.templates.forEach(t => {
                        const relativeTemplate = t.replace(/^(?:scripts|data)\/templates\/?/, '');
-                       const templateFile = relativeTemplate.split('/').pop();
+                       const pathSegments = relativeTemplate.split('/');
+                       const templateFile = pathSegments.pop();
+                       const templateDir = pathSegments.join('/');
                        const suggestedName = (templateFile || '').replace(/\.template(?=\.)/, '') || templateFile;
                        const templateDownloadUrl = `${urlFor('/admin/templates/download')}?path=${encodeURIComponent(t)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
                        const uploadAction = urlFor('/admin/uploads') + (tokenSuffix || '');
@@ -340,7 +378,7 @@
                     <li>
                       <code><%= t %></code>
                       <a class="btn btn-small" href="<%= templateDownloadUrl %>">Télécharger</a>
-                      <form class="inline-form" data-upload-form action="<%= uploadAction %>" method="post">
+                      <form class="inline-form" data-upload-form data-upload-dir="<%= templateDir %>" action="<%= uploadAction %>" method="post">
                         <input type="file" name="file" data-upload-input />
                         <input type="text" name="targetName" value="<%= suggestedName %>" data-upload-target />
                         <button type="button" class="btn btn-small" data-upload-trigger>Uploader</button>
@@ -365,6 +403,119 @@
             </div>
 
             <form class="script-runner" data-script-form data-script-id="<%= script.id %>" data-action="<%= runUrl %>">
+              <% if (script.id === 'register-venue') { %>
+                <div class="script-form-grid">
+                  <label>
+                    <span>Slug du lieu</span>
+                    <input type="text" data-role="register-venue:slug" placeholder="patinoire-blagnac" />
+                  </label>
+                  <label>
+                    <span>Nom du lieu</span>
+                    <input type="text" data-role="register-venue:name" placeholder="Patinoire de Blagnac" />
+                  </label>
+                  <label>
+                    <span>Plan SVG (optionnel)</span>
+                    <input type="text" data-role="register-venue:plan" placeholder="data/inputs/plan.svg" />
+                  </label>
+                  <label class="checkbox">
+                    <input type="checkbox" data-role="register-venue:overwrite" />
+                    <span>Remplacer le plan existant (--overwrite)</span>
+                  </label>
+                </div>
+              <% } %>
+
+              <% if (script.id === 'import-seats') { %>
+                <div class="script-form-grid">
+                  <label>
+                    <span>Slug du lieu</span>
+                    <input type="text" data-role="import-seats:venue" placeholder="patinoire-blagnac" />
+                  </label>
+                  <label>
+                    <span>CSV overrides (optionnel)</span>
+                    <input type="text" data-role="import-seats:csv" placeholder="data/inputs/seats.csv" />
+                  </label>
+                  <label>
+                    <span>Attribut siège (optionnel)</span>
+                    <input type="text" data-role="import-seats:attr" placeholder="data-seat-id" />
+                  </label>
+                  <label>
+                    <span>Plan SVG (override optionnel)</span>
+                    <input type="text" data-role="import-seats:plan" placeholder="data/inputs/plan.svg" />
+                  </label>
+                </div>
+              <% } %>
+
+              <% if (script.id === 'import-zones') { %>
+                <div class="script-form-grid">
+                  <label>
+                    <span>Slug du lieu</span>
+                    <input type="text" data-role="import-zones:venue" placeholder="patinoire-blagnac" />
+                  </label>
+                  <label>
+                    <span>CSV zones (optionnel)</span>
+                    <input type="text" data-role="import-zones:csv" placeholder="data/inputs/zones.csv" />
+                  </label>
+                  <label>
+                    <span>Plan SVG (override optionnel)</span>
+                    <input type="text" data-role="import-zones:plan" placeholder="data/inputs/plan.svg" />
+                  </label>
+                  <label>
+                    <span>Attribut zone (optionnel)</span>
+                    <input type="text" data-role="import-zones:attr" placeholder="data-zone-id" />
+                  </label>
+                </div>
+              <% } %>
+
+              <% if (script.id === 'import-tariff-prices') { %>
+                <div class="script-form-grid">
+                  <label>
+                    <span>Catalog slug</span>
+                    <input type="text" data-role="import-tariff-prices:catalog" placeholder="season-game" />
+                  </label>
+                  <label>
+                    <span>CSV tarifs</span>
+                    <input type="text" data-role="import-tariff-prices:csv" placeholder="data/inputs/tariff-prices.csv" />
+                  </label>
+                  <label>
+                    <span>Lieu (optionnel)</span>
+                    <input type="text" data-role="import-tariff-prices:venue" placeholder="patinoire-blagnac" />
+                  </label>
+                  <label class="checkbox">
+                    <input type="checkbox" data-role="import-tariff-prices:append" />
+                    <span>Conserver les entrées existantes (--append)</span>
+                  </label>
+                  <label class="checkbox">
+                    <input type="checkbox" data-role="import-tariff-prices:dry-run" />
+                    <span>Dry-run (--dry-run)</span>
+                  </label>
+                </div>
+              <% } %>
+
+              <% if (script.id === 'instantiate-tariffs') { %>
+                <div class="script-form-grid">
+                  <label>
+                    <span>Code saison</span>
+                    <input type="text" data-role="instantiate-tariffs:season" placeholder="2025-2026" />
+                  </label>
+                  <label>
+                    <span>Slug du lieu</span>
+                    <input type="text" data-role="instantiate-tariffs:venue" placeholder="patinoire-blagnac" />
+                  </label>
+                  <label>
+                    <span>Catalogues (slug[,slug2])</span>
+                    <input type="text" data-role="instantiate-tariffs:catalog" placeholder="season-game" />
+                  </label>
+                  <label class="checkbox">
+                    <input type="checkbox" data-role="instantiate-tariffs:clear" />
+                    <span>Effacer les tarifs existants (--clear)</span>
+                  </label>
+                  <label class="checkbox">
+                    <input type="checkbox" data-role="instantiate-tariffs:dry-run" />
+                    <span>Dry-run (--dry-run)</span>
+                  </label>
+                </div>
+              <% } %>
+
               <label>
                 Arguments additionnels
                 <input type="text" name="argLine" placeholder="ex : --season=2025-2026 --venue=patinoire-blagnac" />
@@ -397,6 +548,114 @@
         });
       });
 
+      const collectScriptArgs = (form, argLine) => {
+        const scriptId = form.dataset.scriptId;
+        if (!scriptId) return { args: [] };
+
+        const select = (role) => form.querySelector(`[data-role="${scriptId}:${role}"]`);
+        const valueOf = (role) => {
+          const el = select(role);
+          if (!el) return '';
+          if (el.type === 'checkbox') return el.checked ? 'on' : '';
+          return (el.value || '').trim();
+        };
+        const checked = (role) => {
+          const el = select(role);
+          return el ? !!el.checked : false;
+        };
+        const hasManualArgs = typeof argLine === 'string' && argLine.trim().length > 0;
+
+        switch (scriptId) {
+          case 'register-venue': {
+            const slug = valueOf('slug');
+            const name = valueOf('name');
+            const plan = valueOf('plan');
+            const overwrite = checked('overwrite');
+            const any = slug || name || plan || overwrite;
+            if (!any) return { args: [] };
+            if ((!slug || !name) && hasManualArgs) return { args: [] };
+            if (!slug || !name) {
+              return { error: 'Slug et nom requis pour exécuter register-venue.' };
+            }
+            const args = [slug, name];
+            if (plan) args.push(plan);
+            if (overwrite) args.push('--overwrite');
+            return { args };
+          }
+          case 'import-seats': {
+            const venue = valueOf('venue');
+            const csv = valueOf('csv');
+            const attr = valueOf('attr');
+            const plan = valueOf('plan');
+            const any = venue || csv || attr || plan;
+            if (!any) return { args: [] };
+            if (!venue && hasManualArgs) return { args: [] };
+            if (!venue) {
+              return { error: 'Indiquez le slug du lieu pour import-seats.' };
+            }
+            const args = [`--venue=${venue}`];
+            if (csv) args.push(`--csv=${csv}`);
+            if (attr) args.push(`--attr=${attr}`);
+            if (plan) args.push(`--plan=${plan}`);
+            return { args };
+          }
+          case 'import-zones': {
+            const venue = valueOf('venue');
+            const csv = valueOf('csv');
+            const plan = valueOf('plan');
+            const attr = valueOf('attr');
+            const any = venue || csv || plan || attr;
+            if (!any) return { args: [] };
+            if (!venue && hasManualArgs) return { args: [] };
+            if (!venue) {
+              return { error: 'Le slug du lieu est requis pour import-zones.' };
+            }
+            const args = [`--venue=${venue}`];
+            if (csv) args.push(`--csv=${csv}`);
+            if (plan) args.push(`--plan=${plan}`);
+            if (attr) args.push(`--attr=${attr}`);
+            return { args };
+          }
+          case 'import-tariff-prices': {
+            const catalog = valueOf('catalog');
+            const csv = valueOf('csv');
+            const venue = valueOf('venue');
+            const append = checked('append');
+            const dryRun = checked('dry-run');
+            const any = catalog || csv || venue || append || dryRun;
+            if (!any) return { args: [] };
+            if ((!catalog || !csv) && hasManualArgs) return { args: [] };
+            if (!catalog || !csv) {
+              return { error: 'Indiquez au minimum le slug de catalogue et le CSV pour import-tariff-prices.' };
+            }
+            const args = [catalog, csv];
+            if (venue) args.push(`--venue=${venue}`);
+            if (append) args.push('--append');
+            if (dryRun) args.push('--dry-run');
+            return { args };
+          }
+          case 'instantiate-tariffs': {
+            const season = valueOf('season');
+            const venue = valueOf('venue');
+            const catalog = valueOf('catalog');
+            const clear = checked('clear');
+            const dryRun = checked('dry-run');
+            const any = season || venue || catalog || clear || dryRun;
+            if (!any) return { args: [] };
+            if ((!season || !venue || !catalog) && hasManualArgs) return { args: [] };
+            if (!season || !venue || !catalog) {
+              return { error: 'Saison, lieu et catalogue sont requis pour instantiate-tariffs.' };
+            }
+            const args = [season, venue, `--catalog=${catalog}`];
+            if (clear) args.push('--clear');
+            if (dryRun) args.push('--dry-run');
+            return { args };
+          }
+          default:
+            return { args: [] };
+        }
+      };
+
       document.querySelectorAll('[data-script-form]').forEach(form => {
         form.addEventListener('submit', async (event) => {
           event.preventDefault();
@@ -404,13 +663,23 @@
           const button = form.querySelector('button[type="submit"]');
           const argLine = form.querySelector('input[name="argLine"]')?.value || '';
           const confirm = form.querySelector('input[name="confirm"]')?.value || '';
+          const collected = collectScriptArgs(form, argLine);
+          if (collected.error) {
+            output.textContent = `✖ ${collected.error}`;
+            return;
+          }
+          const presetArgs = Array.isArray(collected.args) ? collected.args : [];
           output.textContent = '⏳ Exécution en cours…';
           button.disabled = true;
           try {
             const response = await fetch(form.dataset.action, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ argLine, confirm })
+              body: JSON.stringify({
+                argLine,
+                confirm,
+                ...(presetArgs.length ? { args: presetArgs } : {})
+              })
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
@@ -460,7 +729,8 @@
               if (!base64) throw new Error('Encodage base64 invalide');
               const payload = {
                 filename: desired,
-                contentBase64: base64
+                contentBase64: base64,
+                subdir: form.dataset.uploadDir || ''
               };
               const response = await fetch(form.action, {
                 method: 'POST',

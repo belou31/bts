@@ -2,24 +2,23 @@
  * Export renewal groups with JWT tokens.
  *
  * Usage:
- *   node scripts/02-season-generation/exports/export-renew-groups.js <seasonCode> --venue=<slug> --base=<https://host/bts> [--out=renew-groups.csv]
+ *   node scripts/03-season-management/export-renew-groups.js <seasonCode> --venue=<slug> --base=<https://host/bts> [--out=renew-groups.csv]
  *
  * Environment:
  *   - MONGO_URI (required)
  *   - JWT_SECRET (required)
  *
  * Templates:
- *   - data/templates/env/.env.template
  *   - data/templates/csv/renew-groups.template.csv
  */
-import '../../_env.js';
-import { withDb } from '../../_db.js';
+import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import jwt from 'jsonwebtoken';
 import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
 
-import { Subscriber } from '../../../src/models/Subscriber.js';
+import { Subscriber } from '../../src/models/Subscriber.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -27,7 +26,7 @@ const __dirname  = path.dirname(__filename);
 function parseArgs() {
   const [,, seasonCode, ...rest] = process.argv;
   if (!seasonCode) {
-    console.error('Usage: node scripts/02-season-generation/exports/export-renew-groups.js <seasonCode> --venue=<slug> --out=<file.csv> --base=<https://host/bts>');
+    console.error('Usage: node scripts/03-season-management/export-renew-groups.js <seasonCode> --venue=<slug> --out=<file.csv> --base=<https://host/bts>');
     process.exit(1);
   }
   const params = { seasonCode };
@@ -56,6 +55,12 @@ async function main() {
   const { seasonCode, venueSlug, base, out } = parseArgs();
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error('JWT_SECRET manquant');
+
+  const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+  if (!mongoUri) throw new Error('MONGO_URI/MONGODB_URI manquant');
+  const connectOpts = {};
+  if (process.env.MONGODB_DB) connectOpts.dbName = process.env.MONGODB_DB;
+  await mongoose.connect(mongoUri, connectOpts);
 
   const subs = await Subscriber.find({ seasonCode, venueSlug }).lean().exec();
   if (!subs.length) {
@@ -106,6 +111,11 @@ async function main() {
   const outPath = path.isAbsolute(out) ? out : path.join(OUTPUT_DIR, out);
   fs.writeFileSync(outPath, lines.join('\n'), 'utf8');
   console.log(`OK: ${lines.length-1} groupes exportés -> ${outPath}`);
-}
 
-await withDb(main);
+  await mongoose.disconnect();
+}
+await main().catch(async (err) => {
+  console.error('[export-renew-groups] Erreur:', err);
+  try { await mongoose.disconnect(); } catch {}
+  process.exit(1);
+});

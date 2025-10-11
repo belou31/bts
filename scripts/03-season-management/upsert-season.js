@@ -3,8 +3,8 @@
  * Upsert a season and its phases.
  *
  * Usage:
- *   node scripts/02-season-generation/upsert-season.js <seasonCode> [--name="Saison ..."] [--venue=<slug>] [--active=true]
- *   node scripts/02-season-generation/upsert-season.js 2025-2026 --renewal-open="2025-08-01T00:00:00Z" --renewal-close="2025-09-15T22:00:00Z" --enable-renewal
+ *   node scripts/03-season-management/upsert-season.js <seasonCode> [--name="Saison ..."] [--venue=<slug>] [--active=true]
+ *   node scripts/03-season-management/upsert-season.js 2025-2026 --renewal-open="2025-08-01T00:00:00Z" --renewal-close="2025-09-15T22:00:00Z" --enable-renewal
  *
  * Phase options:
  *   --renewal-open=ISO_DATE   --renewal-close=ISO_DATE   --enable-renewal   --disable-renewal
@@ -17,7 +17,6 @@
  *   - VENUE  (optional default venue)
  *
  * Template:
- *   - data/templates/env/.env.template
  */
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
@@ -75,7 +74,7 @@ function parseDate(value, label) {
 
   const code = positional[0] || process.env.SEASON || '2025-2026';
   if (!code) {
-    console.error('Usage: node scripts/02-season-generation/upsert-season.js <seasonCode> [--name="..."] [--venue=<slug>]');
+    console.error('Usage: node scripts/03-season-management/upsert-season.js <seasonCode> [--name="..."] [--venue=<slug>]');
     process.exit(1);
   }
 

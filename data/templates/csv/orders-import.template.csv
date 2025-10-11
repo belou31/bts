@@ -1,0 +1,3 @@
+eventId,eventSlug,quantity,payerFirstName,payerLastName,payerEmail,seatId,zoneKey,tariffCode,status
+6652f1f8a5d14b6f1c123456,season-opener-2025,2,Jane,Doe,jane.doe@example.org,A1-001,A1,NORMAL,paid
+6652f1f8a5d14b6f1c123456,season-opener-2025,1,Paul,Smith,paul.smith@example.org,,S1,REDUCED,paid

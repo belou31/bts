@@ -1,6 +1,6 @@
-// scripts/01-initialization/venues/validate-svg.js
+// scripts/01-venue-management/validate-svg.js
 // Usage:
-//   node scripts/01-initialization/venues/validate-svg.js \
+//   node scripts/01-venue-management/validate-svg.js \
 //     --svg src/public/static/venues/patinoire-blagnac/plan.svg \
 //     --selectors "TBH7:#zone-tbh7,TBH7-VIRAGE:#zone-tbh7-virage,DEBOUT:#zone-debout" \
 //     --min-seats 500 \

@@ -6,13 +6,13 @@
  * to avoid mistakes.
  *
  * Usage:
- *   node scripts/00-baseline-reset/reset-db.js --force
+ *   node scripts/00-initialization/reset-db.js --force
  *
  * Environment:
  *   - MONGO_URI: full MongoDB connection string (required)
  *
  * Template:
- *   - data/templates/env/.env.template
+ *   - data/templates/env/env.template
  */
 import mongoose from 'mongoose';
 

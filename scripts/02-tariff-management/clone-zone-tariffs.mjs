@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// scripts/03-event-management/pricing/clone-zone-tariffs.mjs
+// scripts/02-tariff-management/clone-zone-tariffs.mjs
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import minimist from 'minimist';
-import { TariffPrice, Season } from '../../../src/models/index.js';
+import { TariffPrice, Season } from '../../src/models/index.js';
 
 const args = minimist(process.argv.slice(2), {
   string: ['season','venue','from-zone','to-zones','discount'],
@@ -17,7 +17,7 @@ const toZones    = String(args['to-zones'] || '').split(',').map(s => s.trim()).
 const discount   = Math.max(0, Number(args.discount || 0)); // en %
 
 if (!seasonCode || !fromZone || !toZones.length) {
-  console.error('Usage: node scripts/03-event-management/pricing/clone-zone-tariffs.mjs --season 2025-2026 --venue patinoire-blagnac --from-zone A1 --to-zones TBH7,TBH7-VIRAGE [--discount 30]');
+  console.error('Usage: node scripts/02-tariff-management/clone-zone-tariffs.mjs --season 2025-2026 --venue patinoire-blagnac --from-zone A1 --to-zones TBH7,TBH7-VIRAGE [--discount 30]');
   process.exit(1);
 }
 

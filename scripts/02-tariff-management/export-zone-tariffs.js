@@ -2,21 +2,20 @@
  * Export zone tariffs to CSV.
  *
  * Usage:
- *   node scripts/03-event-management/pricing/export-zone-tariffs.js <seasonCode> <venueSlug> [--out=prices.csv]
+ *   node scripts/02-tariff-management/export-zone-tariffs.js <seasonCode> <venueSlug> [--out=prices.csv]
  *
  * Environment:
  *   - MONGO_URI or MONGODB_URI (required)
  *   - MONGODB_DB (optional database name)
  *
  * Template:
- *   - data/templates/env/.env.template
  */
 
 import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
 
-import { TariffPrice } from '../../../src/models/TariffPrice.js';
+import { TariffPrice } from '../../src/models/TariffPrice.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -29,7 +28,7 @@ function euro(cents) {
 (async () => {
   const [,, seasonCode, venueSlug, ...rest] = process.argv;
   if (!seasonCode || !venueSlug) {
-    console.error('Usage: node scripts/03-event-management/pricing/export-zone-tariffs.js <seasonCode> <venueSlug> [--out=prices.csv]');
+    console.error('Usage: node scripts/02-tariff-management/export-zone-tariffs.js <seasonCode> <venueSlug> [--out=prices.csv]');
     process.exit(1);
   }
   const outArg = rest.find(x => x.startsWith('--out='));

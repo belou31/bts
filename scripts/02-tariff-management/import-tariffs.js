@@ -2,14 +2,13 @@
  * Import the tariff catalog from CSV.
  *
  * Usage:
- *   node scripts/03-event-management/tariffs/import-catalog.js <path/to/tariff_catalog.csv>
+ *   node scripts/02-tariff-management/import-tariffs.js <path/to/tariff_catalog.csv>
  *
  * Environment:
  *   - MONGO_URI or MONGODB_URI (required)
  *   - MONGODB_DB (optional database name)
  *
  * Templates:
- *   - data/templates/env/.env.template
  *   - data/templates/csv/tariff-catalog.template.csv
  */
 
@@ -18,7 +17,7 @@ import path from 'path';
 import readline from 'readline';
 import mongoose from 'mongoose';
 
-import { Tariff } from '../../../src/models/Tariff.js';
+import { Tariff } from '../../src/models/Tariff.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -45,7 +44,7 @@ function parseBool(v, def=true) {
 (async () => {
   const [, , csvPath] = process.argv;
   if (!csvPath) {
-    console.error('Usage: node scripts/tariffs/import-catalog.js <csvPath>');
+    console.error('Usage: node scripts/02-tariff-management/import-tariffs.js <csvPath>');
    process.exit(1);
   }
   const uri = process.env.MONGO_URI || process.env.MONGODB_URI;

@@ -1,3 +1,3 @@
-# seatId,zoneKey,row,num,status,provisionTags,provisionNote,reservedByOrderId,reservedAt,reservedPhase,reservedPayer,reservedEmail,reservedTariff,reservedPriceCents
-A1-001,A1,A,1,available,"TBH7|HOSPITALITY","",,,,"","",,
+seatId,zoneKey,row,num,status,provisionTags,provisionNote,reservedByOrderId,reservedAt,reservedPhase,reservedPayer,reservedEmail,reservedTariff,reservedPriceCents
+A1-001,A1,A,1,available,"TBH7|HOSPITALITY","",,,"","","",,
 A1-002,A1,A,2,busy,"RENEWAL","Auto-provisioned for renewal",66ffbaf0e4056c0012345678,2025-08-01T09:17:10.000Z,renewal,"Jane Doe",jane.doe@example.org,NORMAL,18000

@@ -5,8 +5,8 @@
  * Runs in dry-run mode by default; add --apply to persist changes.
  *
  * Usage:
- *   node scripts/02-season-generation/provision-seats.js
- *   node scripts/02-season-generation/provision-seats.js --apply
+ *   node scripts/03-season-management/provision-season-seats.js
+ *   node scripts/03-season-management/provision-season-seats.js --apply
  *
  * Environment:
  *   - MONGO_URI (required)
@@ -14,7 +14,6 @@
  *   - SEASON / VENUE (optional overrides; defaults to active season)
  *
  * Template:
- *   - data/templates/env/.env.template
  *
  * Rules:
  *   VIP        → zone S4
@@ -43,7 +42,7 @@ function arg(k) {
 const uri = process.env.MONGO_URI ;
 
 // petit helper logs
-const log = (...a) => console.log('[provision]', ...a);
+const log = (...a) => console.log('[provision-season]', ...a);
 
 function isApply() {
   return process.argv.includes('--apply') || String(process.env.APPLY || '').toLowerCase() === 'yes';

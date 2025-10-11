@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// scripts/02-season-generation/renewal/add-subscriber-and-provision.mjs
+// scripts/03-season-management/renewal-add-subscriber-and-provision.mjs
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import minimist from 'minimist';
 import jwt from 'jsonwebtoken';
-import { Season, Subscriber, Seat } from '../../../src/models/index.js';
+import { Season, Subscriber, Seat } from '../../src/models/index.js';
 
 const args = minimist(process.argv.slice(2), {
   string: ['season','venue','email','first','last','seat','group'],
@@ -20,7 +20,7 @@ const groupKey   = String(args.group || '').trim() || email;
 const seats      = String(args.seat || '').split(',').map(s => s.trim()).filter(Boolean);
 
 if (!seasonCode || !email || !seats.length) {
-  console.error('Usage: node scripts/02-season-generation/renewal/add-subscriber-and-provision.mjs --season 2025-2026 --venue patinoire-blagnac --email foo@bar --first Jean --last Dupont --seat A1-001[,A1-002] [--group FAMILLE-1]');
+  console.error('Usage: node scripts/03-season-management/renewal-add-subscriber-and-provision.mjs --season 2025-2026 --venue patinoire-blagnac --email foo@bar --first Jean --last Dupont --seat A1-001[,A1-002] [--group FAMILLE-1]');
   process.exit(1);
 }
 

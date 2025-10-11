@@ -73,23 +73,22 @@ node scripts/admin/reset-db.js --force
 
 1) Enregistrer le lieu + copier le plan
 
-node scripts/venues/register-venue-with-plan.js patinoire-blagnac "Patinoire de Blagnac" src/public/venues/patinoire-blagnac/plan.svg
+node scripts/01-venue-management/register-venue.js patinoire-blagnac "Patinoire de Blagnac" src/public/static/venues/patinoire-blagnac/plan.svg --overwrite
 
-    Copie le SVG en src/public/venues/<slug>/plan.svg
+    Copie le SVG en src/public/static/venues/<slug>/plan.svg
 
-    Enregistre le lieu en base (pour les routes publiques /venues/<slug>/plan.svg)
+    Enregistre le lieu en base (pour les routes publiques /static/venues/<slug>/plan.svg)
 
 2) Importer les sièges depuis le SVG
 
-    Ordre des arguments (validé) : <slug> <plan.svg>
-
-node scripts/venues/import-seats-from-svg.js patinoire-blagnac src/public/venues/patinoire-blagnac/plan.svg
+node scripts/01-venue-management/import-seats.js --venue=patinoire-blagnac
+# Optionnel : ajouter --csv=data/seats.csv pour surcharger zone/numéro (et --plan=... pour un SVG alternatif)
 # log: "Found XXXX seats in SVG" + "Upserted XXXX seats into catalog ..."
 
-3) Instancier les sièges pour la saison
+3) Instancier le lieu pour la saison (sièges + zones)
 
-node scripts/venues/instantiate-seats-for-season.js 2025-2026 patinoire-blagnac
-# log attendu: created ~1206, skipped ~0
+node scripts/03-season-management/instantiate-venue-for-season.js 2025-2026 patinoire-blagnac
+# log attendu: Seats → created/ skipped + Zones → upserts/ skipped
 
 Vérifs :
 
@@ -115,9 +114,9 @@ CLUB_PARENT,Club - Parent de licencié,true,Numéro de licence,false,70,true
 
 Commande :
 
-node scripts/tariffs/import-catalog.js data/tariff_catalog.csv
+node scripts/02-tariff-management/import-tariffs.js data/tariff_catalog.csv
 
-6) Importer les prix par zone (saison/lieu)
+6) Importer le catalogue de prix (format liste par défaut)
 
 data/prices_patinoire-blagnac_2025-2026.csv :
 
@@ -132,9 +131,13 @@ S1,CLUB_PARENT,120
 
 Commande :
 
-node scripts/pricing/import-zone-tariffs.js 2025-2026 patinoire-blagnac data/prices_patinoire-blagnac_2025-2026.csv
+node scripts/02-tariff-management/import-tariff-prices.js season-game data/prices_patinoire-blagnac_2025-2026.csv --venue=patinoire-blagnac
 
-7) Importer les abonnés flat (1 ligne = 1 siège)
+7) Instancier les tarifs pour la saison
+
+node scripts/03-season-management/instantiate-tariffs.js 2025-2026 patinoire-blagnac --catalog=season-game --clear
+
+8) Importer les abonnés flat (1 ligne = 1 siège)
 
 data/subscribers_flat.csv :
 
@@ -145,19 +148,19 @@ Chloe,Martin,bruno@example.com,0600000002,2025-2026,patinoire-blagnac,N1-H-015,L
 
 Commande :
 
-node scripts/import-subscribers-flat.js data/subscribers_flat.csv 2025-2026 --venue=patinoire-blagnac
+node scripts/03-season-management/import-subscribers-flat.js data/subscribers_flat.csv 2025-2026 --venue=patinoire-blagnac
 
-8) (Optionnel) Provisionner les sièges renewal
+9) (Optionnel) Provisionner les sièges renewal
 
-node scripts/renewal/provision-seats.js 2025-2026 --venue=patinoire-blagnac
+node scripts/03-season-management/renewal-provision-seats.js 2025-2026 --venue=patinoire-blagnac
 
-9) Exporter les liens de renouvellement (par groupe)
+10) Exporter les liens de renouvellement (par groupe)
 
-node scripts/export-renew-groups.js 2025-2026 --venue=patinoire-blagnac \
+node scripts/03-season-management/export-renew-groups.js 2025-2026 --venue=patinoire-blagnac \
   --base=http://localhost:8080 --out=renew-groups.csv
 
 Le CSV contient : groupKey,email,seats,token,renewUrl.
-10) Tester un lien
+11) Tester un lien
 
 Ouvrir la colonne renewUrl (colonne 5) :
 
@@ -222,5 +225,3 @@ git push origin main
 GitHub Pages va reconstruire automatiquement depuis main / docs et publier sous https://belou00.github.io/bts.
 
 Si tu veux, je peux aussi te donner un petit workflow GitHub Actions pour builder la doc (mais avec Deploy from a branch → /docs, ce n’est pas obligatoire).
-
-

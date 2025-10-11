@@ -2,7 +2,7 @@
  * Export renewal seats with signed URLs.
  *
  * Usage:
- *   node scripts/02-season-generation/exports/export-renew-seats.js <seasonCode> [--base=http://localhost:8080] [--expires=30d]
+ *   node scripts/03-season-management/export-renew-seats.js <seasonCode> [--base=http://localhost:8080] [--expires=30d]
  *       [--out=renew-seats.csv] [--sort=group|email] [--email=...] [--group=...]
  *
  * Environment:
@@ -10,7 +10,6 @@
  *   - JWT_SECRET (required)
  *
  * Templates:
- *   - data/templates/env/.env.template
  *   - data/templates/csv/renew-seats.template.csv
  */
 
@@ -19,7 +18,7 @@ import path from 'path';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 
-import { Subscriber } from '../../../src/models/Subscriber.js';
+import { Subscriber } from '../../src/models/Subscriber.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -35,7 +34,7 @@ const arg = (name, def=null) => {
 
 (async()=>{
   const seasonCode = process.argv[2];
-  if (!seasonCode) { console.error('Usage: node scripts/02-season-generation/exports/export-renew-seats.js <seasonCode> [--base=...] [--expires=30d] [--out=renew-seats.csv] [--sort=group|email] [--email=...] [--group=...]'); process.exit(1); }
+  if (!seasonCode) { console.error('Usage: node scripts/03-season-management/export-renew-seats.js <seasonCode> [--base=...] [--expires=30d] [--out=renew-seats.csv] [--sort=group|email] [--email=...] [--group=...]'); process.exit(1); }
   const base = arg('base', process.env.APP_URL || 'http://localhost:8080');
   const expiresIn = arg('expires', '30d');
   const outArg = arg('out', `renew-seats-${seasonCode}.csv`);

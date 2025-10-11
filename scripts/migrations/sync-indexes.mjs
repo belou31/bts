@@ -1,6 +1,6 @@
 // scripts/sync-indexes.mjs
 import mongoose from 'mongoose';
-import * as Models from '../src/models/index.js';
+import * as Models from '../../src/models/index.js';
 
 const APP_ENV = (process.env.APP_ENV || 'development').toLowerCase();
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/bts';

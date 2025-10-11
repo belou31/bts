@@ -307,7 +307,16 @@ router.get('/templates/download', (req, res) => {
     const relative = rawPath.replace(/^(?:scripts|data)\/templates\/?/, '');
     const abs = resolveInside(TEMPLATES_ROOT, relative);
     const filename = path.basename(abs);
-    return res.download(abs, filename);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      return res.status(404).send('Template not found');
+    }
+    res.attachment(filename);
+    return res.sendFile(abs, { dotfiles: 'allow' }, (err) => {
+      if (err) {
+        console.error('[admin] template download error:', err?.message || err);
+        if (!res.headersSent) res.status(err.statusCode || 500).send('Unable to download template');
+      }
+    });
   } catch {
     return res.status(400).send('Invalid template path');
   }
@@ -336,7 +345,7 @@ router.get('/inputs/download', (req, res) => {
 });
 
 router.post('/uploads', (req, res) => {
-  const { filename, contentBase64 } = req.body || {};
+  const { filename, contentBase64, subdir } = req.body || {};
   const safeName = sanitizeFilename(filename || '');
   if (!safeName) return res.status(400).json({ ok: false, error: 'Invalid target file name' });
   if (!contentBase64 || typeof contentBase64 !== 'string') {
@@ -348,10 +357,21 @@ router.post('/uploads', (req, res) => {
   } catch {
     return res.status(400).json({ ok: false, error: 'Invalid base64 payload' });
   }
-  const dest = path.join(INPUTS_ROOT, safeName);
+  let destDir = INPUTS_ROOT;
+  if (subdir) {
+    try {
+      const cleaned = String(subdir).replace(/^\/+/, '');
+      destDir = resolveInside(INPUTS_ROOT, cleaned);
+      fs.mkdirSync(destDir, { recursive: true });
+    } catch {
+      return res.status(400).json({ ok: false, error: 'Invalid subdir' });
+    }
+  }
+  const dest = path.join(destDir, safeName);
   try {
     fs.writeFileSync(dest, buffer);
-    return res.json({ ok: true, filename: safeName, path: `data/inputs/${safeName}`, size: buffer.length });
+    const relPath = path.relative(INPUTS_ROOT, dest).replace(/\\/g, '/');
+    return res.json({ ok: true, filename: safeName, path: `data/inputs/${relPath}`, size: buffer.length });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err?.message || 'Unable to store file' });
   }
