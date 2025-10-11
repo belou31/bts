@@ -5,6 +5,7 @@ import mongoose, { isValidObjectId } from 'mongoose';
 import { Ticket } from '../models/Ticket.js';
 import { Order } from '../models/Order.js';
 import { Event } from '../models/Event.js';
+import { Tariff } from '../models/Tariff.js';
 import { ScanLog } from '../models/ScanLog.js';
 import { verifySignature, renderQrSvg } from '../services/qr.js';
 
@@ -142,12 +143,13 @@ async function resolveEventKey(eventIdOrSlug) {
     return cached;
   }
 
+  const projection = { _id: 1, slug: 1, priceTableKey: 1, seasonCode: 1, venueSlug: 1 };
   let doc = null;
   if (isValidObjectId(raw)) {
-    doc = await Event.findById(new mongoose.Types.ObjectId(raw), { _id: 1, slug: 1 }).lean();
+    doc = await Event.findById(new mongoose.Types.ObjectId(raw), projection).lean();
   }
   if (!doc) {
-    doc = await Event.findOne({ slug: raw }, { _id: 1, slug: 1 }).lean();
+    doc = await Event.findOne({ slug: raw }, projection).lean();
   }
 
   if (!doc) {
@@ -172,6 +174,45 @@ function normalizeId(value) {
   return value ? String(value) : '';
 }
 
+function normalizeTariffCode(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function buildTariffLookupMap(tariffDocs = [], eventDoc = null) {
+  const byCode = new Map();
+  for (const doc of tariffDocs || []) {
+    const code = normalizeTariffCode(doc?.code);
+    if (!code) continue;
+    if (!byCode.has(code)) byCode.set(code, []);
+    byCode.get(code).push(doc);
+  }
+
+  const lookup = new Map();
+  for (const [code, docs] of byCode.entries()) {
+    if (!Array.isArray(docs) || !docs.length) continue;
+    let chosen = null;
+    const priceTableKey = eventDoc?.priceTableKey ? String(eventDoc.priceTableKey) : null;
+    if (priceTableKey) {
+      chosen = docs.find((d) => String(d?.priceTableKey || '') === priceTableKey) || null;
+    }
+    if (!chosen && eventDoc?.seasonCode && eventDoc?.venueSlug) {
+      const season = String(eventDoc.seasonCode || '').toLowerCase();
+      const venue = String(eventDoc.venueSlug || '').toLowerCase();
+      chosen = docs.find((d) =>
+        String(d?.seasonCode || '').toLowerCase() === season &&
+        String(d?.venueSlug || '').toLowerCase() === venue
+      ) || null;
+    }
+    if (!chosen) {
+      chosen = docs.find((d) => !d?.priceTableKey) || null;
+    }
+    if (!chosen) chosen = docs[0];
+    if (chosen) lookup.set(code, chosen);
+  }
+
+  return lookup;
+}
+
 function buildConditions(line = {}, metaTicket = {}) {
   line = line || {};
   metaTicket = metaTicket || {};
@@ -187,13 +228,21 @@ function buildConditions(line = {}, metaTicket = {}) {
 }
 
 
-function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats, orderTicketMap = new Map(), { isPrimary = false } = {}) {
+function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, options = {}) {
+  const {
+    orderStats = null,
+    orderTicketMap = new Map(),
+    isPrimary = false,
+    tariffLookup = null
+  } = options || {};
+
   const ticket = ticketDoc?.toObject ? ticketDoc.toObject() : ticketDoc;
   if (!ticket) return null;
 
   const order = orderDoc?.toObject ? orderDoc.toObject() : orderDoc;
   const orderId = normalizeId(ticket.orderId);
-  const stats = orderStats instanceof Map ? orderStats.get(orderId) : null;
+  const statsSource = orderStats instanceof Map ? orderStats : null;
+  const stats = statsSource ? statsSource.get(orderId) : null;
   let totalTickets = stats?.total ?? null;
   let scannedTickets = stats?.scanned ?? null;
 
@@ -257,7 +306,7 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats, order
     }
     return lines.find((ln) =>
       String(ln?.zoneKey || '').toUpperCase() === zoneKey &&
-      String(ln?.tariffCode || '').toUpperCase() === String(ticket.tariffCode || metaTicket?.tariff || '').toUpperCase()
+      normalizeTariffCode(ln?.tariffCode) === normalizeTariffCode(ticket?.tariffCode || metaTicket?.tariff || '')
     ) || null;
   })();
 
@@ -270,7 +319,7 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats, order
   if (typeof scannedTickets !== 'number') scannedTickets = ticket.scannedAt ? 1 : 0;
   if (typeof totalTickets !== 'number') totalTickets = ticket.scannedAt ? scannedTickets : 0;
 
-  const tariffCode = String(ticket?.tariffCode || metaTicket?.tariff || line?.tariffCode || '').toUpperCase();
+  const tariffCode = normalizeTariffCode(ticket?.tariffCode || metaTicket?.tariff || line?.tariffCode || '');
   const location = seatId || (zoneKey ? `Zone ${zoneKey}` : '');
 
   let orderOut = null;
@@ -292,12 +341,13 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats, order
     };
   }
 
+  const orderTicketsMap = orderTicketMap instanceof Map ? orderTicketMap : new Map();
   if (orderOut) {
     orderOut.totalTickets = typeof totalTickets === 'number' ? totalTickets : 0;
     orderOut.scannedTickets = typeof scannedTickets === 'number' ? scannedTickets : 0;
     orderOut.ticketIndex = ticketIndex;
     const orderTickets = [];
-    const additionalDocs = orderTicketMap.get(orderId);
+    const additionalDocs = orderTicketsMap.get(orderId);
     if (Array.isArray(additionalDocs) && additionalDocs.length) {
       additionalDocs.sort((a, b) => String(a.seatId || '').localeCompare(String(b.seatId || '')));
       additionalDocs.forEach((doc, idx) => {
@@ -307,7 +357,7 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats, order
           ticketId: normalizeId(doc._id),
           seatId: docSeat,
           zoneKey: docZone,
-          tariffCode: String(doc.tariffCode || '').toUpperCase(),
+          tariffCode: normalizeTariffCode(doc.tariffCode),
           index: idx + 1,
           isCurrent: normalizeId(doc._id) === normalizeId(ticket._id),
           scanned: !!doc.scannedAt
@@ -323,7 +373,7 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats, order
           ticketId: derivedId,
           seatId: seatVal,
           zoneKey: String(item.zoneKey || '').toUpperCase(),
-          tariffCode: String(item.tariff || item.tariffCode || '').toUpperCase(),
+          tariffCode: normalizeTariffCode(item.tariff || item.tariffCode),
           index: idx + 1,
           isCurrent: derivedId && normalizeId(ticket._id) === derivedId,
           scanned: derivedId === normalizeId(ticket._id) ? !!ticket.scannedAt : false
@@ -341,6 +391,32 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats, order
       })).sort((a, b) => new Date(b.when || 0) - new Date(a.when || 0))
     : [];
 
+  const lookupMap = tariffLookup instanceof Map ? tariffLookup : null;
+  const fallbackTariffLabel = String(
+    line?.tariffLabel ||
+    line?.tariffName ||
+    metaTicket?.tariffLabel ||
+    metaTicket?.tariffName ||
+    ''
+  ).trim();
+  const rawTariff = lookupMap && tariffCode ? lookupMap.get(tariffCode) : null;
+  const resolvedLabel = String(rawTariff?.label || fallbackTariffLabel || '').trim() || tariffCode;
+  const resolvedFieldLabel = String(rawTariff?.fieldLabel || metaTicket?.fieldLabel || '').trim();
+  const resolvedInfo = String(rawTariff?.requiresInfo || metaTicket?.requiresInfo || '').trim();
+  let resolvedRequiresField = rawTariff?.requiresField ?? metaTicket?.requiresField ?? null;
+  if (typeof resolvedRequiresField === 'string') {
+    resolvedRequiresField = resolvedRequiresField.trim();
+    if (resolvedRequiresField === '') resolvedRequiresField = null;
+  }
+
+  const tariffInfo = {
+    code: tariffCode,
+    label: resolvedLabel,
+    requiresField: resolvedRequiresField ?? null,
+    fieldLabel: resolvedFieldLabel,
+    requiresInfo: resolvedInfo
+  };
+
   return {
     ticketId: normalizeId(ticket._id),
     qrValue: ticket?.qr?.value || '',
@@ -349,6 +425,11 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, orderStats, order
     zoneKey,
     location,
     tariffCode,
+    tariffLabel: tariffInfo.label,
+    tariffFieldLabel: tariffInfo.fieldLabel,
+    tariffRequiresField: tariffInfo.requiresField,
+    tariffRequiresInfo: tariffInfo.requiresInfo,
+    tariff: tariffInfo,
     holder,
     scannedAt: ticket.scannedAt || null,
     scannedBy: ticket.scannedBy || null,
@@ -373,11 +454,26 @@ async function fetchMatches(lookupValues, resolvedEvent) {
   }
 
   if (!tickets.length) {
-    return { matches: [], orderMap: new Map(), orderStats: new Map() };
+    return {
+      matches: [],
+      orderMap: new Map(),
+      orderStats: new Map(),
+      orderTicketDocsByOrder: new Map(),
+      tariffLookup: new Map()
+    };
   }
 
   const canonicalId = normalizeId(resolvedEvent?.id);
   const slug = String(resolvedEvent?.slug || '').toLowerCase();
+  const eventDoc = resolvedEvent?.doc || null;
+
+  const tariffCodes = new Set();
+  const addTariffCode = (value) => {
+    const code = normalizeTariffCode(value);
+    if (code) tariffCodes.add(code);
+  };
+
+  tickets.forEach((ticket) => addTariffCode(ticket?.tariffCode));
 
   const orderIds = tickets
     .map((t) => normalizeId(t.orderId))
@@ -386,22 +482,37 @@ async function fetchMatches(lookupValues, resolvedEvent) {
   const uniqueOrderIds = Array.from(new Set(orderIds));
 
   const orders = uniqueOrderIds.length
-    ? await Order.find({ _id: { $in: uniqueOrderIds } }, {
-        payerFirstName: 1,
-        payerLastName: 1,
-        payerEmail: 1,
-        lines: 1,
-        meta: 1
-      }).lean()
+    ? await Order.find(
+        { _id: { $in: uniqueOrderIds } },
+        {
+          payerFirstName: 1,
+          payerLastName: 1,
+          payerEmail: 1,
+          lines: 1,
+          meta: 1
+        }
+      ).lean()
     : [];
 
   const orderMap = new Map(orders.map((ord) => [normalizeId(ord._id), ord]));
   const orderStats = new Map();
 
+  for (const ord of orders) {
+    for (const ln of ord?.lines || []) {
+      addTariffCode(ln?.tariffCode);
+    }
+    if (Array.isArray(ord?.meta?.tickets)) {
+      ord.meta.tickets.forEach((mt) => addTariffCode(mt?.tariff || mt?.tariffCode));
+    }
+  }
+
   let orderTicketDocsByOrder = new Map();
 
   if (uniqueOrderIds.length) {
-    const statsDocs = await Ticket.find({ orderId: { $in: uniqueOrderIds }, eventId: { $in: [canonicalId, resolvedEvent?.slug].filter(Boolean) } }, { orderId: 1, scannedAt: 1 }).lean();
+    const statsDocs = await Ticket.find(
+      { orderId: { $in: uniqueOrderIds }, eventId: { $in: [canonicalId, resolvedEvent?.slug].filter(Boolean) } },
+      { orderId: 1, scannedAt: 1 }
+    ).lean();
     for (const doc of statsDocs) {
       const key = normalizeId(doc.orderId);
       if (!key) continue;
@@ -427,11 +538,32 @@ async function fetchMatches(lookupValues, resolvedEvent) {
       if (!key) continue;
       if (!orderTicketDocsByOrder.has(key)) orderTicketDocsByOrder.set(key, []);
       orderTicketDocsByOrder.get(key).push(doc);
+      addTariffCode(doc?.tariffCode);
     }
   }
 
+  let tariffLookup = new Map();
+  if (tariffCodes.size) {
+    const codes = Array.from(tariffCodes);
+    const tariffDocs = await Tariff.find({ code: { $in: codes } }).lean();
+    tariffLookup = buildTariffLookupMap(tariffDocs, eventDoc);
+  }
+
   const matches = tickets
-    .map((ticket) => composeMatch(ticket, orderMap.get(normalizeId(ticket.orderId)), canonicalId, slug, orderStats, orderTicketDocsByOrder, { isPrimary: true }))
+    .map((ticket) =>
+      composeMatch(
+        ticket,
+        orderMap.get(normalizeId(ticket.orderId)),
+        canonicalId,
+        slug,
+        {
+          orderStats,
+          orderTicketMap: orderTicketDocsByOrder,
+          isPrimary: true,
+          tariffLookup
+        }
+      )
+    )
     .filter(Boolean);
 
   const matchById = new Map(matches.map((m) => [normalizeId(m.ticketId), m]));
@@ -440,7 +572,18 @@ async function fetchMatches(lookupValues, resolvedEvent) {
     for (const doc of docs) {
       const docId = normalizeId(doc._id);
       if (!docId || matchById.has(docId)) continue;
-      const extra = composeMatch(doc, orderMap.get(orderId), canonicalId, slug, orderStats, orderTicketDocsByOrder, { isPrimary: false });
+      const extra = composeMatch(
+        doc,
+        orderMap.get(orderId),
+        canonicalId,
+        slug,
+        {
+          orderStats,
+          orderTicketMap: orderTicketDocsByOrder,
+          isPrimary: false,
+          tariffLookup
+        }
+      );
       if (extra) {
         matches.push(extra);
         matchById.set(docId, extra);
@@ -448,7 +591,7 @@ async function fetchMatches(lookupValues, resolvedEvent) {
     }
   }
 
-  return { matches, orderMap, orderStats, orderTicketDocsByOrder };
+  return { matches, orderMap, orderStats, orderTicketDocsByOrder, tariffLookup };
 }
 /**
  * POST /api/scan
@@ -514,7 +657,7 @@ router.post('/api/scan', requireScanner, async (req, res) => {
   }
 
   const gateName = req.headers['x-gate'] || process.env.SCAN_GATE_NAME || deviceId || '';
-  const { matches } = await fetchMatches(lookupValues, eventResolved);
+  const { matches, tariffLookup } = await fetchMatches(lookupValues, eventResolved);
   const normalizedTicketId = normalizeId(ticketId);
   const findMatchById = (list, id) => {
     if (!id) return null;
@@ -635,7 +778,7 @@ router.post('/api/scan', requireScanner, async (req, res) => {
     });
 
     const orderDoc = updated?.orderId ? await Order.findById(updated.orderId).lean() : null;
-    const refreshed = composeMatch(updated, orderDoc, canonicalEventId, eventResolved.slug);
+    const refreshed = composeMatch(updated, orderDoc, canonicalEventId, eventResolved.slug, { tariffLookup });
 
     return res.json({ ok: true, decision: 'accept', ticket: refreshed, event: eventPayload });
   }
@@ -716,7 +859,7 @@ router.post('/api/scan', requireScanner, async (req, res) => {
       return res.json({
         ok: false,
         reason: 'already_scanned',
-        ticket: composeMatch(ticket, orderDoc, canonicalEventId, eventResolved.slug),
+        ticket: composeMatch(ticket, orderDoc, canonicalEventId, eventResolved.slug, { tariffLookup }),
         event: eventPayload
       });
     }
@@ -752,7 +895,7 @@ router.post('/api/scan', requireScanner, async (req, res) => {
     });
 
     const orderDoc = updated?.orderId ? await Order.findById(updated.orderId).lean() : null;
-    const refreshed = composeMatch(updated, orderDoc, canonicalEventId, eventResolved.slug);
+    const refreshed = composeMatch(updated, orderDoc, canonicalEventId, eventResolved.slug, { tariffLookup });
 
     return res.json({ ok: true, decision: 'accept', ticket: refreshed, event: eventPayload });
   }
@@ -793,7 +936,7 @@ router.post('/api/scan', requireScanner, async (req, res) => {
     });
 
     const orderDoc = ticket?.orderId ? await Order.findById(ticket.orderId).lean() : null;
-    const refreshed = composeMatch(ticket, orderDoc, canonicalEventId, eventResolved.slug);
+    const refreshed = composeMatch(ticket, orderDoc, canonicalEventId, eventResolved.slug, { tariffLookup });
 
     return res.json({ ok: true, decision: 'exit', ticket: refreshed, event: eventPayload });
   }

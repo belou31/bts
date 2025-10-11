@@ -1,0 +1,4 @@
+# email,firstName,lastName,seatIds,groupKey,notes
+jane.doe@example.org,Jane,Doe,"A1-001|A1-002",FAMILY-DOE,"Main contact"
+john.doe@example.org,John,Doe,"A1-002",FAMILY-DOE,"Secondary seat"
+fan.club@example.org,Alex,Fan,"TBH7_NORD-015",TBH7-CLUB,"Fan club member"

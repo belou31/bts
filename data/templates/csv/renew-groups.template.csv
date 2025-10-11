@@ -1,0 +1,3 @@
+groupKey,email,seatIds,token,url
+FAMILY-DOE,jane.doe@example.org,"A1-001,A1-002","<jwt-token>","https://tickets.example.org/bts/renew?id=<jwt-token>"
+TBH7-CLUB,fan.club@example.org,"TBH7_NORD-015","<jwt-token>","https://tickets.example.org/bts/renew?id=<jwt-token>"

@@ -8,6 +8,8 @@
 .outbox
 .vscode
 node_modules
-data
+data/*
+!data/templates/
+!data/templates/**
 tests
 grep_*
