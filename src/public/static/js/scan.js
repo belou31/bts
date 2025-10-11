@@ -114,7 +114,9 @@ function detectSlugFromPath() {
 
 const initialContext = (() => {
   const params = new URLSearchParams(window.location.search);
-  const slug = detectSlugFromPath();
+  const slugParam = params.get('event') || params.get('eventSlug') || params.get('slug') || '';
+  const slugFromPath = detectSlugFromPath();
+  const slug = String(slugParam || slugFromPath || '').trim();
   const token = params.get('token') || params.get('bearer') || '';
   const login = params.get('login') || params.get('user') || '';
   const password = params.get('password') || params.get('pass') || '';
