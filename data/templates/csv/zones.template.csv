@@ -1,0 +1,5 @@
+# key,name,type,access,capacity,quota,svgSelector,isActive
+A1,"Tribune A1","seated","PUBLIC",120,120,"#zone-a1",true
+A2,"Tribune A2","seated","PUBLIC",120,120,"#zone-a2",true
+S4,"Salon VIP","seated","VIP",80,80,"#zone-s4",true
+DEBOUT,"Debout","standing","PUBLIC",500,500,"#zone-standing",true

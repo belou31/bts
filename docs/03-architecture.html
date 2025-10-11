@@ -22,6 +22,7 @@ Subscriber.js # abonnés (flat), groupKey, prefSeatId, previousSeasonSeats
 Season.js # phases (renewal, tbh7, public)
 Tariff.js # catalogue des tarifs
 TariffPrice.js # prix par zone/saison/lieu
+TariffPriceCatalog.js # tarifs catalogue réutilisables (liste zone × tarif)
 routes/
 index.js # routeur principal (inclut /s/renew)
 renew.js # GET/POST renouvellement
@@ -36,22 +37,47 @@ venues/
 <slug>/
 plan.svg # plan du lieu (servi & parsing SVG)
 scripts/
-venues/
-register-venue-with-plan.js
-import-seats-from-svg.js
-instantiate-seats-for-season.js
-tariffs/
-import-catalog.js
-pricing/
-import-zone-tariffs.js
-renewal/
-provision-seats.js
-admin/
-reset-db.js
+01-venue-management/
+register-venue.js
+import-seats.js
+import-zones.js
+validate-svg.js
+import-tariffs.js
+export-tariffs.js
+import-tariff-prices.js
+export-zone-tariffs.js
+export-zone-tariffs-matrix.js
+clone-zone-tariffs.mjs
+03-season-management/
 upsert-season.js
-export-renew-groups.js
+instantiate-venue-for-season.js
+instantiate-tariffs.js
 import-subscribers-flat.js
+provision-season-seats.js
+renewal-provision-seats.js
+export-renew-groups.js
+export-renew-seats.js
+renewal-close-phase.js
+renewal-add-subscriber-and-provision.mjs
 docs/
+
+04-event-management/
+build-allowed-from-prices.js
+import-qr-bank.js
+import-tariffs.js
+send-season-tickets-for-event.js
+tickets-pdf.js
+set-onsale.js
+seats-hold-release.js
+05-admin-monitoring/
+orders-import-csv.js
+orders-delete-csv.js
+reports/export-orders.js
+reports/export-seats.js
+reports/export-subscribers.js
+orders-resend-confirmation.js
+sentinels/pending-orders.js
+audit-missing-seats.js
 
 
 

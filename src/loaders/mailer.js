@@ -5,7 +5,7 @@ import nodemailer from 'nodemailer';
 
 const EMAIL_STUB = String(process.env.EMAIL_STUB || 'false').toLowerCase() === 'true';
 const FROM = process.env.FROM_EMAIL || 'Billetterie <noreply@localhost>';
-const OUTBOX = path.resolve(process.cwd(), '.outbox');
+const OUTBOX = path.resolve(process.cwd(), 'data/outputs/outbox');
 
 let transporter = null;
 

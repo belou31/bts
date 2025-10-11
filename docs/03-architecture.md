@@ -29,6 +29,7 @@ src/
     Season.js       # phases (renewal/tbh7/public)
     Tariff.js       # catalogue tarifs
     TariffPrice.js  # prix par zone/saison/lieu
+    TariffPriceCatalog.js # catalogue de prix réutilisable (zone × tarif)
     Order.js        # commandes (paid/failed)
     PaymentIntent.js# intents checkout
   routes/
@@ -48,11 +49,9 @@ src/
       <slug>/
         plan.svg    # plan
 scripts/
-  venues/ …         # register/import/instantiate seats
-  tariffs/ …        # import/export catalogue
-  pricing/ …        # import/export prix zone
-  renewal/ …        # provision seats
-  admin/ …          # reset-db, upsert-season
-  export-renew-groups.js
-  import-subscribers-flat.js
-
+  01-venue-management/   # register venue, import seats/zones, validate SVG
+  02-tariff-management/  # import/export tariff catalogs & matrices
+  03-season-management/  # instantiate venue/tariffs, seed data, renewal helpers
+  04-event-management/   # création d’événements, imports QR/prix, set-onsale
+  05-admin-monitoring/   # exports/reports, audits
+  00-initialization/     # reset-db, check-env, customize-app

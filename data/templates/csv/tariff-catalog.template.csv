@@ -1,0 +1,4 @@
+# code,label,requiresField,fieldLabel,requiresInfo,sortOrder,active
+NORMAL,"Tarif normal",false,,false,10,true
+REDUCED,"Tarif réduit",true,"Justificatif","Pièce d'identité",20,true
+CHILD,"Enfant (-12)",false,,"Justificatif obligatoire",30,true

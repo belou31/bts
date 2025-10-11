@@ -25,6 +25,11 @@ const TicketSchema = new mongoose.Schema({
   scannedAt: { type: Date, index: true },
   scannedBy: { type: String }, // gate/device
   scanCount: { type: Number, default: 0 },
+  scanHistory: [{
+    when: { type: Date, default: Date.now },
+    by: { type: String, default: '' },
+    action: { type: String, enum: ['accept', 'force', 'auto', 'exit'], default: 'accept' }
+  }],
 }, { timestamps: true });
 
-export const Ticket = mongoose.model('Ticket', TicketSchema);
+export const Ticket = mongoose.models.Ticket || mongoose.model('Ticket', TicketSchema);

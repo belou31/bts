@@ -10,49 +10,83 @@
 </head>
 <body>
   <header>
-    <img alt="BTS" src="<%= assetBase %>img/icon-192.png" onerror="this.style.display='none'"/>
+    <img alt="BTS" src="<%= assetBase %>img/logo.png" onerror="this.style.display='none'"/>
     <strong>Contrôle d'accès — BTS</strong>
     <span class="pill" id="net">offline</span>
   </header>
 
   <main>
     <div class="grid">
-      <div class="row">
-        <label>Event ID</label>
-        <input id="eventId" placeholder="2025-09-20-belougas-vs-vipers"/>
-      </div>
-      <div class="row auth-mode">
-        <label>Authentification</label>
-        <div class="auth-switch">
-          <label><input type="radio" name="authMode" value="token" checked> Token</label>
-          <label><input type="radio" name="authMode" value="basic"> Login &amp; mot de passe</label>
+      <div class="row row-config">
+        <div class="event-group">
+          <label for="eventSelect">Événement</label>
+          <div class="event-selector">
+            <select id="eventSelect">
+              <option value="">Chargement…</option>
+            </select>
+            <input id="eventId" type="hidden" />
+          </div>
         </div>
-      </div>
-      <div class="row auth-row-token">
-        <label>Token</label>
-        <input id="token" placeholder="••••"/>
-      </div>
-      <div class="row auth-row-login auth-hidden">
-        <label>Login</label>
-        <input id="login" placeholder="scanner" autocomplete="username"/>
-      </div>
-      <div class="row auth-row-password auth-hidden">
-        <label>Mot de passe</label>
-        <input id="password" type="password" placeholder="••••" autocomplete="current-password"/>
+        <div class="auth-group">
+          <div class="auth-header">
+            <span>Authentification</span>
+            <div class="toggle auth-toggle" id="authToggle" role="switch" aria-checked="false" tabindex="0">
+              <div class="toggle-track">
+                <span class="toggle-option token" aria-hidden="true">Token</span>
+                <span class="toggle-option login" aria-hidden="true">Login</span>
+                <span class="toggle-thumb"><span class="toggle-label">Token</span></span>
+              </div>
+            </div>
+          </div>
+          <div class="auth-fields">
+            <div class="auth-row auth-row-token">
+              <input id="token" placeholder="Token" aria-label="Token"/>
+            </div>
+            <div class="auth-row auth-row-login auth-row-basic auth-hidden">
+              <input id="login" placeholder="Login" autocomplete="username" aria-label="Login"/>
+            </div>
+            <div class="auth-row auth-row-password auth-row-basic auth-hidden">
+              <input id="password" type="password" placeholder="Mot de passe" autocomplete="current-password" aria-label="Mot de passe"/>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="preview-wrapper">
+    <div class="controls-row top-controls">
+      <div class="mode-inline">
+        <span class="mode-label">Mode scan</span>
+        <div class="toggle mode-toggle" id="modeToggle" role="switch" aria-checked="true" tabindex="0">
+          <div class="toggle-track">
+            <span class="toggle-option ticket" aria-hidden="true">Ticket</span>
+            <span class="toggle-option order" aria-hidden="true">Commande</span>
+            <span class="toggle-thumb"><span class="toggle-label">Commande</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls-row sub-controls">
+      <div class="scan-inline">
+        <div class="toggle scan-toggle" id="scanToggle" role="switch" aria-checked="false" tabindex="0">
+          <div class="toggle-track">
+            <span class="toggle-option off" aria-hidden="true">Scan OFF</span>
+            <span class="toggle-option on" aria-hidden="true">Scan ON</span>
+            <span class="toggle-thumb"><span class="toggle-label">Scan OFF</span></span>
+          </div>
+        </div>
+        <div class="scan-status">
+          <span class="pill stat-control" id="scannedCount">0 à contrôler</span>
+          <span class="pill stat-queue" id="queueSize">0 en attente</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="preview-wrapper" id="previewWrapper">
       <video id="preview" playsinline></video>
       <canvas id="overlay"></canvas>
     </div>
-
-    <div class="row">
-      <button id="startBtn" class="primary">Démarrer</button>
-      <button id="stopBtn">Stop</button>
-      <button id="installBtn" style="display:none">Installer</button>
-      <span class="pill" id="queueSize">0 en attente</span>
-    </div>
+    <button id="installBtn" style="display:none">Installer</button>
 
     <div class="status" id="status">Prêt.</div>
     <section class="results" id="results"></section>

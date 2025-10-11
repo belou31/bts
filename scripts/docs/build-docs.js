@@ -185,18 +185,14 @@ const body3 = `
 ├── data/                         # CSV d'import/export (tarifs, prix, abonnés, liens)
 ├── docs/                         # Pages HTML de documentation (GitHub Pages)
 ├── scripts/
-│   ├── docs/
-│   │   └── build-docs.js         # Générateur des pages HTML (ce fichier)
-│   ├── email/
-│   │   └── send-renew-invites.js # Envoi d'invitations renew (CSV)
-│   ├── renewal/
-│   │   └── provision-seats.js    # Provision des sièges N-1 → status=provisioned
-│   ├── tariffs/
-│   │   └── import-catalog.js     # Import du catalogue des tarifs (codes/labels/justifs)
-│   ├── pricing/
-│   │   └── import-zone-tariffs.js# Import des prix par zone/saison/venue
-│   ├── import-subscribers-flat.js# Import abonnés "1 ligne = 1 siège"
-│   └── export-renew-groups.js    # Export des liens renew "par groupe"
+│   ├── 00-initialization/        # reset-db, check-env, customize-app
+│   ├── 01-venue-management/      # register-venue, import seats/zones, validate SVG
+│   ├── 02-tariff-management/     # import/export catalogue & matrices de tarifs
+│   ├── 03-season-management/     # instanciation siège/zone/tarif, seed, renewal
+│   ├── 04-event-management/      # création events, imports QR, prix, set-onsale
+│   ├── 05-admin-monitoring/      # exports/rapports, audits
+│   └── docs/
+│       └── build-docs.js         # Générateur des pages HTML (ce fichier)
 ├── src/
 │   ├── config/
 │   │   └── env.js                # Sélection des variables selon APP_ENV (dev/int/prod)
@@ -212,7 +208,8 @@ const body3 = `
 │   │   ├── Season.js             # Saison (code, venueSlug, phases)
 │   │   ├── Subscriber.js         # Abonné (groupKey, subscriberNo, ...)
 │   │   ├── Tariff.js             # Catalogue de tarifs (codes, labels, champs requis)
-│   │   └── TariffPrice.js        # Prix par zone/saison/venue/tarif
+│   │   ├── TariffPrice.js        # Prix par zone/saison/venue/tarif
+│   │   └── TariffPriceCatalog.js# Catalogue de prix réutilisable (zone × tarif)
 │   ├── routes/
 │   │   ├── index.js              # Montage des sous-routes
 │   │   ├── renew.js              # GET/POST renouvellement (token → sièges, tarifs, checkout)
@@ -388,53 +385,80 @@ const body5 = `
 
 <h2>3. Commandes (INT exemple)</h2>
 <h3>3.1 Catalogue de tarifs (import)</h3>
-<pre><code>node -r dotenv/config scripts/tariffs/import-catalog.js data/tariff_catalog.csv \\
+<pre><code>node -r dotenv/config scripts/02-tariff-management/import-tariffs.js data/tariff_catalog.csv \\
   dotenv_config_path=.env.int
 # Attendu: "Imported &lt;n&gt; tariffs" / diff si mise à jour
 </code></pre>
 
-<h3>3.2 Prix par zone (import)</h3>
-<pre><code>node -r dotenv/config scripts/pricing/import-zone-tariffs.js 2025-2026 patinoire-blagnac \\
-  data/prices_patinoire-blagnac.csv dotenv_config_path=.env.int
-# Attendu: "Upserted &lt;n&gt; zone prices"
+<h3>3.1 bis Catalogue de tarifs (export)</h3>
+<pre><code>node -r dotenv/config scripts/02-tariff-management/export-tariffs.js --out=tariff_catalog_backup.csv \\
+  dotenv_config_path=.env.int
+# Permet d'archiver ou vérifier le catalogue actuel
 </code></pre>
 
-<h3>3.3 Abonnés (flat, 1 ligne = 1 siège)</h3>
-<pre><code>node -r dotenv/config scripts/import-subscribers-flat.js data/subscribers_flat.csv 2025-2026 \\
+<h3>3.2 Catalogue de prix (liste)</h3>
+<pre><code>node -r dotenv/config scripts/02-tariff-management/import-tariff-prices.js season-game data/prices_patinoire-blagnac.csv \\
+  --venue=patinoire-blagnac dotenv_config_path=.env.int
+# Attendu: "Upserts=&lt;n&gt;" dans TariffPriceCatalog
+</code></pre>
+
+<h3>3.3 Instanciation des tarifs (saison)</h3>
+<pre><code>node -r dotenv/config scripts/03-season-management/instantiate-tariffs.js 2025-2026 patinoire-blagnac \\
+  --catalog=season-game --clear dotenv_config_path=.env.int
+# Attendu: "Upserts=&lt;n&gt;" dans TariffPrice
+</code></pre>
+
+<h3>3.4 Abonnés (flat, 1 ligne = 1 siège)</h3>
+<pre><code>node -r dotenv/config scripts/03-season-management/import-subscribers-flat.js data/subscribers_flat.csv 2025-2026 \\
   --venue=patinoire-blagnac dotenv_config_path=.env.int
 # Attendu: "Imported &lt;n&gt; subscriber seat lines"
 </code></pre>
 
-<h3>3.4 Provision des sièges N-1</h3>
-<pre><code>node -r dotenv/config scripts/renewal/provision-seats.js 2025-2026 \\
+<h3>3.5 Provision des sièges N-1</h3>
+<pre><code>node -r dotenv/config scripts/03-season-management/renewal-provision-seats.js 2025-2026 \\
   --venue=patinoire-blagnac --apply dotenv_config_path=.env.int
 # Attendu: "scanned=&lt;n&gt; provisioned=&lt;m&gt; ..."
 </code></pre>
 
-<h3>3.5 Export des liens renew (groupes)</h3>
-<pre><code>node -r dotenv/config scripts/export-renew-groups.js 2025-2026 \\
+<h3>3.6 Export des liens renew (groupes)</h3>
+<pre><code>node -r dotenv/config scripts/03-season-management/export-renew-groups.js 2025-2026 \\
   --base=https://billetterie-dev.belougas.fr/bts --out=renew-groups-int.csv \\
   dotenv_config_path=.env.int
 # Fichier généré: renew-groups-int.csv
 </code></pre>
 
-<h3>3.6 Envoi d’invitations (e-mail)</h3>
+<h3>3.7 Envoi d’invitations (e-mail)</h3>
 <pre><code># DRY-RUN
-node -r dotenv/config scripts/email/send-renew-invites.js renew-groups-int.csv \\
+node -r dotenv/config scripts/03-season-management/send-renew-invites.js renew-groups-int.csv \\
   --season=2025-2026 --venue=patinoire-blagnac --fromName="TBHC Billetterie" \\
   --dry dotenv_config_path=.env.int
 
 # ENVOI RÉEL
-node -r dotenv/config scripts/email/send-renew-invites.js renew-groups-int.csv \\
+node -r dotenv/config scripts/03-season-management/send-renew-invites.js renew-groups-int.csv \\
   --season=2025-2026 --venue=patinoire-blagnac --fromName="TBHC Billetterie" \\
   dotenv_config_path=.env.int
 </code></pre>
 
-<h3>3.7 Clôturer la phase renew</h3>
+<h3>3.8 Clôturer la phase renew</h3>
 <p>(si route admin activée)</p>
 <pre><code>curl -X POST https://billetterie-dev.belougas.fr/bts/api/admin/renewal/close \\
   -H "x-admin-key: &lt;SECRET&gt;"
 # Attendu: { "ok": true, "released": &lt;n&gt; }
+</code></pre>
+
+<h3>3.9 Gestion manuelle des commandes</h3>
+<pre><code># Import (dry-run)
+node -r dotenv/config scripts/orders-import-csv.js --file=orders.csv \\
+  dotenv_config_path=.env.int
+
+# Suppression (dry-run)
+node -r dotenv/config scripts/orders-delete-csv.js --file=orders.csv \\
+  dotenv_config_path=.env.int
+</code></pre>
+
+<h3>3.10 Holds événementiels</h3>
+<pre><code>node -r dotenv/config scripts/04-event-management/seats-hold-release.js \\
+  --file=holds.csv --commit --force dotenv_config_path=.env.int
 </code></pre>
 
 <h2>4. Formats CSV (en-têtes & exemples)</h2>
@@ -452,16 +476,24 @@ PARENT,TARIF CLUB - PARENT DE LICENCIE,true,true,Numéro de licence,true,70
 </code></pre>
 
 <h3>4.2 Prix par zone – <code>data/prices_patinoire-blagnac.csv</code></h3>
-<p><strong>En-têtes :</strong> <code>zoneKey,tariffCode,priceCents</code></p>
-<pre><code>zoneKey,tariffCode,priceCents
-N1,NORMAL,18000
-N1,ETUDIANT,12600
-N1,12_17,12000
-N1,U12,9000
-S1,NORMAL,16000
-S1,ETUDIANT,11200
-S1,12_17,10800
-S1,U12,8000
+<p><strong>En-têtes :</strong> <code>zoneKey,tariffCode,priceEuro</code></p>
+<pre><code>zoneKey,tariffCode,priceEuro
+N1,NORMAL,180
+N1,ETUDIANT,126
+N1,12_17,90
+N1,U12,70
+S1,NORMAL,160
+S1,ETUDIANT,112
+S1,12_17,84
+S1,U12,60
+</code></pre>
+
+<h3>4.2 Holds événementiels – <code>data/seats-hold-release.template.csv</code></h3>
+<p><strong>En-têtes :</strong> <code>action,eventSlug,eventId,seatId,zoneKey,reason,expiresAt</code></p>
+<pre><code>action,eventSlug,eventId,seatId,zoneKey,reason,expiresAt
+block,my-season-opener,,S1-A-101,,Media filming,2025-09-01T18:00:00Z
+block,,6652f1f8a5d14b6f1c123456,,S1,Partner allocation,
+free,my-season-opener,,S1-A-101,,,
 </code></pre>
 
 <h3>4.3 Abonnés (flat) – <code>data/subscribers_flat.csv</code></h3>

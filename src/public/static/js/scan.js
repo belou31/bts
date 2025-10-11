@@ -33,13 +33,18 @@ async function idbGetAll(){ const db=await idb(); const out=await new Promise((o
 async function idbClear(){ const db=await idb(); await new Promise((ok,ko)=>{ const tx=db.transaction(STORE,'readwrite'); tx.objectStore(STORE).clear(); tx.oncomplete=ok; tx.onerror=ko; }); db.close(); }
 
 // ----- UI refs -----
+const previewWrapper = document.getElementById('previewWrapper');
 const video = document.getElementById('preview');
 const statusEl = document.getElementById('status');
 const queueSizeEl = document.getElementById('queueSize');
+const scannedCountEl = document.getElementById('scannedCount');
 const overlay = document.getElementById('overlay');
 const overlayCtx = overlay ? overlay.getContext('2d') : null;
 let stream, stopFn = null;
 let detectionLocked = false;
+const RECENT_SCAN_WINDOW_MS = 8000;
+const RECENT_SCAN_TTL_MS = 15000;
+const recentScanTimestamps = new Map();
 
 function encodeBasicCredentials(login, password) {
   const pair = `${login}:${password}`;
@@ -71,9 +76,27 @@ function updateStatus(state, text) {
 }
 
 const eventInput = document.getElementById('eventId');
+const eventSelect = document.getElementById('eventSelect');
 const tokenInput = document.getElementById('token');
 const loginInput = document.getElementById('login');
 const passwordInput = document.getElementById('password');
+const authFields = document.querySelector('.auth-fields');
+const authToggle = document.getElementById('authToggle');
+const scanToggle = document.getElementById('scanToggle');
+const modeToggle = document.getElementById('modeToggle');
+const authToggleLabel = authToggle?.querySelector('.toggle-label');
+const scanToggleLabel = scanToggle?.querySelector('.toggle-label');
+const modeToggleLabel = modeToggle?.querySelector('.toggle-label');
+const knownEvents = new Map();
+const HISTORY_ACTION_MAP = {
+  accept: { action: 'accept', status: 'accepted' },
+  force: { action: 'accept', status: 'forced_accept' },
+  auto: { action: 'accept', status: 'auto_accept' },
+  exit: { action: 'exit', status: 'sortie' }
+};
+let scanActive = false;
+let loadMode = 'order';
+if (previewWrapper) previewWrapper.classList.add('hidden');
 
 function detectSlugFromPath() {
   try {
@@ -91,7 +114,9 @@ function detectSlugFromPath() {
 
 const initialContext = (() => {
   const params = new URLSearchParams(window.location.search);
-  const slug = detectSlugFromPath();
+  const slugParam = params.get('event') || params.get('eventSlug') || params.get('slug') || '';
+  const slugFromPath = detectSlugFromPath();
+  const slug = String(slugParam || slugFromPath || '').trim();
   const token = params.get('token') || params.get('bearer') || '';
   const login = params.get('login') || params.get('user') || '';
   const password = params.get('password') || params.get('pass') || '';
@@ -99,11 +124,123 @@ const initialContext = (() => {
   return { slug, token, login, password, gate };
 })();
 
+function formatEventOptionLabel(event) {
+  const name = event?.name || event?.slug || 'Événement';
+  if (!event?.startsAt) return name;
+  const date = new Date(event.startsAt);
+  if (!Number.isFinite(date.getTime())) return name;
+  const formatter = new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  return `${formatter.format(date)} — ${name}`;
+}
+
+function updateEventInput(slug, eventData = null) {
+  if (!eventInput) return;
+  const value = String(slug || '').trim();
+  eventInput.value = value;
+  if (value) {
+    eventInput.dataset.prefilled = 'true';
+    if (eventData?.id) eventInput.dataset.resolvedId = eventData.id;
+    else delete eventInput.dataset.resolvedId;
+    if (eventData?.slug) eventInput.dataset.resolvedSlug = eventData.slug;
+    else eventInput.dataset.resolvedSlug = value;
+  } else {
+    delete eventInput.dataset.prefilled;
+    delete eventInput.dataset.resolvedId;
+    delete eventInput.dataset.resolvedSlug;
+  }
+  if (eventSelect) eventSelect.value = value || '';
+}
+
+async function loadEventOptions() {
+  if (!eventSelect) return;
+  try {
+    const res = await fetch(`${SCOPE}events.json`, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const list = Array.isArray(data?.events) ? data.events : [];
+    knownEvents.clear();
+    const currentValue = eventInput ? String(eventInput.value || '').trim() : '';
+
+    eventSelect.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Sélectionner un événement';
+    eventSelect.append(placeholder);
+
+    list
+      .slice()
+      .sort((a, b) => {
+        const da = a?.startsAt ? new Date(a.startsAt).getTime() : 0;
+        const db = b?.startsAt ? new Date(b.startsAt).getTime() : 0;
+        return da - db;
+      })
+      .forEach((ev) => {
+        const slug = String(ev?.slug || '').trim();
+        if (!slug) return;
+        const normalized = {
+          id: String(ev?._id || ev?.id || ''),
+          slug,
+          name: ev?.name || slug,
+          startsAt: ev?.startsAt || null,
+          seasonCode: ev?.seasonCode || null,
+          venueSlug: ev?.venueSlug || null
+        };
+        knownEvents.set(slug, normalized);
+        if (normalized.id) knownEvents.set(normalized.id, normalized);
+        const opt = document.createElement('option');
+        opt.value = slug;
+        opt.textContent = formatEventOptionLabel(normalized);
+        eventSelect.append(opt);
+      });
+
+    if (currentValue && !knownEvents.has(currentValue)) {
+      const fallback = {
+        id: null,
+        slug: currentValue,
+        name: currentValue,
+        startsAt: null,
+        seasonCode: null,
+        venueSlug: null
+      };
+      knownEvents.set(currentValue, fallback);
+      const opt = document.createElement('option');
+      opt.value = currentValue;
+      opt.textContent = fallback.name;
+      eventSelect.append(opt);
+    }
+
+    if (currentValue && knownEvents.has(currentValue)) {
+      eventSelect.value = currentValue;
+      updateEventInput(currentValue, knownEvents.get(currentValue));
+    } else {
+      eventSelect.value = '';
+      updateEventInput('', null);
+    }
+  } catch (err) {
+    console.warn('[scan] events fetch failed:', err?.message || err);
+    if (eventSelect && !eventSelect.children.length) {
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Sélectionner un événement';
+      eventSelect.append(placeholder);
+      if (eventInput?.value) {
+        const opt = document.createElement('option');
+        opt.value = eventInput.value;
+        opt.textContent = eventInput.value;
+        eventSelect.append(opt);
+      }
+    }
+  }
+}
 
 if (eventInput && initialContext.slug) {
-  eventInput.value = initialContext.slug;
-  eventInput.dataset.prefilled = 'true';
-  eventInput.dataset.resolvedSlug = initialContext.slug;
+  updateEventInput(initialContext.slug, { slug: initialContext.slug });
 }
 if (tokenInput && initialContext.token) {
   tokenInput.value = initialContext.token;
@@ -118,10 +255,20 @@ if (passwordInput && initialContext.password) {
   passwordInput.dataset.prefilled = 'true';
 }
 
+if (eventSelect) {
+  eventSelect.addEventListener('change', () => {
+    const value = eventSelect.value;
+    const ev = knownEvents.get(value) || null;
+    updateEventInput(value, ev);
+  });
+}
+
+loadEventOptions();
+setScanToggleState(false);
+
 const tokenRow = document.querySelector('.auth-row-token');
 const loginRow = document.querySelector('.auth-row-login');
 const passwordRow = document.querySelector('.auth-row-password');
-const authModeInputs = Array.from(document.querySelectorAll('input[name="authMode"]'));
 
 let authMode = 'token';
 if (initialContext.token) authMode = 'token';
@@ -134,21 +281,56 @@ const authContext = {
   password: passwordInput ? String(passwordInput.value || '').trim() : ''
 };
 
-authModeInputs.forEach((input) => {
-  input.checked = input.value === authMode;
-  input.addEventListener('change', () => applyAuthMode(input.value));
-});
+function updateAuthToggleUI() {
+  if (!authToggle) return;
+  const isBasic = authMode === 'basic';
+  authToggle.classList.toggle('on', isBasic);
+  authToggle.setAttribute('aria-checked', isBasic ? 'true' : 'false');
+  if (authToggleLabel) {
+    authToggleLabel.textContent = isBasic ? 'LOGIN' : 'TOKEN';
+  }
+}
 
 applyAuthMode(authMode);
+updateAuthToggleUI();
+authToggle?.addEventListener('click', () => {
+  applyAuthMode(authMode === 'token' ? 'basic' : 'token');
+});
+authToggle?.addEventListener('keydown', (e) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    applyAuthMode(authMode === 'token' ? 'basic' : 'token');
+  }
+});
+
+function updateModeToggleUI() {
+  if (!modeToggle) return;
+  const isOrder = loadMode === 'order';
+  modeToggle.classList.toggle('on', isOrder);
+  modeToggle.setAttribute('aria-checked', isOrder ? 'true' : 'false');
+  if (modeToggleLabel) modeToggleLabel.textContent = isOrder ? 'Commande' : 'Ticket';
+}
+
+updateModeToggleUI();
+modeToggle?.addEventListener('click', () => {
+  loadMode = loadMode === 'order' ? 'ticket' : 'order';
+  updateModeToggleUI();
+});
+modeToggle?.addEventListener('keydown', (e) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    loadMode = loadMode === 'order' ? 'ticket' : 'order';
+    updateModeToggleUI();
+  }
+});
 
 function applyAuthMode(mode) {
   authMode = mode === 'basic' ? 'basic' : 'token';
-  authModeInputs.forEach((input) => {
-    input.checked = input.value === authMode;
-  });
   tokenRow?.classList.toggle('auth-hidden', authMode !== 'token');
   loginRow?.classList.toggle('auth-hidden', authMode !== 'basic');
   passwordRow?.classList.toggle('auth-hidden', authMode !== 'basic');
+  authFields?.classList.toggle('basic-mode', authMode === 'basic');
+  updateAuthToggleUI();
 }
 
 function getAuthContext() {
@@ -194,85 +376,118 @@ function clearOverlay() {
   if (!overlay || !overlayCtx) return;
   overlayCtx.clearRect(0, 0, overlay.width || 0, overlay.height || 0);
   overlay.classList.remove('show');
-  video.style.visibility = '';
 }
 
-function captureFrameToOverlay() {
-  if (!overlay || !overlayCtx) return;
+function flashBoundingBox(box, color = '#38bdf8', duration = 320) {
+  if (!overlay || !overlayCtx || !box) return;
   matchOverlaySize();
-  if (overlay.width && overlay.height) {
-    overlayCtx.drawImage(video, 0, 0, overlay.width, overlay.height);
-    overlay.classList.add('show');
-  }
-}
-
-function drawBoundingBox(box) {
-  if (!overlay || !overlayCtx) return;
-  if (!box || !overlay.width || !overlay.height || !video.videoWidth || !video.videoHeight) return;
+  if (!overlay.width || !overlay.height || !video.videoWidth || !video.videoHeight) return;
   const scaleX = overlay.width / video.videoWidth;
   const scaleY = overlay.height / video.videoHeight;
   overlayCtx.save();
-  overlayCtx.strokeStyle = '#38bdf8';
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+  overlayCtx.strokeStyle = color;
   overlayCtx.lineWidth = Math.max(overlay.width, overlay.height) / 200;
-  overlayCtx.shadowColor = 'rgba(56,189,248,0.6)';
+  overlayCtx.shadowColor = color;
   overlayCtx.shadowBlur = 8;
   overlayCtx.strokeRect(box.x * scaleX, box.y * scaleY, box.width * scaleX, box.height * scaleY);
   overlayCtx.restore();
+  overlay.classList.add('show');
+  setTimeout(clearOverlay, duration);
 }
 
-function freezeFrame({ box } = {}) {
-  captureFrameToOverlay();
-  if (box) drawBoundingBox(box);
-  video.style.visibility = 'hidden';
-  if (stream) {
-    try { stream.getTracks().forEach(t => t.stop()); } catch {}
-    stream = null;
-  }
-  try { video.pause(); } catch {}
-  video.srcObject = null;
-  stopFn = null;
-  detectionLocked = true;
-}
-
-function showDetectionResult({ code, box } = {}) {
+function showDetectionVisual({ code, box } = {}) {
   if (typeof code === 'string') {
     console.info('[scan] decoded QR:', code);
   }
-  freezeFrame({ box });
+  if (box) {
+    flashBoundingBox(box);
+  }
 }
 
-async function resetScanner() {
-  if (stream) {
-    try { stream.getTracks().forEach(t => t.stop()); } catch {}
-    stream = null;
+function markRecentScan(value) {
+  const key = String(value || '').trim();
+  if (!key) return;
+  const now = Date.now();
+  recentScanTimestamps.set(key, now);
+  setTimeout(() => {
+    const stored = recentScanTimestamps.get(key);
+    if (stored && stored <= now) recentScanTimestamps.delete(key);
+  }, RECENT_SCAN_TTL_MS);
+}
+
+function isRecentlyScanned(value, withinMs = RECENT_SCAN_WINDOW_MS) {
+  const key = String(value || '').trim();
+  if (!key) return false;
+  const last = recentScanTimestamps.get(key) || 0;
+  return last && (Date.now() - last) < withinMs;
+}
+
+function setScanToggleState(state) {
+  scanActive = !!state;
+  if (scanToggle) {
+    scanToggle.classList.toggle('on', scanActive);
+    scanToggle.setAttribute('aria-checked', scanActive ? 'true' : 'false');
+    if (scanToggleLabel) {
+      scanToggleLabel.textContent = scanActive ? 'SCAN ON' : 'SCAN OFF';
+    }
   }
+  if (previewWrapper) {
+    previewWrapper.classList.toggle('hidden', !scanActive);
+  }
+}
+
+function stopScanning() {
   if (stopFn) {
     try { stopFn(); } catch {}
     stopFn = null;
   }
-  video.srcObject = null;
-  try { video.pause(); video.currentTime = 0; } catch {}
-  video.style.visibility = '';
+  if (stream) {
+    try { stream.getTracks().forEach((t) => t.stop()); } catch {}
+    stream = null;
+  }
+  if (video) {
+    try { video.pause(); video.currentTime = 0; } catch {}
+    video.srcObject = null;
+    video.style.visibility = '';
+  }
   clearOverlay();
   detectionLocked = false;
+  recentScanTimestamps.clear();
+  lastPreviewLookup.clear();
 }
 
 async function showQueueSize(){
-  try { const arr = await idbGetAll(); queueSizeEl.textContent = (arr.length||0)+' en attente'; }
-  catch { queueSizeEl.textContent='?' }
+  if (!queueSizeEl) return;
+  try {
+    const arr = await idbGetAll();
+    queueSizeEl.textContent = (arr.length || 0) + ' en attente';
+  } catch {
+    queueSizeEl.textContent = '?';
+  }
 }
 showQueueSize();
+
+// ----- Scan history storage -----
+const resultsEl = document.getElementById('results');
+const historyOrder = [];
+const historyMap = new Map();
+const HISTORY_LIMIT = 20;
+const ENTRY_LOG_LIMIT = 10;
+const lastPreviewLookup = new Map();
+
+function updateScannedCountDisplay() {
+  if (!scannedCountEl) return;
+  const count = Math.max(0, historyOrder.length);
+  scannedCountEl.textContent = `${count} à contrôler`;
+}
+updateScannedCountDisplay();
 
 
 
 
 
 // ----- Scan API calls + UI helpers -----
-const resultsEl = document.getElementById('results');
-const historyOrder = [];
-const historyMap = new Map();
-const HISTORY_LIMIT = 50;
-const ENTRY_LOG_LIMIT = 10;
 
 const REASON_MESSAGES = {
   unknown: 'Statut inconnu',
@@ -297,7 +512,8 @@ const REASON_MESSAGES = {
   sync: 'Synchronisation effectuée',
   error: 'Erreur',
   invalid_response: 'Réponse inattendue du serveur',
-  invalid_json: 'Réponse serveur invalide'
+  invalid_json: 'Réponse serveur invalide',
+  sortie: 'Sortie enregistrée'
 };
 
 const ACTION_LABELS = {
@@ -307,7 +523,8 @@ const ACTION_LABELS = {
   confirm: 'Confirmation',
   queued: 'Hors ligne',
   sync: 'Synchronisation',
-  error: 'Erreur'
+  error: 'Erreur',
+  exit: 'Sortie'
 };
 
 function deviceFingerprint() {
@@ -400,6 +617,7 @@ function enrichEntryBase(source = {}, context = {}) {
   entry.eventId = entry.eventId || source.eventId || context.eventId || '';
   entry.eventSlug = entry.eventSlug || source.eventSlug || context.eventSlug || '';
   entry.createdAt = entry.createdAt || source.createdAt || Date.now();
+  entry.scanCount = typeof source.scanCount === 'number' ? source.scanCount : (entry.scanCount || 0);
 
   if (!entry.holder && source.holder) entry.holder = { ...source.holder };
   entry.holder = entry.holder || { firstName: '', lastName: '', email: '' };
@@ -413,12 +631,31 @@ function enrichEntryBase(source = {}, context = {}) {
     entry.order.totalTickets = entry.order.totalTickets ?? 0;
     entry.order.scannedTickets = entry.order.scannedTickets ?? 0;
     entry.order.ticketIndex = entry.order.ticketIndex ?? null;
+    if (Array.isArray(source.order.tickets)) {
+      entry.order.tickets = source.order.tickets.map((t) => ({ ...t }));
+    }
   } else if (!entry.order) {
     entry.order = null;
   }
 
   if (!Array.isArray(entry.conditions)) entry.conditions = [];
   if (!Array.isArray(entry.logs)) entry.logs = Array.isArray(source.logs) ? [...source.logs] : [];
+
+  if (Array.isArray(source.scanHistory)) {
+    const historyLogs = source.scanHistory.map((item) => {
+      const mapping = HISTORY_ACTION_MAP[item.action] || { action: 'preview', status: item.action || 'info' };
+      return {
+        timestamp: item.when ? new Date(item.when).getTime() : Date.now(),
+        action: mapping.action,
+        status: mapping.status,
+        info: item.by || ''
+      };
+    });
+    entry.logs = Array.isArray(entry.logs) ? [...entry.logs, ...historyLogs] : historyLogs;
+  }
+
+  entry.logs = Array.isArray(entry.logs) ? entry.logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)) : [];
+  if (entry.logs.length > ENTRY_LOG_LIMIT) entry.logs = entry.logs.slice(0, ENTRY_LOG_LIMIT);
 
   return entry;
 }
@@ -439,6 +676,7 @@ function upsertHistory(entry) {
   if (existingIndex >= 0) historyOrder.splice(existingIndex, 1);
   historyOrder.unshift(key);
   historyMap.set(key, copy);
+  if (copy.logs.length > ENTRY_LOG_LIMIT) copy.logs = copy.logs.slice(0, ENTRY_LOG_LIMIT);
   while (historyOrder.length > HISTORY_LIMIT) {
     const removed = historyOrder.pop();
     historyMap.delete(removed);
@@ -447,9 +685,12 @@ function upsertHistory(entry) {
 
 function removeHistoryEntry(entry) {
   const key = typeof entry === 'string' ? entry : keyForEntry(entry);
+  const existing = historyMap.get(key);
   const idx = historyOrder.indexOf(key);
   if (idx >= 0) historyOrder.splice(idx, 1);
   historyMap.delete(key);
+  const raw = existing?.qrValue || (typeof entry === 'object' ? entry?.qrValue : null);
+  if (raw) lastPreviewLookup.delete(raw);
 }
 
 function getHistoryEntries() {
@@ -477,7 +718,7 @@ function renderTicketHistory(logs) {
   wrap.className = 'ticket-history';
   const table = document.createElement('table');
   const thead = document.createElement('thead');
-  thead.innerHTML = '<tr><th>Date</th><th>Action</th><th>Statut</th><th>Info</th></tr>';
+  thead.innerHTML = '<tr><th>Date</th><th>Action</th><th>Statut</th></tr>';
   const tbody = document.createElement('tbody');
   logs.forEach((log) => {
     const tr = document.createElement('tr');
@@ -485,8 +726,7 @@ function renderTicketHistory(logs) {
     const statusLabel = translateReason(log.status);
     tr.innerHTML = `<td>${formatDate(log.timestamp)}</td>` +
       `<td>${actionLabel}</td>` +
-      `<td>${statusLabel}</td>` +
-      `<td>${log.info || ''}</td>`;
+      `<td>${statusLabel}</td>`;
     tbody.append(tr);
   });
   table.append(thead, tbody);
@@ -498,6 +738,7 @@ function renderTicketList() {
   if (!resultsEl) return;
   resultsEl.innerHTML = '';
   const entries = getHistoryEntries();
+  updateScannedCountDisplay();
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'results-empty';
@@ -516,17 +757,17 @@ function buildTicketCard(match) {
   card.dataset.entryKey = keyForEntry(match);
 
   const head = document.createElement('div');
-  head.className = 'card-head';
+  head.className = 'card-head visually-hidden';
 
   const headInfo = document.createElement('div');
   const title = document.createElement('div');
   title.className = 'card-title';
-  title.textContent = match.ticketId ? (match.tariffCode || 'Billet') : 'QR inconnu';
+  title.textContent = match.ticketId ? shortId(match.ticketId) : (match.qrValue || 'QR');
   const sub = document.createElement('div');
   sub.className = 'card-sub';
-  const secondary = match.ticketId ? (match.location || '') : '';
-  sub.textContent = secondary || match.qrValue || '—';
-  headInfo.append(title, sub);
+  sub.textContent = match.status ? translateReason(match.status) : '';
+  headInfo.append(title);
+  if (sub.textContent) headInfo.append(sub);
 
   head.append(headInfo);
   card.append(head);
@@ -534,58 +775,209 @@ function buildTicketCard(match) {
   const body = document.createElement('div');
   body.className = 'card-body';
 
-  if (match.ticketId) {
-    const holderName = [match?.holder?.firstName, match?.holder?.lastName].filter(Boolean).join(' ').trim();
-    const holderEmail = (match?.holder?.email || '').trim();
-    body.append(createItem('Bénéficiaire', holderName || '—', holderEmail));
+  const sectionTariff = document.createElement('div');
+  sectionTariff.className = 'card-section section-tariff';
+  const tariffTitle = document.createElement('div');
+  tariffTitle.className = 'section-title';
+  tariffTitle.textContent = 'Tarif';
+  sectionTariff.append(tariffTitle);
+  const tariffDetails = match.tariff || {};
+  const fallbackTariffText = match.ticketId ? '—' : 'QR';
+  const labelRaw = String(match.tariffLabel || tariffDetails.label || '').trim();
+  const codeRaw = String(match.tariffCode || tariffDetails.code || '').trim();
+  const displayLabel = labelRaw || codeRaw || fallbackTariffText;
 
-    if (match.order) {
-      const contactName = [match.order.payerFirstName, match.order.payerLastName].filter(Boolean).join(' ').trim();
-      const contactSub = [contactName, match.order.payerEmail].filter(Boolean).join(' • ');
-      body.append(createItem('Commande', shortId(match.order.id || ''), contactSub));
+  const tariffMain = document.createElement('div');
+  tariffMain.className = 'card-item highlight';
+  const tariffMainContent = document.createElement('div');
+  tariffMainContent.className = 'card-item-content';
+  const tariffLabelEl = document.createElement('strong');
+  tariffLabelEl.textContent = displayLabel;
+  tariffMainContent.append(tariffLabelEl);
+  tariffMain.append(tariffMainContent);
+  sectionTariff.append(tariffMain);
 
-      const total = Number(match.order.totalTickets || 0);
-      if (total > 0) {
-        const scanned = Math.min(Number(match.order.scannedTickets || 0), total);
-        const index = Number(match.order.ticketIndex || 0);
-        const subLine = index > 0 ? `Billet ${index}/${total}` : '';
-        body.append(createItem('Billets scannés', `${scanned}/${total}`, subLine));
+  const fieldLabelText = String(match.tariffFieldLabel || tariffDetails.fieldLabel || '').trim();
+  const requiresInfoText = String(match.tariffRequiresInfo || tariffDetails.requiresInfo || '').trim();
+  const rawRequiresField = match.tariffRequiresField ?? tariffDetails.requiresField ?? null;
+  let requiresFieldKey = '';
+  let hasRequiresField = false;
+  if (typeof rawRequiresField === 'boolean') {
+    hasRequiresField = rawRequiresField;
+  } else if (rawRequiresField != null) {
+    const rawStr = String(rawRequiresField).trim();
+    if (rawStr) {
+      const lower = rawStr.toLowerCase();
+      if (!['false', '0', 'no', 'n'].includes(lower)) {
+        hasRequiresField = true;
+        if (!['true', '1', 'yes', 'y'].includes(lower)) {
+          requiresFieldKey = rawStr;
+        }
       }
     }
   }
+  if (hasRequiresField) {
+    const fieldItem = document.createElement('div');
+    fieldItem.className = 'card-item';
+    const fieldContent = document.createElement('div');
+    fieldContent.className = 'card-item-content';
+    const titleLabel = fieldLabelText || requiresFieldKey || 'Justificatif requis';
+    const fieldLabelEl = document.createElement('span');
+    fieldLabelEl.textContent = titleLabel;
+    fieldContent.append(fieldLabelEl);
+    const fieldValueEl = document.createElement('strong');
+    fieldValueEl.textContent = '?';
+    fieldContent.append(fieldValueEl);
+    if (fieldLabelText && requiresFieldKey && fieldLabelText.toLowerCase() !== requiresFieldKey.toLowerCase()) {
+      const fieldKeySubline = document.createElement('span');
+      fieldKeySubline.className = 'card-subline';
+      fieldKeySubline.textContent = requiresFieldKey;
+      fieldContent.append(fieldKeySubline);
+    }
+    fieldItem.append(fieldContent);
+    sectionTariff.append(fieldItem);
+  }
 
+  const infoItem = document.createElement('div');
+  infoItem.className = 'card-item';
+  const tariffInfoContent = document.createElement('div');
+  tariffInfoContent.className = 'card-item-content';
+  const infoValueEl = document.createElement('strong');
+  infoValueEl.textContent = requiresInfoText || '—';
+  tariffInfoContent.append(infoValueEl);
+  infoItem.append(tariffInfoContent);
+  sectionTariff.append(infoItem);
+  if (requiresInfoText) {
+    sectionTariff.classList.add('attention');
+  }
   if (Array.isArray(match.conditions) && match.conditions.length) {
-    const condWrap = document.createElement('div');
-    condWrap.className = 'card-item';
-    const label = document.createElement('span');
-    label.textContent = 'Justificatifs';
-    const list = document.createElement('ul');
-    list.className = 'conditions';
-    match.conditions.forEach((cond) => {
-      const li = document.createElement('li');
-      li.textContent = cond;
-      list.append(li);
+    match.conditions.forEach((cond, idx) => {
+      const badgeWrap = document.createElement('div');
+      badgeWrap.className = 'card-item';
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = cond;
+      if (idx % 2 === 1) badge.classList.add('alt');
+      badgeWrap.append(badge);
+      sectionTariff.append(badgeWrap);
     });
-    condWrap.append(label, list);
-    body.append(condWrap);
   }
+  body.append(sectionTariff);
 
-  const reasonText = match.reason ? translateReason(match.reason) : (match.status && match.status !== 'ready' ? translateReason(match.status) : '');
-  if (reasonText) {
-    body.append(createItem('Information', reasonText, ''));
-  }
-
-  if (match.createdAt) {
-    body.append(createItem('Ajout', formatDate(match.createdAt), ''));
-  }
-
+  const sectionSeat = document.createElement('div');
+  sectionSeat.className = 'card-section section-seat';
+  const seatTitle = document.createElement('div');
+  seatTitle.className = 'section-subtitle';
+  seatTitle.textContent = 'Place — Bénéficiaire';
+  sectionSeat.append(seatTitle);
+  const seatInfo = document.createElement('div');
+  seatInfo.className = 'card-item highlight';
+  const seatInfoContent = document.createElement('div');
+  seatInfoContent.className = 'card-item-content';
+  const seatInfoStrong = document.createElement('strong');
+  seatInfoStrong.textContent = match.location || match.qrValue || '—';
+  seatInfoContent.append(seatInfoStrong);
+  seatInfo.append(seatInfoContent);
+  sectionSeat.append(seatInfo);
+  const holderName = [match?.holder?.firstName, match?.holder?.lastName].filter(Boolean).join(' ').trim();
+  const holderEmail = (match?.holder?.email || '').trim();
+  const beneficiary = document.createElement('div');
+  beneficiary.className = 'card-item';
+  const beneficiaryContent = document.createElement('div');
+  beneficiaryContent.className = 'card-item-content';
+  const beneficiaryLineRaw = [holderName, holderEmail].filter(Boolean).join(' • ');
+  const beneficiaryLine = beneficiaryLineRaw || '—';
+  const beneficiaryStrong = document.createElement('strong');
+  beneficiaryStrong.textContent = beneficiaryLine;
+  beneficiaryContent.append(beneficiaryStrong);
+  beneficiary.append(beneficiaryContent);
+  sectionSeat.append(beneficiary);
   if (!match.ticketId) {
     const qrWrap = document.createElement('div');
     qrWrap.className = 'qr-preview';
     qrWrap.textContent = 'QR';
-    body.append(qrWrap);
+    sectionSeat.append(qrWrap);
     drawQrInline(qrWrap, match.qrValue);
   }
+  body.append(sectionSeat);
+
+  const sectionInfo = document.createElement('div');
+  sectionInfo.className = 'card-section section-info';
+  const infoTitle = document.createElement('div');
+  infoTitle.className = 'section-subtitle';
+  infoTitle.textContent = 'Information';
+  sectionInfo.append(infoTitle);
+  const reasonText = match.reason ? translateReason(match.reason) : (match.status && match.status !== 'ready' ? translateReason(match.status) : '');
+  const qrLine = document.createElement('div');
+  qrLine.className = 'card-item inline';
+  const qrValue = match.ticketId ? shortId(match.ticketId) : (match.qrValue || '—');
+  qrLine.innerHTML = `<span>QR :</span><strong>${qrValue}</strong>`;
+  sectionInfo.append(qrLine);
+
+  const infoContent = document.createElement('div');
+  infoContent.className = 'card-item highlight';
+  const infoContentWrap = document.createElement('div');
+  infoContentWrap.className = 'card-item-content';
+  const details = [];
+  if (reasonText) details.push(reasonText);
+  if (match.scanCount) details.push(`${match.scanCount} passage(s)`);
+  const infoStrong = document.createElement('strong');
+  infoStrong.textContent = details.join(' • ') || '—';
+  infoContentWrap.append(infoStrong);
+  infoContent.append(infoContentWrap);
+  sectionInfo.append(infoContent);
+  body.append(sectionInfo);
+
+  const sectionOrder = document.createElement('div');
+  sectionOrder.className = 'card-section section-order';
+  const orderHeader = document.createElement('div');
+  orderHeader.className = 'section-title-row';
+  const orderTitle = document.createElement('div');
+  orderTitle.className = 'section-title';
+  orderTitle.textContent = 'Commande';
+  orderHeader.append(orderTitle);
+  sectionOrder.append(orderHeader);
+  if (match.order) {
+    const idLine = document.createElement('div');
+    idLine.className = 'card-item highlight';
+    const idWrap = document.createElement('div');
+    idWrap.className = 'card-item-content';
+    const idStrong = document.createElement('strong');
+    idStrong.textContent = `#${match.order.id || '—'}`;
+    idWrap.append(idStrong);
+    idLine.append(idWrap);
+    sectionOrder.append(idLine);
+    const total = Number(match.order.totalTickets || 0);
+    if (total > 0) {
+      const scanned = Math.min(Number(match.order.scannedTickets || 0), total);
+      const index = Number(match.order.ticketIndex || 0);
+      const billetLabel = index > 0 ? `${index}/${total}` : `${scanned}/${total}`;
+      sectionOrder.querySelector('.section-title').innerHTML = `Commande — Billet <strong>${billetLabel}</strong>`;
+    }
+    const contactName = [match.order.payerFirstName, match.order.payerLastName].filter(Boolean).join(' ').trim();
+    const contactLabel = document.createElement('div');
+    contactLabel.className = 'card-item';
+    const contactWrap = document.createElement('div');
+    contactWrap.className = 'card-item-content';
+    const contactLine = [contactName, match.order.payerEmail].filter(Boolean).join(' • ') || '—';
+    const contactStrong = document.createElement('strong');
+    contactStrong.textContent = contactLine;
+    contactWrap.append(contactStrong);
+    contactLabel.append(contactWrap);
+    sectionOrder.append(contactLabel);
+
+  } else {
+    const fallback = document.createElement('div');
+    fallback.className = 'card-item';
+    const fallbackWrap = document.createElement('div');
+    fallbackWrap.className = 'card-item-content';
+    const fallbackStrong = document.createElement('strong');
+    fallbackStrong.textContent = '—';
+    fallbackWrap.append(fallbackStrong);
+    fallback.append(fallbackWrap);
+    sectionOrder.append(fallback);
+  }
+  body.append(sectionOrder);
 
   card.append(body);
 
@@ -601,17 +993,18 @@ function buildTicketCard(match) {
   };
 
   if (!match.ticketId) {
-    addBtn('Confirmer', 'confirm', () => handleConfirm(match));
+    addBtn('Accepter', 'action-accept', () => handleConfirm(match));
+    addBtn('Refuser', 'action-reject', () => { removeHistoryEntry(match); renderTicketList(); });
   } else if (match.status === 'ready') {
-    addBtn('Valider', 'accept', () => handleAccept(match));
-    addBtn('Rejeter', 'reject', () => handleReject(match));
+    addBtn('Accepter', 'action-accept', () => handleAccept(match));
+    addBtn('Refuser', 'action-reject', () => handleReject(match));
   } else if (match.status === 'already_scanned') {
-    addBtn('Confirmer', 'confirm', () => handleConfirm(match));
-    addBtn('Forcer l\'entrée', 'accept', () => handleAccept(match, { force: true }));
-    addBtn('Rejeter', 'reject', () => handleReject(match));
+    addBtn('SORTIR', 'action-cancel', () => handleExit(match));
+    addBtn('Forcer', 'action-force', () => handleAccept(match, { force: true }));
+    addBtn('Refuser', 'action-reject', () => handleReject(match));
   } else {
-    addBtn('Confirmer', 'confirm', () => handleConfirm(match));
-    addBtn('Rejeter', 'reject', () => handleReject(match));
+    addBtn('SORTIR', 'action-cancel', () => handleExit(match));
+    addBtn('Refuser', 'action-reject', () => handleReject(match));
   }
 
   if (actions.childElementCount > 0) {
@@ -689,6 +1082,10 @@ async function postScanOnline(payload) {
 
 async function previewScan(raw) {
   if (!raw) return;
+  const lastTs = lastPreviewLookup.get(raw);
+  if (lastTs && (Date.now() - lastTs) < 15000) {
+    return;
+  }
   const auth = getAuthContext();
   const eventValue = getEventValueForRequest();
   if (!eventValue) {
@@ -717,6 +1114,7 @@ async function previewScan(raw) {
   };
   try {
     const data = await postScanOnline(payload);
+    lastPreviewLookup.set(raw, Date.now());
     const context = {
       qrValue: raw,
       eventId: data.event?.id || eventValue,
@@ -733,7 +1131,9 @@ async function previewScan(raw) {
 
     const matches = Array.isArray(data.matches) ? data.matches : [];
     if (matches.length) {
-      matches.forEach((match) => {
+      const cards = matches.filter((match) => loadMode === 'order' ? true : (match.isPrimary || (!match.ticketId && match.qrValue === raw)));
+
+      cards.forEach((match) => {
         const entry = enrichEntryBase(match, context);
         const entryKey = keyForEntry(entry);
         upsertHistory(entry);
@@ -748,30 +1148,17 @@ async function previewScan(raw) {
         });
       });
       renderTicketList();
-      const readyCount = matches.filter((m) => m.status === 'ready').length;
+      const readyCount = cards.filter((m) => m.status === 'ready').length;
       if (readyCount > 0) {
         updateStatus('ok', readyCount > 1 ? `${readyCount} billets prêts à valider` : 'Billet prêt à valider');
       } else {
-        updateStatus('ko', 'Billet déjà scanné ou invalide');
+        updateStatus('', '');
       }
     } else {
-      const entry = {
-        ticketId: '',
-        qrValue: raw,
-        status: 'unknown',
-        reason: data.reason || 'unknown_qr',
-        eventId: context.eventId,
-        eventSlug: context.eventSlug,
-        createdAt: Date.now(),
-        logs: []
-      };
-      const entryKey = keyForEntry(entry);
-      upsertHistory(entry);
-      logAction({ action: 'preview', status: data.reason || 'unknown_qr', entryKey, entry: raw, info: 'Aucun billet', event: context.eventSlug });
-      renderTicketList();
-      updateStatus('ko', translateReason(data.reason || 'unknown_qr'));
+      // No card, keep status unchanged
     }
   } catch (e) {
+    lastPreviewLookup.set(raw, Date.now());
     if (e.server) {
       const reason = e.body?.reason || 'error';
       updateStatus('ko', translateReason(reason) || e.body?.error || ('HTTP ' + e.status));
@@ -993,6 +1380,50 @@ async function handleConfirm(match) {
   }
 }
 
+async function handleExit(match) {
+  const auth = getAuthContext();
+  const eventId = match.eventId || lastContext?.eventId || getEventValueForRequest();
+  if (!eventId) {
+    updateStatus('ko', 'Event requis');
+    return;
+  }
+  if (auth.mode === 'token' && !auth.token) {
+    updateStatus('ko', 'Token requis');
+    return;
+  }
+  if (auth.mode === 'basic' && (!auth.login || !auth.password)) {
+    updateStatus('ko', 'Identifiants requis');
+    return;
+  }
+
+  const payload = {
+    value: match.qrValue || lastContext?.qrValue || '',
+    eventId,
+    authMode: auth.mode,
+    token: auth.token,
+    login: auth.login,
+    password: auth.password,
+    decision: 'exit',
+    ticketId: match.ticketId || undefined,
+    deviceId: deviceFingerprint(),
+    gate: getGateName()
+  };
+
+  try {
+    await postScanOnline(payload);
+    logAction({ action: 'exit', status: 'sortie', entryKey: keyForEntry(match), entry: match.ticketId ? shortId(match.ticketId) : match.qrValue, info: 'Sortie', event: match.eventSlug || eventId });
+    removeHistoryEntry(match);
+    renderTicketList();
+    updateStatus('ok', 'Sortie effectuée');
+  } catch (e) {
+    if (e.server) {
+      updateStatus('ko', translateReason(e.body?.reason) || e.body?.error || ('HTTP ' + e.status));
+      return;
+    }
+    updateStatus('ko', 'Hors-ligne — action impossible');
+  }
+}
+
 async function flushQueue() {
   const arr = await idbGetAll();
   if (!arr.length || !navigator.onLine) return;
@@ -1030,11 +1461,16 @@ window.addEventListener('online', flushQueue);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') flushQueue();
 });
+window.addEventListener('beforeunload', () => {
+  stopScanning();
+  setScanToggleState(false);
+});
 
 // ----- Caméra + décodage -----
 // 1) BarcodeDetector si dispo
 async function startBarcodeDetector() {
   const det = new BarcodeDetector({ formats: ['qr_code'] });
+  stopScanning();
   detectionLocked = false;
   clearOverlay();
   stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
@@ -1056,7 +1492,8 @@ async function startBarcodeDetector() {
 
       const raw = codes[0]?.rawValue;
       const box = codes[0]?.boundingBox || null;
-      if (!raw) {
+      const normalized = typeof raw === 'string' ? raw.trim() : '';
+      if (!normalized) {
         requestAnimationFrame(tick);
         return;
       }
@@ -1080,8 +1517,19 @@ async function startBarcodeDetector() {
       }
 
       detectionLocked = true;
-      showDetectionResult({ code: raw, box });
-      await previewScan(raw);
+      if (isRecentlyScanned(normalized)) {
+        detectionLocked = false;
+        requestAnimationFrame(tick);
+        return;
+      }
+      showDetectionVisual({ code: normalized, box });
+      markRecentScan(normalized);
+      try {
+        await previewScan(normalized);
+      } finally {
+        detectionLocked = false;
+        requestAnimationFrame(tick);
+      }
     } catch (err) {
       frame?.close?.();
       console.error(err);
@@ -1092,17 +1540,17 @@ async function startBarcodeDetector() {
 
   stopFn = () => {
     if (stream) {
-      try { stream.getTracks().forEach(t => t.stop()); } catch {}
+      try { stream.getTracks().forEach((t) => t.stop()); } catch {}
       stream = null;
     }
     try { video.pause(); } catch {}
     video.srcObject = null;
   };
-  statusEl.textContent = 'Lecture QR (BarcodeDetector)…';
 }
 
 // 2) Fallback ZXing (corrigé)
 async function startZXing() {
+  stopScanning();
   const s = document.createElement('script');
   s.src = 'https://unpkg.com/@zxing/library@0.20.0';
   await new Promise((ok,ko)=>{ s.onload=ok; s.onerror=ko; document.head.appendChild(s);});
@@ -1146,20 +1594,84 @@ async function startZXing() {
     if (!eventValue) { statusEl.innerHTML='<span class="ko">Event requis</span>'; return; }
     if (auth.mode === 'token' && !auth.token) { statusEl.innerHTML='<span class="ko">Token requis</span>'; return; }
     if (auth.mode === 'basic' && (!auth.login || !auth.password)) { statusEl.innerHTML='<span class="ko">Identifiants requis</span>'; return; }
+    const normalized = result.text.trim();
+    if (isRecentlyScanned(normalized)) return;
     detectionLocked = true;
-    console.info('[scan] decoded QR (ZXing):', result.text);
-    await previewScan(result.text);
+    showDetectionVisual({ code: normalized });
+    markRecentScan(normalized);
+    try {
+      await previewScan(normalized);
+    } finally {
+      detectionLocked = false;
+    }
   });
-  stopFn = ()=>controls && typeof controls.stop === 'function' && controls.stop();
-  statusEl.textContent = 'Lecture QR (ZXing)…';
+  stopFn = () => {
+    controls && typeof controls.stop === 'function' && controls.stop();
+    try { video.pause(); } catch {}
+    video.srcObject = null;
+    stream = null;
+  };
 }
 
 async function start() {
   statusEl.textContent = 'Initialisation caméra…';
   try {
-    if ('BarcodeDetector' in window) return await startBarcodeDetector();
-    return await startZXing();
-  } catch(e) { console.error(e); statusEl.innerHTML='<span class="ko">Erreur caméra</span>'; }
+    if ('BarcodeDetector' in window) {
+      await startBarcodeDetector();
+    } else {
+      await startZXing();
+    }
+  } catch(e) {
+    console.error(e);
+    statusEl.innerHTML = '<span class="ko">Erreur caméra</span>';
+    throw e;
+  }
 }
-document.getElementById('startBtn').onclick = start;
-document.getElementById('stopBtn').onclick  = ()=>{ stopFn && stopFn(); statusEl.textContent=''; };
+
+async function enableScan() {
+  if (scanActive) return;
+  try {
+    await start();
+    setScanToggleState(true);
+    statusEl.classList.remove('ok', 'ko');
+    statusEl.textContent = 'Scan actif.';
+  } catch (err) {
+    setScanToggleState(false);
+    throw err;
+  }
+}
+
+function disableScan() {
+  if (!scanActive && !stream && !stopFn) return;
+  stopScanning();
+  setScanToggleState(false);
+  statusEl.classList.remove('ok', 'ko');
+  statusEl.textContent = 'Prêt.';
+}
+
+scanToggle?.addEventListener('click', async () => {
+  try {
+    if (scanActive) {
+      disableScan();
+    } else {
+      await enableScan();
+    }
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+scanToggle?.addEventListener('keydown', async (e) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    try {
+      if (scanActive) {
+        disableScan();
+      } else {
+        await enableScan();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+});

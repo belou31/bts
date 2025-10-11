@@ -1,14 +1,25 @@
 // src/routes/admin.js
 import express from 'express';
 import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
 import childProcess from 'node:child_process';
 import mongoose from 'mongoose';
 import { Order } from '../models/Order.js';
 import { Seat }  from '../models/Seat.js';
 import { Zone }  from '../models/Zone.js';
 import { exportOrdersCsv, exportSeatsCsv } from '../services/exports.js';
+import { adminScriptGroups, getAdminScript } from '../config/adminScripts.js';
 
 const router = express.Router();
+
+const ROOT_DIR = process.cwd();
+const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
+const OUTPUTS_ROOT = path.resolve(ROOT_DIR, 'data/outputs');
+const INPUTS_ROOT = path.resolve(ROOT_DIR, 'data/inputs');
+for (const dir of [OUTPUTS_ROOT, INPUTS_ROOT]) {
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+}
 
 /* ===================== Base path & helpers URLs ===================== */
 const BASE_PATH = process.env.BASE_PATH || '';
@@ -16,6 +27,103 @@ const trimEndSlash = (s='') => s.replace(/\/+$/,'');
 const urlJoin = (base='', p='') => `${trimEndSlash(base)}${p.startsWith('/') ? p : `/${p}`}`;
 const urlFor = (p='') => urlJoin(BASE_PATH, p); // ex: urlFor('/admin/export/orders.csv')
 
+function parseArgLine(line = '') {
+  const args = [];
+  let current = '';
+  let quote = null;
+  let escape = false;
+
+  for (const char of String(line || '')) {
+    if (escape) {
+      current += char;
+      escape = false;
+      continue;
+    }
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        args.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (current) args.push(current);
+  return args;
+}
+
+async function runAdminScript(script, userArgs = []) {
+  if (!script?.run?.script) throw new Error('Script is not runnable');
+  const resolvedScript = path.resolve(process.cwd(), script.run.script);
+  const baseArgs = Array.isArray(script.run.args) ? script.run.args.filter(Boolean) : [];
+  const extraArgs = Array.isArray(userArgs) ? userArgs.filter(arg => arg != null && arg !== '') : [];
+  const spawnArgs = [resolvedScript, ...baseArgs, ...extraArgs];
+
+  return await new Promise((resolve, reject) => {
+    const child = childProcess.spawn(process.execPath, spawnArgs, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', chunk => { stdout += chunk.toString(); });
+    child.stderr?.on('data', chunk => { stderr += chunk.toString(); });
+    child.on('error', reject);
+    child.on('close', code => resolve({ code, stdout, stderr }));
+  });
+}
+
+function sanitizeFilename(name = '') {
+  const trimmed = String(name || '').trim();
+  const safe = trimmed.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return safe || null;
+}
+
+function resolveInside(root, candidate) {
+  const normalizedCandidate = String(candidate || '').replace(/^\/+/, '');
+  const target = path.resolve(root, normalizedCandidate);
+  const resolvedRoot = path.resolve(root);
+  if (!target.startsWith(resolvedRoot + path.sep) && target !== resolvedRoot) {
+    throw new Error('Forbidden path');
+  }
+  return target;
+}
+
+function listFiles(root, limit = 50) {
+  try {
+    return fs.readdirSync(root)
+      .map(name => {
+        const full = path.join(root, name);
+        let stats;
+        try { stats = fs.statSync(full); } catch { return null; }
+        if (!stats.isFile()) return null;
+        return { name, rel: name, size: stats.size, mtime: stats.mtime };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, limit);
+  } catch {
+    return [];
+  }
+}
 
 /* ===================== Sécurité =====================
 
@@ -76,18 +184,21 @@ router.get('/', async (req, res) => {
     return res.redirect(302, `${pathOnly}/${qs ? `?${qs}` : ''}`);
   }
 
-const mongoState = mongoose.connection?.readyState; // 0=disconnected 1=connected 2=connecting 3=disconnecting
-  const mongoStateLabel = ['disconnected','connected','connecting','disconnecting'][mongoState || 0];
+  const mongoState = mongoose.connection?.readyState; // 0=disconnected 1=connected 2=connecting 3=disconnecting
+  const mongoStateLabel = ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoState || 0];
 
   // PM2 (best-effort)
   let pm2 = null;
   try {
-    const out = childProcess.execSync('pm2 jlist', { encoding:'utf8', stdio:['ignore','pipe','ignore'] });
+    const out = childProcess.execSync('pm2 jlist', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     pm2 = JSON.parse(out).map(p => ({
-      name: p.name, pid: p.pid, status: p.pm2_env?.status,
+      name: p.name,
+      pid: p.pid,
+      status: p.pm2_env?.status,
       uptime: p.pm2_env?.pm_uptime ? new Date(p.pm2_env.pm_uptime).toISOString() : null,
       restarts: p.pm2_env?.restart_time ?? 0,
-      mem: p.monit?.memory ?? 0, cpu: p.monit?.cpu ?? 0
+      mem: p.monit?.memory ?? 0,
+      cpu: p.monit?.cpu ?? 0
     }));
   } catch { /* ignore */ }
 
@@ -98,7 +209,7 @@ const mongoState = mongoose.connection?.readyState; // 0=disconnected 1=connecte
   const seatCounts = Object.fromEntries(byStatus.map(x => [x._id || 'unknown', x.c]));
 
   // Compteurs orders récents
-  const since = new Date(Date.now() - 24*60*60*1000);
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const recentOrders = await Order.aggregate([
     { $match: { createdAt: { $gte: since } } },
     { $group: { _id: '$status', c: { $sum: 1 } } }
@@ -106,70 +217,164 @@ const mongoState = mongoose.connection?.readyState; // 0=disconnected 1=connecte
 
   // Si la page a été ouverte avec ?token=..., on le propage dans les liens
   const token = (req.query.token || '').toString();
-  const tokQS = token ? `?token=${encodeURIComponent(token)}` : '';
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
 
-res.set('Content-Type','text/html; charset=utf-8');
-  res.send(`<!doctype html><meta charset="utf-8">
-  <title>BTS — Admin</title>
-  <style>
-    body{font:14px/1.5 system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:24px;background:#fafafa;color:#222}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
-    .card{background:#fff;border:1px solid #eee;border-radius:12px;padding:16px}
-    h1{font-size:18px;margin:0 0 16px}
-    h2{font-size:16px;margin:0 0 8px}
-    table{border-collapse:collapse;width:100%}
-    th,td{border:1px solid #eee;padding:6px 8px;text-align:left}
-    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#eee}
-    .ok{color:#0b7d2b}.warn{color:#b36b00}.bad{color:#b3001e}
-    a.btn{display:inline-block;margin-top:8px;padding:6px 10px;border:1px solid #ddd;border-radius:8px;text-decoration:none;color:#222;background:#fff}
-    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-  </style>
-  <h1>BTS — Administration</h1>
-  <div class="grid">
-    <div class="card">
-      <h2>Serveur</h2>
-      <div>Host: <span class="mono">${os.hostname()}</span></div>
-      <div>Node: ${process.version}</div>
-      <div>Env: <span class="pill">${process.env.APP_ENV || 'unknown'}</span></div>
-      <div>Base path: <span class="mono">${process.env.BASE_PATH || '/'}</span></div>
-      <div>MongoDB: <strong>${mongoStateLabel}</strong></div>
-    </div>
+  const sortedScriptGroups = adminScriptGroups
+    .slice()
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map(group => ({
+      ...group,
+      scripts: group.scripts
+        .slice()
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    }));
 
-    <div class="card">
-      <h2>PM2</h2>
-      ${pm2 ? `
-      <table>
-        <tr><th>name</th><th>pid</th><th>status</th><th>cpu</th><th>mem</th><th>restarts</th></tr>
-        ${pm2.map(p=>`<tr>
-          <td>${p.name}</td><td>${p.pid||''}</td>
-          <td>${p.status}</td><td>${p.cpu||0}%</td><td>${(p.mem/1048576).toFixed(0)} MB</td><td>${p.restarts}</td>
-        </tr>`).join('')}
-      </table>` : `<div class="warn">PM2 non disponible (jlist)</div>`}
-    </div>
+  const activeGroupId = typeof req.query.group === 'string' && req.query.group
+    ? req.query.group
+    : (sortedScriptGroups[0]?.id || null);
 
-    <div class="card">
-      <h2>Sièges (état global)</h2>
-      <table>
-        <tr><th>status</th><th>count</th></tr>
-        ${Object.entries(seatCounts).map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join('')}
-      </table>
-    </div>
+  const outputsList = listFiles(OUTPUTS_ROOT);
+  const inputsList = listFiles(INPUTS_ROOT);
 
-    <div class="card">
-      <h2>Commandes (24h)</h2>
-      <table>
-        <tr><th>status</th><th>count</th></tr>
-        ${recentOrders.map(x=>`<tr><td>${x._id||'unknown'}</td><td>${x.c}</td></tr>`).join('')}
-      </table>
-    </div>
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    serverInfo: {
+      host: os.hostname(),
+      nodeVersion: process.version,
+      env: process.env.APP_ENV || 'unknown',
+      basePath: process.env.BASE_PATH || '/',
+      mongoState: mongoStateLabel
+    },
+    pm2,
+    seatCounts,
+    recentOrders,
+    scriptGroups: sortedScriptGroups,
+    activeGroupId,
+    outputsList,
+    inputsList
+  });
+});
 
-    <div class="card">
-      <h2>Exports</h2>
-      <div><a class="btn" href="${urlFor('/admin/export/orders.csv')}${tokQS}">Exporter les commandes (CSV)</a></div>
-      <div><a class="btn" href="${urlFor('/admin/export/seats.csv')}${tokQS}">Exporter les sièges (CSV)</a></div>
-      <div><a class="btn" href="${urlFor('/admin/stats/zones')}${tokQS}">Statistiques zones (HTML)</a></div>
-      <div><a class="btn" href="${urlFor('/admin/stats/zones.json')}${tokQS}">Statistiques zones (JSON)</a></div>
-  </div>`);
+/* ===================== Script runner ===================== */
+router.post('/scripts/:scriptId/run', async (req, res) => {
+  const scriptId = (req.params.scriptId || '').toString();
+  const found = getAdminScript(scriptId);
+  if (!found?.script) {
+    return res.status(404).json({ error: 'Unknown script' });
+  }
+
+  if (!found.script.run?.script) {
+    return res.status(400).json({ error: 'Script cannot be run automatically' });
+  }
+
+  const body = req.body || {};
+  const arrayArgs = Array.isArray(body.args) ? body.args.filter(Boolean) : [];
+  const lineArgs = typeof body.argLine === 'string' ? parseArgLine(body.argLine) : [];
+  const extraArgs = [...arrayArgs, ...lineArgs];
+
+  if (found.script.danger) {
+    const confirmToken = typeof body.confirm === 'string' ? body.confirm.trim() : '';
+    if (confirmToken !== found.script.id) {
+      return res.status(400).json({
+        error: 'Confirmation required',
+        confirmToken: found.script.id
+      });
+    }
+  }
+
+  try {
+    const result = await runAdminScript(found.script, extraArgs);
+    return res.json({
+      ok: result.code === 0,
+      exitCode: result.code,
+      stdout: result.stdout,
+      stderr: result.stderr
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || String(err) });
+  }
+});
+
+router.get('/templates/download', (req, res) => {
+  const rawPath = (req.query.path || '').toString();
+  if (!rawPath) return res.status(400).send('Missing template path');
+  try {
+    const relative = rawPath.replace(/^(?:scripts|data)\/templates\/?/, '');
+    const abs = resolveInside(TEMPLATES_ROOT, relative);
+    const filename = path.basename(abs);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      return res.status(404).send('Template not found');
+    }
+    res.attachment(filename);
+    return res.sendFile(abs, { dotfiles: 'allow' }, (err) => {
+      if (err) {
+        console.error('[admin] template download error:', err?.message || err);
+        if (!res.headersSent) res.status(err.statusCode || 500).send('Unable to download template');
+      }
+    });
+  } catch {
+    return res.status(400).send('Invalid template path');
+  }
+});
+
+router.get('/outputs/download', (req, res) => {
+  const raw = (req.query.file || '').toString();
+  if (!raw) return res.status(400).send('Missing file');
+  try {
+    const abs = resolveInside(OUTPUTS_ROOT, raw);
+    return res.download(abs, path.basename(abs));
+  } catch {
+    return res.status(400).send('Invalid output file');
+  }
+});
+
+router.get('/inputs/download', (req, res) => {
+  const raw = (req.query.file || '').toString();
+  if (!raw) return res.status(400).send('Missing file');
+  try {
+    const abs = resolveInside(INPUTS_ROOT, raw);
+    return res.download(abs, path.basename(abs));
+  } catch {
+    return res.status(400).send('Invalid input file');
+  }
+});
+
+router.post('/uploads', (req, res) => {
+  const { filename, contentBase64, subdir } = req.body || {};
+  const safeName = sanitizeFilename(filename || '');
+  if (!safeName) return res.status(400).json({ ok: false, error: 'Invalid target file name' });
+  if (!contentBase64 || typeof contentBase64 !== 'string') {
+    return res.status(400).json({ ok: false, error: 'Missing contentBase64' });
+  }
+  let buffer;
+  try {
+    buffer = Buffer.from(contentBase64, 'base64');
+  } catch {
+    return res.status(400).json({ ok: false, error: 'Invalid base64 payload' });
+  }
+  let destDir = INPUTS_ROOT;
+  if (subdir) {
+    try {
+      const cleaned = String(subdir).replace(/^\/+/, '');
+      destDir = resolveInside(INPUTS_ROOT, cleaned);
+      fs.mkdirSync(destDir, { recursive: true });
+    } catch {
+      return res.status(400).json({ ok: false, error: 'Invalid subdir' });
+    }
+  }
+  const dest = path.join(destDir, safeName);
+  try {
+    fs.writeFileSync(dest, buffer);
+    const relPath = path.relative(INPUTS_ROOT, dest).replace(/\\/g, '/');
+    return res.json({ ok: true, filename: safeName, path: `data/inputs/${relPath}`, size: buffer.length });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || 'Unable to store file' });
+  }
 });
 
 
