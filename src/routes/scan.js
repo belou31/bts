@@ -545,7 +545,35 @@ async function fetchMatches(lookupValues, resolvedEvent) {
   let tariffLookup = new Map();
   if (tariffCodes.size) {
     const codes = Array.from(tariffCodes);
-    const tariffDocs = await Tariff.find({ code: { $in: codes } }).lean();
+    const selectFields = {
+      code: 1,
+      label: 1,
+      requiresField: 1,
+      fieldLabel: 1,
+      requiresInfo: 1,
+      priceTableKey: 1
+    };
+
+    let tariffDocs = [];
+    if (eventDoc?.priceTableKey) {
+      tariffDocs = await Tariff.find(
+        { priceTableKey: eventDoc.priceTableKey, code: { $in: codes } },
+        selectFields
+      ).lean();
+    }
+
+    const missingCodes = new Set(
+      codes.filter((code) => !tariffDocs.some((doc) => normalizeTariffCode(doc?.code) === code))
+    );
+
+    if (missingCodes.size) {
+      const fallbackDocs = await Tariff.find(
+        { priceTableKey: null, code: { $in: Array.from(missingCodes) } },
+        selectFields
+      ).lean();
+      tariffDocs = [...tariffDocs, ...fallbackDocs];
+    }
+
     tariffLookup = buildTariffLookupMap(tariffDocs, eventDoc);
   }
 
