@@ -758,10 +758,83 @@ function buildTicketCard(match) {
   tariffTitle.className = 'section-title';
   tariffTitle.textContent = 'Tarif';
   sectionTariff.append(tariffTitle);
-  const tariffCode = document.createElement('div');
-  tariffCode.className = 'card-item highlight';
-  tariffCode.innerHTML = `<strong>${match.tariffCode || (match.ticketId ? '—' : 'QR')}</strong>`;
-  sectionTariff.append(tariffCode);
+  const tariffDetails = match.tariff || {};
+  const fallbackTariffText = match.ticketId ? '—' : 'QR';
+  const labelRaw = String(match.tariffLabel || tariffDetails.label || '').trim();
+  const codeRaw = String(match.tariffCode || tariffDetails.code || '').trim();
+  const displayLabel = labelRaw || codeRaw || fallbackTariffText;
+  const displayCode = codeRaw;
+  const showCodeSubline = displayCode && displayCode.toLowerCase() !== displayLabel.toLowerCase();
+
+  const tariffMain = document.createElement('div');
+  tariffMain.className = 'card-item highlight';
+  const tariffLabelEl = document.createElement('strong');
+  tariffLabelEl.textContent = displayLabel;
+  tariffMain.append(tariffLabelEl);
+  if (showCodeSubline) {
+    const codeSubline = document.createElement('span');
+    codeSubline.className = 'card-subline';
+    codeSubline.textContent = displayCode;
+    tariffMain.append(codeSubline);
+  }
+  sectionTariff.append(tariffMain);
+
+  const fieldLabelText = String(match.tariffFieldLabel || tariffDetails.fieldLabel || '').trim();
+  const requiresInfoText = String(match.tariffRequiresInfo || tariffDetails.requiresInfo || '').trim();
+  const rawRequiresField = match.tariffRequiresField ?? tariffDetails.requiresField ?? null;
+  let requiresFieldKey = '';
+  let hasRequiresField = false;
+  if (typeof rawRequiresField === 'boolean') {
+    hasRequiresField = rawRequiresField;
+  } else if (rawRequiresField != null) {
+    const rawStr = String(rawRequiresField).trim();
+    if (rawStr) {
+      const lower = rawStr.toLowerCase();
+      if (['false', '0', 'no', 'n'].includes(lower)) {
+        hasRequiresField = false;
+      } else {
+        hasRequiresField = true;
+        if (!['true', '1', 'yes', 'y'].includes(lower)) {
+          requiresFieldKey = rawStr;
+        }
+      }
+    }
+  }
+  const shouldShowFieldBlock = !!(fieldLabelText || requiresFieldKey || hasRequiresField);
+  if (shouldShowFieldBlock) {
+    const fieldItem = document.createElement('div');
+    fieldItem.className = 'card-item';
+    const fieldLabelEl = document.createElement('span');
+    fieldLabelEl.textContent = 'Justificatif requis';
+    fieldItem.append(fieldLabelEl);
+    if (fieldLabelText) {
+      const fieldValueEl = document.createElement('strong');
+      fieldValueEl.textContent = fieldLabelText;
+      fieldItem.append(fieldValueEl);
+    } else if (hasRequiresField) {
+      const fieldValueEl = document.createElement('strong');
+      fieldValueEl.textContent = 'Requis';
+      fieldItem.append(fieldValueEl);
+    }
+    if (requiresFieldKey && (!fieldLabelText || requiresFieldKey.toLowerCase() !== fieldLabelText.toLowerCase())) {
+      const fieldKeySubline = document.createElement('span');
+      fieldKeySubline.className = 'card-subline';
+      fieldKeySubline.textContent = requiresFieldKey;
+      fieldItem.append(fieldKeySubline);
+    }
+    sectionTariff.append(fieldItem);
+  }
+
+  if (requiresInfoText) {
+    const infoItem = document.createElement('div');
+    infoItem.className = 'card-item';
+    const infoLabelEl = document.createElement('span');
+    infoLabelEl.textContent = 'Info';
+    const infoValueEl = document.createElement('strong');
+    infoValueEl.textContent = requiresInfoText;
+    infoItem.append(infoLabelEl, infoValueEl);
+    sectionTariff.append(infoItem);
+  }
   if (Array.isArray(match.conditions) && match.conditions.length) {
     match.conditions.forEach((cond, idx) => {
       const badgeWrap = document.createElement('div');
