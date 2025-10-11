@@ -837,12 +837,12 @@ function buildTicketCard(match) {
 
   const infoItem = document.createElement('div');
   infoItem.className = 'card-item';
-  const infoContent = document.createElement('div');
-  infoContent.className = 'card-item-content';
+  const tariffInfoContent = document.createElement('div');
+  tariffInfoContent.className = 'card-item-content';
   const infoValueEl = document.createElement('strong');
   infoValueEl.textContent = requiresInfoText || '—';
-  infoContent.append(infoValueEl);
-  infoItem.append(infoContent);
+  tariffInfoContent.append(infoValueEl);
+  infoItem.append(tariffInfoContent);
   sectionTariff.append(infoItem);
   if (requiresInfoText) {
     sectionTariff.classList.add('attention');
