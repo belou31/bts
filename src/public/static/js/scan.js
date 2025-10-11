@@ -466,6 +466,14 @@ async function showQueueSize(){
 }
 showQueueSize();
 
+// ----- Scan history storage -----
+const resultsEl = document.getElementById('results');
+const historyOrder = [];
+const historyMap = new Map();
+const HISTORY_LIMIT = 20;
+const ENTRY_LOG_LIMIT = 10;
+const lastPreviewLookup = new Map();
+
 function updateScannedCountDisplay() {
   if (!scannedCountEl) return;
   const count = historyOrder.length;
@@ -479,12 +487,6 @@ updateScannedCountDisplay();
 
 
 // ----- Scan API calls + UI helpers -----
-const resultsEl = document.getElementById('results');
-const historyOrder = [];
-const historyMap = new Map();
-const HISTORY_LIMIT = 20;
-const ENTRY_LOG_LIMIT = 10;
-const lastPreviewLookup = new Map();
 
 const REASON_MESSAGES = {
   unknown: 'Statut inconnu',
