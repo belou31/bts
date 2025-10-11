@@ -44,14 +44,14 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .status-already{background:rgba(249,115,22,0.12);color:#f97316;border-color:rgba(249,115,22,0.3)}
 .status-wrong{background:rgba(239,68,68,0.12);color:#ef4444;border-color:rgba(239,68,68,0.3)}
 .status-accepted{background:rgba(14,116,144,0.15);color:#38bdf8;border-color:rgba(14,116,144,0.3)}
-.ticket-card .card-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.ticket-card .card-body{display:grid;grid-template-columns:repeat(2,minmax(160px,1fr));grid-template-areas:"tariff seat" "info order";gap:14px}
 .ticket-card .section-tariff,.ticket-card .section-seat,.ticket-card .section-info,.ticket-card .section-order{width:100%}
-@media (min-width:820px){
-  .ticket-card .card-body{grid-template-columns:repeat(2,minmax(240px,1fr));grid-template-areas:"tariff seat" "info order"}
-  .ticket-card .section-tariff{grid-area:tariff}
-  .ticket-card .section-seat{grid-area:seat}
-  .ticket-card .section-info{grid-area:info}
-  .ticket-card .section-order{grid-area:order}
+.ticket-card .section-tariff{grid-area:tariff}
+.ticket-card .section-seat{grid-area:seat}
+.ticket-card .section-info{grid-area:info}
+.ticket-card .section-order{grid-area:order}
+@media (min-width:900px){
+  .ticket-card .card-body{grid-template-columns:repeat(2,minmax(240px,1fr))}
 }
 .ticket-card .card-section{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
 .ticket-card .section-tariff.attention{background:#2f1115;border-color:#b91c1c}
@@ -77,7 +77,6 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .ticket-card .card-actions button.action-cancel{background:#374151;border-color:#4b5563}
 .ticket-card .card-actions button[disabled]{opacity:.5;cursor:not-allowed}
 .results-empty{padding:12px;border-radius:12px;background:#111827;border:1px dashed #1f2937;color:#9ca3af;text-align:center}
-@media (max-width:600px){.ticket-card .card-body{grid-template-columns:1fr}}
 
 .ticket-card .card-item .card-subline{color:#9ca3af;font-size:12px}
 
