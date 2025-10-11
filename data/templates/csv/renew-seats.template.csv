@@ -1,0 +1,3 @@
+# group,email,firstName,lastName,seatId,renewUrl
+FAMILY-DOE,jane.doe@example.org,Jane,Doe,A1-001,"https://tickets.example.org/bts/s/renew?id=<token>&seat=A1-001"
+FAMILY-DOE,john.doe@example.org,John,Doe,A1-002,"https://tickets.example.org/bts/s/renew?id=<token>&seat=A1-002"

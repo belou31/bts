@@ -2,7 +2,7 @@
 import mongoose from 'mongoose';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createReadStream } from 'fs';
+import { createReadStream, existsSync } from 'fs';
 import { parse } from 'csv-parse';
 
 export async function connectMongo() {
@@ -30,7 +30,17 @@ function requireFromRoot(p) {
 export async function readCsv(filePath) {
   return new Promise((resolve, reject) => {
     const rows = [];
-    createReadStream(filePath)
+    const absolute = path.resolve(filePath);
+    const inputsDir = path.resolve(process.cwd(), 'data/inputs');
+    let source = absolute;
+    if (!existsSync(source)) {
+      const fallback = path.resolve(inputsDir, filePath);
+      if (existsSync(fallback)) source = fallback;
+    }
+    if (!existsSync(source)) {
+      return reject(new Error(`CSV introuvable: ${filePath}`));
+    }
+    createReadStream(source)
       .pipe(parse({ columns: true, trim: true }))
       .on('data', (r) => rows.push(r))
       .on('end', () => resolve(rows))

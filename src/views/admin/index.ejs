@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>BTS — Administration</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #fafafa;
+      --fg: #222;
+      --muted: #666;
+      --border: #e2e2e2;
+      --accent: #2360c6;
+      --danger: #b3001e;
+      --success: #0b7d2b;
+      --warn: #b36b00;
+      --card-bg: #fff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      margin: 24px;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    h1 { font-size: 20px; margin: 0 0 20px; }
+    h2 { font-size: 16px; margin: 0 0 8px; }
+    h3 { font-size: 15px; margin: 16px 0 8px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 1px 1px rgba(0,0,0,0.04);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      text-align: left;
+    }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #eee;
+      font-size: 12px;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .warn { color: var(--warn); }
+    .danger { color: var(--danger); }
+    .success { color: var(--success); }
+    .btn {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-decoration: none;
+      color: inherit;
+      background: #fff;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #f3f6ff; }
+    .btn-small { padding: 4px 8px; font-size: 12px; margin-left: 6px; margin-top: 0; }
+    .btn-link { border: none; background: transparent; color: var(--accent); padding: 0; margin-left: 8px; cursor: pointer; font-weight: 500; }
+    .btn-link:hover { text-decoration: underline; background: transparent; }
+    .scripts-card {
+      margin-top: 24px;
+    }
+    .script-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .script-tab {
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: transparent;
+      cursor: pointer;
+      font: inherit;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .script-tab.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .script-group {
+      display: none;
+      gap: 16px;
+    }
+    .script-group.active { display: grid; }
+    .script-item {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      background: #fff;
+      box-shadow: 0 1px 1px rgba(0,0,0,0.03);
+    }
+    .script-item.danger {
+      border-color: var(--danger);
+    }
+    .script-item header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+    }
+    .script-item header .title {
+      font-weight: 600;
+      font-size: 15px;
+    }
+    .script-item header .badge {
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: #f3f3f3;
+      border: 1px solid var(--border);
+    }
+    .script-desc { margin: 12px 0; color: var(--muted); }
+    .script-meta { margin-bottom: 12px; font-size: 13px; color: var(--muted); }
+    .script-meta code {
+      display: inline-block;
+      padding: 2px 4px;
+      background: #f5f5f5;
+      border-radius: 6px;
+      border: 1px solid #e1e1e1;
+      font-size: 12px;
+    }
+    form.script-runner {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    form.script-runner input[type="text"],
+    form.script-runner input[type="password"] {
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+    }
+    form.script-runner button {
+      align-self: flex-start;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    form.script-runner button[disabled] {
+      opacity: 0.5;
+      cursor: wait;
+    }
+    .script-output {
+      border-radius: 8px;
+      border: 1px solid #e1e1e1;
+      background: #f7f7f7;
+      padding: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      min-height: 24px;
+    }
+    .file-list{list-style:none;padding:0;margin:0}
+    .file-list li{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+    .file-list code{flex:1}
+    .file-meta{font-size:12px;color:var(--muted)}
+    .inline-form{display:inline-flex;align-items:center;gap:6px;margin-left:6px}
+    .inline-form input[type="text"]{padding:4px 6px;font-size:12px;border-radius:6px;border:1px solid var(--border);width:140px}
+    .inline-form input[type="file"]{display:none}
+    .upload-status{font-size:12px;color:var(--muted);margin-left:6px;min-height:16px}
+    .templates, .notes {
+      margin: 8px 0;
+      padding-left: 16px;
+      color: var(--muted);
+    }
+    .templates li,
+    .notes li {
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>BTS — Administration</h1>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Serveur</h2>
+      <div>Host : <span class="mono"><%= serverInfo.host %></span></div>
+      <div>Node : <%= serverInfo.nodeVersion %></div>
+      <div>Env : <span class="pill"><%= serverInfo.env %></span></div>
+      <div>Base path : <span class="mono"><%= serverInfo.basePath %></span></div>
+      <div>MongoDB : <strong><%= serverInfo.mongoState %></strong></div>
+    </section>
+
+    <section class="card">
+      <h2>PM2</h2>
+      <% if (pm2 && pm2.length) { %>
+        <table>
+          <tr><th>name</th><th>pid</th><th>status</th><th>cpu</th><th>mem</th><th>restarts</th></tr>
+          <% pm2.forEach(p => { %>
+            <tr>
+              <td><%= p.name %></td>
+              <td><%= p.pid || '' %></td>
+              <td><%= p.status || '' %></td>
+              <td><%= p.cpu || 0 %>%</td>
+              <td><%= Math.round((p.mem || 0) / 1048576) %> MB</td>
+              <td><%= p.restarts || 0 %></td>
+            </tr>
+          <% }) %>
+        </table>
+      <% } else { %>
+        <div class="warn">PM2 non disponible (pm2 jlist)</div>
+      <% } %>
+    </section>
+
+    <section class="card">
+      <h2>Sièges (global)</h2>
+      <table>
+        <tr><th>status</th><th>count</th></tr>
+        <% Object.entries(seatCounts || {}).forEach(([status, value]) => { %>
+          <tr><td><%= status %></td><td><%= value %></td></tr>
+        <% }) %>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>Commandes (24h)</h2>
+      <table>
+        <tr><th>status</th><th>count</th></tr>
+        <% (recentOrders || []).forEach(row => { %>
+          <tr><td><%= row._id || 'unknown' %></td><td><%= row.c %></td></tr>
+        <% }) %>
+      </table>
+      <div style="margin-top:12px;">
+        <a class="btn" href="<%= urlFor('/admin/export/orders.csv') %><%= tokenSuffix %>">Exporter commandes (CSV)</a><br/>
+        <a class="btn" href="<%= urlFor('/admin/export/seats.csv') %><%= tokenSuffix %>">Exporter sièges (CSV)</a><br/>
+        <a class="btn" href="<%= urlFor('/admin/stats/zones') %><%= tokenSuffix %>">Statistiques zones (HTML)</a><br/>
+        <a class="btn" href="<%= urlFor('/admin/stats/zones.json') %><%= tokenSuffix %>">Statistiques zones (JSON)</a>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Fichiers générés (data/outputs)</h2>
+      <% if (!outputsList || !outputsList.length) { %>
+        <div class="muted">Aucun export enregistré pour le moment.</div>
+      <% } else { %>
+        <ul class="file-list">
+          <% outputsList.forEach(file => { %>
+            <% const dlUrl = `${urlFor('/admin/outputs/download')}?file=${encodeURIComponent(file.rel)}${token ? `&token=${encodeURIComponent(token)}` : ''}`; %>
+            <li>
+              <code><%= file.name %></code>
+              <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+              <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+              <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+            </li>
+          <% }) %>
+        </ul>
+      <% } %>
+    </section>
+
+    <section class="card">
+      <h2>Entrées disponibles (data/inputs)</h2>
+      <% if (!inputsList || !inputsList.length) { %>
+        <div class="muted">Ajoutez vos CSV/SVG via les formulaires d’upload.</div>
+      <% } else { %>
+        <ul class="file-list">
+          <% inputsList.forEach(file => { %>
+            <% const dlUrl = `${urlFor('/admin/inputs/download')}?file=${encodeURIComponent(file.rel)}${token ? `&token=${encodeURIComponent(token)}` : ''}`; %>
+            <li>
+              <code><%= file.name %></code>
+              <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+              <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+              <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+            </li>
+          <% }) %>
+        </ul>
+      <% } %>
+    </section>
+  </div>
+
+  <section class="card scripts-card">
+    <h2>Scripts opérationnels</h2>
+    <p style="color: var(--muted); margin-bottom: 16px;">
+      Les scripts sont organisés par thématique. Ajoutez des arguments optionnels dans le champ prévu puis exécutez. Les chemins de template sont indiqués pour faciliter la préparation des fichiers.
+    </p>
+    <div class="script-tabs">
+      <% scriptGroups.forEach(group => { %>
+        <button
+          type="button"
+          class="script-tab <%= group.id === activeGroupId ? 'active' : '' %>"
+          data-tab="<%= group.id %>">
+          <%= group.label %>
+        </button>
+      <% }) %>
+    </div>
+
+    <% scriptGroups.forEach(group => { %>
+      <div class="script-group <%= group.id === activeGroupId ? 'active' : '' %>" data-script-group="<%= group.id %>">
+        <% group.scripts.forEach(script => {
+             const runUrl = urlFor(`/admin/scripts/${script.id}/run`) + (tokenSuffix || '');
+        %>
+          <article class="script-item <%= script.danger ? 'danger' : '' %>">
+            <header>
+              <div class="title"><%= script.label %></div>
+              <div class="badge">#<%= script.order != null ? script.order.toString().padStart(2,'0') : '—' %></div>
+            </header>
+            <div class="script-desc"><%= script.description %></div>
+            <div class="script-meta">
+              <div><strong>Commande</strong> : <code><%= script.command %></code></div>
+              <% if (script.templates && script.templates.length) { %>
+                <div>Templates :</div>
+                <ul class="templates">
+                  <% script.templates.forEach(t => {
+                       const relativeTemplate = t.replace(/^(?:scripts|data)\/templates\/?/, '');
+                       const templateFile = relativeTemplate.split('/').pop();
+                       const suggestedName = (templateFile || '').replace(/\.template(?=\.)/, '') || templateFile;
+                       const templateDownloadUrl = `${urlFor('/admin/templates/download')}?path=${encodeURIComponent(t)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+                       const uploadAction = urlFor('/admin/uploads') + (tokenSuffix || '');
+                  %>
+                    <li>
+                      <code><%= t %></code>
+                      <a class="btn btn-small" href="<%= templateDownloadUrl %>">Télécharger</a>
+                      <form class="inline-form" data-upload-form action="<%= uploadAction %>" method="post">
+                        <input type="file" name="file" data-upload-input />
+                        <input type="text" name="targetName" value="<%= suggestedName %>" data-upload-target />
+                        <button type="button" class="btn btn-small" data-upload-trigger>Uploader</button>
+                        <span class="upload-status" data-upload-status></span>
+                      </form>
+                    </li>
+                  <% }) %>
+                </ul>
+                <div class="muted" style="font-size:12px;margin-top:4px;">Les fichiers envoyés sont stockés dans <code>data/inputs</code>.</div>
+              <% } %>
+              <% if (script.notes && script.notes.length) { %>
+                <div>Notes :</div>
+                <ul class="notes">
+                  <% script.notes.forEach(note => { %>
+                    <li><%= note %></li>
+                  <% }) %>
+                </ul>
+              <% } %>
+              <% if (script.danger) { %>
+                <div class="danger">Action dangereuse — confirmation obligatoire (<code><%= script.id %></code>).</div>
+              <% } %>
+            </div>
+
+            <form class="script-runner" data-script-form data-script-id="<%= script.id %>" data-action="<%= runUrl %>">
+              <label>
+                Arguments additionnels
+                <input type="text" name="argLine" placeholder="ex : --season=2025-2026 --venue=patinoire-blagnac" />
+              </label>
+              <% if (script.danger) { %>
+              <label>
+                Confirmation (<code><%= script.id %></code>)
+                <input type="text" name="confirm" placeholder="<%= script.id %>" />
+              </label>
+              <% } %>
+              <button type="submit">Exécuter</button>
+              <div class="script-output" data-output></div>
+            </form>
+          </article>
+        <% }) %>
+      </div>
+    <% }) %>
+  </section>
+
+  <script>
+    (() => {
+      const tabs = document.querySelectorAll('.script-tab');
+      const groups = document.querySelectorAll('.script-group');
+
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const target = tab.dataset.tab;
+          tabs.forEach(t => t.classList.toggle('active', t === tab));
+          groups.forEach(g => g.classList.toggle('active', g.dataset.scriptGroup === target));
+        });
+      });
+
+      document.querySelectorAll('[data-script-form]').forEach(form => {
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const output = form.querySelector('[data-output]');
+          const button = form.querySelector('button[type="submit"]');
+          const argLine = form.querySelector('input[name="argLine"]')?.value || '';
+          const confirm = form.querySelector('input[name="confirm"]')?.value || '';
+          output.textContent = '⏳ Exécution en cours…';
+          button.disabled = true;
+          try {
+            const response = await fetch(form.dataset.action, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ argLine, confirm })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              output.textContent = `✖ ${data.error || response.statusText}`;
+            } else {
+              let text = `✔ exit ${data.exitCode}\n`;
+              if (data.stdout) text += data.stdout.trim() + '\n';
+              if (data.stderr) text += '\n[stderr]\n' + data.stderr.trim();
+              output.textContent = text.trim();
+            }
+          } catch (err) {
+            output.textContent = `✖ ${err && err.message ? err.message : err}`;
+          } finally {
+            button.disabled = false;
+          }
+        });
+      });
+
+      document.querySelectorAll('[data-upload-form]').forEach(form => {
+        form.addEventListener('submit', event => event.preventDefault());
+        const trigger = form.querySelector('[data-upload-trigger]');
+        const fileInput = form.querySelector('[data-upload-input]');
+        const targetInput = form.querySelector('[data-upload-target]');
+        const status = form.querySelector('[data-upload-status]');
+
+        const resetStatus = () => { if (status) status.textContent = ''; };
+
+        trigger?.addEventListener('click', () => {
+          resetStatus();
+          fileInput?.click();
+        });
+
+        fileInput?.addEventListener('change', () => {
+          if (!fileInput.files || !fileInput.files.length) return;
+          const file = fileInput.files[0];
+          const desired = targetInput?.value?.trim() || file.name;
+          if (status) status.textContent = '⏳ Upload en cours…';
+          const reader = new FileReader();
+          reader.onerror = () => {
+            if (status) status.textContent = '✖ Lecture du fichier impossible';
+            fileInput.value = '';
+          };
+          reader.onload = async () => {
+            try {
+              const dataUrl = reader.result;
+              const base64 = typeof dataUrl === 'string' ? dataUrl.split(',').pop() : null;
+              if (!base64) throw new Error('Encodage base64 invalide');
+              const payload = {
+                filename: desired,
+                contentBase64: base64
+              };
+              const response = await fetch(form.action, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              const data = await response.json().catch(() => ({}));
+              if (!response.ok || data.ok === false) {
+                if (status) status.textContent = `✖ ${data.error || response.statusText}`;
+              } else {
+                if (status) status.textContent = `✔ Déposé sous ${data.filename || desired}`;
+              }
+            } catch (err) {
+              if (status) status.textContent = `✖ ${err && err.message ? err.message : err}`;
+            } finally {
+              fileInput.value = '';
+            }
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
