@@ -111,10 +111,15 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .toggle.scan-toggle:not(.on) .toggle-thumb{background:#ef4444}
 .toggle.scan-toggle.on .toggle-option.on,.toggle.scan-toggle:not(.on) .toggle-option.off{color:#f9fafb;opacity:1}
 .controls-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:flex-start}
-.top-controls{margin:12px 0 8px}
+.top-controls{margin:16px 0 12px}
+.sub-controls{margin:0 0 12px}
+.control-block{display:flex;flex-direction:column;gap:8px;min-width:260px}
+.control-label{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af}
+.control-description{font-size:12px;color:#6b7280;max-width:420px}
 .controls-row .left-group{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .controls-row .right-group{display:flex;align-items:center;gap:16px}
 .controls-row .toggle{flex:0 0 auto}
+.pills-group{gap:12px}
 
 .auth-hidden{display:none!important}
 .auth-hidden{display:none!important}

@@ -54,14 +54,9 @@
     </div>
 
     <div class="controls-row top-controls">
-      <div class="left-group">
-        <div class="toggle scan-toggle" id="scanToggle" role="switch" aria-checked="false" tabindex="0">
-          <div class="toggle-track">
-            <span class="toggle-option off" aria-hidden="true">Scan OFF</span>
-            <span class="toggle-option on" aria-hidden="true">Scan ON</span>
-            <span class="toggle-thumb"><span class="toggle-label">Scan OFF</span></span>
-          </div>
-        </div>
+      <div class="control-block">
+        <div class="control-label">Mode de scan</div>
+        <div class="control-description">Basculer entre vérification par ticket ou commande</div>
         <div class="toggle mode-toggle" id="modeToggle" role="switch" aria-checked="true" tabindex="0">
           <div class="toggle-track">
             <span class="toggle-option ticket" aria-hidden="true">Ticket</span>
@@ -69,6 +64,20 @@
             <span class="toggle-thumb"><span class="toggle-label">Commande</span></span>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="controls-row sub-controls">
+      <div class="left-group pills-group">
+        <div class="toggle scan-toggle" id="scanToggle" role="switch" aria-checked="false" tabindex="0">
+          <div class="toggle-track">
+            <span class="toggle-option off" aria-hidden="true">Scan OFF</span>
+            <span class="toggle-option on" aria-hidden="true">Scan ON</span>
+            <span class="toggle-thumb"><span class="toggle-label">Scan OFF</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="right-group pills-group">
         <span class="pill" id="scannedCount">0 billet</span>
         <span class="pill" id="queueSize">0 en attente</span>
       </div>
