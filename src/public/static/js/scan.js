@@ -763,20 +763,12 @@ function buildTicketCard(match) {
   const labelRaw = String(match.tariffLabel || tariffDetails.label || '').trim();
   const codeRaw = String(match.tariffCode || tariffDetails.code || '').trim();
   const displayLabel = labelRaw || codeRaw || fallbackTariffText;
-  const displayCode = codeRaw;
-  const showCodeSubline = displayCode && displayCode.toLowerCase() !== displayLabel.toLowerCase();
 
   const tariffMain = document.createElement('div');
   tariffMain.className = 'card-item highlight';
   const tariffLabelEl = document.createElement('strong');
   tariffLabelEl.textContent = displayLabel;
   tariffMain.append(tariffLabelEl);
-  if (showCodeSubline) {
-    const codeSubline = document.createElement('span');
-    codeSubline.className = 'card-subline';
-    codeSubline.textContent = displayCode;
-    tariffMain.append(codeSubline);
-  }
   sectionTariff.append(tariffMain);
 
   const fieldLabelText = String(match.tariffFieldLabel || tariffDetails.fieldLabel || '').trim();
@@ -790,9 +782,7 @@ function buildTicketCard(match) {
     const rawStr = String(rawRequiresField).trim();
     if (rawStr) {
       const lower = rawStr.toLowerCase();
-      if (['false', '0', 'no', 'n'].includes(lower)) {
-        hasRequiresField = false;
-      } else {
+      if (!['false', '0', 'no', 'n'].includes(lower)) {
         hasRequiresField = true;
         if (!['true', '1', 'yes', 'y'].includes(lower)) {
           requiresFieldKey = rawStr;
@@ -800,23 +790,17 @@ function buildTicketCard(match) {
       }
     }
   }
-  const shouldShowFieldBlock = !!(fieldLabelText || requiresFieldKey || hasRequiresField);
-  if (shouldShowFieldBlock) {
+  if (hasRequiresField) {
     const fieldItem = document.createElement('div');
     fieldItem.className = 'card-item';
+    const titleLabel = fieldLabelText || requiresFieldKey || 'Justificatif requis';
     const fieldLabelEl = document.createElement('span');
-    fieldLabelEl.textContent = 'Justificatif requis';
+    fieldLabelEl.textContent = titleLabel;
     fieldItem.append(fieldLabelEl);
-    if (fieldLabelText) {
-      const fieldValueEl = document.createElement('strong');
-      fieldValueEl.textContent = fieldLabelText;
-      fieldItem.append(fieldValueEl);
-    } else if (hasRequiresField) {
-      const fieldValueEl = document.createElement('strong');
-      fieldValueEl.textContent = 'Requis';
-      fieldItem.append(fieldValueEl);
-    }
-    if (requiresFieldKey && (!fieldLabelText || requiresFieldKey.toLowerCase() !== fieldLabelText.toLowerCase())) {
+    const fieldValueEl = document.createElement('strong');
+    fieldValueEl.textContent = '?';
+    fieldItem.append(fieldValueEl);
+    if (fieldLabelText && requiresFieldKey && fieldLabelText.toLowerCase() !== requiresFieldKey.toLowerCase()) {
       const fieldKeySubline = document.createElement('span');
       fieldKeySubline.className = 'card-subline';
       fieldKeySubline.textContent = requiresFieldKey;
@@ -826,6 +810,7 @@ function buildTicketCard(match) {
   }
 
   if (requiresInfoText) {
+    sectionTariff.classList.add('attention');
     const infoItem = document.createElement('div');
     infoItem.className = 'card-item';
     const infoLabelEl = document.createElement('span');
