@@ -112,9 +112,9 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .toggle.scan-toggle.on .toggle-option.on,.toggle.scan-toggle:not(.on) .toggle-option.off{color:#f9fafb;opacity:1}
 .controls-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .top-controls{justify-content:left;margin:12px 0}
-.mode-inline{display:flex;align-items:center;gap:12px}
+.mode-inline{display:flex;align-items:center;gap:12px;margin-left:auto}
 .mode-label{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af}
-.sub-controls{justify-content:flex-start;margin:0 0 12px}
+.sub-controls{justify-content:flex-start;margin:0 0 12px;width:100%}
 .scan-inline{display:flex;align-items:center;gap:28px}
 .scan-status{display:flex;align-items:center;gap:14px}
 .controls-row .toggle{flex:0 0 auto}
