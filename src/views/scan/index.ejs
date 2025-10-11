@@ -53,12 +53,7 @@
       </div>
     </div>
 
-    <div class="preview-wrapper">
-      <video id="preview" playsinline></video>
-      <canvas id="overlay"></canvas>
-    </div>
-
-    <div class="row controls-row">
+    <div class="controls-row top-controls">
       <div class="left-group">
         <div class="toggle scan-toggle" id="scanToggle" role="switch" aria-checked="false" tabindex="0">
           <div class="toggle-track">
@@ -67,10 +62,6 @@
             <span class="toggle-thumb"><span class="toggle-label">Scan OFF</span></span>
           </div>
         </div>
-        <button id="installBtn" style="display:none">Installer</button>
-        <span class="pill" id="queueSize">0 en attente</span>
-      </div>
-      <div class="right-group">
         <div class="toggle mode-toggle" id="modeToggle" role="switch" aria-checked="true" tabindex="0">
           <div class="toggle-track">
             <span class="toggle-option ticket" aria-hidden="true">Ticket</span>
@@ -78,8 +69,16 @@
             <span class="toggle-thumb"><span class="toggle-label">Commande</span></span>
           </div>
         </div>
+        <span class="pill" id="scannedCount">0 billet</span>
+        <span class="pill" id="queueSize">0 en attente</span>
       </div>
     </div>
+
+    <div class="preview-wrapper" id="previewWrapper">
+      <video id="preview" playsinline></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <button id="installBtn" style="display:none">Installer</button>
 
     <div class="status" id="status">Prêt.</div>
     <section class="results" id="results"></section>
