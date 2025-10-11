@@ -476,9 +476,8 @@ const lastPreviewLookup = new Map();
 
 function updateScannedCountDisplay() {
   if (!scannedCountEl) return;
-  const count = historyOrder.length;
-  const label = count > 1 ? 'billets' : 'billet';
-  scannedCountEl.textContent = `${count} ${label}`;
+  const count = Math.max(0, historyOrder.length);
+  scannedCountEl.textContent = `${count} à contrôler`;
 }
 updateScannedCountDisplay();
 
