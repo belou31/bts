@@ -54,6 +54,8 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
   .ticket-card .section-order{grid-area:order}
 }
 .ticket-card .card-section{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.ticket-card .section-tariff.attention{background:#2f1115;border-color:#b91c1c}
+.ticket-card .section-tariff.attention .section-title{color:#fca5a5}
 .ticket-card .section-title-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .ticket-card .section-title{font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em}
 .ticket-card .section-subtitle{font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em}
