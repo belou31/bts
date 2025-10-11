@@ -114,9 +114,9 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .top-controls{justify-content:flex-end;margin:12px 0}
 .mode-inline{display:flex;align-items:center;gap:12px}
 .mode-label{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af}
-.sub-controls{justify-content:flex-end;margin:0 0 12px}
-.scan-inline{display:flex;align-items:center;gap:20px}
-.scan-status{display:flex;align-items:center;gap:12px}
+.sub-controls{justify-content:flex-start;margin:0 0 12px}
+.scan-inline{display:flex;align-items:center;gap:24px}
+.scan-status{display:flex;align-items:center;gap:12px;margin-left:48px}
 .controls-row .toggle{flex:0 0 auto}
 .pill.stat-control{background:rgba(34,197,94,0.18);color:#22c55e;font-weight:700;font-size:15px;padding:6px 14px;border-color:rgba(34,197,94,0.35)}
 .pill.stat-queue{background:rgba(220,38,38,0.15);color:#f87171;font-weight:600;font-size:13px;padding:4px 12px;border-color:rgba(220,38,38,0.35)}
