@@ -811,11 +811,9 @@ function buildTicketCard(match) {
 
   const infoItem = document.createElement('div');
   infoItem.className = 'card-item';
-  const infoLabelEl = document.createElement('span');
-  infoLabelEl.textContent = 'Info';
   const infoValueEl = document.createElement('strong');
   infoValueEl.textContent = requiresInfoText || '—';
-  infoItem.append(infoLabelEl, infoValueEl);
+  infoItem.append(infoValueEl);
   sectionTariff.append(infoItem);
   if (requiresInfoText) {
     sectionTariff.classList.add('attention');

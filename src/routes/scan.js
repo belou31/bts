@@ -551,24 +551,24 @@ async function fetchMatches(lookupValues, resolvedEvent) {
       requiresField: 1,
       fieldLabel: 1,
       requiresInfo: 1,
-      priceTableKey: 1
+      priceTableKey: 1,
+      active: 1
     };
 
     let tariffDocs = [];
     if (eventDoc?.priceTableKey) {
       tariffDocs = await Tariff.find(
-        { priceTableKey: eventDoc.priceTableKey, code: { $in: codes } },
+        { priceTableKey: eventDoc.priceTableKey, active: true },
         selectFields
       ).lean();
     }
 
-    const missingCodes = new Set(
-      codes.filter((code) => !tariffDocs.some((doc) => normalizeTariffCode(doc?.code) === code))
-    );
+    const presentCodes = new Set(tariffDocs.map((doc) => normalizeTariffCode(doc?.code)));
+    const missingCodes = codes.filter((code) => !presentCodes.has(code));
 
-    if (missingCodes.size) {
+    if (missingCodes.length) {
       const fallbackDocs = await Tariff.find(
-        { priceTableKey: null, code: { $in: Array.from(missingCodes) } },
+        { priceTableKey: null, code: { $in: missingCodes }, active: true },
         selectFields
       ).lean();
       tariffDocs = [...tariffDocs, ...fallbackDocs];
