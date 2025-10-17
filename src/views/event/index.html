@@ -132,8 +132,8 @@
     const q = new URLSearchParams(location.search);
     const ev = q.get('eventId') || q.get('slug') || '';
     window.BTS_VIEW_CONFIG = {
-      title: 'Les Bélougas - Billetterie Match - Préparation Bélougas vs Vipers - samedi 20 septembre',
-      pageTitle: 'Les Bélougas - Billetterie Match',
+      title: '',
+      pageTitle: '',
       api: {
         status:  '../api/event/' + encodeURIComponent(ev) + '/status',
         checkout:'../api/event/' + encodeURIComponent(ev) + '/checkout'

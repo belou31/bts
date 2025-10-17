@@ -194,6 +194,20 @@
     }
   }
 
+  function formatEventTitle(ev) {
+    if (!ev?.name) return null;
+    const dt = ev?.startsAt ? new Date(ev.startsAt) : null;
+    let suffix = '';
+    if (dt && !isNaN(dt.getTime())) {
+      try {
+        suffix = ` — ${dt.toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })}`;
+      } catch {
+        // ignore Intl failures
+      }
+    }
+    return `Billetterie match — ${ev.name}${suffix}`;
+  }
+
   on('afterData', ({ data }) => {
     state.lastData = data || {};
     const seats = Array.isArray(state.lastData?.seats) ? state.lastData.seats : [];
@@ -213,6 +227,13 @@
     renderZoneButtons();
     recomputeRemainingFromCart();
     initIfReady();
+
+    const evtTitle = formatEventTitle(data?.event);
+    if (evtTitle) {
+      const brandTitle = document.querySelector('#pageTitle');
+      if (brandTitle) brandTitle.textContent = evtTitle;
+      document.title = `${evtTitle} — BTS`;
+    }
   });
 
   on('planReady', ({ svgDoc }) => {
