@@ -108,17 +108,35 @@ async function main() {
   const visitorsFilter = { ...base, seatId: { $regex: /^(?:S2)-(?:D|E|F|G)-\d+$/ } };
 
   // --- Règle FANCLUB (TBH7): zones N5,N6,N7, rangées L,M,N ---
-  const fanclubFilter = { ...base, seatId: { $regex: /^(?:N5|N6|N7)-(?:L|M|N)-\d+$/ } };
-  //const fanclubFilter2 = { ...base, seatId: { $regex: /N6-K-\d+$/ } };
+  const fanclubFilter = { ...base, seatId: { $regex: /^(?:N5|N6|N6B)-(?:L|M)-\d+$/ } };
+
+  // --- Règle fanclubFilter2: sièges unitaires
+  const fanclub2List = [
+    'N7-L-084', 'N7-L-085', 'N7-L-086', 'N7-L-087', 'N7-L-088',
+    'N7-M-101', 'N7-M-102', 'N7-M-103', 'N7-M-104', 'N7-M-105',
+    'N7-N-013', 'N7-N-014', 'N7-N-015', 'N7-N-016', 'N7-N-017', 'N7-N-018', 'N7-N-019', 'N7-N-020', 'N7-N-021', 'N7-N-022', 'N7-N-023','N7-N-024'
+  ];
+  const fanclub2Filter = {
+    ...base,
+    $or: fanclub2List.map(id => ({ seatId: { $regex: patternForId(id) } }))
+  };
+
+  // --- Règle tisseoClubeoFilter: sièges unitaires
+  const tisseoClubeoList = [
+    'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-101',
+    'N7-M-106', 'N7-M-107', 'N7-M-108', 'N7-M-109', 'N7-M-110', 'N7-M-111', 'N7-M-112', 'N7-M-113', 'N7-M-114', 'N7-M-115', 'N7-M-116', 'N7-M-117', 'N7-M-118'
+  ];
+  const tisseoClubeoFilter = {
+    ...base,
+    $or: tisseoClubeoList.map(id => ({ seatId: { $regex: patternForId(id) } }))
+  };
+
+
 
   // --- Règle UNAVAILABLE: sièges unitaires
   const unavailableList = [
     // Siège manquant
     'S2-F-013',
-    // Correctif rapide
-    'S5-C-064', 'S5-C-065', 'S5-C-066',
-    'N4B-M-063', 'N4B-M-064', 'N4B-M-065', 'N4B-M-066', 'N4B-M-067', 'N4B-M-068', 'N4B-M-069',
-    'N4-H-033','N4-H-035','N4-H-036','N4-H-037','N4-H-042','N4-H-043','N4-H-044','N4-H-045',
     // Manque de visibilité (12 sièges)
     'S5-E-042', 'S5-E-043', 'S5-E-044', 'S5-E-045',
     'S5-F-048', 'S5-F-049', 'S5-F-050',
@@ -147,7 +165,8 @@ async function main() {
   await applyCategory('SPECIALE (zones S3,S4A)', specialeFilter);
   await applyCategory('VISITORS (S2 rangées F,G)', visitorsFilter);
   await applyCategory('FANCLUB TBH7 (N5/N6/N7 rangées L,M,N)', fanclubFilter);
-  //await applyCategory('FANCLUB TBH7 2 N6 rangée K', fanclubFilter2);
+  await applyCategory('FANCLUB TBH7 2 (sièges en N7)', fanclub2Filter);
+  //await applyCategory('TISSEO CLUBEO (sièges en N7)', tisseoClubeoFilter);
   await applyCategory('UNAVAILABLE (sièges unitaires)', unavailableFilter);
 
   if (!APPLY) {

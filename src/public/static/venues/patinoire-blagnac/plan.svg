@@ -13398,19 +13398,21 @@
    <path
    class=""
    id="zone-tbh7-virage"
-   width="22.367056"
+   width="12"
    height="5.4063792"
-   x="3.7289603"
-   y="18.480145"
-   transform="matrix(0.90569299,-0.40465034,0.41160831,0.89038284,0.17636133,0.4467463)"
-   d="M 7.4263503,18.480145 H 22.464118 a 3.6318984,3.6318984 45 0 1 3.631898,3.631898 v 1.774481 H 3.7289603 v -1.708989 a 3.69739,3.69739 135 0 1 3.69739,-3.69739 z"
+   x="15"
+   y="12"
+   d="M 39.693673,2.3253242 27.437497,7.6545927
+a 4.0745389,3.8984143 0 0 1 5.395249,1.9361425
+l 0.82366,1.7340228 -12.157041,5.286162 -0.79326,-1.670023
+A 4.1480123,3.9687118 0 0 1 22.76621,9.6857769
+Z"
    style="fill:#4ee5fc;fill-opacity:0.8;stroke:none;stroke-width:0.366063;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" />
      
 
    <rect
    class=""
    id="zone-debout"
-   data-zone-key="DEBOUT"
    width="5.6535578"
    height="50.882019"
    x="2.6537106"
@@ -13420,14 +13422,20 @@
   <text
    id="text180-3"
    xml:space="preserve"
-   x="3.8474655"
-   y="22.831276"
-   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:2.66135px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.07544;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
+   x="13.197476"
+   y="20.552984"
+   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:2.4px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.07544;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1"
    transform="rotate(-24)"><tspan
      sodipodi:role="line"
      id="tspan6"
-     x="3.8474655"
-     y="22.831276">		 TBH7 VIRAGE</tspan></text><text
+     x="13.197476"
+     y="20.552984">		 TBH7</tspan><tspan
+     sodipodi:role="line"
+     x="13.197476"
+     y="23.879671"
+     id="tspan1"> VIRAGE</tspan></text>
+          
+     <text
    id="text180-3-5"
    xml:space="preserve"
    x="50.498928"

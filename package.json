@@ -20,7 +20,7 @@
     "5_importCatalogTarifs": "node scripts/02-tariff-management/import-tariffs.js data/tariff_catalog.csv",
     "6_importTariffPrices": "node scripts/02-tariff-management/import-tariff-prices.js season-game data/prices_list.csv --venue=patinoire-blagnac",
     "7_instantiateTariffs": "node scripts/03-season-management/instantiate-tariffs.js 2025-2026 patinoire-blagnac --catalog=season-game --clear",
-    "8_importSubscribers": "node scripts/03-season-management/import-subscribers-flat.js data/subscribers.csv 2025-2026 --venue=patinoire-blagnac",
+    "8_importRenewers": "node scripts/03-season-management/import-renewers-flat.js data/subscribers.csv 2025-2026 --venue=patinoire-blagnac",
     "9_provisionSeatsForRenewal": "node scripts/03-season-management/renewal-provision-seats.js 2025-2026 --venue=patinoire-blagnac",
     "10_exportRenewGroups": "node scripts/03-season-management/export-renew-groups.js 2025-2026 --venue=patinoire-blagnac  --out=renew-groups.csv --base=http://localhost:8080/", 
     "db:sync-indexes": "node scripts/sync-indexes.mjs",

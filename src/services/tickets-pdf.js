@@ -4,6 +4,7 @@ import path from 'path';
 import PDFDocument from 'pdfkit';
 import SVGtoPDF from 'svg-to-pdfkit';
 import { Event } from '../models/Event.js';
+import { Venue } from '../models/Venue.js';
 import { hexToQrSvg } from './qr.js';
 import { Tariff } from '../models/Tariff.js';
 
@@ -28,13 +29,21 @@ async function loadTariffLabelMap(ev) {
 }
 
 // ---------- Helpers ----------
+const TICKET_TIMEZONE = process.env.TICKET_TIMEZONE || process.env.CLUB_TIMEZONE || 'Europe/Paris';
+
 function fmtDateFR(d) {
   try {
     const dt = d instanceof Date ? d : new Date(d);
-    return dt.toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' });
+    return dt.toLocaleString('fr-FR', {
+      dateStyle: 'long',
+      timeStyle: 'short',
+      timeZone: TICKET_TIMEZONE
+    });
   } catch { return ''; }
 }
 function seatOrZone(t) {
+  // Pour les billets fallback on affiche la zone uniquement
+  if (t?.fallback) return String(t?.zoneKey || '').trim();
   // Priorité au siège réel ; fallback sur zone
   return String(t?.seatId || t?.zoneKey || '').trim();
 }
@@ -162,7 +171,15 @@ export async function buildTicketsPdfBuffer(order) {
     const clubName = process.env.CLUB_NAME || 'Les Bélougas';
     const eventName = ev?.name || order?.meta?.eventName || 'Match';
     const eventStartsAt = ev?.startsAt || order?.createdAt;
-    const venueName = ev?.venueName || ev?.venueSlug || order?.venueSlug || '';
+    let venueName = ev?.venueName || '';
+    const venueSlug = ev?.venueSlug || order?.venueSlug || order?.meta?.venueSlug || '';
+    if (!venueName && venueSlug) {
+      try {
+        const venueDoc = await Venue.findOne({ slug: venueSlug }).lean();
+        venueName = venueDoc?.name || '';
+      } catch {/* ignore */}
+    }
+    const resolvedVenueName = venueName || venueSlug || '';
     
     // Dimensions natives du template (ex. 595×842)
     const tplSize = parseSvgBoxSize(rawSvg);
@@ -182,7 +199,7 @@ export async function buildTicketsPdfBuffer(order) {
         CLUB_NAME: clubName,
         EVENT_NAME: eventName,
         EVENT_DATE: fmtDateFR(eventStartsAt),
-        VENUE_NAME: venueName,
+        VENUE_NAME: resolvedVenueName,
         ORDER_ID: String(order?._id || ''),
         SEAT: seatOrZone(t),
         BENEFICIARY: beneficiary,

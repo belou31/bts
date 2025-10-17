@@ -2,7 +2,7 @@
  * Export subscribers to CSV.
  *
  * Usage:
- *   node scripts/04-admin-monitoring/reports/export-subscribers.js [--season=2025-2026] [--venue=patinoire-blagnac] [--activeOnly]
+ *   node scripts/03-season-management/export-subscribers.js [--season=2025-2026] [--venue=patinoire-blagnac] [--activeOnly]
  *
  * Output columns:
  *   email,firstName,lastName,seasonCode,venueSlug,prefSeatId,previousSeasonSeats,isActive,notes
@@ -20,7 +20,7 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { Subscriber } from '../../../src/models/Subscriber.js';
+import { Subscriber } from '../../src/models/Subscriber.js';
 
 const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
 if (!uri) { console.error('MONGO_URI/MONGODB_URI manquant'); process.exit(1); }
