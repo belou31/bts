@@ -37,10 +37,16 @@ if (!EVENT_KEY) {
   process.exit(1);
 }
 
+const TICKET_TIMEZONE = process.env.TICKET_TIMEZONE || process.env.CLUB_TIMEZONE || 'Europe/Paris';
+
 function fmtDateFR(d) {
   try {
     const dt = d instanceof Date ? d : new Date(d);
-    return dt.toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' });
+    return dt.toLocaleString('fr-FR', {
+      dateStyle: 'long',
+      timeStyle: 'short',
+      timeZone: TICKET_TIMEZONE
+    });
   } catch { return ''; }
 }
 
@@ -168,11 +174,12 @@ async function main() {
 
       const seatKnown = realSeatIds.has(origSeatId);
       const status = seatKnown ? (seatStatus.get(origSeatId) || 'available') : 'missing';
+      const seatUsable = seatKnown && ['available', 'booked', 'provisioned'].includes(status);
       const origZone = seatKnown
         ? (seatZone.get(origSeatId) || ln.zoneKey || zoneFromSeatId(origSeatId) || '').toUpperCase()
         : (ln.zoneKey || zoneFromSeatId(origSeatId) || FALLBACK_ZONE).toUpperCase();
 
-      if (status === 'available') {
+      if (seatUsable) {
         // billet normal (siège garanti)
         const tar = String(ln.tariffCode || '').toUpperCase();
         const priceCents = Number(ln.priceCents || 0);
@@ -196,41 +203,26 @@ async function main() {
         const zoneKey = (FALLBACK_ZONE === 'SAME' ? origZone : FALLBACK_ZONE);
         const priceCents = Number(ln.priceCents || 0);
 
-        if (cref) {
-          lines.push({
-            seatId: origSeatId,
-            zoneKey: origZone,
-            tariffCode: 'SUBSCRIPTION',
-            priceCents,
-            holderFirstName: String(ln.holderFirstName || ''),
-            holderLastName:  String(ln.holderLastName  || '')
-          });
-          tickets.push({
-            seatId: origZone,
-            zoneKey: origZone,
-            tariff: 'ABONNÉ (ACCÈS SANS SIÈGE)',
-            hex: hexZone(ev._id, origZone, sub._id, origSeatId),
-            fallback: true,
-            note: `Siège d’origine indisponible (${origSeatId}). Accès garanti, siège attribué par l’organisation.`
-          });
-        } else {
-          lines.push({
-            seatId: origSeatId,
-            zoneKey: origZone,
-            tariffCode: 'SUBSCRIPTION',
-            priceCents,
-            holderFirstName: String(ln.holderFirstName || ''),
-            holderLastName:  String(ln.holderLastName  || '')
-          });
-          tickets.push({
-            seatId: origSeatId,
-            zoneKey: origZone,
-            tariff: 'ABONNÉ (ACCÈS SANS SIÈGE)',
-            hex: hexZone(ev._id, zoneKey, sub._id, origSeatId),
-            fallback: true,
-            note: `Siège d’origine indisponible (${origSeatId}). Accès garanti, siège attribué par l’organisation.`
-          });
-        }
+        const note = seatKnown
+          ? `Siège d’origine indisponible (${origSeatId}). Accès garanti, siège attribué par l’organisation.`
+          : `Siège ${origSeatId} introuvable sur ce match. Accès garanti, siège attribué par l’organisation.`;
+
+        lines.push({
+          seatId: origSeatId,
+          zoneKey,
+          tariffCode: 'SUBSCRIPTION',
+          priceCents,
+          holderFirstName: String(ln.holderFirstName || ''),
+          holderLastName:  String(ln.holderLastName  || '')
+        });
+        tickets.push({
+          seatId: origSeatId,
+          zoneKey,
+          tariff: 'ABONNÉ (ACCÈS SANS SIÈGE)',
+          hex: hexZone(ev._id, zoneKey, sub._id, origSeatId),
+          fallback: true,
+          note
+        });
       }
     }
 
@@ -300,13 +292,14 @@ async function main() {
       for (const [seatId, rec] of uniqueSeats.entries()) {
         const seatKnown = realSeatIds.has(seatId);
         const statusSeat = seatKnown ? (seatStatus.get(seatId) || 'available') : 'missing';
+        const seatUsable = seatKnown && ['available', 'booked', 'provisioned'].includes(statusSeat);
         const origZone = seatKnown
           ? (seatZone.get(seatId) || '').toUpperCase()
           : zoneFromSeatId(seatId) || FALLBACK_ZONE;
         const holderFirstName = rec.firstName || '';
         const holderLastName  = rec.lastName  || '';
 
-        if (statusSeat === 'available') {
+        if (seatUsable) {
           lines.push({
             seatId,
             zoneKey: origZone,
@@ -325,8 +318,12 @@ async function main() {
         } else {
           fallbackCount++;
           const zoneKey = (FALLBACK_ZONE === 'SAME' ? origZone : FALLBACK_ZONE);
+          const note = seatKnown
+            ? `Siège d’origine indisponible (${seatId}). Accès garanti, siège attribué par l’organisation.`
+            : `Siège ${seatId} introuvable sur ce match. Accès garanti, siège attribué par l’organisation.`;
+
           lines.push({
-            seatId: '',
+            seatId,
             zoneKey,
             tariffCode: 'SUBSCRIPTION',
             priceCents: 0,
@@ -334,12 +331,12 @@ async function main() {
             holderLastName
           });
           tickets.push({
-            seatId: '',
+            seatId,
             zoneKey,
             tariff: 'ABONNÉ (ACCÈS SANS SIÈGE)',
             hex: hexZone(ev._id, zoneKey, pseudoOrderId, seatId),
             fallback: true,
-            note: `Siège d’origine indisponible (${seatId}). Accès garanti, siège attribué par l’organisation.`
+            note
           });
         }
       }
