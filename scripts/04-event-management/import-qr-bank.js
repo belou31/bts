@@ -5,7 +5,7 @@ import readline from 'readline';
 import mongoose from 'mongoose';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { Event } from '../../../src/models/Event.js';
+import { Event } from '../../src/models/Event.js';
 
 import dotenv from 'dotenv';
 dotenv.config();

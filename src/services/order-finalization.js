@@ -192,6 +192,18 @@ async function ensureTicketsForEventOrder(order) {
 export async function finalizePaidIfNoConflict(order) {
   const seatIds = realSeatIdsFromOrder(order);
   const isEvent = !!order?.meta?.eventId;   // ⬅️ nouvel indicateur
+  const meta = { ...(order.paymentProviderMeta || {}) };
+  const now = new Date();
+
+  meta.finalizeAttemptCount = Number(meta.finalizeAttemptCount || 0) + 1;
+  meta.lastFinalizeAttemptAt = now;
+
+  if (order.status === 'paid') {
+    meta.lastFinalizeResult = 'already_paid';
+    order.paymentProviderMeta = meta;
+    await order.save();
+    return { ok: true, booked: 0, conflicts: [], alreadyFinalized: true };
+  }
 
   if (!seatIds.length) {
     order.status = 'paid';
@@ -221,10 +233,10 @@ export async function finalizePaidIfNoConflict(order) {
   }
   if (conflicts.length) {
     order.status = 'failed';
-    order.paymentProviderMeta = {
-      ...(order.paymentProviderMeta || {}),
-      conflict: { source: 'finalize', kind: 'seat_conflict', seats: conflicts, checkedAt: new Date() }
-    };
+    meta.lastFinalizeResult = 'conflict';
+    meta.lastFinalizeConflictAt = now;
+    meta.conflict = { source: 'finalize', kind: 'seat_conflict', seats: conflicts, checkedAt: now };
+    order.paymentProviderMeta = meta;
     await order.save();
     return { ok: false, booked: 0, conflicts };
   }
@@ -246,6 +258,11 @@ export async function finalizePaidIfNoConflict(order) {
     // L’état “booked” pour le plan du match sera géré en LECTURE
     // par /api/event/:id/status (overlay à partir des Orders paid).
     order.status = 'paid';
+    meta.lastFinalizeResult = 'success';
+    meta.lastSuccessfulFinalizeAt = now;
+    if (seatIds.length) meta.finalizedSeatIds = seatIds;
+    if (meta.conflict) delete meta.conflict;
+    order.paymentProviderMeta = meta;
     await order.save();
     return { ok: true, booked: seatIds.length, conflicts: [] };
   } else {
@@ -270,14 +287,19 @@ export async function finalizePaidIfNoConflict(order) {
     const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);
     if (modified !== seatIds.length) {
       order.status = 'failed';
-      order.paymentProviderMeta = {
-        ...(order.paymentProviderMeta || {}),
-        conflict: { source: 'finalize', kind: 'seat_conflict_race', modified, expected: seatIds.length, checkedAt: new Date() }
-      };
+      meta.lastFinalizeResult = 'conflict';
+      meta.lastFinalizeConflictAt = now;
+      meta.conflict = { source: 'finalize', kind: 'seat_conflict_race', modified, expected: seatIds.length, checkedAt: now };
+      order.paymentProviderMeta = meta;
       await order.save();
       return { ok: false, booked: modified, conflicts: [{ reason: 'race_condition', modified, expected: seatIds.length }] };
     }
     order.status = 'paid';
+    meta.lastFinalizeResult = 'success';
+    meta.lastSuccessfulFinalizeAt = now;
+    if (seatIds.length) meta.finalizedSeatIds = seatIds;
+    if (meta.conflict) delete meta.conflict;
+    order.paymentProviderMeta = meta;
     await order.save();
     return { ok: true, booked: modified, conflicts: [] };
   }  

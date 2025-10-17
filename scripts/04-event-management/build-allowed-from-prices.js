@@ -2,10 +2,10 @@
 import mongoose from 'mongoose';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { Event } from '../../../src/models/Event.js';
-import { Zone } from '../../../src/models/Zone.js';
-import { Seat } from '../../../src/models/Seat.js';
-import { TariffPrice } from '../../../src/models/TariffPrice.js';
+import { Event } from '../../src/models/Event.js';
+import { Zone } from '../../src/models/Zone.js';
+import { Seat } from '../../src/models/Seat.js';
+import { TariffPrice } from '../../src/models/TariffPrice.js';
 
 import dotenv from 'dotenv';
 dotenv.config();

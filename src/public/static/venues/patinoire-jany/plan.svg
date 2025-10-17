@@ -1,0 +1,19 @@
+<!--
+  Placeholder SVG plan template.
+  Replace the zones/groups with the real venue layout before importing.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
+  <title>Venue Plan Template</title>
+  <g id="Zone-A1" data-zone="A1">
+    <rect x="50" y="100" width="300" height="200" fill="#d9e8ff" stroke="#2360c6" />
+    <text x="200" y="210" font-size="28" text-anchor="middle" fill="#2360c6">A1</text>
+  </g>
+  <g id="Zone-A2" data-zone="A2">
+    <rect x="50" y="350" width="300" height="200" fill="#ffe9d6" stroke="#c66a23" />
+    <text x="200" y="460" font-size="28" text-anchor="middle" fill="#c66a23">A2</text>
+  </g>
+  <g id="Zone-S4" data-zone="S4">
+    <rect x="400" y="200" width="320" height="240" fill="#e2ffd9" stroke="#2d9a1d" />
+    <text x="560" y="320" font-size="28" text-anchor="middle" fill="#2d9a1d">S4</text>
+  </g>
+</svg>
