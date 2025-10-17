@@ -142,6 +142,79 @@ function detectFormat(hdrLC, explicit) {
   return null;
 }
 
+async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
+  console.log(`[import-tariff-prices] Streaming CSV from ${resolvedCsv}`);
+  const rl = readline.createInterface({
+    input: fs.createReadStream(resolvedCsv, 'utf8'),
+    crlfDelay: Infinity
+  });
+  rl.on('error', (err) => {
+    console.error('[import-tariff-prices] CSV stream error:', err?.message || err);
+  });
+
+  const headerInfo = { header: null, headerLC: null, mode: null };
+  const entries = [];
+  let rowCount = 0;
+  let skips = 0;
+
+  for await (const rawLine0 of rl) {
+    const rawLine = rawLine0.replace(/\r$/, '');
+    if (!rawLine.trim()) continue;
+
+    if (!headerInfo.header) {
+      headerInfo.header = parseCSVLine(rawLine, delimiter).map(stripBOM);
+      headerInfo.headerLC = headersLC(headerInfo.header);
+      headerInfo.mode = detectFormat(headerInfo.headerLC, explicitFormat);
+      if (!headerInfo.mode) {
+        throw new Error(`Impossible de détecter le format CSV. En-têtes: ${headerInfo.header.join(' | ')}`);
+      }
+      console.log(`[import-tariff-prices] header columns = ${headerInfo.header.join(', ')}`);
+      console.log(`[import-tariff-prices] format=${headerInfo.mode}`);
+      continue;
+    }
+
+    const cells = parseCSVLine(rawLine, delimiter);
+    rowCount++;
+
+    if (headerInfo.mode === 'list') {
+      const map = Object.fromEntries(headerInfo.headerLC.map((name, idx) => [name, cells[idx]]));
+      const zoneKey = String(map.zonekey || map.zone || '').trim().toUpperCase();
+      const tariffCode = String(map.tariffcode || map.code || '').trim().toUpperCase();
+      const rawPrice = map.pricecents || map.priceeuro || map.prix || map.prix_euro || map.price;
+      const priceCents = parsePriceCell(rawPrice);
+      if (!zoneKey || !tariffCode || !Number.isFinite(priceCents)) {
+        console.warn(`[import-tariff-prices] Ligne ${rowCount}: données incomplètes (zone=${zoneKey}, tarif=${tariffCode}, prix=${rawPrice}) → ignorée`);
+        skips++;
+        continue;
+      }
+      entries.push({ zoneKey, tariffCode, priceCents });
+    } else {
+      const hdr = headerInfo.header;
+      const tariffCode = String(stripBOM(cells[0] || '')).trim().toUpperCase();
+      if (!tariffCode) {
+        console.warn(`[import-tariff-prices] Ligne ${rowCount}: Tarif vide → ignoré`);
+        skips++;
+        continue;
+      }
+      for (let idx = 1; idx < hdr.length; idx++) {
+        const zoneKey = String(stripBOM(hdr[idx] || '')).trim().toUpperCase();
+        if (!zoneKey) continue;
+        const priceCents = parsePriceCell(cells[idx]);
+        if (!Number.isFinite(priceCents)) continue;
+        entries.push({ zoneKey, tariffCode, priceCents });
+      }
+    }
+  }
+
+  return {
+    entries,
+    rowCount,
+    skips,
+    format: headerInfo.mode,
+    header: headerInfo.header
+  };
+}
+
 (async () => {
   const argv = process.argv.slice(2);
   const catalogSlugRaw = argv[0];
@@ -156,6 +229,7 @@ function detectFormat(hdrLC, explicit) {
   const explicitDelim = optionValue(argv, 'delimiter');
   const append = hasFlag(argv, 'append');
   const dryRun = hasFlag(argv, 'dry-run');
+  const serialWrites = hasFlag(argv, 'serial') || hasFlag(argv, 'no-bulk');
 
   const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
   if (!mongoUri) {
@@ -180,72 +254,15 @@ function detectFormat(hdrLC, explicit) {
   const delimiter = detectDelimiter(firstLine, explicitDelim);
   console.log(`[import-tariff-prices] delimiter="${delimiter}"`);
 
-  const rl = readline.createInterface({
-    input: fs.createReadStream(resolvedCsv, 'utf8'),
-    crlfDelay: Infinity
-  });
-
-  const venueSlug = venueOpt ? String(venueOpt).trim() || null : null;
-  if (!append && !dryRun) {
-    const delRes = await TariffPriceCatalog.deleteMany({ catalogSlug, venueSlug });
-    console.log(`[import-tariff-prices] Cleared ${delRes.deletedCount} existing entries for catalog="${catalogSlug}" venue="${venueSlug || '∅'}"`);
+  let parseResult;
+  try {
+    parseResult = await loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat);
+  } catch (err) {
+    console.error('[import-tariff-prices] Erreur lecture CSV:', err?.message || err);
+    await mongoose.disconnect();
+    process.exit(1);
   }
-
-  const headerInfo = { header: null, headerLC: null, mode: null };
-  const entries = [];
-  let rowCount = 0;
-  let skips = 0;
-
-  for await (const rawLine0 of rl) {
-    const rawLine = rawLine0.replace(/\r$/, '');
-    if (!rawLine.trim()) continue;
-
-    if (!headerInfo.header) {
-      headerInfo.header = parseCSVLine(rawLine, delimiter).map(stripBOM);
-      headerInfo.headerLC = headersLC(headerInfo.header);
-      headerInfo.mode = detectFormat(headerInfo.headerLC, explicitFormat);
-      if (!headerInfo.mode) {
-        console.error(`Impossible de détecter le format CSV. En-têtes: ${headerInfo.header.join(' | ')}`);
-        process.exit(1);
-      }
-      console.log(`[import-tariff-prices] format=${headerInfo.mode}`);
-      continue;
-    }
-
-    const cells = parseCSVLine(rawLine, delimiter);
-    rowCount++;
-
-    if (headerInfo.mode === 'list') {
-      const map = Object.fromEntries(headerInfo.headerLC.map((name, idx) => [name, cells[idx]]));
-      const zoneKey = String(map.zonekey || map.zone || '').trim().toUpperCase();
-      const tariffCode = String(map.tariffcode || map.code || '').trim().toUpperCase();
-      const rawPrice = map.pricecents || map.priceeuro || map.prix || map.prix_euro || map.price;
-      const priceCents = parsePriceCell(rawPrice);
-      if (!zoneKey || !tariffCode || !Number.isFinite(priceCents)) {
-        console.warn(`[import-tariff-prices] Ligne ${rowCount}: données incomplètes (zone=${zoneKey}, tarif=${tariffCode}, prix=${rawPrice}) → ignorée`);
-        skips++;
-        continue;
-      }
-      entries.push({ zoneKey, tariffCode, priceCents });
-    } else {
-      const hdr = headerInfo.header;
-      const headerLC = headerInfo.headerLC;
-      const tariffCode = String(stripBOM(cells[0] || '')).trim().toUpperCase();
-      if (!tariffCode) {
-        console.warn(`[import-tariff-prices] Ligne ${rowCount}: Tarif vide → ignoré`);
-        skips++;
-        continue;
-      }
-      for (let idx = 1; idx < hdr.length; idx++) {
-        const zoneKey = String(stripBOM(hdr[idx] || '')).trim().toUpperCase();
-        if (!zoneKey) continue;
-        const priceCents = parsePriceCell(cells[idx]);
-        if (!Number.isFinite(priceCents)) continue;
-        entries.push({ zoneKey, tariffCode, priceCents });
-      }
-    }
-  }
-
+  const { entries, rowCount, skips } = parseResult;
   console.log(`[import-tariff-prices] Parsed rows=${rowCount} entries=${entries.length} skips=${skips}`);
 
   if (!entries.length) {
@@ -256,12 +273,16 @@ function detectFormat(hdrLC, explicit) {
 
   // Tariff consistency check
   const uniqueTariffs = [...new Set(entries.map(e => e.tariffCode))];
+  console.time('[import-tariff-prices] load-known-tariffs');
   const knownTariffs = await Tariff.find({ code: { $in: uniqueTariffs } }).select({ code: 1 }).lean();
+  console.timeEnd('[import-tariff-prices] load-known-tariffs');
   const knownSet = new Set(knownTariffs.map(t => t.code));
   const missingTariffs = uniqueTariffs.filter(code => !knownSet.has(code));
   if (missingTariffs.length) {
     console.warn(`[import-tariff-prices] Attention: ${missingTariffs.length} tarifs absents du catalogue Tariff: ${missingTariffs.join(', ')}`);
   }
+
+  const venueSlug = venueOpt ? String(venueOpt).trim() || null : null;
 
   if (dryRun) {
     console.log('[import-tariff-prices] Dry-run terminé. Aucun write effectué.');
@@ -269,30 +290,68 @@ function detectFormat(hdrLC, explicit) {
     process.exit(0);
   }
 
-  const bulkOps = entries.map(entry => ({
-    updateOne: {
-      filter: {
-        catalogSlug,
-        venueSlug,
-        zoneKey: entry.zoneKey,
-        tariffCode: entry.tariffCode
-      },
-      update: {
-        $set: {
+  if (!append) {
+    console.time('[import-tariff-prices] deleteMany');
+    const delRes = await TariffPriceCatalog.deleteMany({ catalogSlug, venueSlug });
+    console.log(`[import-tariff-prices] Cleared ${delRes.deletedCount} existing entries for catalog="${catalogSlug}" venue="${venueSlug || '∅'}"`);
+    console.timeEnd('[import-tariff-prices] deleteMany');
+  }
+
+  let upserts = 0;
+  if (serialWrites) {
+    console.log(`[import-tariff-prices] Serial write mode (${entries.length} updates)`);
+    console.time('[import-tariff-prices] serial-writes');
+    for (const entry of entries) {
+      const res = await TariffPriceCatalog.updateOne(
+        {
           catalogSlug,
           venueSlug,
           zoneKey: entry.zoneKey,
-          tariffCode: entry.tariffCode,
-          priceCents: entry.priceCents,
-          currency: 'EUR'
-        }
-      },
-      upsert: true
+          tariffCode: entry.tariffCode
+        },
+        {
+          $set: {
+            catalogSlug,
+            venueSlug,
+            zoneKey: entry.zoneKey,
+            tariffCode: entry.tariffCode,
+            priceCents: entry.priceCents,
+            currency: 'EUR'
+          }
+        },
+        { upsert: true }
+      );
+      if ((res.upsertedCount ?? 0) > 0 || (res.modifiedCount ?? 0) > 0) upserts++;
     }
-  }));
+    console.timeEnd('[import-tariff-prices] serial-writes');
+  } else {
+    const bulkOps = entries.map(entry => ({
+      updateOne: {
+        filter: {
+          catalogSlug,
+          venueSlug,
+          zoneKey: entry.zoneKey,
+          tariffCode: entry.tariffCode
+        },
+        update: {
+          $set: {
+            catalogSlug,
+            venueSlug,
+            zoneKey: entry.zoneKey,
+            tariffCode: entry.tariffCode,
+            priceCents: entry.priceCents,
+            currency: 'EUR'
+          }
+        },
+        upsert: true
+      }
+    }));
 
-  const bulkRes = await TariffPriceCatalog.bulkWrite(bulkOps, { ordered: false });
-  const upserts = (bulkRes.upsertedCount || 0) + (bulkRes.modifiedCount || 0);
+    console.time('[import-tariff-prices] bulk-write');
+    const bulkRes = await TariffPriceCatalog.bulkWrite(bulkOps, { ordered: false });
+    console.timeEnd('[import-tariff-prices] bulk-write');
+    upserts = (bulkRes.upsertedCount || 0) + (bulkRes.modifiedCount || 0);
+  }
   console.log(`[import-tariff-prices] Upserts=${upserts} (catalog="${catalogSlug}", venue="${venueSlug || '∅'}")`);
 
   await mongoose.disconnect();

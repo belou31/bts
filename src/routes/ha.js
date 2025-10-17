@@ -319,22 +319,60 @@ try {
 
     // Journalise + persiste les métadonnées HA (haOrderId, lastWebhook*)
     order.paymentProvider = 'helloasso';
-    order.paymentProviderMeta = {
-      ...(order.paymentProviderMeta || {}),
-      name: 'helloasso',
-      haOrderId: haOrderId || order?.paymentProviderMeta?.haOrderId || null,
-      checkoutIntentId: order?.paymentProviderMeta?.checkoutIntentId || checkoutIntentIdFromPayload || null,      
-      lastWebhookAt: new Date(),
-      lastWebhookEvent: eventType,
-      lastWebhookRawState: rawState
+    const meta = { ...(order.paymentProviderMeta || {}) };
+    const now = new Date();
+    meta.name = 'helloasso';
+    meta.haOrderId = haOrderId || meta.haOrderId || null;
+    meta.checkoutIntentId = checkoutIntentIdFromPayload || meta.checkoutIntentId || null;
+    meta.lastWebhookAt = now;
+    meta.lastWebhookEvent = eventType;
+    meta.lastWebhookRawState = rawState;
+    meta.lastWebhookStatus = status || meta.lastWebhookStatus || '';
+    if (intentId) meta.lastWebhookIntentId = intentId;
+    if (statusFromApi) {
+      meta.lastStatusSource = 'api';
+      meta.lastStatusFromApi = statusFromApi;
+      meta.lastStatusCheckedAt = now;
+    } else {
+      meta.lastStatusSource = meta.lastStatusSource || 'webhook';
+    }
+
+    const paymentData = (data?.payment && typeof data.payment === 'object') ? data.payment : {};
+    const paymentSnapshot = {
+      at: now,
+      status,
+      rawState,
+      source: statusFromApi ? 'api+webhook' : 'webhook',
+      intentId: intentId || null,
+      paymentId: String(paymentData?.id || paymentData?.paymentId || data?.id || '') || null,
+      eventId: String(payload?.id || payload?.eventId || '') || null,
+      installmentNumber: Number(paymentData?.installmentNumber ?? paymentData?.rank ?? payload?.metadata?.installmentNumber ?? NaN),
+      totalInstallments: Number(paymentData?.installmentCount ?? paymentData?.termsCount ?? order.paymentSplit ?? order.installments ?? NaN),
+      amountCents: Number(paymentData?.amount ?? paymentData?.amountCents ?? paymentData?.amountWithoutFees ?? data?.amount ?? NaN),
     };
+    if (Number.isNaN(paymentSnapshot.installmentNumber)) delete paymentSnapshot.installmentNumber;
+    if (Number.isNaN(paymentSnapshot.totalInstallments)) delete paymentSnapshot.totalInstallments;
+    if (Number.isNaN(paymentSnapshot.amountCents)) delete paymentSnapshot.amountCents;
+    if (!paymentSnapshot.paymentId) delete paymentSnapshot.paymentId;
+    if (!paymentSnapshot.eventId) delete paymentSnapshot.eventId;
+
+    meta.lastPaymentSnapshot = paymentSnapshot;
+    const history = Array.isArray(meta.paymentHistory) ? meta.paymentHistory.slice(-9) : [];
+    history.push(paymentSnapshot);
+    meta.paymentHistory = history;
+
+    order.paymentProviderMeta = meta;
+    order.markModified('paymentProviderMeta');
+    order.markModified('paymentProviderMeta.paymentHistory');
     await order.save();
     
     if (isPaidLike(status)) {
       const fin = await finalizePaidIfNoConflict(order);
       if (fin.ok) {
-        await sendOrderAttestationIfNeeded(order);
-        return res.status(200).send('ok');
+        if (!fin.alreadyFinalized) {
+          await sendOrderAttestationIfNeeded(order);
+        }
+        return res.status(200).send(fin.alreadyFinalized ? 'ok-already-finalized' : 'ok');
       } else {
         await sendConflictEmail(order);
         // on renvoie 200: le webhook a été traité (même s’il mène à failed)

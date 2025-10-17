@@ -86,6 +86,11 @@
       gap: 8px;
       margin-bottom: 16px;
     }
+    .tab-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
     .script-tab {
       padding: 6px 12px;
       border-radius: 999px;
@@ -221,6 +226,13 @@
       font: inherit;
       color: var(--fg);
     }
+    .field-hint {
+      display: block;
+      margin-top: 4px;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+    }
     .script-form-grid label.checkbox {
       flex-direction: row;
       align-items: center;
@@ -233,310 +245,760 @@
     .script-form-grid label.checkbox span {
       font-weight: 500;
     }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .topbar h1 {
+      margin: 0;
+    }
+    .main-nav {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .main-nav a {
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: inherit;
+      text-decoration: none;
+      font-weight: 600;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .main-nav a.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .operations-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .monitoring-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .monitoring-tabs {
+      margin: 16px 0;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .monitoring-tabs .script-tab {
+      flex: 0 0 auto;
+    }
+    .monitoring-panel {
+      display: none;
+    }
+    .monitoring-panel.active {
+      display: block;
+    }
+    .metrics-list {
+      list-style: none;
+      padding: 0;
+      margin: 8px 0 0;
+    }
+    .metrics-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+    .inline-filter-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+      align-items: flex-end;
+    }
+    .inline-filter-form label {
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .inline-filter-form select {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+    }
+    .inputs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .inputs-header h2 {
+      margin: 0;
+    }
+    .inputs-header form {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .btn-upload {
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: none;
+      background: var(--accent);
+      color: #0b1020;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-upload:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    .scroll-limited {
+      max-height: calc(5 * 48px);
+      overflow-y: auto;
+    }
+    .scroll-table {
+      max-height: 240px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .scroll-table table {
+      margin: 0;
+    }
+    .empty-state {
+      color: var(--muted);
+      font-size: 13px;
+      padding: 8px 0;
+    }
   </style>
 </head>
 <body>
-  <h1>BTS — Administration</h1>
+  <header class="topbar">
+    <h1>BTS — Administration</h1>
+    <nav class="main-nav">
+      <% const tokenQueryString = tokenQuery ? ('?' + tokenQuery) : ''; %>
+      <a href="<%= urlFor('/admin/operate') %><%= tokenQueryString %>" class="<%= viewMode === 'operate' ? 'active' : '' %>">Exploitation</a>
+      <a href="<%= urlFor('/admin/monitor') %><%= tokenQueryString %>" class="<%= viewMode === 'monitor' ? 'active' : '' %>">Monitoring</a>
+    </nav>
+  </header>
 
-  <div class="grid">
-    <section class="card">
-      <h2>Serveur</h2>
-      <div>Host : <span class="mono"><%= serverInfo.host %></span></div>
-      <div>Node : <%= serverInfo.nodeVersion %></div>
-      <div>Env : <span class="pill"><%= serverInfo.env %></span></div>
-      <div>Base path : <span class="mono"><%= serverInfo.basePath %></span></div>
-      <div>MongoDB : <strong><%= serverInfo.mongoState %></strong></div>
-    </section>
+  <% if (viewMode === 'operate') { %>
+    <div class="operations-grid">
+      <section class="card">
+        <div class="inputs-header">
+          <h2>Entrées disponibles (data/inputs)</h2>
+          <% const uploadAction = urlFor('/admin/uploads') + (tokenSuffix || ''); %>
+          <form class="inline-form" data-upload-form data-upload-dir="" action="<%= uploadAction %>" method="post">
+            <input type="file" name="file" data-upload-input hidden />
+            <input type="hidden" name="targetName" data-upload-target />
+            <button type="button" class="btn-upload" data-upload-trigger>Uploader</button>
+            <span class="upload-status" data-upload-status></span>
+          </form>
+        </div>
+        <% if (!inputsList || !inputsList.length) { %>
+          <div class="muted">Ajoutez vos CSV/SVG grâce au bouton ci-dessus.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of inputsList || []) {
+                 const dlUrl = urlFor('/admin/inputs/download') + '?file=' + encodeURIComponent(file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.name %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
 
-    <section class="card">
-      <h2>PM2</h2>
-      <% if (pm2 && pm2.length) { %>
-        <table>
-          <tr><th>name</th><th>pid</th><th>status</th><th>cpu</th><th>mem</th><th>restarts</th></tr>
-          <% pm2.forEach(p => { %>
-            <tr>
-              <td><%= p.name %></td>
-              <td><%= p.pid || '' %></td>
-              <td><%= p.status || '' %></td>
-              <td><%= p.cpu || 0 %>%</td>
-              <td><%= Math.round((p.mem || 0) / 1048576) %> MB</td>
-              <td><%= p.restarts || 0 %></td>
-            </tr>
-          <% }) %>
-        </table>
-      <% } else { %>
-        <div class="warn">PM2 non disponible (pm2 jlist)</div>
-      <% } %>
-    </section>
-
-    <section class="card">
-      <h2>Sièges (global)</h2>
-      <table>
-        <tr><th>status</th><th>count</th></tr>
-        <% Object.entries(seatCounts || {}).forEach(([status, value]) => { %>
-          <tr><td><%= status %></td><td><%= value %></td></tr>
-        <% }) %>
-      </table>
-    </section>
-
-    <section class="card">
-      <h2>Commandes (24h)</h2>
-      <table>
-        <tr><th>status</th><th>count</th></tr>
-        <% (recentOrders || []).forEach(row => { %>
-          <tr><td><%= row._id || 'unknown' %></td><td><%= row.c %></td></tr>
-        <% }) %>
-      </table>
-      <div style="margin-top:12px;">
-        <a class="btn" href="<%= urlFor('/admin/export/orders.csv') %><%= tokenSuffix %>">Exporter commandes (CSV)</a><br/>
-        <a class="btn" href="<%= urlFor('/admin/export/seats.csv') %><%= tokenSuffix %>">Exporter sièges (CSV)</a><br/>
-        <a class="btn" href="<%= urlFor('/admin/stats/zones') %><%= tokenSuffix %>">Statistiques zones (HTML)</a><br/>
-        <a class="btn" href="<%= urlFor('/admin/stats/zones.json') %><%= tokenSuffix %>">Statistiques zones (JSON)</a>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>Fichiers générés (data/outputs)</h2>
-      <% if (!outputsList || !outputsList.length) { %>
-        <div class="muted">Aucun export enregistré pour le moment.</div>
-      <% } else { %>
-        <ul class="file-list">
-          <% outputsList.forEach(file => { %>
-            <% const dlUrl = `${urlFor('/admin/outputs/download')}?file=${encodeURIComponent(file.rel)}${token ? `&token=${encodeURIComponent(token)}` : ''}`; %>
-            <li>
-              <code><%= file.name %></code>
-              <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
-              <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
-              <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
-            </li>
-          <% }) %>
-        </ul>
-      <% } %>
-    </section>
-
-    <section class="card">
-      <h2>Entrées disponibles (data/inputs)</h2>
-      <% if (!inputsList || !inputsList.length) { %>
-        <div class="muted">Ajoutez vos CSV/SVG via les formulaires d’upload.</div>
-      <% } else { %>
-        <ul class="file-list">
-          <% inputsList.forEach(file => { %>
-            <% const dlUrl = `${urlFor('/admin/inputs/download')}?file=${encodeURIComponent(file.rel)}${token ? `&token=${encodeURIComponent(token)}` : ''}`; %>
-            <li>
-              <code><%= file.name %></code>
-              <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
-              <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
-              <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
-            </li>
-          <% }) %>
-        </ul>
-      <% } %>
-    </section>
-  </div>
-
-  <section class="card scripts-card">
-    <h2>Scripts opérationnels</h2>
-    <p style="color: var(--muted); margin-bottom: 16px;">
-      Les scripts sont organisés par thématique. Ajoutez des arguments optionnels dans le champ prévu puis exécutez. Les chemins de template sont indiqués pour faciliter la préparation des fichiers.
-    </p>
-    <div class="script-tabs">
-      <% scriptGroups.forEach(group => { %>
-        <button
-          type="button"
-          class="script-tab <%= group.id === activeGroupId ? 'active' : '' %>"
-          data-tab="<%= group.id %>">
-          <%= group.label %>
-        </button>
-      <% }) %>
+      <section class="card">
+        <h2>Fichiers générés (data/outputs)</h2>
+        <% if (!outputsList || !outputsList.length) { %>
+          <div class="muted">Aucun export enregistré pour le moment.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of outputsList || []) {
+                 const dlUrl = urlFor('/admin/outputs/download') + '?file=' + encodeURIComponent(file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.name %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
     </div>
 
-    <% scriptGroups.forEach(group => { %>
-      <div class="script-group <%= group.id === activeGroupId ? 'active' : '' %>" data-script-group="<%= group.id %>">
-        <% group.scripts.forEach(script => {
-             const runUrl = urlFor(`/admin/scripts/${script.id}/run`) + (tokenSuffix || '');
-        %>
-          <article class="script-item <%= script.danger ? 'danger' : '' %>">
-            <header>
-              <div class="title"><%= script.label %></div>
-              <div class="badge">#<%= script.order != null ? script.order.toString().padStart(2,'0') : '—' %></div>
-            </header>
-            <div class="script-desc"><%= script.description %></div>
-            <div class="script-meta">
-              <div><strong>Commande</strong> : <code><%= script.command %></code></div>
-              <% if (script.templates && script.templates.length) { %>
-                <div>Templates :</div>
-                <ul class="templates">
-                  <% script.templates.forEach(t => {
-                       const relativeTemplate = t.replace(/^(?:scripts|data)\/templates\/?/, '');
-                       const pathSegments = relativeTemplate.split('/');
-                       const templateFile = pathSegments.pop();
-                       const templateDir = pathSegments.join('/');
-                       const suggestedName = (templateFile || '').replace(/\.template(?=\.)/, '') || templateFile;
-                       const templateDownloadUrl = `${urlFor('/admin/templates/download')}?path=${encodeURIComponent(t)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
-                       const uploadAction = urlFor('/admin/uploads') + (tokenSuffix || '');
-                  %>
-                    <li>
-                      <code><%= t %></code>
-                      <a class="btn btn-small" href="<%= templateDownloadUrl %>">Télécharger</a>
-                      <form class="inline-form" data-upload-form data-upload-dir="<%= templateDir %>" action="<%= uploadAction %>" method="post">
-                        <input type="file" name="file" data-upload-input />
-                        <input type="text" name="targetName" value="<%= suggestedName %>" data-upload-target />
-                        <button type="button" class="btn btn-small" data-upload-trigger>Uploader</button>
-                        <span class="upload-status" data-upload-status></span>
-                      </form>
-                    </li>
-                  <% }) %>
-                </ul>
-                <div class="muted" style="font-size:12px;margin-top:4px;">Les fichiers envoyés sont stockés dans <code>data/inputs</code>.</div>
-              <% } %>
-              <% if (script.notes && script.notes.length) { %>
-                <div>Notes :</div>
-                <ul class="notes">
-                  <% script.notes.forEach(note => { %>
-                    <li><%= note %></li>
-                  <% }) %>
-                </ul>
-              <% } %>
-              <% if (script.danger) { %>
-                <div class="danger">Action dangereuse — confirmation obligatoire (<code><%= script.id %></code>).</div>
-              <% } %>
-            </div>
-
-            <form class="script-runner" data-script-form data-script-id="<%= script.id %>" data-action="<%= runUrl %>">
-              <% if (script.id === 'register-venue') { %>
-                <div class="script-form-grid">
-                  <label>
-                    <span>Slug du lieu</span>
-                    <input type="text" data-role="register-venue:slug" placeholder="patinoire-blagnac" />
-                  </label>
-                  <label>
-                    <span>Nom du lieu</span>
-                    <input type="text" data-role="register-venue:name" placeholder="Patinoire de Blagnac" />
-                  </label>
-                  <label>
-                    <span>Plan SVG (optionnel)</span>
-                    <input type="text" data-role="register-venue:plan" placeholder="data/inputs/plan.svg" />
-                  </label>
-                  <label class="checkbox">
-                    <input type="checkbox" data-role="register-venue:overwrite" />
-                    <span>Remplacer le plan existant (--overwrite)</span>
-                  </label>
-                </div>
-              <% } %>
-
-              <% if (script.id === 'import-seats') { %>
-                <div class="script-form-grid">
-                  <label>
-                    <span>Slug du lieu</span>
-                    <input type="text" data-role="import-seats:venue" placeholder="patinoire-blagnac" />
-                  </label>
-                  <label>
-                    <span>CSV overrides (optionnel)</span>
-                    <input type="text" data-role="import-seats:csv" placeholder="data/inputs/seats.csv" />
-                  </label>
-                  <label>
-                    <span>Attribut siège (optionnel)</span>
-                    <input type="text" data-role="import-seats:attr" placeholder="data-seat-id" />
-                  </label>
-                  <label>
-                    <span>Plan SVG (override optionnel)</span>
-                    <input type="text" data-role="import-seats:plan" placeholder="data/inputs/plan.svg" />
-                  </label>
-                </div>
-              <% } %>
-
-              <% if (script.id === 'import-zones') { %>
-                <div class="script-form-grid">
-                  <label>
-                    <span>Slug du lieu</span>
-                    <input type="text" data-role="import-zones:venue" placeholder="patinoire-blagnac" />
-                  </label>
-                  <label>
-                    <span>CSV zones (optionnel)</span>
-                    <input type="text" data-role="import-zones:csv" placeholder="data/inputs/zones.csv" />
-                  </label>
-                  <label>
-                    <span>Plan SVG (override optionnel)</span>
-                    <input type="text" data-role="import-zones:plan" placeholder="data/inputs/plan.svg" />
-                  </label>
-                  <label>
-                    <span>Attribut zone (optionnel)</span>
-                    <input type="text" data-role="import-zones:attr" placeholder="data-zone-id" />
-                  </label>
-                </div>
-              <% } %>
-
-              <% if (script.id === 'import-tariff-prices') { %>
-                <div class="script-form-grid">
-                  <label>
-                    <span>Catalog slug</span>
-                    <input type="text" data-role="import-tariff-prices:catalog" placeholder="season-game" />
-                  </label>
-                  <label>
-                    <span>CSV tarifs</span>
-                    <input type="text" data-role="import-tariff-prices:csv" placeholder="data/inputs/tariff-prices.csv" />
-                  </label>
-                  <label>
-                    <span>Lieu (optionnel)</span>
-                    <input type="text" data-role="import-tariff-prices:venue" placeholder="patinoire-blagnac" />
-                  </label>
-                  <label class="checkbox">
-                    <input type="checkbox" data-role="import-tariff-prices:append" />
-                    <span>Conserver les entrées existantes (--append)</span>
-                  </label>
-                  <label class="checkbox">
-                    <input type="checkbox" data-role="import-tariff-prices:dry-run" />
-                    <span>Dry-run (--dry-run)</span>
-                  </label>
-                </div>
-              <% } %>
-
-              <% if (script.id === 'instantiate-tariffs') { %>
-                <div class="script-form-grid">
-                  <label>
-                    <span>Code saison</span>
-                    <input type="text" data-role="instantiate-tariffs:season" placeholder="2025-2026" />
-                  </label>
-                  <label>
-                    <span>Slug du lieu</span>
-                    <input type="text" data-role="instantiate-tariffs:venue" placeholder="patinoire-blagnac" />
-                  </label>
-                  <label>
-                    <span>Catalogues (slug[,slug2])</span>
-                    <input type="text" data-role="instantiate-tariffs:catalog" placeholder="season-game" />
-                  </label>
-                  <label class="checkbox">
-                    <input type="checkbox" data-role="instantiate-tariffs:clear" />
-                    <span>Effacer les tarifs existants (--clear)</span>
-                  </label>
-                  <label class="checkbox">
-                    <input type="checkbox" data-role="instantiate-tariffs:dry-run" />
-                    <span>Dry-run (--dry-run)</span>
-                  </label>
-                </div>
-              <% } %>
-
-              <label>
-                Arguments additionnels
-                <input type="text" name="argLine" placeholder="ex : --season=2025-2026 --venue=patinoire-blagnac" />
-              </label>
-              <% if (script.danger) { %>
-              <label>
-                Confirmation (<code><%= script.id %></code>)
-                <input type="text" name="confirm" placeholder="<%= script.id %>" />
-              </label>
-              <% } %>
-              <button type="submit">Exécuter</button>
-              <div class="script-output" data-output></div>
-            </form>
-          </article>
-        <% }) %>
+    <section class="card scripts-card">
+      <h2>Scripts opérationnels</h2>
+      <p style="color: var(--muted); margin-bottom: 16px;">
+        Les scripts sont organisés par thématique. Ajoutez des arguments optionnels dans le champ prévu puis exécutez. Les chemins de template sont indiqués pour faciliter la préparation des fichiers.
+      </p>
+      <div class="script-tabs">
+        <% const renewalGroup = (scriptGroups || []).find(g => g.id === '03-season-management-renewal'); %>
+        <% (scriptGroups || []).forEach(group => {
+             if (group.id === '03-season-management-renewal') return;
+             if (group.id === '03-season-management' && renewalGroup) { %>
+          <div class="tab-stack">
+            <button
+              type="button"
+              class="script-tab <%= group.id === activeGroupId ? 'active' : '' %>"
+              data-tab="<%= group.id %>">
+              <%= group.label %>
+            </button>
+            <button
+              type="button"
+              class="script-tab <%= renewalGroup.id === activeGroupId ? 'active' : '' %>"
+              data-tab="<%= renewalGroup.id %>">
+              <%= renewalGroup.label %>
+            </button>
+          </div>
+        <%   } else { %>
+          <button
+            type="button"
+            class="script-tab <%= group.id === activeGroupId ? 'active' : '' %>"
+            data-tab="<%= group.id %>">
+            <%= group.label %>
+          </button>
+        <%   }
+           }); %>
       </div>
-    <% }) %>
-  </section>
+
+      <% for (const group of scriptGroups || []) { %>
+        <div class="script-group <%= group.id === activeGroupId ? 'active' : '' %>" data-script-group="<%= group.id %>">
+          <% for (const script of group.scripts || []) {
+               const runUrl = urlFor('/admin/scripts/' + script.id + '/run') + (tokenSuffix || '');
+          %>
+            <article class="script-item <%= script.danger ? 'danger' : '' %>">
+              <header>
+                <div class="title"><%= script.label %></div>
+                <div class="badge">#<%= script.order != null ? script.order.toString().padStart(2,'0') : '—' %></div>
+              </header>
+              <div class="script-desc"><%= script.description %></div>
+              <div class="script-meta">
+                <div><strong>Commande</strong> : <code><%= script.command %></code></div>
+                <% if (script.templates && script.templates.length) { %>
+                  <div>Templates :</div>
+                  <ul class="templates">
+                    <% for (const t of script.templates) {
+                         const templateDownloadUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent(t) + (token ? '&token=' + encodeURIComponent(token) : '');
+                    %>
+                      <li>
+                        <code><%= t %></code>
+                        <a class="btn btn-small" href="<%= templateDownloadUrl %>">Télécharger</a>
+                      </li>
+                    <% } %>
+                  </ul>
+                <% } %>
+                <% if (script.notes && script.notes.length) { %>
+                  <div>Notes :</div>
+                  <ul class="notes">
+                    <% for (const note of script.notes) { %>
+                      <li><%= note %></li>
+                    <% } %>
+                  </ul>
+                <% } %>
+                <% if (script.danger) { %>
+                  <div class="danger">Action dangereuse — confirmation obligatoire (<code><%= script.id %></code>).</div>
+                <% } %>
+              </div>
+
+              <form class="script-runner" data-script-form data-script-id="<%= script.id %>" data-action="<%= runUrl %>">
+                <% if (script.form && script.form.fields && script.form.fields.length) { %>
+                  <div class="script-form-grid">
+                    <% for (const field of script.form.fields) { 
+                         const inputRole = script.id + ':' + field.name;
+                         const fieldType = field.type || 'text';
+                    %>
+                      <% if (fieldType === 'checkbox') { %>
+                        <label class="checkbox">
+                          <input type="checkbox" data-role="<%= inputRole %>" />
+                          <span>
+                            <%= field.label %>
+                            <% if (field.hint) { %><small class="field-hint"><%= field.hint %></small><% } %>
+                          </span>
+                        </label>
+                      <% } else { %>
+                        <label>
+                          <span><%= field.label %></span>
+                          <input type="text" data-role="<%= inputRole %>" placeholder="<%= field.placeholder || '' %>" />
+                          <% if (field.hint) { %><small class="field-hint"><%= field.hint %></small><% } %>
+                        </label>
+                      <% } %>
+                    <% } %>
+                  </div>
+                <% } %>
+
+                <label>
+                  Arguments additionnels
+                  <input type="text" name="argLine" placeholder="ex : --apply --dry-run --extra=value" />
+                </label>
+                <% if (script.danger) { %>
+                <label>
+                  Confirmation (<code><%= script.id %></code>)
+                  <input type="text" name="confirm" placeholder="<%= script.id %>" />
+                </label>
+                <% } %>
+                <button type="submit">Exécuter</button>
+                <div class="script-output" data-output></div>
+              </form>
+            </article>
+          <% } %>
+        </div>
+      <% } %>
+    </section>
+  <% } %>
+
+  <% if (viewMode === 'monitor' && monitoring) { %>
+    <div class="monitoring-grid">
+      <section class="card">
+        <h2>Application</h2>
+        <div>Host : <span class="mono"><%= monitoring.summary.serverInfo.host %></span></div>
+        <div>Node : <%= monitoring.summary.serverInfo.nodeVersion %></div>
+        <div>Env : <span class="pill"><%= monitoring.summary.serverInfo.env %></span></div>
+        <div>Base path : <span class="mono"><%= monitoring.summary.serverInfo.basePath %></span></div>
+      </section>
+
+      <section class="card">
+        <h2>MongoDB</h2>
+        <div>État : <strong><%= monitoring.summary.mongoState %></strong></div>
+        <div class="muted" style="margin-top:8px;">Statut en temps réel de la connexion.</div>
+      </section>
+
+      <section class="card">
+        <h2>Sièges (global)</h2>
+        <% if (monitoring.summary.seatCounts && Object.keys(monitoring.summary.seatCounts).length) { %>
+          <ul class="metrics-list">
+            <% for (const [status, value] of Object.entries(monitoring.summary.seatCounts)) { %>
+              <li><span><%= status %></span><span><%= value %></span></li>
+            <% } %>
+          </ul>
+        <% } else { %>
+          <div class="empty-state">Aucune donnée siège disponible.</div>
+        <% } %>
+      </section>
+
+      <section class="card">
+        <h2>Commandes (24h)</h2>
+        <% if (monitoring.summary.recentOrders && monitoring.summary.recentOrders.length) { %>
+          <ul class="metrics-list">
+            <% for (const row of monitoring.summary.recentOrders) { %>
+              <li><span><%= row._id || 'unknown' %></span><span><%= row.c %></span></li>
+            <% } %>
+          </ul>
+        <% } else { %>
+          <div class="empty-state">Aucune commande enregistrée sur les 24 dernières heures.</div>
+        <% } %>
+        <div style="margin-top:12px;">
+          <a class="btn btn-small" href="<%= urlFor('/admin/export/orders.csv') %><%= tokenSuffix %>">Exporter commandes</a>
+          <a class="btn btn-small" href="<%= urlFor('/admin/export/seats.csv') %><%= tokenSuffix %>" style="margin-left:8px;">Exporter sièges</a>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>PM2</h2>
+        <% if (monitoring.summary.pm2 && monitoring.summary.pm2.length) { %>
+          <div class="scroll-table">
+            <table>
+              <tr><th>Process</th><th>Status</th><th>CPU</th><th>RAM</th><th>Restarts</th></tr>
+              <% for (const p of monitoring.summary.pm2.slice(0, 8)) { %>
+                <tr>
+                  <td><%= p.name %></td>
+                  <td><%= p.status || '' %></td>
+                  <td><%= p.cpu || 0 %>%</td>
+                  <td><%= Math.round((p.mem || 0) / 1048576) %> MB</td>
+                  <td><%= p.restarts || 0 %></td>
+                </tr>
+              <% } %>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state">PM2 non disponible.</div>
+        <% } %>
+      </section>
+
+    </div>
+    <div class="script-tabs monitoring-tabs">
+      <button type="button" class="script-tab <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-button="tariffs">Tarifs</button>
+      <button type="button" class="script-tab <%= monitorTab === 'subscription' ? 'active' : '' %>" data-monitor-button="subscription">Abonnements</button>
+      <button type="button" class="script-tab <%= monitorTab === 'event' ? 'active' : '' %>" data-monitor-button="event">Événements</button>
+    </div>
+
+    <div class="monitoring-panel <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-panel="tariffs">
+      <h3>Résumé des tables de tarifs</h3>
+      <% if (monitoring.lists.tariffSummary && monitoring.lists.tariffSummary.length) { %>
+        <div class="scroll-table" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Table</th><th>Tarifs</th><th>Actifs</th><th>Entrées de prix</th></tr>
+            <% for (const row of monitoring.lists.tariffSummary) { %>
+              <tr>
+                <td><%= row.priceTableKey === 'global' ? 'Global (abonnements)' : row.priceTableKey %></td>
+                <td><%= row.total %></td>
+                <td><%= row.active %></td>
+                <td><%= row.priceEntries %></td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucune table tarifaire configurée.</div>
+      <% } %>
+
+      <h3>Tarifs (extraits)</h3>
+      <% if (monitoring.lists.tariffs && monitoring.lists.tariffs.length) { %>
+        <div class="scroll-table">
+          <table>
+            <tr><th>Code</th><th>Libellé</th><th>Actif</th><th>Table</th></tr>
+            <% for (const t of monitoring.lists.tariffs) { %>
+              <tr>
+                <td><code><%= t.code %></code></td>
+                <td><%= t.label %></td>
+                <td><%= t.active ? 'Oui' : 'Non' %></td>
+                <td><%= t.priceTableKey || 'Global' %></td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun tarif disponible.</div>
+      <% } %>
+    </div>
+
+    <div class="monitoring-panel <%= monitorTab === 'subscription' ? 'active' : '' %>" data-monitor-panel="subscription">
+      <h3>Abonnement</h3>
+      <% if (monitoring.subscription.selectedSeasonCode) { %>
+        <form method="get" class="inline-filter-form">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <input type="hidden" name="view" value="monitoring">
+          <input type="hidden" name="monitorTab" value="subscription">
+          <% if (monitoring.event.selectedEventSlug) { %><input type="hidden" name="event" value="<%= monitoring.event.selectedEventSlug %>"><% } %>
+          <label>
+            Saison
+            <select name="season" data-auto-submit="change">
+              <% for (const s of monitoring.lists.seasons) { %>
+                <option value="<%= s.code %>" <%= s.code === monitoring.subscription.selectedSeasonCode ? 'selected' : '' %>>
+                  <%= s.code %><%= s.name ? ' — ' + s.name : '' %>
+                </option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Lieu
+            <select name="venue" data-auto-submit="change">
+              <% for (const v of monitoring.lists.venues) { %>
+                <option value="<%= v.slug %>" <%= v.slug === monitoring.subscription.selectedVenueSlug ? 'selected' : '' %>>
+                  <%= v.slug %>
+                </option>
+              <% } %>
+            </select>
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Mettre à jour</button></noscript>
+        </form>
+
+        <div class="monitoring-grid">
+          <section class="card">
+            <h4>Statut des commandes</h4>
+            <% const subStats = monitoring.subscription.orderStats || {}; const subStatKeys = Object.keys(subStats); %>
+            <% if (subStatKeys.length) { %>
+              <ul class="metrics-list">
+                <% for (const key of subStatKeys) { %>
+                  <li>
+                    <span><%= key %></span>
+                    <span><%= subStats[key].count %> (<%= ((subStats[key].totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %>)</span>
+                  </li>
+                <% } %>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Aucune commande pour cette sélection.</div>
+            <% } %>
+          </section>
+          <section class="card">
+            <h4>Sièges par statut</h4>
+            <% const subSeats = monitoring.subscription.seatCounts || {}; const subSeatKeys = Object.keys(subSeats); %>
+            <% if (subSeatKeys.length) { %>
+              <ul class="metrics-list">
+                <% for (const key of subSeatKeys) { %>
+                  <li><span><%= key %></span><span><%= subSeats[key] %></span></li>
+                <% } %>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Pas de sièges correspondants.</div>
+            <% } %>
+          </section>
+        </div>
+
+        <div class="monitoring-grid">
+          <section class="card">
+            <h4>Commandes récentes</h4>
+            <% if (monitoring.subscription.orders && monitoring.subscription.orders.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>ID</th><th>Créée</th><th>Status</th><th>Email</th><th>Lignes</th><th>Total</th></tr>
+            <% for (const o of monitoring.subscription.orders || []) { %>
+              <tr>
+                <td><code><%= o.id %></code></td>
+                <td><%= o.createdAt ? new Date(o.createdAt).toLocaleString() : '—' %></td>
+                <td><%= o.status %></td>
+                <td><%= o.payerEmail || '—' %></td>
+                <td><%= o.lineCount %></td>
+                <td><%= ((o.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
+              </tr>
+            <% } %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucune commande.</div>
+            <% } %>
+          </section>
+
+          <section class="card">
+            <h4>Tickets récents</h4>
+            <% if (monitoring.subscription.tickets && monitoring.subscription.tickets.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>ID</th><th>Siège</th><th>Tarif</th><th>Événement</th><th>Créé</th></tr>
+            <% for (const t of monitoring.subscription.tickets || []) { %>
+              <tr>
+                <td><code><%= t.id %></code></td>
+                <td><%= t.seatId || '—' %></td>
+                <td><%= t.tariffCode || '—' %></td>
+                <td><%= t.eventId || '—' %></td>
+                <td><%= t.createdAt ? new Date(t.createdAt).toLocaleString() : '—' %></td>
+              </tr>
+            <% } %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucun ticket généré.</div>
+            <% } %>
+          </section>
+
+          <section class="card">
+            <h4>Sièges récemment mis à jour</h4>
+            <% if (monitoring.subscription.seats && monitoring.subscription.seats.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>Siège</th><th>Zone</th><th>Status</th><th>Maj</th></tr>
+            <% for (const s of monitoring.subscription.seats || []) { %>
+              <tr>
+                <td><%= s.seatId %></td>
+                <td><%= s.zoneKey || '—' %></td>
+                <td><%= s.status || '—' %></td>
+                <td><%= s.updatedAt ? new Date(s.updatedAt).toLocaleString() : '—' %></td>
+              </tr>
+            <% } %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucun siège modifié récemment.</div>
+            <% } %>
+          </section>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucune saison sélectionnable.</div>
+      <% } %>
+    </div>
+
+    <div class="monitoring-panel <%= monitorTab === 'event' ? 'active' : '' %>" data-monitor-panel="event">
+      <h3>Événement</h3>
+      <% if (monitoring.event && monitoring.event.selectedEvent) { %>
+        <form method="get" class="inline-filter-form">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <input type="hidden" name="view" value="monitoring">
+          <input type="hidden" name="monitorTab" value="event">
+          <% if (monitoring.subscription.selectedSeasonCode) { %><input type="hidden" name="season" value="<%= monitoring.subscription.selectedSeasonCode %>"><% } %>
+          <% if (monitoring.subscription.selectedVenueSlug) { %><input type="hidden" name="venue" value="<%= monitoring.subscription.selectedVenueSlug %>"><% } %>
+          <label>
+            Événement
+            <select name="event" data-auto-submit="change">
+          <% for (const ev of monitoring.lists.events || []) { %>
+            <option value="<%= ev.slug %>" <%= ev.slug === monitoring.event.selectedEventSlug ? 'selected' : '' %>>
+              <%= ev.slug %>
+            </option>
+          <% } %>
+            </select>
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Mettre à jour</button></noscript>
+        </form>
+
+        <section class="card">
+          <h4>Détails</h4>
+          <div><strong><%= monitoring.event.selectedEvent.name %></strong></div>
+          <div>Date : <%= monitoring.event.selectedEvent.startsAt ? new Date(monitoring.event.selectedEvent.startsAt).toLocaleString() : '—' %></div>
+          <div>Saison : <%= monitoring.event.selectedEvent.seasonCode || '—' %></div>
+          <div>Lieu : <%= monitoring.event.selectedEvent.venueSlug || '—' %></div>
+          <div>En vente : <%= monitoring.event.selectedEvent.isOnSale ? 'Oui' : 'Non' %></div>
+        </section>
+
+        <div class="monitoring-grid">
+          <section class="card">
+            <h4>Statut des commandes</h4>
+            <% const evStats = monitoring.event.orderStats || {}; const evStatKeys = Object.keys(evStats); %>
+            <% if (evStatKeys.length) { %>
+              <ul class="metrics-list">
+                <% evStatKeys.forEach(key => { %>
+                  <li>
+                    <span><%= key %></span>
+                    <span><%= evStats[key].count %> (<%= ((evStats[key].totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %>)</span>
+                  </li>
+                <% }) %>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Aucune commande pour cet événement.</div>
+            <% } %>
+          </section>
+          <section class="card">
+            <h4>Sièges</h4>
+            <% const evSeatCounts = monitoring.event.seatCounts || {}; const evSeatKeys = Object.keys(evSeatCounts); %>
+            <% if (evSeatKeys.length) { %>
+              <ul class="metrics-list">
+                <% evSeatKeys.forEach(key => { %>
+                  <li><span><%= key %></span><span><%= evSeatCounts[key] %></span></li>
+                <% }) %>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Pas de données siège.</div>
+            <% } %>
+          </section>
+        </div>
+
+        <div class="monitoring-grid">
+          <section class="card">
+            <h4>Commandes récentes</h4>
+            <% if (monitoring.event.orders && monitoring.event.orders.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>ID</th><th>Créée</th><th>Status</th><th>Email</th><th>Lignes</th><th>Total</th></tr>
+                  <% monitoring.event.orders.forEach(o => { %>
+                    <tr>
+                      <td><code><%= o.id %></code></td>
+                      <td><%= o.createdAt ? new Date(o.createdAt).toLocaleString() : '—' %></td>
+                      <td><%= o.status %></td>
+                      <td><%= o.payerEmail || '—' %></td>
+                      <td><%= o.lineCount %></td>
+                      <td><%= ((o.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
+                    </tr>
+                  <% }) %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucune commande récente.</div>
+            <% } %>
+          </section>
+
+          <section class="card">
+            <h4>Tickets</h4>
+            <% if (monitoring.event.tickets && monitoring.event.tickets.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>ID</th><th>Siège</th><th>Zone</th><th>Tarif</th><th>Scanné</th></tr>
+                  <% monitoring.event.tickets.forEach(t => { %>
+                    <tr>
+                      <td><code><%= t.id %></code></td>
+                      <td><%= t.seatId || '—' %></td>
+                      <td><%= t.zoneKey || '—' %></td>
+                      <td><%= t.tariffCode || '—' %></td>
+                      <td><%= t.scannedAt ? new Date(t.scannedAt).toLocaleString() : 'Non' %></td>
+                    </tr>
+                  <% }) %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucun ticket généré.</div>
+            <% } %>
+          </section>
+
+          <section class="card">
+            <h4>Abonnés liés</h4>
+            <% if (monitoring.event.subscribers && monitoring.event.subscribers.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>Nom</th><th>Email</th><th>Groupe</th><th>Sièges précédents</th></tr>
+                  <% monitoring.event.subscribers.forEach(s => { %>
+                    <tr>
+                      <td><%= (s.firstName || '') + ' ' + (s.lastName || '') %></td>
+                      <td><%= s.email || '—' %></td>
+                      <td><%= s.groupKey || '—' %></td>
+                      <td><%= s.previousSeats && s.previousSeats.length ? s.previousSeats.join(', ') : '—' %></td>
+                    </tr>
+                  <% }) %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucun abonné pour cet événement.</div>
+            <% } %>
+          </section>
+
+          <section class="card">
+            <h4>Logs de scans</h4>
+            <% if (monitoring.event.scans && monitoring.event.scans.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>Horodatage</th><th>Gate</th><th>OK</th><th>Raison</th></tr>
+                  <% monitoring.event.scans.forEach(log => { %>
+                    <tr>
+                      <td><%= log.when ? new Date(log.when).toLocaleString() : '—' %></td>
+                      <td><%= log.gate || '—' %></td>
+                      <td><%= log.ok ? 'Oui' : 'Non' %></td>
+                      <td><%= log.reason || '—' %></td>
+                    </tr>
+                  <% }) %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucun scan enregistré.</div>
+            <% } %>
+          </section>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Sélectionnez un événement pour afficher les détails.</div>
+      <% } %>
+    </div>
+  </div>
+
+  <% } %>
 
   <script>
+    const SCRIPT_FORMS = <%- JSON.stringify(scriptForms || {}).replace(/</g, '\\u003c') %>;
     (() => {
+      const monitorTabs = document.querySelectorAll('[data-monitor-button]');
+      const monitorPanels = document.querySelectorAll('[data-monitor-panel]');
+      if (monitorTabs.length) {
+        const active = '<%= monitorTab %>';
+        const activate = (tab) => {
+          monitorTabs.forEach(btn => btn.classList.toggle('active', btn.dataset.monitorButton === tab));
+          monitorPanels.forEach(panel => panel.classList.toggle('active', panel.dataset.monitorPanel === tab));
+        };
+        monitorTabs.forEach(btn => {
+          btn.addEventListener('click', () => activate(btn.dataset.monitorButton));
+        });
+        activate(active);
+      }
+
+      document.querySelectorAll('[data-auto-submit]').forEach(el => {
+        el.addEventListener('change', () => {
+          const form = el.closest('form');
+          if (form) form.submit();
+        });
+      });
+
       const tabs = document.querySelectorAll('.script-tab');
       const groups = document.querySelectorAll('.script-group');
 
@@ -551,109 +1013,94 @@
       const collectScriptArgs = (form, argLine) => {
         const scriptId = form.dataset.scriptId;
         if (!scriptId) return { args: [] };
+        const schema = SCRIPT_FORMS?.[scriptId];
+        if (!schema?.fields?.length) return { args: [] };
 
-        const select = (role) => form.querySelector(`[data-role="${scriptId}:${role}"]`);
-        const valueOf = (role) => {
-          const el = select(role);
-          if (!el) return '';
-          if (el.type === 'checkbox') return el.checked ? 'on' : '';
-          return (el.value || '').trim();
-        };
-        const checked = (role) => {
-          const el = select(role);
-          return el ? !!el.checked : false;
-        };
         const hasManualArgs = typeof argLine === 'string' && argLine.trim().length > 0;
+        const values = {};
+        let anyFieldValue = false;
+        const missing = [];
 
-        switch (scriptId) {
-          case 'register-venue': {
-            const slug = valueOf('slug');
-            const name = valueOf('name');
-            const plan = valueOf('plan');
-            const overwrite = checked('overwrite');
-            const any = slug || name || plan || overwrite;
-            if (!any) return { args: [] };
-            if ((!slug || !name) && hasManualArgs) return { args: [] };
-            if (!slug || !name) {
-              return { error: 'Slug et nom requis pour exécuter register-venue.' };
-            }
-            const args = [slug, name];
-            if (plan) args.push(plan);
-            if (overwrite) args.push('--overwrite');
-            return { args };
+        schema.fields.forEach(field => {
+          const selector = `[data-role="${scriptId}:${field.name}"]`;
+          const el = form.querySelector(selector);
+          if (!el) return;
+          const fieldType = field.type || 'text';
+          let value;
+          if (fieldType === 'checkbox') {
+            value = !!el.checked;
+            if (value) anyFieldValue = true;
+            if (field.required && !value) missing.push(field.label || field.name);
+          } else {
+            value = (el.value || '').trim();
+            if (value) anyFieldValue = true;
+            if (field.required && !value) missing.push(field.label || field.name);
           }
-          case 'import-seats': {
-            const venue = valueOf('venue');
-            const csv = valueOf('csv');
-            const attr = valueOf('attr');
-            const plan = valueOf('plan');
-            const any = venue || csv || attr || plan;
-            if (!any) return { args: [] };
-            if (!venue && hasManualArgs) return { args: [] };
-            if (!venue) {
-              return { error: 'Indiquez le slug du lieu pour import-seats.' };
-            }
-            const args = [`--venue=${venue}`];
-            if (csv) args.push(`--csv=${csv}`);
-            if (attr) args.push(`--attr=${attr}`);
-            if (plan) args.push(`--plan=${plan}`);
-            return { args };
-          }
-          case 'import-zones': {
-            const venue = valueOf('venue');
-            const csv = valueOf('csv');
-            const plan = valueOf('plan');
-            const attr = valueOf('attr');
-            const any = venue || csv || plan || attr;
-            if (!any) return { args: [] };
-            if (!venue && hasManualArgs) return { args: [] };
-            if (!venue) {
-              return { error: 'Le slug du lieu est requis pour import-zones.' };
-            }
-            const args = [`--venue=${venue}`];
-            if (csv) args.push(`--csv=${csv}`);
-            if (plan) args.push(`--plan=${plan}`);
-            if (attr) args.push(`--attr=${attr}`);
-            return { args };
-          }
-          case 'import-tariff-prices': {
-            const catalog = valueOf('catalog');
-            const csv = valueOf('csv');
-            const venue = valueOf('venue');
-            const append = checked('append');
-            const dryRun = checked('dry-run');
-            const any = catalog || csv || venue || append || dryRun;
-            if (!any) return { args: [] };
-            if ((!catalog || !csv) && hasManualArgs) return { args: [] };
-            if (!catalog || !csv) {
-              return { error: 'Indiquez au minimum le slug de catalogue et le CSV pour import-tariff-prices.' };
-            }
-            const args = [catalog, csv];
-            if (venue) args.push(`--venue=${venue}`);
-            if (append) args.push('--append');
-            if (dryRun) args.push('--dry-run');
-            return { args };
-          }
-          case 'instantiate-tariffs': {
-            const season = valueOf('season');
-            const venue = valueOf('venue');
-            const catalog = valueOf('catalog');
-            const clear = checked('clear');
-            const dryRun = checked('dry-run');
-            const any = season || venue || catalog || clear || dryRun;
-            if (!any) return { args: [] };
-            if ((!season || !venue || !catalog) && hasManualArgs) return { args: [] };
-            if (!season || !venue || !catalog) {
-              return { error: 'Saison, lieu et catalogue sont requis pour instantiate-tariffs.' };
-            }
-            const args = [season, venue, `--catalog=${catalog}`];
-            if (clear) args.push('--clear');
-            if (dryRun) args.push('--dry-run');
-            return { args };
-          }
-          default:
-            return { args: [] };
+          values[field.name] = value;
+        });
+
+        if (!anyFieldValue) {
+          return { args: [] };
         }
+
+        if (missing.length) {
+          if (hasManualArgs) {
+            return { args: [] };
+          }
+          return { error: `Champs requis : ${missing.join(', ')}` };
+        }
+
+        const positional = [];
+        const trailing = [];
+
+        schema.fields.forEach((field, index) => {
+          const rule = field.arg;
+          if (!rule) return;
+          const value = values[field.name];
+          const fieldType = field.type || 'text';
+          const hasValue = fieldType === 'checkbox' ? !!value : value !== undefined && value !== null && value !== '';
+
+          switch (rule.type) {
+            case 'positional': {
+              if (!hasValue) {
+                if (!rule.optional) return;
+              } else {
+                positional.push({ order: rule.index ?? index, value });
+              }
+              break;
+            }
+            case 'option': {
+              if (!hasValue) return;
+              let rendered = rule.template || '';
+              if (rendered.includes('${value}')) {
+                rendered = rendered.replace(/\$\{value\}/g, value);
+              } else if (rendered) {
+                rendered = `${rendered}${value}`;
+              } else {
+                rendered = `--${field.name}=${value}`;
+              }
+              trailing.push({ order: rule.order ?? index, value: rendered });
+              break;
+            }
+            case 'flag': {
+              if (!hasValue) return;
+              trailing.push({ order: rule.order ?? index, value: rule.flag || `--${field.name}` });
+              break;
+            }
+            default:
+              break;
+          }
+        });
+
+        positional.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        trailing.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+        const args = [
+          ...positional.map(item => item.value),
+          ...trailing.map(item => item.value)
+        ];
+
+        return { args };
       };
 
       document.querySelectorAll('[data-script-form]').forEach(form => {
@@ -681,7 +1128,12 @@
                 ...(presetArgs.length ? { args: presetArgs } : {})
               })
             });
-            const data = await response.json().catch(() => ({}));
+            let data;
+            try {
+              data = await response.json();
+            } catch (parseErr) {
+              data = {};
+            }
             if (!response.ok) {
               output.textContent = `✖ ${data.error || response.statusText}`;
             } else {
@@ -737,7 +1189,12 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
               });
-              const data = await response.json().catch(() => ({}));
+              let data;
+              try {
+                data = await response.json();
+              } catch (parseErr) {
+                data = {};
+              }
               if (!response.ok || data.ok === false) {
                 if (status) status.textContent = `✖ ${data.error || response.statusText}`;
               } else {

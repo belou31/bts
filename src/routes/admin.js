@@ -8,6 +8,16 @@ import mongoose from 'mongoose';
 import { Order } from '../models/Order.js';
 import { Seat }  from '../models/Seat.js';
 import { Zone }  from '../models/Zone.js';
+import { Venue } from '../models/Venue.js';
+import { Season } from '../models/Season.js';
+import { Event } from '../models/Event.js';
+import { Tariff } from '../models/Tariff.js';
+import { TariffPrice } from '../models/TariffPrice.js';
+import { Subscriber } from '../models/Subscriber.js';
+import { Ticket } from '../models/Ticket.js';
+import { ScanLog } from '../models/ScanLog.js';
+import { ZoneCatalog } from '../models/ZoneCatalog.js';
+import { SeatCatalog } from '../models/SeatCatalog.js';
 import { exportOrdersCsv, exportSeatsCsv } from '../services/exports.js';
 import { adminScriptGroups, getAdminScript } from '../config/adminScripts.js';
 
@@ -176,18 +186,71 @@ const csvEscape = (v) => {
 };
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 
-/* ===================== Page HTML ===================== */
-router.get('/', async (req, res) => {
-  // Redirige /admin → /admin/ en conservant la query-string (pour ?token=...)
-  const [pathOnly, qs=''] = (req.originalUrl || '').split('?', 2);
-  if (pathOnly && !pathOnly.endsWith('/')) {
-    return res.redirect(302, `${pathOnly}/${qs ? `?${qs}` : ''}`);
+function prepareScriptCatalog() {
+  const scriptGroups = adminScriptGroups
+    .slice()
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map(group => ({
+      ...group,
+      scripts: group.scripts
+        .slice()
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    }));
+
+  const scriptForms = {};
+  for (const group of scriptGroups) {
+    for (const script of group.scripts) {
+      if (script?.form?.fields?.length) {
+        scriptForms[script.id] = script.form;
+      }
+    }
   }
 
-  const mongoState = mongoose.connection?.readyState; // 0=disconnected 1=connected 2=connecting 3=disconnecting
+  return { scriptGroups, scriptForms };
+}
+
+/* ===================== Page HTML ===================== */
+router.get('/', (req, res) => {
+  const qs = new URLSearchParams(req.query).toString();
+  const target = urlFor('/admin/operate');
+  return res.redirect(302, `${target}${qs ? `?${qs}` : ''}`);
+});
+
+router.get('/operate', async (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const { scriptGroups, scriptForms } = prepareScriptCatalog();
+
+  const activeGroupId = typeof req.query.group === 'string' && req.query.group
+    ? req.query.group
+    : (scriptGroups[0]?.id || null);
+
+  const outputsList = listFiles(OUTPUTS_ROOT);
+  const inputsList = listFiles(INPUTS_ROOT);
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups,
+    scriptForms,
+    activeGroupId,
+    outputsList,
+    inputsList,
+    viewMode: 'operate',
+    monitorTab: 'tariffs',
+    monitoring: null
+  });
+});
+
+router.get('/monitor', async (req, res) => {
+  const mongoState = mongoose.connection?.readyState;
   const mongoStateLabel = ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoState || 0];
 
-  // PM2 (best-effort)
   let pm2 = null;
   try {
     const out = childProcess.execSync('pm2 jlist', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -202,40 +265,348 @@ router.get('/', async (req, res) => {
     }));
   } catch { /* ignore */ }
 
-  // Compteurs basiques seats
-  const byStatus = await Seat.aggregate([
+  const seatStatusAgg = await Seat.aggregate([
     { $group: { _id: '$status', c: { $sum: 1 } } }
   ]);
-  const seatCounts = Object.fromEntries(byStatus.map(x => [x._id || 'unknown', x.c]));
+  const seatCounts = Object.fromEntries(seatStatusAgg.map(x => [x._id || 'unknown', x.c]));
 
-  // Compteurs orders récents
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const recentOrders = await Order.aggregate([
     { $match: { createdAt: { $gte: since } } },
     { $group: { _id: '$status', c: { $sum: 1 } } }
   ]);
 
-  // Si la page a été ouverte avec ?token=..., on le propage dans les liens
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
-  const sortedScriptGroups = adminScriptGroups
-    .slice()
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    .map(group => ({
-      ...group,
-      scripts: group.scripts
-        .slice()
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  const monitorTabOptions = new Set(['tariffs', 'subscription', 'event']);
+  const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : 'tariffs';
+
+  const [
+    venuesRaw,
+    seasonsRaw,
+    eventsRaw,
+    tariffsRaw,
+    tariffPriceCountsAgg,
+    venueZoneCountsAgg,
+    seatCatalogCountsAgg
+  ] = await Promise.all([
+    Venue.find({}).sort({ slug: 1 }).lean(),
+    Season.find({}).sort({ code: -1 }).lean(),
+    Event.find({}).sort({ startsAt: -1 }).lean(),
+    Tariff.find({}).sort({ priceTableKey: 1, sortOrder: 1, code: 1 }).lean(),
+    TariffPrice.aggregate([
+      { $group: { _id: '$priceTableKey', count: { $sum: 1 } } }
+    ]),
+    ZoneCatalog.aggregate([
+      { $group: { _id: '$venueSlug', count: { $sum: 1 } } }
+    ]),
+    SeatCatalog.aggregate([
+      { $group: { _id: '$venueSlug', count: { $sum: 1 } } }
+    ])
+  ]);
+
+  const priceEntriesMap = new Map(tariffPriceCountsAgg.map(item => [(item._id ?? 'global'), item.count]));
+  const venueZoneCounts = new Map(venueZoneCountsAgg.map(entry => [entry._id || '', entry.count]));
+  const seatCatalogCounts = new Map(seatCatalogCountsAgg.map(entry => [entry._id || '', entry.count]));
+
+  const tariffSummaryMap = new Map();
+  for (const tariff of tariffsRaw) {
+    const key = tariff.priceTableKey || 'global';
+    const entry = tariffSummaryMap.get(key) || { priceTableKey: key, total: 0, active: 0 };
+    entry.total += 1;
+    if (tariff.active) entry.active += 1;
+    tariffSummaryMap.set(key, entry);
+  }
+
+  const tariffSummary = Array.from(tariffSummaryMap.values())
+    .map(item => ({
+      ...item,
+      priceEntries: priceEntriesMap.get(item.priceTableKey) || 0
+    }))
+    .sort((a, b) => {
+      if (a.priceTableKey === 'global') return -1;
+      if (b.priceTableKey === 'global') return 1;
+      return (a.priceTableKey || '').localeCompare(b.priceTableKey || '');
+    });
+
+  const venuesList = venuesRaw.map(v => ({
+    slug: v.slug,
+    name: v.name,
+    zoneCount: venueZoneCounts.get(v.slug) || 0,
+    seatCount: seatCatalogCounts.get(v.slug) || 0,
+    svgPath: v.svgPath
+  }));
+
+  const seasonsList = seasonsRaw.map(s => ({
+    code: s.code,
+    name: s.name,
+    active: s.active,
+    venueSlug: s.venueSlug || null,
+    phaseCount: Array.isArray(s.phases) ? s.phases.length : 0
+  }));
+
+  const eventsList = eventsRaw.map(e => ({
+    id: String(e._id),
+    slug: e.slug,
+    name: e.name,
+    startsAt: e.startsAt,
+    seasonCode: e.seasonCode,
+    venueSlug: e.venueSlug,
+    isOnSale: e.isOnSale
+  }));
+
+  const tariffsSample = tariffsRaw.slice(0, 50).map(t => ({
+    code: t.code,
+    label: t.label,
+    active: t.active,
+    priceTableKey: t.priceTableKey || null,
+    requiresField: t.requiresField,
+    fieldLabel: t.fieldLabel
+  }));
+
+  const defaultSeason = seasonsRaw.find(s => s.active) || seasonsRaw[0] || null;
+  const selectedSeasonCode = typeof req.query.season === 'string' && req.query.season
+    ? req.query.season
+    : (defaultSeason ? defaultSeason.code : null);
+  const selectedSeason = seasonsRaw.find(s => s.code === selectedSeasonCode) || defaultSeason || null;
+
+  const seasonDefaultVenue = selectedSeason?.venueSlug || null;
+  const selectedVenueSlug = typeof req.query.venue === 'string' && req.query.venue
+    ? req.query.venue
+    : (seasonDefaultVenue || (venuesRaw[0]?.slug ?? null));
+
+  const selectedSeasonLabel = selectedSeason?.name || selectedSeasonCode || null;
+
+  const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
+    ? req.query.event
+    : (eventsRaw[0]?.slug || null);
+  const selectedEvent = eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null;
+  const selectedEventId = selectedEvent ? String(selectedEvent._id) : null;
+
+  const subscriptionMatch = {};
+  if (selectedSeasonCode) subscriptionMatch.seasonCode = selectedSeasonCode;
+  if (selectedVenueSlug) subscriptionMatch.venueSlug = selectedVenueSlug;
+
+  let subscriptionOrders = [];
+  let subscriptionOrderStats = {};
+  let subscriptionSeatCounts = {};
+  let subscriptionTickets = [];
+  let subscriptionSeatsSample = [];
+
+  if (selectedSeasonCode) {
+    const [ordersRaw, orderStatsAgg, seatStatsAgg, ticketsRaw, seatsRaw] = await Promise.all([
+      Order.find(subscriptionMatch)
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean(),
+      Order.aggregate([
+        { $match: subscriptionMatch },
+        { $group: { _id: '$status', count: { $sum: 1 }, totalCents: { $sum: '$totalCents' } } }
+      ]),
+      Seat.aggregate([
+        { $match: { seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}) } },
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]),
+      Ticket.find({ seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}) })
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean(),
+      Seat.find({ seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}) })
+        .sort({ updatedAt: -1 })
+        .limit(20)
+        .lean()
+    ]);
+
+    subscriptionOrders = ordersRaw.map(o => ({
+      id: String(o._id),
+      status: o.status,
+      totalCents: o.totalCents,
+      createdAt: o.createdAt,
+      payerEmail: o.payerEmail,
+      lineCount: Array.isArray(o.lines) ? o.lines.length : 0
     }));
 
-  const activeGroupId = typeof req.query.group === 'string' && req.query.group
-    ? req.query.group
-    : (sortedScriptGroups[0]?.id || null);
+    subscriptionOrderStats = orderStatsAgg.reduce((acc, row) => {
+      acc[row._id || 'unknown'] = { count: row.count, totalCents: row.totalCents };
+      return acc;
+    }, {});
 
-  const outputsList = listFiles(OUTPUTS_ROOT);
-  const inputsList = listFiles(INPUTS_ROOT);
+    subscriptionSeatCounts = seatStatsAgg.reduce((acc, row) => {
+      acc[row._id || 'unknown'] = row.count;
+      return acc;
+    }, {});
+
+    subscriptionTickets = ticketsRaw.map(t => ({
+      id: String(t._id),
+      seatId: t.seatId,
+      tariffCode: t.tariffCode,
+      eventId: t.eventId || null,
+      createdAt: t.createdAt
+    }));
+
+    subscriptionSeatsSample = seatsRaw.map(s => ({
+      seatId: s.seatId,
+      zoneKey: s.zoneKey,
+      status: s.status,
+      updatedAt: s.updatedAt
+    }));
+  }
+
+  const eventMatch = selectedEventId ? { 'meta.eventId': selectedEventId } : null;
+  const eventSeatMatch = selectedEvent
+    ? { seasonCode: selectedEvent.seasonCode, venueSlug: selectedEvent.venueSlug }
+    : null;
+
+  let eventOrders = [];
+  let eventOrderStats = {};
+  let eventTickets = [];
+  let eventSeatCounts = {};
+  let eventSubscribers = [];
+  let eventScans = [];
+
+  if (selectedEventId) {
+    const [
+      eventOrdersRaw,
+      eventOrderStatsAgg,
+      eventTicketsRaw,
+      eventSeatStatsAgg,
+      eventSubscribersRaw,
+      eventScansRaw
+    ] = await Promise.all([
+      Order.find(eventMatch)
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean(),
+      Order.aggregate([
+        { $match: { 'meta.eventId': selectedEventId } },
+        { $group: { _id: '$status', count: { $sum: 1 }, totalCents: { $sum: '$totalCents' } } }
+      ]),
+      Ticket.find({ eventId: selectedEventId })
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean(),
+      eventSeatMatch
+        ? Seat.aggregate([
+            { $match: eventSeatMatch },
+            { $group: { _id: '$status', count: { $sum: 1 } } }
+          ])
+        : Promise.resolve([]),
+      selectedEvent
+        ? Subscriber.find({ seasonCode: selectedEvent.seasonCode, venueSlug: selectedEvent.venueSlug })
+            .sort({ updatedAt: -1 })
+            .limit(20)
+            .lean()
+        : Promise.resolve([]),
+      ScanLog.find({ eventId: selectedEventId })
+        .sort({ when: -1 })
+        .limit(50)
+        .lean()
+    ]);
+
+    eventOrders = eventOrdersRaw.map(o => ({
+      id: String(o._id),
+      status: o.status,
+      totalCents: o.totalCents,
+      createdAt: o.createdAt,
+      payerEmail: o.payerEmail,
+      lineCount: Array.isArray(o.lines) ? o.lines.length : 0
+    }));
+
+    eventOrderStats = eventOrderStatsAgg.reduce((acc, row) => {
+      acc[row._id || 'unknown'] = { count: row.count, totalCents: row.totalCents };
+      return acc;
+    }, {});
+
+    eventTickets = eventTicketsRaw.map(t => ({
+      id: String(t._id),
+      seatId: t.seatId,
+      zoneKey: t.zoneKey,
+      tariffCode: t.tariffCode,
+      scannedAt: t.scannedAt || null,
+      createdAt: t.createdAt
+    }));
+
+    eventSeatCounts = Array.isArray(eventSeatStatsAgg)
+      ? eventSeatStatsAgg.reduce((acc, row) => {
+          acc[row._id || 'unknown'] = row.count;
+          return acc;
+        }, {})
+      : {};
+
+    eventSubscribers = eventSubscribersRaw.map(s => ({
+      id: String(s._id),
+      firstName: s.firstName || '',
+      lastName: s.lastName || '',
+      email: s.email || '',
+      groupKey: s.groupKey || '',
+      previousSeats: Array.isArray(s.previousSeasonSeats) ? s.previousSeasonSeats.slice(0, 5) : []
+    }));
+
+    eventScans = eventScansRaw.map(log => ({
+      id: String(log._id),
+      when: log.when || log.createdAt,
+      gate: log.gate || '',
+      ok: log.ok,
+      reason: log.reason || '',
+      qrValue: log.qrValue || ''
+    }));
+  }
+
+  const serverInfo = {
+    host: os.hostname(),
+    nodeVersion: process.version,
+    env: process.env.APP_ENV || 'unknown',
+    basePath: process.env.BASE_PATH || '/',
+    mongoState: mongoStateLabel
+  };
+
+  const monitoring = {
+    summary: {
+      serverInfo,
+      mongoState: mongoStateLabel,
+      seatCounts,
+      recentOrders,
+      pm2
+    },
+    lists: {
+      venues: venuesList,
+      seasons: seasonsList,
+      events: eventsList,
+      tariffs: tariffsSample,
+      tariffSummary
+    },
+    subscription: {
+      selectedSeasonCode,
+      selectedSeasonLabel,
+      selectedVenueSlug,
+      orders: subscriptionOrders,
+      orderStats: subscriptionOrderStats,
+      seatCounts: subscriptionSeatCounts,
+      tickets: subscriptionTickets,
+      seats: subscriptionSeatsSample
+    },
+    event: {
+      selectedEventSlug,
+      selectedEvent: selectedEvent
+        ? {
+            slug: selectedEvent.slug,
+            name: selectedEvent.name,
+            startsAt: selectedEvent.startsAt,
+            seasonCode: selectedEvent.seasonCode,
+            venueSlug: selectedEvent.venueSlug,
+            isOnSale: selectedEvent.isOnSale
+          }
+        : null,
+      orders: eventOrders,
+      orderStats: eventOrderStats,
+      tickets: eventTickets,
+      seatCounts: eventSeatCounts,
+      subscribers: eventSubscribers,
+      scans: eventScans
+    }
+  };
 
   return res.render('admin/index', {
     basePath: BASE_PATH || '',
@@ -243,20 +614,14 @@ router.get('/', async (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    serverInfo: {
-      host: os.hostname(),
-      nodeVersion: process.version,
-      env: process.env.APP_ENV || 'unknown',
-      basePath: process.env.BASE_PATH || '/',
-      mongoState: mongoStateLabel
-    },
-    pm2,
-    seatCounts,
-    recentOrders,
-    scriptGroups: sortedScriptGroups,
-    activeGroupId,
-    outputsList,
-    inputsList
+    scriptGroups: [],
+    scriptForms: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    viewMode: 'monitor',
+    monitorTab,
+    monitoring
   });
 });
 
