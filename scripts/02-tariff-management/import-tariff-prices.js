@@ -120,6 +120,16 @@ function parsePriceCell(val) {
   return Number.isFinite(cents) ? cents : null;
 }
 
+function parseExplicitCents(val) {
+  if (val == null) return null;
+  const cleaned = String(val).trim().replace(/\s/g, '');
+  if (!cleaned) return null;
+  if (/^-?\d+$/.test(cleaned)) return Number(cleaned);
+  const normalized = cleaned.replace(/,/g, '.');
+  const n = Number(normalized);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
 function headersLC(arr) {
   return arr.map(h => stripBOM(h).trim().toLowerCase());
 }
@@ -180,8 +190,11 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
       const map = Object.fromEntries(headerInfo.headerLC.map((name, idx) => [name, cells[idx]]));
       const zoneKey = String(map.zonekey || map.zone || '').trim().toUpperCase();
       const tariffCode = String(map.tariffcode || map.code || '').trim().toUpperCase();
-      const rawPrice = map.pricecents || map.priceeuro || map.prix || map.prix_euro || map.price;
-      const priceCents = parsePriceCell(rawPrice);
+      const rawPriceCents = map.pricecents;
+      const rawPrice = rawPriceCents ?? map.priceeuro ?? map.prix ?? map.prix_euro ?? map.price;
+      const priceCents = rawPriceCents !== undefined && rawPriceCents !== null && rawPriceCents !== ''
+        ? parseExplicitCents(rawPriceCents)
+        : parsePriceCell(rawPrice);
       if (!zoneKey || !tariffCode || !Number.isFinite(priceCents)) {
         console.warn(`[import-tariff-prices] Ligne ${rowCount}: données incomplètes (zone=${zoneKey}, tarif=${tariffCode}, prix=${rawPrice}) → ignorée`);
         skips++;
