@@ -16,13 +16,13 @@
 import 'dotenv/config';
 
 import mongoose from 'mongoose';
-import { Order } from '../../../src/models/Order.js';
-import { Seat }  from '../../../src/models/Seat.js';
-import { getCheckoutStatus } from '../../../src/services/helloasso.js';
+import { Order } from '../../src/models/Order.js';
+import { Seat }  from '../../src/models/Seat.js';
+import { getCheckoutStatus } from '../../src/services/helloasso.js';
 import { normalizeHaStatus, isPaidLike,
          finalizePaidIfNoConflict,
          sendOrderAttestationIfNeeded,
-         sendConflictEmail } from '../../../src/services/order-finalization.js';
+         sendConflictEmail } from '../../src/services/order-finalization.js';
 
 const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
 if (!uri) { console.error('[sentinel] MONGO_URI/MONGODB_URI manquant'); process.exit(1); }
