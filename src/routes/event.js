@@ -277,6 +277,7 @@ router.post('/:eventId/checkout', async (req, res) => {
     // Crée order "pending" + hold
     const now = new Date();
     const until = new Date(now.getTime() + HOLD_MIN*60*1000);
+    const uniqueGroupKey = `EVENT-${ev.slug}-${new mongoose.Types.ObjectId().toString()}`;
 
     const ord = await Order.create({
       itemName:`EVENT_${ev.slug}`,
@@ -286,6 +287,7 @@ router.post('/:eventId/checkout', async (req, res) => {
 
       createdAt: now,
       status: 'pending',
+      groupKey: uniqueGroupKey,
       payer: {
         firstName: String(payer?.firstName||'').trim(),
         lastName:  String(payer?.lastName||'').trim(),
