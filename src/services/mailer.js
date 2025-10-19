@@ -2,6 +2,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import PDFDocument from 'pdfkit';
+import svgToPdf from 'svg-to-pdfkit';
 import { Tariff } from '../models/Tariff.js';
 import { hexToQrSvg } from './qr.js';
 
@@ -351,20 +353,44 @@ export async function buildTicketsPdfBuffer(order) {
 
 // NEW: attribue des QR depuis la “banque” selon le tarif des lignes (event only)
 export async function attachQrFromBank(db, order){
-const Events = db.collection('events');
+  const Events = db.collection('events');
   const evId   = String(order?.meta?.eventId||'');
   if (!evId) return { ok:false, reason:'no-event' };
   const { ObjectId } = await import('mongodb');
   const ev = await Events.findOne({ _id: new ObjectId(evId) });
   if (!ev?.qrBank?.buckets) return { ok:false, reason:'no-bank' };
+
+  const buckets = ev.qrBank.buckets || {};
+  const neededCounts = new Map();
+  for (const ln of (order?.lines||[])) {
+    const key = String(ln.tariffCode || ln.tariff || 'NORMAL').toUpperCase();
+    neededCounts.set(key, (neededCounts.get(key) || 0) + 1);
+  }
+
+  for (const [key, count] of neededCounts.entries()) {
+    const available = Array.isArray(buckets[key]) ? buckets[key].length : 0;
+    if (available < count) {
+      return {
+        ok: false,
+        reason: 'depleted',
+        detail: { tariff: key, needed: count, available, eventId: evId, eventSlug: ev.slug || null }
+      };
+    }
+  }
+
   const picked = [];
   for (const ln of (order?.lines||[])) {
-    // 🔑 clé de bucket = code tarif normalisé
     const key  = String(ln.tariffCode || ln.tariff || 'NORMAL').toUpperCase();
-    const list = ev.qrBank.buckets[key] || [];
+    const list = buckets[key] || [];
     const hex  = list.shift(); // consomme 1 code
-    if (!hex) return { ok:false, reason:'depleted' };
-    // stocke seatId & zoneKey (utile en affichage “zone debout”)
+    // sécurité: on a déjà vérifié les disponibilités, mais on garde un garde-fou
+    if (!hex) {
+      return {
+        ok: false,
+        reason: 'depleted',
+        detail: { tariff: key, needed: 1, available: 0, eventId: evId, eventSlug: ev.slug || null }
+      };
+    }
     picked.push({
       seatId: ln.seatId || '',
       zoneKey: ln.zoneKey || '',
@@ -372,7 +398,7 @@ const Events = db.collection('events');
       hex
     });
   }
-  // persiste la consommation
-  await Events.updateOne({ _id: ev._id }, { $set: { 'qrBank.buckets': ev.qrBank.buckets } });
+
+  await Events.updateOne({ _id: ev._id }, { $set: { 'qrBank.buckets': buckets } });
   return { ok:true, tickets: picked };
 }

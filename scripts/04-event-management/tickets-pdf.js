@@ -1,4 +1,4 @@
-// scripts/03-event-management/events/tickets-pdf.js
+// scripts/04-event-management/events/tickets-pdf.js
 import fs from 'fs/promises';
 import mongoose from 'mongoose';
 import yargs from 'yargs';
@@ -31,7 +31,10 @@ async function main(){
       ord.meta = { ...(ord.meta||{}), tickets: r.tickets };
       await ord.save();
     } else {
-      throw new Error(`attachQrFromBank: ${r?.reason||'unknown'}`);
+      const extra = r?.detail
+        ? ` (${Object.entries(r.detail).map(([k,v])=>`${k}=${v}`).join(', ')})`
+        : '';
+      throw new Error(`attachQrFromBank: ${r?.reason||'unknown'}${extra}`);
     }
   }
 
