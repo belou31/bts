@@ -6,8 +6,8 @@ import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { Order } from '../../../src/models/Order.js';
-import { attachQrFromBank, buildTicketsPdfBuffer } from '../../../src/services/mailer.js';
+import { Order } from '../../src/models/Order.js';
+import { attachQrFromBank, buildTicketsPdfBuffer } from '../../src/services/mailer.js';
 
 async function main(){
   const { id, out = 'tickets.pdf' } = yargs(hideBin(process.argv))
