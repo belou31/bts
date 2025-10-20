@@ -331,6 +331,7 @@ async function main() {
       paymentProviderMeta: {
         importedAt: new Date(),
         source: 'import-subscription-orders',
+        legacyOrderId: orderId,
         haOrderId: parsed.meta.haOrderId || undefined,
         checkoutIntentId: parsed.meta.checkoutIntentId || undefined,
         lastReturnCode: parsed.meta.lastReturnCode || undefined,

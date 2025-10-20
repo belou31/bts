@@ -1208,9 +1208,39 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'event-send-ticket-by-order',
+        label: 'Send Season Tickets by Order',
+        order: 7,
+        path: 'scripts/04-event-management/send-season-ticket-by-order.js',
+        command: 'node scripts/04-event-management/send-season-ticket-by-order.js --event=<slug> --order=<orderId[,orderId2]> [--dry-run]',
+        run: {
+          script: 'scripts/04-event-management/send-season-ticket-by-order.js',
+          args: []
+        },
+        description: 'Send season ticket emails for specific subscription order(s) (comma-separated).',
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'order',
+              label: 'OrderId (séparés par des virgules)',
+              placeholder: '68f137992cbaad229d6a4dbf,abc123',
+              required: true,
+              arg: { type: 'option', template: '--order=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'event-tickets-pdf',
         label: 'Generate Tickets PDF',
-        order: 7,
+        order: 8,
         path: 'scripts/04-event-management/tickets-pdf.js',
         command: 'node scripts/04-event-management/tickets-pdf.js <orderId>',
         run: {
