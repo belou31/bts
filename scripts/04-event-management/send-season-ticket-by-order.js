@@ -18,6 +18,7 @@ import { Event } from '../../src/models/Event.js';
 import { Order } from '../../src/models/Order.js';
 import { Seat } from '../../src/models/Seat.js';
 import { buildTicketsPdfBuffer } from '../../src/services/tickets-pdf.js';
+import { renderOrderEmail, subjectForOrder } from '../../src/services/mailer.js';
 import { sendMail } from '../../src/loaders/mailer.js';
 
 const argv = yargs(hideBin(process.argv))
@@ -194,7 +195,7 @@ async function sendTicketsForOrder({ event, order, seatMaps, fallbackZone, dryRu
       tickets.push({
         seatId: seatIdForTickets,
         zoneKey: zoneForTicket,
-        tariff: 'ABONNÉ (ACCÈS SANS SIÈGE)',
+      tariff: 'ABONNÉ',
         hex: hexZone(event._id, zoneForTicket, order._id || pseudoOrderId, seatIdForTickets),
         fallback: true,
         note
@@ -228,28 +229,49 @@ async function sendTicketsForOrder({ event, order, seatMaps, fallbackZone, dryRu
     }
   };
 
-  const subject = `Vos billets — ${event.name} — ${fmtDateFR(event.startsAt)}`;
   const hasFallback = tickets.some(t => t.fallback);
   const fallbackMsg = hasFallback
     ? `<p style="margin:.75rem 0;background:#FFF6E5;border:1px solid #F6C15C;padding:12px;border-radius:8px">
-         <strong>Note :</strong> Certains billets donnent accès à une zone libre. Présentez-vous à l’entrée pour être orienté.
+         <strong>Note :</strong> certaines places donnent accès à une zone libre (aucun siège numéroté). Présentez-vous à l’entrée pour être orienté.
        </p>`
     : '';
 
-  const html = `
-    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial">
-      <h2 style="margin:0 0 .5rem">Billets pour ${event.name}</h2>
-      <p style="margin:.25rem 0;color:#444">
-        Date : <strong>${fmtDateFR(event.startsAt)}</strong>
-      </p>
-      ${fallbackMsg}
-      <p style="margin:.75rem 0">
-        Retrouvez vos billets en pièce jointe (PDF). Présentez le QR à l'entrée.
-      </p>
-      <p style="margin:.75rem 0;color:#666">
-        Cet envoi concerne votre abonnement (${virtualOrder.payerFirstName || ''} ${virtualOrder.payerLastName || ''}).
-      </p>
-    </div>`;
+  const defaultSubject = `Vos billets — ${event.name} — ${fmtDateFR(event.startsAt)}`;
+  const subject = subjectForOrder(virtualOrder) || defaultSubject;
+
+  let html;
+  try {
+    html = await renderOrderEmail(virtualOrder);
+  } catch {
+    html = '';
+  }
+
+  if (!html) {
+    html = `
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial">
+        <h2 style="margin:0 0 .5rem">Billets pour ${event.name}</h2>
+        <p style="margin:.25rem 0;color:#444">
+          Date : <strong>${fmtDateFR(event.startsAt)}</strong>
+        </p>
+        ${fallbackMsg}
+        <p style="margin:.75rem 0">
+          Retrouvez vos billets en pièce jointe (PDF). Présentez le QR à l'entrée.
+        </p>
+        <p style="margin:.75rem 0;color:#666">
+          Cet envoi concerne votre abonnement (${virtualOrder.payerFirstName || ''} ${virtualOrder.payerLastName || ''}).
+        </p>
+      </div>`;
+  } else if (fallbackMsg) {
+    if (html.includes('<!--FALLBACK_NOTE-->')) {
+      html = html.replace('<!--FALLBACK_NOTE-->', fallbackMsg);
+    } else if (html.includes('</h2>')) {
+      html = html.replace('</h2>', `</h2>${fallbackMsg}`);
+    } else if (html.includes('</body>')) {
+      html = html.replace('</body>', `${fallbackMsg}</body>`);
+    } else {
+      html = fallbackMsg + html;
+    }
+  }
 
   if (dryRun) {
     console.log(`[dry-run] order=${order._id} email=${virtualOrder.payerEmail} lines=${lines.length} fallback=${hasFallback}`);
