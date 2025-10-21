@@ -68,7 +68,7 @@ Each entry below references the canonical command, required environment variable
 | `scripts/04-event-management/seats-hold-release.js` | Block or free seat holds for an event from a CSV. | `node scripts/04-event-management/seats-hold-release.js --file=holds.csv [--commit] [--force]` | `data/templates/csv/seats-hold-release.template.csv` |
 | `scripts/04-event-management/send-season-tickets-for-event.js` | Generate/send season tickets (PDF) for an event. | `node scripts/04-event-management/send-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run]` | — |
 | `scripts/04-event-management/send-season-ticket-by-order.js` | Send season tickets for specific subscription orders. | `node scripts/04-event-management/send-season-ticket-by-order.js --event=<slug> --order=<orderId[,orderId2]> [--dry-run]` | — |
-| `scripts/04-event-management/send-event-tickets-by-order.js` | Resend event ticket confirmations for selected orders. | `node scripts/04-event-management/send-event-tickets-by-order.js --event=<slug> --order=<orderId[,id2]> [--file=orders.csv] [--dry-run]` | `data/templates/csv/orders-resend.template.csv` |
+| `scripts/04-event-management/send-event-tickets-by-order.js` | Resend event ticket confirmations for selected orders. | `node scripts/04-event-management/send-event-tickets-by-order.js --event=<slug> --order=<orderId[,id2]> [--file=orders.csv] [--status=paid] [--dry-run]` | `data/templates/csv/orders-resend.template.csv` |
 | `scripts/04-event-management/tickets-pdf.js` | Produce a tickets PDF for a given order. | `node scripts/04-event-management/tickets-pdf.js <orderId>` | — |
 
 ## 05 — Misc
