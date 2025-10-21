@@ -188,16 +188,11 @@ async function main() {
     const pseudoOrderId = new mongoose.Types.ObjectId();
     const lines = [];
     const tickets = [];
-    const fallbackCounters = new Map();
-
-    const nextFallbackSeat = (zoneKey) => {
-      const key = zoneKey || 'ZONE';
-      const current = fallbackCounters.get(key) || 0;
-      const next = current + 1;
-      fallbackCounters.set(key, next);
+    const fallbackSeatId = (zoneKey) => {
+      const zoneLabel = String(zoneKey || FALLBACK_ZONE || 'ZONE').toUpperCase();
       const suffix = String(sub._id || pseudoOrderId).slice(-6).toUpperCase();
-      const index = String(next).padStart(2, '0');
-      return `${key}-GA-${suffix}-${index}`;
+      const index = String(lines.length + 1).padStart(2, '0');
+      return `${zoneLabel}-GA-${suffix}-${index}`;
     };
 
     for (const ln of (sub.lines || [])) {
@@ -210,8 +205,8 @@ async function main() {
         ? (seatZone.get(rawSeatId) || zoneFromOrder || zoneFromSeatId(rawSeatId) || '').toUpperCase()
         : (zoneFromOrder || zoneFromSeatId(rawSeatId) || FALLBACK_ZONE || '').toUpperCase();
       const fallbackZone = FALLBACK_ZONE ? FALLBACK_ZONE.toUpperCase() : 'ZONE';
-      const zoneForTicket = zoneComputed || fallbackZone;
-      const seatIdForTickets = seatUsable ? rawSeatId : nextFallbackSeat(zoneForTicket || fallbackZone);
+      const zoneForTicket = (zoneComputed || fallbackZone).toUpperCase();
+      const seatIdForTickets = seatUsable ? rawSeatId : fallbackSeatId(zoneForTicket || fallbackZone);
       const priceCents = Number(ln.priceCents || 0);
       const holderFirstName = String(ln.holderFirstName || '');
       const holderLastName  = String(ln.holderLastName  || '');
@@ -327,16 +322,11 @@ async function processSubscribersFallback(alreadyProcessed) {
     const pseudoOrderId = new mongoose.Types.ObjectId();
     const lines = [];
     const tickets = [];
-    const fallbackCounters = new Map();
-
-    const nextFallbackSeat = (zoneKey) => {
-      const key = zoneKey || 'ZONE';
-      const current = fallbackCounters.get(key) || 0;
-      const next = current + 1;
-      fallbackCounters.set(key, next);
+    const fallbackSeatId = (zoneKey) => {
+      const zoneLabel = String(zoneKey || FALLBACK_ZONE || 'ZONE').toUpperCase();
       const suffix = String(pseudoOrderId).slice(-6).toUpperCase();
-      const index = String(next).padStart(2, '0');
-      return `${key}-GA-${suffix}-${index}`;
+      const index = String(lines.length + 1).padStart(2, '0');
+      return `${zoneLabel}-GA-${suffix}-${index}`;
     };
 
     for (const [seatId, rec] of uniqueSeats.entries()) {
@@ -347,8 +337,8 @@ async function processSubscribersFallback(alreadyProcessed) {
         ? (seatZone.get(seatId) || zoneFromSeatId(seatId) || '').toUpperCase()
         : (zoneFromSeatId(seatId) || FALLBACK_ZONE || '').toUpperCase();
       const fallbackZone = FALLBACK_ZONE ? FALLBACK_ZONE.toUpperCase() : 'ZONE';
-      const zoneForTicket = zoneComputed || fallbackZone;
-      const seatIdForTickets = seatUsable ? seatId : nextFallbackSeat(zoneForTicket || fallbackZone);
+      const zoneForTicket = (zoneComputed || fallbackZone).toUpperCase();
+      const seatIdForTickets = seatUsable ? seatId : fallbackSeatId(zoneForTicket || fallbackZone);
       const holderFirstName = rec.firstName || '';
       const holderLastName  = rec.lastName  || '';
 
