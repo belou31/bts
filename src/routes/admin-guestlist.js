@@ -30,42 +30,59 @@ router.get('/admin/event/:eventIdOrSlug/guestlist', async (req, res) => {
   try {
     const ev = await loadEventByIdOrSlug(req.params.eventIdOrSlug);
 
-    // On prend uniquement les commandes “paid” liées à CET événement
-    const orders = await Order.find(
+    const eventOrdersPromise = Order.find(
       { status: 'paid', 'meta.eventId': String(ev._id) },
       { payerFirstName:1, payerLastName:1, payerEmail:1, lines:1 }
     ).lean();
 
-    // Aplatis toutes les lignes “seat-like” (on garde aussi les tickets de zone)
-    const rows = [];
-    for (const o of orders) {
-      const contact = {
-        firstName: o.payerFirstName || '',
-        lastName:  o.payerLastName  || '',
-        email:     o.payerEmail     || '',
-      };
-      for (const ln of (o.lines || [])) {
-        const seatId = String(ln.seatId||'').trim();
-        const { section, row, seatNo } = splitSeat(seatId);
-        const isRealSeat = !!section && !!row && !!seatNo;
+    const seasonOrdersPromise = Order.find(
+      {
+        status: 'paid',
+        phase: 'subscription',
+        seasonCode: ev.seasonCode,
+        venueSlug: ev.venueSlug
+      },
+      { payerFirstName:1, payerLastName:1, payerEmail:1, lines:1 }
+    ).lean();
 
-        rows.push({
-          section: isRealSeat ? section : (String(ln.zoneKey||'').toUpperCase() || ''),
-          row:     isRealSeat ? row     : '',
-          seat:    isRealSeat ? seatId  : (ln.zoneKey ? `ZONE ${String(ln.zoneKey).toUpperCase()}` : ''),
-          holderFirstName: ln.holderFirstName || '',
-          holderLastName:  ln.holderLastName  || '',
-          contactFirstName: contact.firstName,
-          contactLastName:  contact.lastName,
-          contactEmail:     contact.email,
-        });
+    const [eventOrders, seasonOrders] = await Promise.all([eventOrdersPromise, seasonOrdersPromise]);
+
+    const rows = [];
+
+    const appendOrderLines = (orders, source) => {
+      for (const o of orders) {
+        const contact = {
+          firstName: o.payerFirstName || '',
+          lastName:  o.payerLastName  || '',
+          email:     o.payerEmail     || '',
+        };
+        for (const ln of (o.lines || [])) {
+          const seatId = String(ln.seatId||'').trim();
+          const { section, row, seatNo } = splitSeat(seatId);
+          const isRealSeat = !!section && !!row && !!seatNo;
+
+          rows.push({
+            section: isRealSeat ? section : (String(ln.zoneKey||'').toUpperCase() || ''),
+            row:     isRealSeat ? row     : '',
+            seat:    isRealSeat ? seatId  : (ln.zoneKey ? `ZONE ${String(ln.zoneKey).toUpperCase()}` : ''),
+            holderFirstName: ln.holderFirstName || '',
+            holderLastName:  ln.holderLastName  || '',
+            contactFirstName: contact.firstName,
+            contactLastName:  contact.lastName,
+            contactEmail:     contact.email,
+            source
+          });
+        }
       }
-    }
+    };
+
+    appendOrderLines(eventOrders, 'Event');
+    appendOrderLines(seasonOrders, 'Season');
 
     // Tri: section, rang, numéro
     rows.sort((a,b) => {
-      const A = [a.section, a.row, a.seat].join('|');
-      const B = [b.section, b.row, b.seat].join('|');
+      const A = [a.section, a.row, a.seat, a.source || ''].join('|');
+      const B = [b.section, b.row, b.seat, b.source || ''].join('|');
       return A.localeCompare(B, 'fr');
     });
 
@@ -96,6 +113,7 @@ router.get('/admin/event/:eventIdOrSlug/guestlist', async (req, res) => {
       <th>Contact · Prénom</th>
       <th>Contact · Nom</th>
       <th>Contact · Email</th>
+      <th>Origine</th>
     </tr>
   </thead>
   <tbody>
@@ -109,6 +127,7 @@ router.get('/admin/event/:eventIdOrSlug/guestlist', async (req, res) => {
         <td>${r.contactFirstName || ''}</td>
         <td>${r.contactLastName || ''}</td>
         <td>${r.contactEmail || ''}</td>
+        <td>${r.source || ''}</td>
       </tr>`).join('')}
   </tbody>
 </table>`);
