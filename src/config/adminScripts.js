@@ -1113,7 +1113,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Re-import or create paid event orders from a CSV export. Dry-run by default; add --commit to persist and --sendEmail to trigger confirmations.',
-        templates: ['data/templates/csv/orders-import.template.csv'],
+        templates: ['data/templates/csv/event-orders.template.csv'],
         form: {
           fields: [
             {
@@ -1122,6 +1122,45 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/event-orders.csv',
               required: true,
               arg: { type: 'positional', index: 0 }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-export-orders',
+        label: 'Export Orders for Event',
+        order: 3.6,
+        path: 'scripts/04-event-management/export-orders.js',
+        command: 'node scripts/04-event-management/export-orders.js --event=<slug|ObjectId> [--status=paid] [--out=orders.csv]',
+        run: {
+          script: 'scripts/04-event-management/export-orders.js',
+          args: []
+        },
+        description: 'Exports event orders (one row per ticket) matching the same CSV format as the import tool.',
+        templates: ['data/templates/csv/event-orders.template.csv'],
+        notes: [
+          'Streams to stdout by default; provide --out to write directly to a file.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'status',
+              label: 'Statut (optionnel)',
+              placeholder: 'paid',
+              arg: { type: 'option', template: '--status=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Fichier (optionnel)',
+              placeholder: 'data/outputs/event-orders.csv',
+              arg: { type: 'option', template: '--out=${value}' }
             }
           ]
         }
@@ -1197,13 +1236,13 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'event-send-season-tickets-file',
-        label: 'Send Season Tickets for Event from File',
+        id: 'event-send-all-season-tickets',
+        label: 'Send All Season Tickets for Event',
         order: 6,
-        path: 'scripts/04-event-management/send-season-tickets-for-event-from-file.js',
-        command: 'node scripts/04-event-management/send-season-tickets-for-event-from-file.js --event=<slug> [--limit=200] [--dry-run]',
+        path: 'scripts/04-event-management/send-all-season-tickets-for-event.js',
+        command: 'node scripts/04-event-management/send-all-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run]',
         run: {
-          script: 'scripts/04-event-management/send-season-tickets-for-event-from-file.js',
+          script: 'scripts/04-event-management/send-all-season-tickets-for-event.js',
           args: []
         },
         description: 'Generates and emails season tickets for a specific event using the season subscription base, optionally in dry-run mode.',
@@ -1232,13 +1271,13 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'event-resend-season-tickets-orders',
-        label: 'Resend Season Tickets for Event from Orders',
+        id: 'event-resend-season-tickets',
+        label: 'Resend Season Tickets for Event',
         order: 7,
-        path: 'scripts/04-event-management/resend-season-tickets-for-event-from-orders.js',
-        command: 'node scripts/04-event-management/resend-season-tickets-for-event-from-orders.js --event=<slug> --order=<orderId[,orderId2]> [--dry-run]',
+        path: 'scripts/04-event-management/resend-season-tickets-for-event.js',
+        command: 'node scripts/04-event-management/resend-season-tickets-for-event.js --event=<slug> --order=<orderId[,orderId2]> [--dry-run]',
         run: {
-          script: 'scripts/04-event-management/resend-season-tickets-for-event-from-orders.js',
+          script: 'scripts/04-event-management/resend-season-tickets-for-event.js',
           args: []
         },
         description: 'Send season ticket emails for specific subscription order(s) (comma-separated).',
@@ -1262,50 +1301,13 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'event-send-tickets-file',
-        label: 'Send Tickets for Event from File',
+        id: 'event-resend-tickets',
+        label: 'Resend Tickets for Event',
         order: 7.2,
-        path: 'scripts/04-event-management/send-event-tickets-from-file.js',
-        command: 'node scripts/04-event-management/send-event-tickets-from-file.js --event=<slug> --file=<orders.csv> [--status=paid] [--dry-run]',
+        path: 'scripts/04-event-management/resend-event-tickets.js',
+        command: 'node scripts/04-event-management/resend-event-tickets.js --event=<slug> --order=<orderId[,orderId2]> [--status=paid] [--dry-run]',
         run: {
-          script: 'scripts/04-event-management/send-event-tickets-from-file.js',
-          args: []
-        },
-        description: 'Resends event ticket emails for orders listed in a CSV file. Use --status=paid to override stuck orders, and --dry-run to preview.',
-        templates: ['data/templates/csv/orders-resend.template.csv'],
-        form: {
-          fields: [
-            {
-              name: 'event',
-              label: 'Slug ou ID de l’événement',
-              placeholder: 'match-2025-09-21-bts-vs-xxx',
-              required: true,
-              arg: { type: 'option', template: '--event=${value}' }
-            },
-            {
-              name: 'file',
-              label: 'CSV commandes',
-              placeholder: 'data/inputs/orders-resend.csv',
-              required: true,
-              arg: { type: 'option', template: '--file=${value}' }
-            },
-            {
-              name: 'status',
-              label: 'Forcer statut (optionnel)',
-              placeholder: 'paid',
-              arg: { type: 'option', template: '--status=${value}' }
-            }
-          ]
-        }
-      },
-      {
-        id: 'event-resend-tickets-orders',
-        label: 'Resend Tickets for Event from Orders',
-        order: 7.3,
-        path: 'scripts/04-event-management/resend-event-tickets-from-orders.js',
-        command: 'node scripts/04-event-management/resend-event-tickets-from-orders.js --event=<slug> --order=<orderId[,orderId2]> [--status=paid] [--dry-run]',
-        run: {
-          script: 'scripts/04-event-management/resend-event-tickets-from-orders.js',
+          script: 'scripts/04-event-management/resend-event-tickets.js',
           args: []
         },
         description: 'Resends event ticket emails for specific order IDs. Use --status=paid to override and --dry-run to preview.',
