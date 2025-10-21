@@ -1266,12 +1266,12 @@ export const adminScriptGroups = [
         label: 'Send Event Tickets by Order',
         order: 7.2,
         path: 'scripts/04-event-management/send-event-tickets-by-order.js',
-        command: 'node scripts/04-event-management/send-event-tickets-by-order.js --event=<slug> --order=<orderId[,orderId2]> [--file=orders.csv] [--dry-run]',
+        command: 'node scripts/04-event-management/send-event-tickets-by-order.js --event=<slug> --order=<orderId[,orderId2]> [--file=orders.csv] [--status=paid] [--dry-run]',
         run: {
           script: 'scripts/04-event-management/send-event-tickets-by-order.js',
           args: []
         },
-        description: 'Resends event ticket emails for specific order(s) linked to the selected event. Use --dry-run to preview without sending.',
+        description: 'Resends event ticket emails for specific order(s) linked to the selected event. Use --status=paid to force status before send and --dry-run to preview.',
         templates: ['data/templates/csv/orders-resend.template.csv'],
         form: {
           fields: [
@@ -1293,6 +1293,12 @@ export const adminScriptGroups = [
               label: 'CSV commandes (optionnel)',
               placeholder: 'data/inputs/orders-resend.csv',
               arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
+              name: 'status',
+              label: 'Forcer statut (optionnel)',
+              placeholder: 'paid',
+              arg: { type: 'option', template: '--status=${value}' }
             }
           ]
         }
