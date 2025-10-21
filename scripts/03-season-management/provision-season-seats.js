@@ -166,7 +166,7 @@ async function main() {
   await applyCategory('VISITORS (S2 rangées F,G)', visitorsFilter);
   await applyCategory('FANCLUB TBH7 (N5/N6/N7 rangées L,M,N)', fanclubFilter);
   await applyCategory('FANCLUB TBH7 2 (sièges en N7)', fanclub2Filter);
-  //await applyCategory('TISSEO CLUBEO (sièges en N7)', tisseoClubeoFilter);
+  await applyCategory('TISSEO CLUBEO (sièges en N7)', tisseoClubeoFilter);
   await applyCategory('UNAVAILABLE (sièges unitaires)', unavailableFilter);
 
   if (!APPLY) {
