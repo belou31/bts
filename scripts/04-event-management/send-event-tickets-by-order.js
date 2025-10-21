@@ -226,12 +226,22 @@ async function main() {
         if (originAdjusted) order.markModified('origin');
         if (templateAdjusted) order.markModified('mailTemplateKind');
         if (statusChanged) order.markModified('status');
-        await order.save();
-        if (statusChanged) {
-          console.log(`↺ Status forcé à ${String(order.status).toLowerCase()} pour ${order._id}`);
-        }
-        if (templateAdjusted || originAdjusted) {
-          console.log(`↺ Normalisation des métadonnées email pour ${order._id}`);
+        try {
+          await order.save();
+          if (statusChanged) {
+            console.log(`↺ Status forcé à ${String(order.status || STATUS_OVERRIDE).toLowerCase()} pour ${order._id}`);
+          }
+          if (templateAdjusted || originAdjusted) {
+            console.log(`↺ Normalisation des métadonnées email pour ${order._id}`);
+          }
+        } catch (err) {
+          if (statusChanged && err?.code === 11000) {
+            console.warn(`⚠️  Impossible de persister status=${STATUS_OVERRIDE} pour ${order._id} (contrainte unique). Envoi de l'email tout de même.`);
+            // keep in-memory override for the email
+            order.status = STATUS_OVERRIDE;
+          } else {
+            throw err;
+          }
         }
       }
 
