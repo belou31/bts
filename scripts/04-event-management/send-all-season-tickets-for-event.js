@@ -1,6 +1,6 @@
-// scripts/04-event-management/send-season-tickets-for-event-from-file.js
+// scripts/04-event-management/send-all-season-tickets-for-event.js
 // Usage:
-//  node scripts/04-event-management/send-season-tickets-for-event-from-file.js --event 2025-09-20-belougas-vs-vipers-123456 [--limit 200] [--dry-run] [--fallback-zone SAME|N4|DEBOUT]
+//  node scripts/04-event-management/send-all-season-tickets-for-event.js --event 2025-09-20-belougas-vs-vipers-123456 [--limit 200] [--dry-run] [--fallback-zone SAME|N4|DEBOUT]
 
 import path from 'node:path';
 import mongoose from 'mongoose';

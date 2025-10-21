@@ -3,7 +3,7 @@
  * Resend season tickets for selected subscription orders.
  *
  * Usage:
- *   node scripts/04-event-management/resend-season-tickets-for-event-from-orders.js \
+ *   node scripts/04-event-management/resend-season-tickets-for-event.js \
  *     --event=<slug|ObjectId> --order=<orderId[,orderId2]> [--dry-run] [--fallback-zone=SAME]
  */
 

@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 /**
- * Resend event ticket confirmations for orders listed in a CSV.
+ * Resend event ticket confirmations for specific orders.
  *
  * Usage:
- *   node scripts/04-event-management/send-event-tickets-from-file.js \
- *     --event=<slug|ObjectId> --file=<orders.csv> [--status=paid] [--dry-run]
- *
- * Expected CSV header: orderId (additional columns are ignored).
+ *   node scripts/04-event-management/resend-event-tickets.js \
+ *     --event=<slug|ObjectId> --order=<id[,id2]> [--status=paid] [--dry-run]
  */
 
 import mongoose from 'mongoose';
@@ -15,7 +13,7 @@ import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { connectMongo, loadModels, readCsv } from '../_utils.js';
+import { connectMongo, loadModels } from '../_utils.js';
 import { sendOrderAttestationIfNeeded, isPaidLike } from '../../src/services/order-finalization.js';
 
 const argv = yargs(hideBin(process.argv))
@@ -24,10 +22,10 @@ const argv = yargs(hideBin(process.argv))
     demandOption: true,
     desc: 'Slug or ObjectId of the event'
   })
-  .option('file', {
+  .option('order', {
     type: 'string',
-    demandOption: true,
-    desc: 'CSV file containing an orderId column'
+    array: true,
+    desc: 'Order ID(s); repeat the flag or provide comma-separated values'
   })
   .option('status', {
     type: 'string',
@@ -42,19 +40,21 @@ const argv = yargs(hideBin(process.argv))
   .argv;
 
 const EVENT_KEY = String(argv.event || '').trim();
-const CSV_PATH = String(argv.file || '').trim();
 const DRY_RUN = argv['dry-run'] === true;
 const STATUS_OVERRIDE = argv.status ? String(argv.status).trim().toLowerCase() : null;
 
-async function loadOrderIdsFromCsv(path) {
-  const rows = await readCsv(path);
+function collectOrderIds() {
   const ids = new Set();
-  for (const row of rows) {
-    const candidate = row.orderId ?? row.order_id ?? row.id ?? '';
-    const trimmed = String(candidate || '').trim();
-    if (trimmed) ids.add(trimmed);
+  const rawFlags = Array.isArray(argv.order) ? argv.order : [];
+  for (const raw of rawFlags) {
+    if (!raw) continue;
+    String(raw)
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean)
+      .forEach(v => ids.add(v));
   }
-  return Array.from(ids);
+  return ids;
 }
 
 function formatEventRef(ev) {
@@ -67,14 +67,10 @@ async function main() {
     console.error('❌ Missing --event <slug|ObjectId>');
     process.exit(1);
   }
-  if (!CSV_PATH) {
-    console.error('❌ Missing --file <orders.csv>');
-    process.exit(1);
-  }
 
-  const ids = await loadOrderIdsFromCsv(CSV_PATH);
-  if (!ids.length) {
-    console.error('❌ CSV vide ou sans colonne orderId exploitable.');
+  const ids = collectOrderIds();
+  if (!ids.size) {
+    console.error('❌ Provide at least one order via --order');
     process.exit(1);
   }
 
@@ -101,7 +97,7 @@ async function main() {
 
   console.log(DRY_RUN ? '🧪 Dry-run — aucun email ne sera envoyé.' : '⚠️  Envoi des emails activé.');
   console.log(`→ Event: ${formatEventRef(event)}`);
-  console.log(`→ Orders (CSV): ${ids.length}`);
+  console.log(`→ Orders ciblés: ${ids.size}`);
 
   const stats = {
     processed: 0,
@@ -192,7 +188,7 @@ async function main() {
           ...(order.origin || {}),
           flow: 'event',
           uiPath: order.origin?.uiPath || '/event',
-          apiPath: order.origin?.apiPath || '/admin/event/send-ticket-by-file'
+          apiPath: order.origin?.apiPath || '/admin/event/resend-ticket-by-order'
         };
         needsSave = true;
         originAdjusted = true;
@@ -230,7 +226,7 @@ async function main() {
 
   await mongoose.disconnect();
   console.log('— Résumé —');
-  console.log(JSON.stringify({ event: formatEventRef(event), dryRun: DRY_RUN, total: ids.length, ...stats }, null, 2));
+  console.log(JSON.stringify({ event: formatEventRef(event), dryRun: DRY_RUN, ...stats }, null, 2));
   process.exit(0);
 }
 
