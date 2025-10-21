@@ -146,6 +146,14 @@ async function sendTicketsForOrder({ event, order, seatMaps, fallbackZone, dryRu
   const pseudoOrderId = new mongoose.Types.ObjectId();
   const lines = [];
   const tickets = [];
+  const fallbackZoneUpper = String(fallbackZone || 'ZONE').toUpperCase();
+
+  const buildFallbackSeatId = (zoneKey, index) => {
+    const zoneLabel = String(zoneKey || fallbackZoneUpper || 'ZONE').toUpperCase();
+    const suffix = String(order._id || pseudoOrderId).slice(-6).toUpperCase();
+    const seq = String(index + 1).padStart(2, '0');
+    return `${zoneLabel}-GA-${suffix}-${seq}`;
+  };
 
   for (const ln of (order.lines || [])) {
     const rawSeatId = String(ln.seatId || '').trim();
@@ -156,8 +164,8 @@ async function sendTicketsForOrder({ event, order, seatMaps, fallbackZone, dryRu
     const zoneComputed = seatKnown
       ? (seatZone.get(rawSeatId) || zoneFromOrder || zoneFromSeatId(rawSeatId) || '').toUpperCase()
       : (zoneFromOrder || zoneFromSeatId(rawSeatId) || fallbackZone || '').toUpperCase();
-    const zoneForTicket = zoneComputed || (fallbackZone ? fallbackZone.toUpperCase() : 'ZONE');
-    const seatIdForTickets = rawSeatId || zoneForTicket;
+    const zoneForTicket = zoneComputed || fallbackZoneUpper;
+    const seatIdForTickets = seatUsable ? rawSeatId : buildFallbackSeatId(zoneForTicket, lines.length);
     const priceCents = Number(ln.priceCents || 0);
     const holderFirstName = String(ln.holderFirstName || '');
     const holderLastName  = String(ln.holderLastName  || '');
@@ -196,7 +204,7 @@ async function sendTicketsForOrder({ event, order, seatMaps, fallbackZone, dryRu
         seatId: seatIdForTickets,
         zoneKey: zoneForTicket,
       tariff: 'ABONNÉ',
-        hex: hexZone(event._id, zoneForTicket, order._id || pseudoOrderId, seatIdForTickets),
+        hex: hexZone(event._id, zoneForTicket || fallbackZoneUpper, order._id || pseudoOrderId, seatIdForTickets),
         fallback: true,
         note
       });
