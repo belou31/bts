@@ -1103,6 +1103,30 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'event-import-orders',
+        label: 'Import Orders for Event',
+        order: 3.5,
+        path: 'scripts/04-event-management/import-orders.js',
+        command: 'node scripts/04-event-management/import-orders.js <path/to/orders.csv> [--status=paid] [--commit] [--force] [--sendEmail]',
+        run: {
+          script: 'scripts/04-event-management/import-orders.js',
+          args: []
+        },
+        description: 'Re-import or create paid event orders from a CSV export. Dry-run by default; add --commit to persist and --sendEmail to trigger confirmations.',
+        templates: ['data/templates/csv/orders-import.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'csv',
+              label: 'CSV commandes',
+              placeholder: 'data/inputs/event-orders.csv',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            }
+          ]
+        }
+      },
+      {
         id: 'event-import-qr-bank',
         label: 'Import QR Bank',
         order: 4,
@@ -1233,6 +1257,42 @@ export const adminScriptGroups = [
               placeholder: '68f137992cbaad229d6a4dbf,abc123',
               required: true,
               arg: { type: 'option', template: '--order=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-send-event-ticket-by-order',
+        label: 'Send Event Tickets by Order',
+        order: 7.2,
+        path: 'scripts/04-event-management/send-event-tickets-by-order.js',
+        command: 'node scripts/04-event-management/send-event-tickets-by-order.js --event=<slug> --order=<orderId[,orderId2]> [--file=orders.csv] [--dry-run]',
+        run: {
+          script: 'scripts/04-event-management/send-event-tickets-by-order.js',
+          args: []
+        },
+        description: 'Resends event ticket emails for specific order(s) linked to the selected event. Use --dry-run to preview without sending.',
+        templates: ['data/templates/csv/orders-resend.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'order',
+              label: 'OrderId (séparés par des virgules)',
+              placeholder: '6652f1…c123,6652f2…c456',
+              arg: { type: 'option', template: '--order=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'CSV commandes (optionnel)',
+              placeholder: 'data/inputs/orders-resend.csv',
+              arg: { type: 'option', template: '--file=${value}' }
             }
           ]
         }
@@ -1400,33 +1460,6 @@ export const adminScriptGroups = [
               label: 'Filtrer par zone (optionnel)',
               placeholder: 'TBH7',
               arg: { type: 'option', template: '--zone=${value}' }
-            }
-          ]
-        }
-      },
-      {
-        id: 'orders-resend-confirmation',
-        label: 'Resend Order Confirmation',
-        order: 5,
-        path: 'scripts/05-misc/orders-resend-confirmation.js',
-        command: 'node scripts/05-misc/orders-resend-confirmation.js --file=orders.csv [--commit]',
-        run: {
-          script: 'scripts/05-misc/orders-resend-confirmation.js',
-          args: []
-        },
-        description: 'Resends the HelloAsso confirmation email for a specific order.',
-        templates: ['data/templates/csv/orders-resend.template.csv'],
-        notes: [
-          'Dry-run unless --commit is provided.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'file',
-              label: 'CSV commandes',
-              placeholder: 'data/inputs/orders-resend.csv',
-              required: true,
-              arg: { type: 'option', template: '--file=${value}' }
             }
           ]
         }

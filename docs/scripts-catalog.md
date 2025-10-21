@@ -68,6 +68,7 @@ Each entry below references the canonical command, required environment variable
 | `scripts/04-event-management/seats-hold-release.js` | Block or free seat holds for an event from a CSV. | `node scripts/04-event-management/seats-hold-release.js --file=holds.csv [--commit] [--force]` | `data/templates/csv/seats-hold-release.template.csv` |
 | `scripts/04-event-management/send-season-tickets-for-event.js` | Generate/send season tickets (PDF) for an event. | `node scripts/04-event-management/send-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run]` | — |
 | `scripts/04-event-management/send-season-ticket-by-order.js` | Send season tickets for specific subscription orders. | `node scripts/04-event-management/send-season-ticket-by-order.js --event=<slug> --order=<orderId[,orderId2]> [--dry-run]` | — |
+| `scripts/04-event-management/send-event-tickets-by-order.js` | Resend event ticket confirmations for selected orders. | `node scripts/04-event-management/send-event-tickets-by-order.js --event=<slug> --order=<orderId[,id2]> [--file=orders.csv] [--dry-run]` | `data/templates/csv/orders-resend.template.csv` |
 | `scripts/04-event-management/tickets-pdf.js` | Produce a tickets PDF for a given order. | `node scripts/04-event-management/tickets-pdf.js <orderId>` | — |
 
 ## 05 — Misc
@@ -78,7 +79,6 @@ Each entry below references the canonical command, required environment variable
 | `scripts/orders-import-csv.js` | Import paid orders in bulk from a CSV (optionally send confirmations). | `node scripts/orders-import-csv.js --file=orders.csv [--send] [--commit]` | `data/templates/csv/orders-import.template.csv` |
 | `scripts/orders-delete-csv.js` | Cancel or hard delete orders listed in a CSV. | `node scripts/orders-delete-csv.js --file=orders.csv [--commit] [--force]` | `data/templates/csv/orders-delete.template.csv` |
 | `scripts/05-misc/reports/export-seats.js` | Export seats with provisioning + booking metadata. | `node scripts/05-misc/reports/export-seats.js [--season=...] [--venue=...] [--zone=...]` | `data/templates/csv/seats-export.template.csv` |
-| `scripts/05-misc/orders-resend-confirmation.js` | Resend confirmation emails (dry-run unless `--commit`). | `node scripts/05-misc/orders-resend-confirmation.js --file=orders.csv [--commit]` | `data/templates/csv/orders-resend.template.csv` |
 | `scripts/05-misc/sentinels/pending-orders.js` | Watch pending HelloAsso orders and release holds. | `node scripts/05-misc/sentinels/pending-orders.js [--max-age-minutes=60]` | — |
 | `scripts/05-misc/audit-missing-seats.js` | Audit subscribers referencing seats missing from the season. | `node scripts/05-misc/audit-missing-seats.js <seasonCode> [--venue=<slug>] [--out=...]` | — |
 
