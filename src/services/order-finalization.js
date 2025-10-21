@@ -37,11 +37,18 @@ export function realSeatIdsFromOrder(order) {
 }
 
 
+function generateTicketHex(orderId, index, seatId, zoneKey, tariffCode) {
+  const seat = seatId ? `S:${seatId}` : `Z:${zoneKey || 'ZONE'}`;
+  const tariff = tariffCode ? `T:${tariffCode}` : 'T:NORMAL';
+  const payload = `E:${orderId}:${seat}:${tariff}:${index}`;
+  return Buffer.from(payload, 'utf8').toString('base64').replace(/=+$/,'');
+}
+
 async function ensureTicketsForEventOrder(order) {
   const eventIdRaw = order?.meta?.eventId;
   if (!eventIdRaw) return { created: 0, updated: 0 };
 
-  const metaTickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+  let metaTickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
   if (!metaTickets.length) return { created: 0, updated: 0 };
 
   const lines = Array.isArray(order?.lines) ? order.lines : [];
@@ -50,6 +57,73 @@ async function ensureTicketsForEventOrder(order) {
   let created = 0;
   let updated = 0;
   let metaChanged = false;
+
+  // Normalise tickets so they align 1:1 with lines and provide unique QR codes
+  const metaPool = [...metaTickets];
+  const normalisedMeta = [];
+  const usedHex = new Set();
+
+  const takeTicket = (predicate) => {
+    const idx = metaPool.findIndex(predicate);
+    if (idx === -1) return null;
+    return metaPool.splice(idx, 1)[0];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] || {};
+    const seatFromLine = String(line.seatId || '').trim();
+    const zoneFromLine = String(line.zoneKey || '').trim().toUpperCase();
+    const tariffFromLine = String(line.tariffCode || '').trim().toUpperCase() || 'NORMAL';
+
+    let ticket = null;
+    if (seatFromLine) {
+      ticket = takeTicket(t => String(t?.seatId || '').trim() === seatFromLine);
+    }
+    if (!ticket && zoneFromLine) {
+      ticket = takeTicket(t =>
+        !t?.seatId &&
+        String(t?.zoneKey || '').toUpperCase() === zoneFromLine &&
+        String(t?.tariff || t?.tariffCode || '').toUpperCase() === tariffFromLine
+      );
+    }
+    if (!ticket) {
+      ticket = metaPool.length ? metaPool.shift() : {};
+    }
+
+    if (seatFromLine && String(ticket.seatId || '') !== seatFromLine) {
+      ticket.seatId = seatFromLine;
+      metaChanged = true;
+    }
+    if (zoneFromLine && String(ticket.zoneKey || '').toUpperCase() !== zoneFromLine) {
+      ticket.zoneKey = zoneFromLine;
+      metaChanged = true;
+    }
+    const currentTariff = String(ticket.tariff || ticket.tariffCode || '').toUpperCase();
+    if (currentTariff !== tariffFromLine) {
+      ticket.tariff = tariffFromLine;
+      ticket.tariffCode = tariffFromLine;
+      metaChanged = true;
+    }
+
+    let hex = String(ticket.hex || ticket.value || '').trim();
+    if (!hex || usedHex.has(hex)) {
+      hex = generateTicketHex(orderId, i, seatFromLine, zoneFromLine, tariffFromLine);
+      ticket.hex = hex;
+      ticket.value = hex;
+      metaChanged = true;
+    }
+    usedHex.add(hex);
+
+    normalisedMeta.push(ticket);
+  }
+
+  if (metaPool.length) metaChanged = true; // leftovers not matched to lines
+
+  // Replace meta tickets with the normalised list for downstream processing
+  order.meta = order.meta || {};
+  const originalLength = metaTickets.length;
+  metaTickets.splice(0, metaTickets.length, ...normalisedMeta);
+  if (originalLength !== normalisedMeta.length) metaChanged = true;
 
   for (let i = 0; i < metaTickets.length; i++) {
     const metaTicket = metaTickets[i] || {};
