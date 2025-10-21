@@ -211,7 +211,7 @@ async function main() {
         : (zoneFromOrder || zoneFromSeatId(rawSeatId) || FALLBACK_ZONE || '').toUpperCase();
       const fallbackZone = FALLBACK_ZONE ? FALLBACK_ZONE.toUpperCase() : 'ZONE';
       const zoneForTicket = zoneComputed || fallbackZone;
-      const seatIdForTickets = rawSeatId || nextFallbackSeat(zoneForTicket || fallbackZone);
+      const seatIdForTickets = seatUsable ? rawSeatId : nextFallbackSeat(zoneForTicket || fallbackZone);
       const priceCents = Number(ln.priceCents || 0);
       const holderFirstName = String(ln.holderFirstName || '');
       const holderLastName  = String(ln.holderLastName  || '');
@@ -348,7 +348,7 @@ async function processSubscribersFallback(alreadyProcessed) {
         : (zoneFromSeatId(seatId) || FALLBACK_ZONE || '').toUpperCase();
       const fallbackZone = FALLBACK_ZONE ? FALLBACK_ZONE.toUpperCase() : 'ZONE';
       const zoneForTicket = zoneComputed || fallbackZone;
-      const seatIdForTickets = seatId || nextFallbackSeat(zoneForTicket || fallbackZone);
+      const seatIdForTickets = seatUsable ? seatId : nextFallbackSeat(zoneForTicket || fallbackZone);
       const holderFirstName = rec.firstName || '';
       const holderLastName  = rec.lastName  || '';
 
