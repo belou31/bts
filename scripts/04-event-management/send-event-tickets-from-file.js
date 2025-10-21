@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 /**
- * Send (or preview) event ticket confirmations for specific orders.
+ * Resend event ticket confirmations for orders listed in a CSV.
  *
  * Usage:
- *   node scripts/04-event-management/send-event-tickets-by-order.js \
- *     --event=<slug|ObjectId> [--order=<id[,id2]>] [--file=orders.csv] [--status=paid] [--dry-run]
+ *   node scripts/04-event-management/send-event-tickets-from-file.js \
+ *     --event=<slug|ObjectId> --file=<orders.csv> [--status=paid] [--dry-run]
  *
- * Notes:
- *   - Requires the orders to be linked to the given event (meta.eventId / meta.eventSlug).
- *   - Accepts multiple --order flags or a comma-separated list; --file expects a CSV with an orderId column.
- *   - Use --status=paid to force the status before sending (helpful when orders are stuck in pending).
- *   - Dry-run prints the targets without sending e-mails.
+ * Expected CSV header: orderId (additional columns are ignored).
  */
 
 import mongoose from 'mongoose';
@@ -28,18 +24,14 @@ const argv = yargs(hideBin(process.argv))
     demandOption: true,
     desc: 'Slug or ObjectId of the event'
   })
-  .option('order', {
+  .option('file', {
     type: 'string',
-    array: true,
-    desc: 'Order ID(s). Repeat the flag or separate values with commas.'
+    demandOption: true,
+    desc: 'CSV file containing an orderId column'
   })
   .option('status', {
     type: 'string',
     desc: 'Force order status before sending (e.g. paid)'
-  })
-  .option('file', {
-    type: 'string',
-    desc: 'CSV file containing orderId column'
   })
   .option('dry-run', {
     type: 'boolean',
@@ -50,35 +42,19 @@ const argv = yargs(hideBin(process.argv))
   .argv;
 
 const EVENT_KEY = String(argv.event || '').trim();
+const CSV_PATH = String(argv.file || '').trim();
 const DRY_RUN = argv['dry-run'] === true;
 const STATUS_OVERRIDE = argv.status ? String(argv.status).trim().toLowerCase() : null;
 
-function collectOrderIds() {
+async function loadOrderIdsFromCsv(path) {
+  const rows = await readCsv(path);
   const ids = new Set();
-
-  const rawFlags = Array.isArray(argv.order) ? argv.order : [];
-  for (const raw of rawFlags) {
-    if (!raw) continue;
-    String(raw)
-      .split(',')
-      .map(v => v.trim())
-      .filter(Boolean)
-      .forEach(v => ids.add(v));
-  }
-
-  return ids;
-}
-
-async function collectFromCsv(target) {
-  if (!target) return [];
-  const rows = await readCsv(target);
-  const keys = [];
   for (const row of rows) {
     const candidate = row.orderId ?? row.order_id ?? row.id ?? '';
     const trimmed = String(candidate || '').trim();
-    if (trimmed) keys.push(trimmed);
+    if (trimmed) ids.add(trimmed);
   }
-  return keys;
+  return Array.from(ids);
 }
 
 function formatEventRef(ev) {
@@ -91,15 +67,14 @@ async function main() {
     console.error('❌ Missing --event <slug|ObjectId>');
     process.exit(1);
   }
-
-  const ids = collectOrderIds();
-  if (argv.file) {
-    const fromFile = await collectFromCsv(argv.file);
-    fromFile.forEach(v => ids.add(v));
+  if (!CSV_PATH) {
+    console.error('❌ Missing --file <orders.csv>');
+    process.exit(1);
   }
 
-  if (!ids.size) {
-    console.error('❌ Provide at least one order via --order or --file');
+  const ids = await loadOrderIdsFromCsv(CSV_PATH);
+  if (!ids.length) {
+    console.error('❌ CSV vide ou sans colonne orderId exploitable.');
     process.exit(1);
   }
 
@@ -126,7 +101,7 @@ async function main() {
 
   console.log(DRY_RUN ? '🧪 Dry-run — aucun email ne sera envoyé.' : '⚠️  Envoi des emails activé.');
   console.log(`→ Event: ${formatEventRef(event)}`);
-  console.log(`→ Orders ciblés: ${ids.size}`);
+  console.log(`→ Orders (CSV): ${ids.length}`);
 
   const stats = {
     processed: 0,
@@ -217,7 +192,7 @@ async function main() {
           ...(order.origin || {}),
           flow: 'event',
           uiPath: order.origin?.uiPath || '/event',
-          apiPath: order.origin?.apiPath || '/admin/event/send-ticket-by-order'
+          apiPath: order.origin?.apiPath || '/admin/event/send-ticket-by-file'
         };
         needsSave = true;
         originAdjusted = true;
@@ -237,7 +212,6 @@ async function main() {
         } catch (err) {
           if (statusChanged && err?.code === 11000) {
             console.warn(`⚠️  Impossible de persister status=${STATUS_OVERRIDE} pour ${order._id} (contrainte unique). Envoi de l'email tout de même.`);
-            // keep in-memory override for the email
             order.status = STATUS_OVERRIDE;
           } else {
             throw err;
@@ -256,7 +230,7 @@ async function main() {
 
   await mongoose.disconnect();
   console.log('— Résumé —');
-  console.log(JSON.stringify({ event: formatEventRef(event), dryRun: DRY_RUN, ...stats }, null, 2));
+  console.log(JSON.stringify({ event: formatEventRef(event), dryRun: DRY_RUN, total: ids.length, ...stats }, null, 2));
   process.exit(0);
 }
 

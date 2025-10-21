@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Send season tickets for selected subscription orders.
+ * Resend season tickets for selected subscription orders.
  *
  * Usage:
- *   node scripts/04-event-management/send-season-ticket-by-order.js \
+ *   node scripts/04-event-management/resend-season-tickets-for-event-from-orders.js \
  *     --event=<slug|ObjectId> --order=<orderId[,orderId2]> [--dry-run] [--fallback-zone=SAME]
  */
 
