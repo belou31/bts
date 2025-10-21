@@ -4,11 +4,12 @@
  *
  * Usage:
  *   node scripts/04-event-management/send-event-tickets-by-order.js \
- *     --event=<slug|ObjectId> [--order=<id[,id2]>] [--file=orders.csv] [--dry-run]
+ *     --event=<slug|ObjectId> [--order=<id[,id2]>] [--file=orders.csv] [--status=paid] [--dry-run]
  *
  * Notes:
  *   - Requires the orders to be linked to the given event (meta.eventId / meta.eventSlug).
  *   - Accepts multiple --order flags or a comma-separated list; --file expects a CSV with an orderId column.
+ *   - Use --status=paid to force the status before sending (helpful when orders are stuck in pending).
  *   - Dry-run prints the targets without sending e-mails.
  */
 
@@ -32,6 +33,10 @@ const argv = yargs(hideBin(process.argv))
     array: true,
     desc: 'Order ID(s). Repeat the flag or separate values with commas.'
   })
+  .option('status', {
+    type: 'string',
+    desc: 'Force order status before sending (e.g. paid)'
+  })
   .option('file', {
     type: 'string',
     desc: 'CSV file containing orderId column'
@@ -46,6 +51,7 @@ const argv = yargs(hideBin(process.argv))
 
 const EVENT_KEY = String(argv.event || '').trim();
 const DRY_RUN = argv['dry-run'] === true;
+const STATUS_OVERRIDE = argv.status ? String(argv.status).trim().toLowerCase() : null;
 
 function collectOrderIds() {
   const ids = new Set();
@@ -168,9 +174,28 @@ async function main() {
         continue;
       }
 
-      const status = String(order.status || '').toLowerCase();
+      let needsSave = false;
+      let statusChanged = false;
+      let templateAdjusted = false;
+      let originAdjusted = false;
+
+      let status = String(order.status || '').toLowerCase();
+      if (STATUS_OVERRIDE) {
+        const desired = STATUS_OVERRIDE;
+        if (status !== desired) {
+          if (DRY_RUN) {
+            console.log(`[dry-run] would set status=${desired} for order ${order._id} (current=${status || 'n/a'})`);
+          } else {
+            order.status = desired;
+            statusChanged = true;
+            needsSave = true;
+          }
+        }
+        status = desired;
+      }
+
       if (!isPaidLike(status)) {
-        console.warn(`⚠️  Order ${order._id} status=${status} (non payé), skip.`);
+        console.warn(`⚠️  Order ${order._id} status=${status} (non payé), skip. Ajoutez --status=paid pour forcer.`);
         stats.statusFiltered++;
         continue;
       }
@@ -181,10 +206,10 @@ async function main() {
         continue;
       }
 
-      let needsSave = false;
       if (String(order.mailTemplateKind || '').toLowerCase() !== 'event') {
         order.mailTemplateKind = 'event';
         needsSave = true;
+        templateAdjusted = true;
       }
       const originFlow = String(order.origin?.flow || '').toLowerCase();
       if (originFlow !== 'event') {
@@ -195,10 +220,19 @@ async function main() {
           apiPath: order.origin?.apiPath || '/admin/event/send-ticket-by-order'
         };
         needsSave = true;
+        originAdjusted = true;
       }
       if (needsSave) {
-        order.markModified('origin');
+        if (originAdjusted) order.markModified('origin');
+        if (templateAdjusted) order.markModified('mailTemplateKind');
+        if (statusChanged) order.markModified('status');
         await order.save();
+        if (statusChanged) {
+          console.log(`↺ Status forcé à ${String(order.status).toLowerCase()} pour ${order._id}`);
+        }
+        if (templateAdjusted || originAdjusted) {
+          console.log(`↺ Normalisation des métadonnées email pour ${order._id}`);
+        }
       }
 
       await sendOrderAttestationIfNeeded(order);
