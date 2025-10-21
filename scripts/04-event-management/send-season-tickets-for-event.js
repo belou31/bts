@@ -188,6 +188,17 @@ async function main() {
     const pseudoOrderId = new mongoose.Types.ObjectId();
     const lines = [];
     const tickets = [];
+    const fallbackCounters = new Map();
+
+    const nextFallbackSeat = (zoneKey) => {
+      const key = zoneKey || 'ZONE';
+      const current = fallbackCounters.get(key) || 0;
+      const next = current + 1;
+      fallbackCounters.set(key, next);
+      const suffix = String(sub._id || pseudoOrderId).slice(-6).toUpperCase();
+      const index = String(next).padStart(2, '0');
+      return `${key}-GA-${suffix}-${index}`;
+    };
 
     for (const ln of (sub.lines || [])) {
       const rawSeatId = String(ln.seatId || '').trim();
@@ -198,8 +209,9 @@ async function main() {
       const zoneComputed = seatKnown
         ? (seatZone.get(rawSeatId) || zoneFromOrder || zoneFromSeatId(rawSeatId) || '').toUpperCase()
         : (zoneFromOrder || zoneFromSeatId(rawSeatId) || FALLBACK_ZONE || '').toUpperCase();
-      const zoneForTicket = zoneComputed || (FALLBACK_ZONE ? FALLBACK_ZONE.toUpperCase() : 'ZONE');
-      const seatIdForTickets = rawSeatId || zoneForTicket;
+      const fallbackZone = FALLBACK_ZONE ? FALLBACK_ZONE.toUpperCase() : 'ZONE';
+      const zoneForTicket = zoneComputed || fallbackZone;
+      const seatIdForTickets = rawSeatId || nextFallbackSeat(zoneForTicket || fallbackZone);
       const priceCents = Number(ln.priceCents || 0);
       const holderFirstName = String(ln.holderFirstName || '');
       const holderLastName  = String(ln.holderLastName  || '');
@@ -239,7 +251,7 @@ async function main() {
           seatId: seatIdForTickets,
           zoneKey: zoneForTicket,
           tariff: 'ABONNÉ',
-          hex: hexZone(ev._id, zoneForTicket, sub._id, seatIdForTickets),
+          hex: hexZone(ev._id, zoneForTicket || fallbackZone, sub._id || pseudoOrderId, seatIdForTickets),
           fallback: true,
           note
         });
@@ -315,6 +327,17 @@ async function processSubscribersFallback(alreadyProcessed) {
     const pseudoOrderId = new mongoose.Types.ObjectId();
     const lines = [];
     const tickets = [];
+    const fallbackCounters = new Map();
+
+    const nextFallbackSeat = (zoneKey) => {
+      const key = zoneKey || 'ZONE';
+      const current = fallbackCounters.get(key) || 0;
+      const next = current + 1;
+      fallbackCounters.set(key, next);
+      const suffix = String(pseudoOrderId).slice(-6).toUpperCase();
+      const index = String(next).padStart(2, '0');
+      return `${key}-GA-${suffix}-${index}`;
+    };
 
     for (const [seatId, rec] of uniqueSeats.entries()) {
       const seatKnown = realSeatIds.has(seatId);
@@ -323,8 +346,9 @@ async function processSubscribersFallback(alreadyProcessed) {
       const zoneComputed = seatKnown
         ? (seatZone.get(seatId) || zoneFromSeatId(seatId) || '').toUpperCase()
         : (zoneFromSeatId(seatId) || FALLBACK_ZONE || '').toUpperCase();
-      const zoneForTicket = zoneComputed || (FALLBACK_ZONE ? FALLBACK_ZONE.toUpperCase() : 'ZONE');
-      const seatIdForTickets = seatId || zoneForTicket;
+      const fallbackZone = FALLBACK_ZONE ? FALLBACK_ZONE.toUpperCase() : 'ZONE';
+      const zoneForTicket = zoneComputed || fallbackZone;
+      const seatIdForTickets = seatId || nextFallbackSeat(zoneForTicket || fallbackZone);
       const holderFirstName = rec.firstName || '';
       const holderLastName  = rec.lastName  || '';
 
@@ -362,7 +386,7 @@ async function processSubscribersFallback(alreadyProcessed) {
           seatId: seatIdForTickets,
           zoneKey: zoneForTicket,
           tariff: 'ABONNÉ',
-          hex: hexZone(ev._id, zoneForTicket, pseudoOrderId, seatIdForTickets),
+          hex: hexZone(ev._id, zoneForTicket || fallbackZone, pseudoOrderId, seatIdForTickets),
           fallback: true,
           note
         });
