@@ -123,7 +123,7 @@ async function main() {
 
   // --- Règle tisseoClubeoFilter: sièges unitaires
   const tisseoClubeoList = [
-    'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-089', 'N7-L-101',
+    'N7-L-089', 'N7-L-090', 'N7-L-091', 'N7-L-092', 'N7-L-093', 'N7-L-094', 'N7-L-095', 'N7-L-096', 'N7-L-097', 'N7-L-098', 'N7-L-099', 'N7-L-100', 'N7-L-101',
     'N7-M-106', 'N7-M-107', 'N7-M-108', 'N7-M-109', 'N7-M-110', 'N7-M-111', 'N7-M-112', 'N7-M-113', 'N7-M-114', 'N7-M-115', 'N7-M-116', 'N7-M-117', 'N7-M-118'
   ];
   const tisseoClubeoFilter = {
