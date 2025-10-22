@@ -211,7 +211,7 @@ export default function routes(router) {
 
   router.use('/admin/supervision', supervisionRoutes);
 
-  router.use('/', adminGuestlist); // donne /bts/admin/event/:eventIdOrSlug/guestlist
+  router.use('/', adminGuestlist); // donne /bts/admin/guestlist
 
   // API sous /s
   router.use('/s', renewApi);
