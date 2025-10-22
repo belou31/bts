@@ -44,7 +44,7 @@ function generateTicketHex(orderId, index, seatId, zoneKey, tariffCode) {
   return Buffer.from(payload, 'utf8').toString('base64').replace(/=+$/,'');
 }
 
-async function ensureTicketsForEventOrder(order) {
+export async function ensureTicketsForEventOrder(order) {
   const eventIdRaw = order?.meta?.eventId;
   if (!eventIdRaw) return { created: 0, updated: 0 };
 
