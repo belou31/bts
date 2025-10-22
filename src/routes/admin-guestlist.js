@@ -26,9 +26,47 @@ function splitSeat(seatId) {
   return { section: m[1].toUpperCase(), row: m[2].toUpperCase(), seatNo: m[3] };
 }
 
-router.get('/admin/event/:eventIdOrSlug/guestlist', async (req, res) => {
+router.get('/admin/event/:eventIdOrSlug/guestlist', (req, res) => {
+  const key = String(req.params.eventIdOrSlug || '').trim();
+  const qs = key ? `?event=${encodeURIComponent(key)}` : '';
+  res.redirect(302, `/admin/guestlist${qs}`);
+});
+
+router.get('/admin/guestlist', async (req, res) => {
   try {
-    const ev = await loadEventByIdOrSlug(req.params.eventIdOrSlug);
+    const events = await Event.find(
+      {},
+      { name: 1, slug: 1, startsAt: 1 }
+    ).sort({ startsAt: 1 }).lean();
+
+    if (!events.length) {
+      res.type('html').send(`<!doctype html>
+<meta charset="utf-8">
+<title>Liste des places — Aucun évènement</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 16px; }
+  h1 { margin: 0 0 8px; font-size: 18px; }
+  p { color: #666; }
+</style>
+<h1>Liste des places</h1>
+<p>Aucun évènement disponible pour le moment.</p>`);
+      return;
+    }
+
+    let selectedEventKey = String(req.query.event || '').trim();
+    if (!selectedEventKey) {
+      const first = events[0];
+      selectedEventKey = String(first.slug || first._id);
+    }
+
+    let ev;
+    try {
+      ev = await loadEventByIdOrSlug(selectedEventKey);
+    } catch (err) {
+      const fallback = events[0];
+      selectedEventKey = String(fallback.slug || fallback._id);
+      ev = await loadEventByIdOrSlug(selectedEventKey);
+    }
 
     const eventOrdersPromise = Order.find(
       { status: 'paid', 'meta.eventId': String(ev._id) },
@@ -86,6 +124,18 @@ router.get('/admin/event/:eventIdOrSlug/guestlist', async (req, res) => {
       return A.localeCompare(B, 'fr');
     });
 
+    const eventOptionsHtml = events.map(event => {
+      const key = String(event.slug || event._id);
+      const labelDate = event.startsAt ? new Date(event.startsAt).toLocaleString('fr-FR') : '';
+      const attrValue = key
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+      return `<option value="${attrValue}"${key === selectedEventKey ? ' selected' : ''}>${event.name} — ${labelDate}</option>`;
+    }).join('');
+
     // Rendu HTML simple
     res.type('html').send(`<!doctype html>
 <meta charset="utf-8">
@@ -94,6 +144,9 @@ router.get('/admin/event/:eventIdOrSlug/guestlist', async (req, res) => {
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 16px; }
   h1 { margin: 0 0 8px; font-size: 18px; }
   .muted { color: #666; margin-bottom: 12px; }
+  form { margin-bottom: 16px; }
+  label { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+  select { padding: 6px 10px; font-size: 14px; }
   table { border-collapse: collapse; width: 100%; font-size: 14px; }
   th, td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; white-space: nowrap; }
   th { position: sticky; top: 0; background: #fafafa; border-bottom: 1px solid #ddd; }
@@ -102,6 +155,14 @@ router.get('/admin/event/:eventIdOrSlug/guestlist', async (req, res) => {
 </style>
 <h1>Liste des places — ${ev.name}</h1>
 <div class="muted">${new Date(ev.startsAt).toLocaleString('fr-FR')}</div>
+<form method="get">
+  <label>
+    Évènement
+    <select name="event" onchange="this.form.submit()">
+      ${eventOptionsHtml}
+    </select>
+  </label>
+</form>
 <table>
   <thead>
     <tr>
