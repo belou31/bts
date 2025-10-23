@@ -1206,6 +1206,38 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'event-export-tickets',
+        label: 'Export Tickets for Event',
+        order: 3.65,
+        path: 'scripts/04-event-management/export-tickets.js',
+        command: 'node scripts/04-event-management/export-tickets.js --event=<slug|ObjectId> [--out=tickets.csv] [--include-history]',
+        run: {
+          script: 'scripts/04-event-management/export-tickets.js',
+          args: []
+        },
+        description: 'Exports event tickets with QR metadata and scan status for downstream reconciliation.',
+        notes: [
+          'Add --include-history to append a pipe-separated scanHistory column (chronological log).'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Fichier (optionnel)',
+              placeholder: 'data/outputs/event-tickets.csv',
+              arg: { type: 'option', template: '--out=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'event-import-qr-bank',
         label: 'Import QR Bank',
         order: 4,

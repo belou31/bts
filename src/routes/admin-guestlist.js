@@ -86,8 +86,19 @@ router.get('/admin/guestlist', async (req, res) => {
     const [eventOrders, seasonOrders] = await Promise.all([eventOrdersPromise, seasonOrdersPromise]);
 
     const rows = [];
+    const seenKeys = new Set();
 
-    const appendOrderLines = (orders, source) => {
+    const buildKey = (line, contact) => {
+      const seatId = String(line.seatId || '').trim();
+      if (seatId) return `seat:${seatId.toUpperCase()}`;
+      const zone = String(line.zoneKey || '').trim().toUpperCase();
+      const holderFirst = String(line.holderFirstName || '').trim().toUpperCase();
+      const holderLast = String(line.holderLastName || '').trim().toUpperCase();
+      const contactEmail = String(contact.email || '').trim().toLowerCase();
+      return `zone:${zone}|holder:${holderFirst}-${holderLast}|contact:${contactEmail}`;
+    };
+
+    const appendOrderLines = (orders, source, { skipIfSeen } = {}) => {
       for (const o of orders) {
         const contact = {
           firstName: o.payerFirstName || '',
@@ -98,6 +109,9 @@ router.get('/admin/guestlist', async (req, res) => {
           const seatId = String(ln.seatId||'').trim();
           const { section, row, seatNo } = splitSeat(seatId);
           const isRealSeat = !!section && !!row && !!seatNo;
+          const key = buildKey(ln, contact);
+          if (skipIfSeen && seenKeys.has(key)) continue;
+          seenKeys.add(key);
 
           rows.push({
             section: isRealSeat ? section : (String(ln.zoneKey||'').toUpperCase() || ''),
@@ -115,7 +129,7 @@ router.get('/admin/guestlist', async (req, res) => {
     };
 
     appendOrderLines(eventOrders, 'Event');
-    appendOrderLines(seasonOrders, 'Season');
+    appendOrderLines(seasonOrders, 'Season', { skipIfSeen: true });
 
     // Tri: section, rang, numéro
     rows.sort((a,b) => {
