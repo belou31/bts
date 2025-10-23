@@ -1,6 +1,8 @@
 // src/services/exports.js
-import { Order } from '../models/Order.js';
-import { Seat }  from '../models/Seat.js';
+import { Order }  from '../models/Order.js';
+import { Seat }   from '../models/Seat.js';
+import { Ticket } from '../models/Ticket.js';
+import { Event }  from '../models/Event.js';
 
 const csvEscape = (v) => {
   if (v == null) return '';
@@ -136,6 +138,202 @@ export async function exportSeatsCsv({ out, filterSeat = {}, filterOrder = {}, i
       b?.tariffCode || '',
       b?.priceCents || 0
     ].map(csvEscape).join(',');
+    out.write(row + '\n');
+  }
+}
+
+/**
+ * Exporte les billets d’un évènement en CSV vers un Writable.
+ * Inclut les informations QR et l’état de scan.
+ * @param {Object} opts
+ * @param {import('stream').Writable} opts.out
+ * @param {string|Object} [opts.eventId]         // ObjectId string attendu dans Ticket.eventId
+ * @param {string}        [opts.eventSlug]       // Peut remplacer eventId (résolution automatique)
+ * @param {Object}        [opts.event]           // Document évènement déjà chargé (lean ou mongoose doc)
+ * @param {boolean}       [opts.includeHeader=true]
+ * @param {boolean}       [opts.includeScanHistory=false] // Ajoute la colonne scanHistory (pipe-separated)
+ */
+export async function exportEventTicketsCsv({
+  out,
+  eventId,
+  eventSlug,
+  event,
+  includeHeader = true,
+  includeScanHistory = false
+} = {}) {
+  if (!out || typeof out.write !== 'function') {
+    throw new Error('exportEventTicketsCsv: writable "out" stream requis');
+  }
+
+  let resolvedEvent = event || null;
+  let matchEventId = eventId ? String(eventId) : '';
+
+  if (!matchEventId && eventSlug) {
+    resolvedEvent = await Event.findOne({ slug: eventSlug }).lean();
+    if (!resolvedEvent) {
+      throw new Error(`exportEventTicketsCsv: event introuvable pour le slug "${eventSlug}"`);
+    }
+    matchEventId = String(resolvedEvent._id);
+  }
+
+  if (resolvedEvent && !matchEventId && resolvedEvent._id) {
+    matchEventId = String(resolvedEvent._id);
+  }
+
+  if (!matchEventId) {
+    throw new Error('exportEventTicketsCsv: fournir eventId (ObjectId string) ou eventSlug/event');
+  }
+
+  if (!resolvedEvent) {
+    resolvedEvent = await Event.findById(matchEventId).lean().catch(() => null);
+  }
+
+  const header = [
+    'ticketId',
+    'orderId',
+    'orderStatus',
+    'orderPhase',
+    'payerFirstName',
+    'payerLastName',
+    'payerEmail',
+    'eventId',
+    'eventSlug',
+    'eventName',
+    'eventStartsAt',
+    'seasonCode',
+    'venueSlug',
+    'seatId',
+    'zoneKey',
+    'isVirtualSeat',
+    'tariffCode',
+    'holderFirstName',
+    'holderLastName',
+    'holderEmail',
+    'qrValue',
+    'qrKind',
+    'qrCreatedAt',
+    'qrBankId',
+    'scanStatus',
+    'scanCount',
+    'scannedAt',
+    'scannedBy',
+    'lastScanAction',
+    'lastScanAt',
+    includeScanHistory ? 'scanHistory' : null,
+    'createdAt',
+    'updatedAt'
+  ].filter(Boolean).join(',');
+
+  if (includeHeader) out.write(header + '\n');
+
+  const orderCache = new Map();
+  const loadOrderMeta = async (orderIdRaw) => {
+    if (!orderIdRaw) return null;
+    const key = String(orderIdRaw);
+    if (orderCache.has(key)) return orderCache.get(key);
+
+    const orderDoc = await Order.findById(orderIdRaw)
+      .select('_id status phase payerFirstName payerLastName payerEmail')
+      .lean();
+    orderCache.set(key, orderDoc || null);
+    return orderDoc || null;
+  };
+
+  const zoneFromSeatId = (seatId) => {
+    if (!seatId) return '';
+    const parts = String(seatId).split('-');
+    return parts.length ? String(parts[0] || '').toUpperCase() : '';
+  };
+
+  const cursor = Ticket.find({ eventId: matchEventId })
+    .sort({ seatId: 1, _id: 1 })
+    .lean()
+    .cursor();
+
+  for await (const ticket of cursor) {
+    const orderMeta = await loadOrderMeta(ticket.orderId);
+    const holder = ticket.holder || {};
+    const qr = ticket.qr || {};
+
+    const historyRaw = Array.isArray(ticket.scanHistory) ? ticket.scanHistory : [];
+    const history = historyRaw
+      .map((entry) => ({
+        when: entry?.when ? new Date(entry.when) : null,
+        by: entry?.by || '',
+        action: entry?.action || ''
+      }))
+      .sort((a, b) => {
+        const at = a.when ? a.when.getTime() : 0;
+        const bt = b.when ? b.when.getTime() : 0;
+        return at - bt;
+      });
+    const lastHistory = history.length ? history[history.length - 1] : null;
+
+    const scanCount = Number.isFinite(ticket.scanCount) ? ticket.scanCount : Number(ticket.scanCount) || 0;
+    const scannedAtIso = ticket.scannedAt ? new Date(ticket.scannedAt).toISOString() : '';
+    const lastAction = lastHistory?.action || '';
+    const lastActionAt = lastHistory?.when ? lastHistory.when.toISOString() : (scannedAtIso || '');
+    let scanStatus = 'not_scanned';
+    if (scanCount > 0 || scannedAtIso) {
+      if (lastAction === 'exit') {
+        scanStatus = 'exit';
+      } else if (scanCount > 1) {
+        scanStatus = 'multi';
+      } else if (lastAction === 'force') {
+        scanStatus = 'forced';
+      } else if (lastAction === 'auto') {
+        scanStatus = 'auto';
+      } else {
+        scanStatus = 'scanned';
+      }
+    }
+
+    const scanHistoryStr = includeScanHistory
+      ? history.map(h => `${h.when ? h.when.toISOString() : ''}:${h.action}:${h.by}`).join('|')
+      : '';
+
+    const eventSlugOut = resolvedEvent?.slug || eventSlug || '';
+    const eventNameOut = resolvedEvent?.name || event?.name || '';
+    const eventStartsAtOut = resolvedEvent?.startsAt
+      ? new Date(resolvedEvent.startsAt).toISOString()
+      : (event?.startsAt ? new Date(event.startsAt).toISOString() : '');
+
+    const row = [
+      csvEscape(ticket._id),
+      csvEscape(ticket.orderId || ''),
+      csvEscape(orderMeta?.status || ''),
+      csvEscape(orderMeta?.phase || ''),
+      csvEscape(orderMeta?.payerFirstName || ''),
+      csvEscape(orderMeta?.payerLastName || ''),
+      csvEscape(orderMeta?.payerEmail || ''),
+      csvEscape(ticket.eventId || ''),
+      csvEscape(eventSlugOut),
+      csvEscape(eventNameOut),
+      csvEscape(eventStartsAtOut),
+      csvEscape(ticket.seasonCode || ''),
+      csvEscape(ticket.venueSlug || ''),
+      csvEscape(ticket.seatId || ''),
+      csvEscape(zoneFromSeatId(ticket.seatId || '')),
+      csvEscape(isVirtualZoneSeatId(ticket.seatId || '') ? '1' : '0'),
+      csvEscape(ticket.tariffCode || ''),
+      csvEscape(holder.firstName || ''),
+      csvEscape(holder.lastName || ''),
+      csvEscape(holder.email || ''),
+      csvEscape(qr.value || ''),
+      csvEscape(qr.kind || ''),
+      csvEscape(qr.createdAt ? new Date(qr.createdAt).toISOString() : ''),
+      csvEscape(qr.bankId || ''),
+      csvEscape(scanStatus),
+      csvEscape(scanCount),
+      csvEscape(scannedAtIso),
+      csvEscape(ticket.scannedBy || ''),
+      csvEscape(lastAction),
+      csvEscape(lastActionAt),
+      includeScanHistory ? csvEscape(scanHistoryStr) : null,
+      csvEscape(ticket.createdAt ? new Date(ticket.createdAt).toISOString() : ''),
+      csvEscape(ticket.updatedAt ? new Date(ticket.updatedAt).toISOString() : '')
+    ].filter(v => v !== null).join(',');
+
     out.write(row + '\n');
   }
 }
