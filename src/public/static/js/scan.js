@@ -44,6 +44,23 @@ let detectionLocked = false;
 const RECENT_SCAN_WINDOW_MS = 8000;
 const RECENT_SCAN_TTL_MS = 15000;
 const recentScanTimestamps = new Map();
+let previewFlashTimer = null;
+
+function triggerPreviewFlash() {
+  if (!previewWrapper) return;
+  previewWrapper.classList.remove('flash-success');
+  if (previewFlashTimer) {
+    clearTimeout(previewFlashTimer);
+    previewFlashTimer = null;
+  }
+  // Force reflow to restart animation
+  void previewWrapper.offsetWidth;
+  previewWrapper.classList.add('flash-success');
+  previewFlashTimer = setTimeout(() => {
+    previewWrapper.classList.remove('flash-success');
+    previewFlashTimer = null;
+  }, 700);
+}
 
 function encodeBasicCredentials(login, password) {
   const pair = `${login}:${password}`;
@@ -69,6 +86,7 @@ function updateStatus(state, text) {
   statusEl.classList.remove('ok', 'ko');
   if (state === 'ok') {
     statusEl.classList.add('ok');
+    triggerPreviewFlash();
   } else if (state === 'ko') {
     statusEl.classList.add('ko');
   }
@@ -467,7 +485,7 @@ const lastPreviewLookup = new Map();
 function updateScannedCountDisplay() {
   if (!scannedCountEl) return;
   const count = Math.max(0, historyOrder.length);
-  scannedCountEl.textContent = `${count} à contrôler`;
+  scannedCountEl.textContent = String(count);
 }
 updateScannedCountDisplay();
 
