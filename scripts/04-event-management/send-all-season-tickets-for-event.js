@@ -258,7 +258,7 @@ async function main() {
     if (!lines.length) { skipped++; continue; }
 
     // Order “virtuel” pour CE match (format attendu par tickets-pdf.js)
-    const orderGroupKey = String(sub.groupKey || parsed.groupKey || '');
+    const orderGroupKey = String(sub.groupKey || '');
     const virtualOrder = {
       _id: sub._id, // peu importe, c’est pour la trace
       mailTemplateKind: 'event',
@@ -279,19 +279,13 @@ async function main() {
       }
     };
 
-    try {
-      const persistStats = await upsertEventTickets({
-        event: ev,
-        virtualOrder,
-        sourceOrderId: sub._id
-      });
-      ticketsCreated += persistStats.created;
-      ticketsUpdated += persistStats.updated;
-    } catch (err) {
-      console.error('[error] ticket persistence failed', err?.message || err);
-      errors++;
-      continue;
-    }
+    const persistStats = await upsertEventTickets({
+      event: ev,
+      virtualOrder,
+      sourceOrderId: sub._id
+    });
+    ticketsCreated += persistStats.created;
+    ticketsUpdated += persistStats.updated;
 
     const payEmailNorm = String(virtualOrder.payerEmail || '').trim().toLowerCase();
     if (payEmailNorm) processedRecipients.add(`${payEmailNorm}::${orderGroupKey}`);
@@ -427,20 +421,13 @@ async function processSubscribersFallback(alreadyProcessed) {
       }
     };
 
-    try {
-      const persistStats = await upsertEventTickets({
-        event: ev,
-        virtualOrder,
-        sourceOrderId: null
-      });
-      ticketsCreated += persistStats.created;
-      ticketsUpdated += persistStats.updated;
-    } catch (err) {
-      console.error('[error] ticket persistence failed (subscriber fallback)', err?.message || err);
-      errors++;
-      alreadyProcessed.add(bucketKey);
-      continue;
-    }
+    const persistStats = await upsertEventTickets({
+      event: ev,
+      virtualOrder,
+      sourceOrderId: null
+    });
+    ticketsCreated += persistStats.created;
+    ticketsUpdated += persistStats.updated;
 
     const res = await deliverVirtualOrder(virtualOrder);
     if (res.ok) sent++;
