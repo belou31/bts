@@ -424,7 +424,7 @@ async function processSubscribersFallback(alreadyProcessed) {
     const persistStats = await upsertEventTickets({
       event: ev,
       virtualOrder,
-      sourceOrderId: null
+      sourceOrderId: pseudoOrderId
     });
     ticketsCreated += persistStats.created;
     ticketsUpdated += persistStats.updated;
