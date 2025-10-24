@@ -13,6 +13,7 @@ import { Subscriber } from '../../src/models/Subscriber.js';
 import { buildTicketsPdfBuffer } from '../../src/services/tickets-pdf.js';
 import { renderOrderEmail, subjectForOrder } from '../../src/services/mailer.js';
 import { sendMail } from '../../src/loaders/mailer.js';
+import { upsertEventTickets } from '../../src/services/ticket-persistence.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -178,6 +179,7 @@ async function main() {
   const cursor = Order.find(q).sort({ createdAt: 1 }).cursor();
 
   let sent = 0, scanned = 0, skipped = 0, fallbackCount = 0, errors = 0;
+  let ticketsCreated = 0, ticketsUpdated = 0;
 
   for await (const sub of cursor) {
     scanned++;
@@ -276,6 +278,20 @@ async function main() {
         tickets
       }
     };
+
+    try {
+      const persistStats = await upsertEventTickets({
+        event: ev,
+        virtualOrder,
+        sourceOrderId: sub._id
+      });
+      ticketsCreated += persistStats.created;
+      ticketsUpdated += persistStats.updated;
+    } catch (err) {
+      console.error('[error] ticket persistence failed', err?.message || err);
+      errors++;
+      continue;
+    }
 
     const payEmailNorm = String(virtualOrder.payerEmail || '').trim().toLowerCase();
     if (payEmailNorm) processedRecipients.add(`${payEmailNorm}::${orderGroupKey}`);
@@ -411,6 +427,21 @@ async function processSubscribersFallback(alreadyProcessed) {
       }
     };
 
+    try {
+      const persistStats = await upsertEventTickets({
+        event: ev,
+        virtualOrder,
+        sourceOrderId: null
+      });
+      ticketsCreated += persistStats.created;
+      ticketsUpdated += persistStats.updated;
+    } catch (err) {
+      console.error('[error] ticket persistence failed (subscriber fallback)', err?.message || err);
+      errors++;
+      alreadyProcessed.add(bucketKey);
+      continue;
+    }
+
     const res = await deliverVirtualOrder(virtualOrder);
     if (res.ok) sent++;
     else skipped++;
@@ -421,7 +452,7 @@ async function processSubscribersFallback(alreadyProcessed) {
   await processSubscribersFallback(processedRecipients);
 
   await mongoose.disconnect();
-  console.log(JSON.stringify({ ok: true, scanned, sent, skipped, fallbackCount, errors }, null, 2));
+  console.log(JSON.stringify({ ok: true, scanned, sent, skipped, fallbackCount, errors, ticketsCreated, ticketsUpdated }, null, 2));
 }
 
 main().catch(async (e) => {
