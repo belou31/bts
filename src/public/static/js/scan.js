@@ -37,6 +37,7 @@ const previewWrapper = document.getElementById('previewWrapper');
 const video = document.getElementById('preview');
 const statusEl = document.getElementById('status');
 const scannedCountEl = document.getElementById('scannedCount');
+const previewBadge = document.getElementById('previewBadge');
 const overlay = document.getElementById('overlay');
 const overlayCtx = overlay ? overlay.getContext('2d') : null;
 let stream, stopFn = null;
@@ -45,6 +46,32 @@ const RECENT_SCAN_WINDOW_MS = 8000;
 const RECENT_SCAN_TTL_MS = 15000;
 const recentScanTimestamps = new Map();
 let previewFlashTimer = null;
+let previewBadgeTimer = null;
+
+function hidePreviewGain() {
+  if (previewBadgeTimer) {
+    clearTimeout(previewBadgeTimer);
+    previewBadgeTimer = null;
+  }
+  if (previewBadge) {
+    previewBadge.classList.remove('show');
+    previewBadge.textContent = '';
+  }
+}
+
+function showPreviewGain(count) {
+  if (!previewBadge) return;
+  if (!(count > 0)) {
+    hidePreviewGain();
+    return;
+  }
+  previewBadge.textContent = `+${count}`;
+  previewBadge.classList.add('show');
+  if (previewBadgeTimer) clearTimeout(previewBadgeTimer);
+  previewBadgeTimer = setTimeout(() => {
+    hidePreviewGain();
+  }, 650);
+}
 
 function triggerPreviewFlash() {
   if (!previewWrapper) return;
@@ -89,6 +116,9 @@ function updateStatus(state, text) {
     triggerPreviewFlash();
   } else if (state === 'ko') {
     statusEl.classList.add('ko');
+    hidePreviewGain();
+  } else {
+    hidePreviewGain();
   }
 }
 
@@ -452,6 +482,9 @@ function setScanToggleState(state) {
   if (previewWrapper) {
     previewWrapper.classList.toggle('hidden', !scanActive);
   }
+  if (!scanActive) {
+    hidePreviewGain();
+  }
 }
 
 function stopScanning() {
@@ -472,6 +505,7 @@ function stopScanning() {
   detectionLocked = false;
   recentScanTimestamps.clear();
   lastPreviewLookup.clear();
+  hidePreviewGain();
 }
 
 // ----- Scan history storage -----
@@ -1146,6 +1180,7 @@ async function previewScan(raw) {
       });
       renderTicketList();
       const readyCount = cards.filter((m) => m.status === 'ready').length;
+      showPreviewGain(readyCount);
       if (readyCount > 0) {
         updateStatus('ok', readyCount > 1 ? `${readyCount} billets prêts à valider` : 'Billet prêt à valider');
       } else {
@@ -1153,6 +1188,7 @@ async function previewScan(raw) {
       }
     } else {
       // No card, keep status unchanged
+      hidePreviewGain();
     }
   } catch (e) {
     lastPreviewLookup.set(raw, Date.now());
