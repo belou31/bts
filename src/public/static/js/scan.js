@@ -36,7 +36,6 @@ async function idbClear(){ const db=await idb(); await new Promise((ok,ko)=>{ co
 const previewWrapper = document.getElementById('previewWrapper');
 const video = document.getElementById('preview');
 const statusEl = document.getElementById('status');
-const queueSizeEl = document.getElementById('queueSize');
 const scannedCountEl = document.getElementById('scannedCount');
 const overlay = document.getElementById('overlay');
 const overlayCtx = overlay ? overlay.getContext('2d') : null;
@@ -457,17 +456,6 @@ function stopScanning() {
   lastPreviewLookup.clear();
 }
 
-async function showQueueSize(){
-  if (!queueSizeEl) return;
-  try {
-    const arr = await idbGetAll();
-    queueSizeEl.textContent = (arr.length || 0) + ' en attente';
-  } catch {
-    queueSizeEl.textContent = '?';
-  }
-}
-showQueueSize();
-
 // ----- Scan history storage -----
 const resultsEl = document.getElementById('results');
 const historyOrder = [];
@@ -818,23 +806,14 @@ function buildTicketCard(match) {
   }
   if (hasRequiresField) {
     const fieldItem = document.createElement('div');
-    fieldItem.className = 'card-item';
-    const fieldContent = document.createElement('div');
-    fieldContent.className = 'card-item-content';
-    const titleLabel = fieldLabelText || requiresFieldKey || 'Justificatif requis';
+    fieldItem.className = 'card-item inline';
+    const titleLabel = fieldLabelText || requiresFieldKey || 'Justificatif';
     const fieldLabelEl = document.createElement('span');
-    fieldLabelEl.textContent = titleLabel;
-    fieldContent.append(fieldLabelEl);
+    fieldLabelEl.textContent = `${titleLabel} :`;
+    fieldItem.append(fieldLabelEl);
     const fieldValueEl = document.createElement('strong');
-    fieldValueEl.textContent = '?';
-    fieldContent.append(fieldValueEl);
-    if (fieldLabelText && requiresFieldKey && fieldLabelText.toLowerCase() !== requiresFieldKey.toLowerCase()) {
-      const fieldKeySubline = document.createElement('span');
-      fieldKeySubline.className = 'card-subline';
-      fieldKeySubline.textContent = requiresFieldKey;
-      fieldContent.append(fieldKeySubline);
-    }
-    fieldItem.append(fieldContent);
+    fieldValueEl.textContent = requiresFieldKey || 'Requis';
+    fieldItem.append(fieldValueEl);
     sectionTariff.append(fieldItem);
   }
 
@@ -952,7 +931,7 @@ function buildTicketCard(match) {
       const scanned = Math.min(Number(match.order.scannedTickets || 0), total);
       const index = Number(match.order.ticketIndex || 0);
       const billetLabel = index > 0 ? `${index}/${total}` : `${scanned}/${total}`;
-      sectionOrder.querySelector('.section-title').innerHTML = `Commande — Billet <strong>${billetLabel}</strong>`;
+      sectionOrder.querySelector('.section-title').innerHTML = `Commande — <strong>${billetLabel}</strong>`;
     }
     const contactName = [match.order.payerFirstName, match.order.payerLastName].filter(Boolean).join(' ').trim();
     const contactLabel = document.createElement('div');
@@ -1192,7 +1171,6 @@ async function previewScan(raw) {
       deviceId: deviceFingerprint(),
       gate: getGateName()
     }});
-    await showQueueSize();
     const networkMsg = e?.message ? `Connexion perdue — ${e.message}` : 'Hors-ligne — validation différée';
     updateStatus('ko', networkMsg);
     if (navigator.serviceWorker?.controller) {
@@ -1446,7 +1424,6 @@ async function flushQueue() {
   if (failCount === 0) {
     await idbClear();
   }
-  await showQueueSize();
   renderTicketList();
   if (okCount) {
     updateStatus('ok', `${okCount} scan(s) synchronisés`);
