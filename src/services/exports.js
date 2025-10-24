@@ -245,6 +245,14 @@ export async function exportEventTicketsCsv({
     return parts.length ? String(parts[0] || '').toUpperCase() : '';
   };
 
+  const eventSlugOut = resolvedEvent?.slug || eventSlug || '';
+  const eventNameOut = resolvedEvent?.name || event?.name || '';
+  const eventStartsAtOut = resolvedEvent?.startsAt
+    ? new Date(resolvedEvent.startsAt).toISOString()
+    : (event?.startsAt ? new Date(event.startsAt).toISOString() : '');
+
+  const qrSeen = new Set();
+
   const cursor = Ticket.find({ eventId: matchEventId })
     .sort({ seatId: 1, _id: 1 })
     .lean()
@@ -292,12 +300,6 @@ export async function exportEventTicketsCsv({
       ? history.map(h => `${h.when ? h.when.toISOString() : ''}:${h.action}:${h.by}`).join('|')
       : '';
 
-    const eventSlugOut = resolvedEvent?.slug || eventSlug || '';
-    const eventNameOut = resolvedEvent?.name || event?.name || '';
-    const eventStartsAtOut = resolvedEvent?.startsAt
-      ? new Date(resolvedEvent.startsAt).toISOString()
-      : (event?.startsAt ? new Date(event.startsAt).toISOString() : '');
-
     const row = [
       csvEscape(ticket._id),
       csvEscape(ticket.orderId || ''),
@@ -335,5 +337,98 @@ export async function exportEventTicketsCsv({
     ].filter(v => v !== null).join(',');
 
     out.write(row + '\n');
+    if (qr.value) qrSeen.add(qr.value);
+  }
+
+  // Complement with meta tickets stored on orders but missing Ticket documents
+  const extraOrders = await Order.find({ 'meta.eventId': matchEventId })
+    .select('_id status phase payerFirstName payerLastName payerEmail seasonCode venueSlug lines meta createdAt updatedAt')
+    .lean();
+
+  for (const orderDoc of extraOrders) {
+    const metaTickets = Array.isArray(orderDoc?.meta?.tickets) ? orderDoc.meta.tickets : [];
+    if (!metaTickets.length) continue;
+    const lines = Array.isArray(orderDoc.lines) ? orderDoc.lines : [];
+
+    for (let i = 0; i < metaTickets.length; i++) {
+      const metaTicket = metaTickets[i] || {};
+      const qrValue = String(metaTicket.hex || metaTicket.value || '').trim();
+      if (!qrValue || qrSeen.has(qrValue)) continue;
+
+      const line = lines[i] || {};
+      const zoneRaw = String(metaTicket.zoneKey || line.zoneKey || '').trim().toUpperCase();
+      const holderFirst = String(
+        line.holderFirstName ||
+        metaTicket.holderFirstName ||
+        metaTicket.holder?.firstName ||
+        ''
+      ).trim();
+      const holderLast = String(
+        line.holderLastName ||
+        metaTicket.holderLastName ||
+        metaTicket.holder?.lastName ||
+        ''
+      ).trim();
+      const holderEmail = String(
+        line.holderEmail ||
+        metaTicket.holderEmail ||
+        metaTicket.holder?.email ||
+        orderDoc.payerEmail ||
+        ''
+      ).trim();
+      const seatCandidate = String(metaTicket.seatId || line.seatId || '').trim();
+      const fallbackSeat = (() => {
+        const zone = zoneRaw || 'ZONE';
+        const suffix = String(orderDoc._id || '').slice(-6).toUpperCase();
+        const index = String(i + 1).padStart(2, '0');
+        return `${zone}-GA-${suffix}-${index}`;
+      })();
+      const seatId = seatCandidate || fallbackSeat;
+      const tariffCode = String(line.tariffCode || metaTicket.tariff || metaTicket.tariffCode || '').trim().toUpperCase();
+      const createdAtOut = metaTicket.createdAt ? new Date(metaTicket.createdAt).toISOString()
+        : (orderDoc.createdAt ? new Date(orderDoc.createdAt).toISOString() : '');
+      const updatedAtOut = orderDoc.updatedAt ? new Date(orderDoc.updatedAt).toISOString() : createdAtOut;
+      const qrKindOut = String(metaTicket.kind || 'text');
+      const bankIdOut = metaTicket.bankId ? String(metaTicket.bankId) : '';
+
+      const row = [
+        csvEscape(metaTicket.ticketId || ''),
+        csvEscape(orderDoc._id || ''),
+        csvEscape(orderDoc.status || ''),
+        csvEscape(orderDoc.phase || ''),
+        csvEscape(orderDoc.payerFirstName || ''),
+        csvEscape(orderDoc.payerLastName || ''),
+        csvEscape(orderDoc.payerEmail || ''),
+        csvEscape(matchEventId),
+        csvEscape(eventSlugOut),
+        csvEscape(eventNameOut),
+        csvEscape(eventStartsAtOut),
+        csvEscape(orderDoc.seasonCode || ''),
+        csvEscape(orderDoc.venueSlug || ''),
+        csvEscape(seatId),
+        csvEscape(zoneFromSeatId(seatId)),
+        csvEscape(isVirtualZoneSeatId(seatId) ? '1' : '0'),
+        csvEscape(tariffCode),
+        csvEscape(holderFirst),
+        csvEscape(holderLast),
+        csvEscape(holderEmail),
+        csvEscape(qrValue),
+        csvEscape(qrKindOut),
+        csvEscape(createdAtOut),
+        csvEscape(bankIdOut),
+        csvEscape('not_scanned'),
+        csvEscape(0),
+        csvEscape(''),
+        csvEscape(''),
+        csvEscape(''),
+        csvEscape(''),
+        includeScanHistory ? csvEscape('') : null,
+        csvEscape(createdAtOut),
+        csvEscape(updatedAtOut)
+      ].filter(v => v !== null).join(',');
+
+      out.write(row + '\n');
+      qrSeen.add(qrValue);
+    }
   }
 }

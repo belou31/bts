@@ -36,10 +36,16 @@ export async function upsertEventTickets({
   const venueSlug = virtualOrder.venueSlug || event.venueSlug || '';
   const eventId = String(event._id);
 
-  const orderId =
-    sourceOrderId instanceof Types.ObjectId
-      ? sourceOrderId
-      : (Types.ObjectId.isValid(sourceOrderId) ? new Types.ObjectId(sourceOrderId) : null);
+  const toObjectId = (value) => {
+    if (!value) return null;
+    if (value instanceof Types.ObjectId) return value;
+    if (typeof value === 'string' && Types.ObjectId.isValid(value)) {
+      return new Types.ObjectId(value);
+    }
+    return null;
+  };
+
+  const orderId = toObjectId(sourceOrderId);
 
   let created = 0;
   let updated = 0;
@@ -91,7 +97,8 @@ export async function upsertEventTickets({
       'qr.kind': 'text'
     };
     if (orderId) setDoc.orderId = orderId;
-    if (metaTicket.bankId) setDoc['qr.bankId'] = metaTicket.bankId;
+    const bankId = toObjectId(metaTicket.bankId);
+    if (bankId) setDoc['qr.bankId'] = bankId;
 
     const setOnInsert = {
       'qr.createdAt': metaTicket.createdAt ? new Date(metaTicket.createdAt) : now,
