@@ -20,6 +20,7 @@ import { Seat } from '../../src/models/Seat.js';
 import { buildTicketsPdfBuffer } from '../../src/services/tickets-pdf.js';
 import { renderOrderEmail, subjectForOrder } from '../../src/services/mailer.js';
 import { sendMail } from '../../src/loaders/mailer.js';
+import { upsertEventTickets } from '../../src/services/ticket-persistence.js';
 
 const argv = yargs(hideBin(process.argv))
   .option('event', { type: 'string', demandOption: true, desc: 'Slug ou ObjectId de l\'événement' })
@@ -97,6 +98,8 @@ async function main() {
     let skipped = 0;
     let errors = 0;
     let notFound = 0;
+    let ticketsCreated = 0;
+    let ticketsUpdated = 0;
 
     for (const rawId of ORDER_KEYS) {
       if (!rawId) continue;
@@ -120,7 +123,11 @@ async function main() {
           order,
           seatMaps: { realSeatIds, seatStatus, seatZone },
           fallbackZone: FALLBACK_ZONE,
-          dryRun: DRY_RUN
+          dryRun: DRY_RUN,
+          onPersist(stats) {
+            ticketsCreated += stats.created;
+            ticketsUpdated += stats.updated;
+          }
         });
 
         if (result === 'ok') delivered++;
@@ -133,7 +140,7 @@ async function main() {
     }
 
     await mongoose.disconnect();
-    console.log(JSON.stringify({ ok: true, processed, delivered, skipped, errors, notFound, dryRun: DRY_RUN }, null, 2));
+    console.log(JSON.stringify({ ok: true, processed, delivered, skipped, errors, notFound, dryRun: DRY_RUN, ticketsCreated, ticketsUpdated }, null, 2));
   } catch (err) {
     console.error('❌', err?.message || err);
     try { await mongoose.disconnect(); } catch {}
@@ -141,7 +148,7 @@ async function main() {
   }
 }
 
-async function sendTicketsForOrder({ event, order, seatMaps, fallbackZone, dryRun }) {
+async function sendTicketsForOrder({ event, order, seatMaps, fallbackZone, dryRun, onPersist = () => {} }) {
   const { realSeatIds, seatStatus, seatZone } = seatMaps;
   const pseudoOrderId = new mongoose.Types.ObjectId();
   const lines = [];
@@ -236,6 +243,18 @@ async function sendTicketsForOrder({ event, order, seatMaps, fallbackZone, dryRu
       tickets
     }
   };
+
+  try {
+    const persistStats = await upsertEventTickets({
+      event,
+      virtualOrder,
+      sourceOrderId: order._id || null
+    });
+    onPersist(persistStats);
+  } catch (err) {
+    console.error('[error] ticket persistence failed for order', String(order._id), err?.message || err);
+    return 'error';
+  }
 
   const hasFallback = tickets.some(t => t.fallback);
   const fallbackMsg = hasFallback
