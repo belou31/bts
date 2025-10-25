@@ -10,6 +10,107 @@ import { Order } from '../../src/models/Order.js';
 import { Ticket } from '../../src/models/Ticket.js';
 import { ensureTicketsForEventOrder } from '../../src/services/order-finalization.js';
 
+const REAL_SEAT_RE = /^[A-Z0-9]+-[A-Z]-[0-9]{1,4}$/;
+
+function normalizeSeat(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+function normalizeZone(value) {
+  return normalizeSeat(value);
+}
+
+function placeholderSeat(zoneKey, orderId, index) {
+  const zone = normalizeZone(zoneKey) || 'ZONE';
+  const suffix = String(orderId).slice(-6).toUpperCase();
+  const idx = String(index + 1).padStart(2, '0');
+  return `${zone}-GA-${suffix}-${idx}`;
+}
+
+function generateTicketHex(orderId, index, seatId, zoneKey, tariffCode) {
+  const seat = seatId ? `S:${seatId}` : `Z:${zoneKey || 'ZONE'}`;
+  const tariff = tariffCode ? `T:${tariffCode}` : 'T:NORMAL';
+  const payload = `E:${orderId}:${seat}:${tariff}:${index}`;
+  return Buffer.from(payload, 'utf8').toString('base64').replace(/=+$/, '');
+}
+
+function buildMetaTickets(orderDoc, eventId, existingTickets) {
+  const orderId = String(orderDoc._id);
+  const lines = Array.isArray(orderDoc.lines) ? orderDoc.lines : [];
+  const tickets = Array.isArray(existingTickets) ? existingTickets : [];
+
+  const bySeat = new Map();
+  const unused = new Set();
+  for (const ticket of tickets) {
+    const seat = normalizeSeat(ticket.seatId);
+    if (!bySeat.has(seat)) bySeat.set(seat, []);
+    bySeat.get(seat).push(ticket);
+    unused.add(String(ticket._id));
+  }
+
+  const usedHex = new Set();
+  for (const ticket of tickets) {
+    const hex = String(ticket?.qr?.value || '').trim();
+    if (hex) usedHex.add(hex);
+  }
+
+  const metaTickets = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] || {};
+    const seatIdRaw = normalizeSeat(line.seatId);
+    const zoneKey = normalizeZone(line.zoneKey);
+    const tariff = normalizeZone(line.tariffCode || 'NORMAL') || 'NORMAL';
+    const holderFirstName = String(line.holderFirstName || '').trim();
+    const holderLastName = String(line.holderLastName || '').trim();
+    const holderEmail = String(line.holderEmail || orderDoc.payerEmail || '').trim();
+
+    let matchedTicket = null;
+    if (seatIdRaw && bySeat.has(seatIdRaw)) {
+      matchedTicket = bySeat.get(seatIdRaw).shift();
+    } else if (!seatIdRaw && zoneKey) {
+      const zonePrefix = `${zoneKey}-GA-`;
+      for (const [seatKey, list] of bySeat.entries()) {
+        if (!list.length) continue;
+        if (seatKey.startsWith(zonePrefix)) {
+          matchedTicket = list.shift();
+          break;
+        }
+      }
+    }
+
+    if (matchedTicket) {
+      unused.delete(String(matchedTicket._id));
+    }
+
+    const seatForTicket = matchedTicket?.seatId || (seatIdRaw || placeholderSeat(zoneKey || matchedTicket?.seatId || 'ZONE', orderId, i));
+    const zoneForTicket = zoneKey || normalizeZone(matchedTicket?.seatId?.split('-')?.[0] || matchedTicket?.zoneKey);
+    let hex = String(matchedTicket?.qr?.value || '').trim();
+    if (!hex) {
+      hex = generateTicketHex(orderId, i, REAL_SEAT_RE.test(seatForTicket) ? seatForTicket : null, zoneForTicket, tariff);
+      while (usedHex.has(hex)) {
+        hex = generateTicketHex(orderId, i + usedHex.size + 1, REAL_SEAT_RE.test(seatForTicket) ? seatForTicket : null, zoneForTicket, tariff);
+      }
+    }
+    usedHex.add(hex);
+
+    metaTickets.push({
+      seatId: seatForTicket,
+      zoneKey: zoneForTicket,
+      holderFirstName,
+      holderLastName,
+      holderEmail,
+      tariff,
+      tariffCode: tariff,
+      hex,
+      value: hex,
+      createdAt: matchedTicket?.qr?.createdAt || new Date()
+    });
+  }
+
+  return { metaTickets, leftoverTicketIds: Array.from(unused) };
+}
+
 function usage() {
   console.log('Usage: node scripts/diagnostics/fix-event-tickets.js --event=<slugOrId> [--apply]');
 }
@@ -58,48 +159,56 @@ async function cleanupOrphanTickets(eventId, apply) {
 }
 
 async function reconcileOrder(order, eventId, apply) {
-  const metaTickets = Array.isArray(order.meta?.tickets) ? order.meta.tickets : [];
   const lineCount = Array.isArray(order.lines) ? order.lines.length : 0;
   if (!lineCount) {
     return { created: 0, updated: 0, cleaned: 0, skipped: true };
   }
-  if (!metaTickets.length) {
-    return { created: 0, updated: 0, cleaned: 0, skipped: true };
-  }
+
+  const existingDocs = await Ticket.find({ orderId: order._id, eventId }).lean();
+  const { metaTickets, leftoverTicketIds } = buildMetaTickets(order, eventId, existingDocs);
 
   let created = 0;
   let updated = 0;
-  if (apply) {
-    const result = await ensureTicketsForEventOrder(order);
-    created = result.created;
-    updated = result.updated;
-  } else {
-    // Dry-run: estimate missing tickets compared to meta
-    const existing = await Ticket.countDocuments({ orderId: order._id, eventId });
-    if (existing < metaTickets.length) {
-      created = metaTickets.length - existing;
-    }
-  }
-
-  // Refresh meta tickets after ensure (they may have been mutated in-place for real run).
-  const currentMeta = Array.isArray(order.meta?.tickets) ? order.meta.tickets : [];
-  const expectedIds = new Set(
-    currentMeta
-      .map((ticket) => (ticket?.ticketId ? String(ticket.ticketId) : ''))
-      .filter(Boolean)
-  );
-
-  const existingDocs = await Ticket.find({ orderId: order._id, eventId }).select('_id');
-  const toDelete = existingDocs
-    .map((doc) => String(doc._id))
-    .filter((id) => expectedIds.size && !expectedIds.has(id));
-
   let cleaned = 0;
-  if (toDelete.length && apply) {
-    const res = await Ticket.deleteMany({ _id: { $in: toDelete } });
-    cleaned = res.deletedCount || 0;
-  } else if (toDelete.length && !apply) {
-    cleaned = toDelete.length;
+
+  if (apply) {
+    order.meta = order.meta || {};
+    order.meta.tickets = metaTickets;
+    order.markModified('meta.tickets');
+    await order.save();
+
+    const result = await ensureTicketsForEventOrder(order);
+    created += result.created;
+    updated += result.updated;
+
+    const refreshedOrder = await Order.findById(order._id).select('meta.tickets').lean();
+    const expectedIds = new Set(
+      (Array.isArray(refreshedOrder?.meta?.tickets) ? refreshedOrder.meta.tickets : [])
+        .map((ticket) => String(ticket?.ticketId || ''))
+        .filter(Boolean)
+    );
+
+    const currentTicketIds = await Ticket.find({ orderId: order._id, eventId }).select('_id').lean();
+    const toDelete = currentTicketIds
+      .map((doc) => String(doc._id))
+      .filter((id) => expectedIds.size && !expectedIds.has(id));
+    if (toDelete.length) {
+      const res = await Ticket.deleteMany({ _id: { $in: toDelete } });
+      cleaned += res.deletedCount || 0;
+    }
+
+    if (leftoverTicketIds.length) {
+      const res = await Ticket.deleteMany({ _id: { $in: leftoverTicketIds } });
+      cleaned += res.deletedCount || 0;
+    }
+  } else {
+    const existingCount = existingDocs.length;
+    if (existingCount < metaTickets.length) {
+      created += metaTickets.length - existingCount;
+    }
+    if (existingCount > metaTickets.length) {
+      cleaned += existingCount - metaTickets.length;
+    }
   }
 
   return { created, updated, cleaned, skipped: false };
