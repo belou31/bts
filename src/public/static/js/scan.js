@@ -1,7 +1,7 @@
 // ----- Déduction du préfixe côté client (robuste si BASE_PATH mal réglé)
 const prefix = (window.__BTS__?.basePath ?? '').toString();
 const BASE = prefix;                          // "" (DEV) ou "/bts" (INT/PROD)
-const SCOPE = (window.__BTS__?.scope ?? (prefix + '/scan/')).replace('//','/');
+const SCOPE = (window.__BTS__?.scope ?? (prefix + '/control/scan/')).replace('//','/');
 
 // ----- PWA install -----
 let deferredPrompt=null;
@@ -1070,7 +1070,7 @@ async function postScanOnline(payload) {
 
   let res;
   try {
-    res = await fetch(BASE + '/api/scan', {
+    res = await fetch(BASE + '/control/api/scan', {
       method: 'POST',
       headers,
       body: JSON.stringify(body)

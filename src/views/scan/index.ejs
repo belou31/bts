@@ -9,10 +9,23 @@
   <link rel="stylesheet" href="<%= assetBase %>styles/scan.css">
 </head>
 <body>
-  <header>
-    <img alt="BTS" src="<%= assetBase %>img/logo.png" onerror="this.style.display='none'"/>
-    <strong>Contrôle d'accès — BTS</strong>
-    <span class="pill" id="net">offline</span>
+  <% const guestListPath = ((basePath || '') + '/control/guestlist').replace(/\/{2,}/g, '/');
+     const guestListUrl = (forwardedQuery && forwardedQuery.length)
+       ? `${guestListPath}?${forwardedQuery}`
+       : guestListPath;
+  %>
+  <header class="top-bar">
+    <div class="brand">
+      <img alt="BTS" src="<%= assetBase %>img/logo.png" onerror="this.style.display='none'"/>
+      <div class="title-block">
+        <strong>ACESS CONTROL</strong>
+        <span>Ticket Scan</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="pill" id="net">offline</span>
+      <a class="pill-link" href="<%= guestListUrl %>" target="_blank" rel="noopener">Ouvrir le mode Liste</a>
+    </div>
   </header>
 
   <main class="scan-layout">
