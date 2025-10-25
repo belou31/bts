@@ -8,6 +8,7 @@ import { Event } from '../models/Event.js';
 import { Tariff } from '../models/Tariff.js';
 import { ScanLog } from '../models/ScanLog.js';
 import { verifySignature, renderQrSvg } from '../services/qr.js';
+import requireScanner from '../middlewares/require-scanner.js';
 
 function basePath() {
   // "" en DEV, "/bts" en INT/PROD (ou ce que tu définis)
@@ -15,59 +16,6 @@ function basePath() {
 }
 
 const router = express.Router();
-
-function parseBasic(header) {
-  try {
-    const decoded = Buffer.from(header.replace(/^Basic\s+/i, ''), 'base64').toString('utf8');
-    const idx = decoded.indexOf(':');
-    if (idx < 0) return { login: '', password: '' };
-    return {
-      login: decoded.slice(0, idx),
-      password: decoded.slice(idx + 1)
-    };
-  } catch {
-    return { login: '', password: '' };
-  }
-}
-
-function requireScanner(req, res, next) {
-  const envToken = String(process.env.SCANNER_TOKEN || '').trim();
-  const envLogin = String(process.env.SCAN_LOGIN || '').trim();
-  const envPassword = String(process.env.SCAN_PASSWORD || '').trim();
-
-  const header = String(req.headers.authorization || '');
-  let token = '';
-  let login = '';
-  let password = '';
-
-  if (/^Bearer\s+/i.test(header)) {
-    token = header.replace(/^Bearer\s+/i, '').trim();
-  } else if (/^Basic\s+/i.test(header)) {
-    ({ login, password } = parseBasic(header));
-  }
-
-  token = token || String(req.query.token || req.query.bearer || req.body?.token || '').trim();
-
-  if (!login && !password) {
-    const qLogin = String(req.query.login || req.query.user || '').trim();
-    const qPassword = String(req.query.password || req.query.pass || '').trim();
-    if (qLogin && qPassword) {
-      login = qLogin;
-      password = qPassword;
-    }
-  }
-
-  let ok = false;
-  if (token && envToken && token === envToken) ok = true;
-  if (!ok && login && envLogin && envPassword && login === envLogin && password === envPassword) ok = true;
-
-  if (!ok) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
-
-  req.scannerAuth = { token, login };
-  next();
-}
 
 const EVENT_CACHE_TTL_MS = 60 * 1000;
 const eventCache = new Map();
@@ -622,11 +570,11 @@ async function fetchMatches(lookupValues, resolvedEvent) {
   return { matches, orderMap, orderStats, orderTicketDocsByOrder, tariffLookup };
 }
 /**
- * POST /api/scan
+ * POST /control/api/scan (alias /api/scan kept for backward compat)
  * Body: { value: "qr|sig", eventId, deviceId, decision?, ticketId?, force? }
  */
 
-router.post('/api/scan', requireScanner, async (req, res) => {
+router.post(['/control/api/scan', '/api/scan'], requireScanner, async (req, res) => {
   const now = new Date();
   const {
     value: raw,
@@ -975,18 +923,38 @@ router.post('/api/scan', requireScanner, async (req, res) => {
 // ---------- PWA (view + manifest + service worker) ----------
 
 // GET /scan (view)
-function renderScanView(_req, res) {
+function renderScanView(req, res) {
   const bp = basePath();
-  const scope = `${bp}/scan/`.replace(/\/{2,}/g, '/');
+  const scope = `${bp}/control/scan/`.replace(/\/{2,}/g, '/');
   const assetBase = `${bp}/static/`.replace(/\/{2,}/g, '/');
+  const eventSlug = String(req.params?.eventSlug || req.query?.event || req.query?.eventSlug || '').trim();
+
+  const forward = new URLSearchParams();
+  const queryEntries = Object.entries(req.query || {});
+  for (const [key, value] of queryEntries) {
+    if (Array.isArray(value)) {
+      for (const part of value) {
+        const str = String(part ?? '').trim();
+        if (str) forward.append(key, str);
+      }
+      continue;
+    }
+    const str = String(value ?? '').trim();
+    if (str) forward.set(key, str);
+  }
+  if (eventSlug && !forward.has('event')) {
+    forward.set('event', eventSlug);
+  }
+
   res.render('scan/index', {
     title: 'Contrôle d’accès — BTS',
     basePath: bp,
     scope,
-    assetBase
+    assetBase,
+    forwardedQuery: forward.toString()
   });
 }
-router.get('/scan/events.json', async (req, res) => {
+router.get(['/control/scan/events.json', '/scan/events.json'], async (req, res) => {
   try {
     const season = String(req.query.season || '').trim();
     const limitRaw = Number(req.query.limit || 200);
@@ -1024,7 +992,7 @@ router.get('/scan/events.json', async (req, res) => {
   }
 });
 
-router.get('/scan/qr.svg', async (req, res) => {
+router.get(['/control/scan/qr.svg', '/scan/qr.svg'], async (req, res) => {
   const rawValue = String(req.query.value ?? '').trim();
   if (!rawValue) {
     return res.status(400).type('text/plain').send('value_required');
@@ -1043,12 +1011,20 @@ router.get('/scan/qr.svg', async (req, res) => {
   }
 });
 
-router.get(['/scan', '/scan/:eventSlug([\w-]+)'], renderScanView);
+router.get(['/control/scan', '/control/scan/:eventSlug([\w-]+)'], renderScanView);
+router.get(['/scan', '/scan/:eventSlug([\w-]+)'], (req, res) => {
+  const bp = basePath();
+  const slug = req.params.eventSlug ? `/${req.params.eventSlug}` : '';
+  const qsIndex = req.originalUrl.indexOf('?');
+  const suffix = qsIndex >= 0 ? req.originalUrl.slice(qsIndex) : '';
+  const target = `${bp}/control/scan${slug}${suffix}`.replace(/\/{2,}/g, '/');
+  res.redirect(302, target);
+});
 
 // GET /bts/scan/manifest.webmanifest
-router.get('/scan/manifest.webmanifest', (req,res) => {
+router.get(['/control/scan/manifest.webmanifest', '/scan/manifest.webmanifest'], (req,res) => {
   const bp = basePath();
-  const scope = `${bp}/scan/`.replace(/\/{2,}/g, '/');
+  const scope = `${bp}/control/scan/`.replace(/\/{2,}/g, '/');
   const manifest = {
     name: 'BTS Contrôle',
     short_name: 'BTS Scan',
@@ -1066,7 +1042,7 @@ router.get('/scan/manifest.webmanifest', (req,res) => {
 });
 
 // GET /bts/scan/sw.js (service worker)
-router.get('/scan/sw.js', (req,res) => {
+router.get(['/control/scan/sw.js', '/scan/sw.js'], (req,res) => {
   res.type('text/javascript').send(`
 // BTS Scan Service Worker
 const VERSION = 'v1.0.1';
