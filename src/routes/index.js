@@ -10,7 +10,7 @@ import eventRoutes from './event.js';
 import adminRoutes from './admin.js';
 import supervisionRoutes from './admin/supervision.routes.js';
 import haRoutes from './ha.js';      
-import adminGuestlist from './admin-guestlist.js';
+import controlGuestlistRoutes from './control-guestlist.js';
 import qrRoutes   from './qr.js';
 import scanRoutes from './scan.js';
 
@@ -198,7 +198,7 @@ export default function routes(router) {
 
 
   router.use(`/api`, qrRoutes);
-  router.use(`/`,    scanRoutes);  // sert /scan (PWA)
+  router.use(`/`,    scanRoutes);  // sert /control/scan (PWA)
 
   // API JSON
   router.use('/api/tbh7', tbh7Router);
@@ -211,7 +211,7 @@ export default function routes(router) {
 
   router.use('/admin/supervision', supervisionRoutes);
 
-  router.use('/', adminGuestlist); // donne /bts/admin/guestlist
+  router.use('/', controlGuestlistRoutes); // contrôle /control/guestlist
 
   // API sous /s
   router.use('/s', renewApi);
