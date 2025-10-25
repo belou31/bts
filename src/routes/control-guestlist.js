@@ -184,7 +184,19 @@ router.get('/control/guestlist', requireScanner, async (req, res) => {
     }
 
     const rows = ticketDocs.map((ticket) => {
-      const seat = splitSeat(ticket.seatId);
+      let seat = splitSeat(ticket.seatId);
+      const seatRawUpper = String(ticket.seatId || '').trim().toUpperCase();
+      const zoneCandidate = seatRawUpper.startsWith('ZONE ')
+        ? seatRawUpper.replace(/^ZONE\s+/, '')
+        : seatRawUpper;
+      if (!seat.section && zoneCandidate && ['DEBOUT', 'TBH7'].includes(zoneCandidate)) {
+        seat = {
+          section: zoneCandidate,
+          row: '',
+          seatNo: '',
+          label: zoneCandidate
+        };
+      }
       const order = ticket.orderId ? orderMap.get(String(ticket.orderId)) : null;
       const scannedAt = ticket.scannedAt ? new Date(ticket.scannedAt) : null;
       const history = Array.isArray(ticket.scanHistory) ? ticket.scanHistory : [];
@@ -313,8 +325,9 @@ router.get('/control/guestlist', requireScanner, async (req, res) => {
   .title-block span { font-size: 22px; font-weight: 600; color: #f8fafc; }
   .pill-link { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 999px; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; text-decoration: none; font-weight: 600; box-shadow: 0 10px 30px rgba(37, 99, 235, 0.4); transition: transform 0.15s ease, box-shadow 0.15s ease; }
   .pill-link:hover { transform: translateY(-1px); box-shadow: 0 16px 36px rgba(37, 99, 235, 0.55); }
-  main { padding: 32px 28px 48px; }
-  .page { max-width: 1200px; margin: 0 auto; display: grid; gap: 28px; }
+  main { padding: 0 0 48px; }
+  .page { max-width: none; margin: 0; display: grid; gap: 28px; }
+  .info-block { padding: 32px 28px; }
   h1 { margin: 0; font-size: 28px; font-weight: 700; color: #f8fafc; }
   .muted { margin-top: 8px; color: #94a3b8; font-size: 14px; }
   .feedback { padding: 12px 16px; border-radius: 12px; font-weight: 500; margin-top: 20px; }
@@ -327,7 +340,7 @@ router.get('/control/guestlist', requireScanner, async (req, res) => {
   .controls form, .controls label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #cbd5f5; }
   select, input[type="search"] { appearance: none; padding: 10px 14px; font-size: 15px; background: #0f172a; border: 1px solid #1f2a41; border-radius: 10px; color: #f8fafc; min-width: 240px; box-shadow: 0 4px 20px rgba(15, 23, 42, 0.35) inset; }
   select:focus, input[type="search"]:focus { outline: 2px solid rgba(59, 130, 246, 0.4); outline-offset: 0; }
-  .table-wrapper { background: #0f172a; border: 1px solid #1f2a41; border-radius: 18px; padding: 12px; box-shadow: 0 18px 38px rgba(15, 23, 42, 0.65); overflow-x: auto; }
+  .table-wrapper { background: #0f172a; border: 1px solid #1f2a41; border-radius: 0; padding: 12px 0 18px; box-shadow: 0 18px 38px rgba(15, 23, 42, 0.65); overflow-x: auto; margin: 0; }
   table { border-collapse: collapse; width: 100%; min-width: 960px; font-size: 14px; }
   thead th { position: sticky; top: 0; background: linear-gradient(180deg, rgba(30, 58, 138, 0.45), rgba(15, 23, 42, 0.9)); backdrop-filter: blur(6px); color: #e2e8f0; text-align: left; padding: 12px 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(148, 163, 184, 0.12); }
   tbody td { padding: 12px 14px; border-bottom: 1px solid rgba(30, 41, 59, 0.7); color: #cbd5f5; white-space: nowrap; }
@@ -349,8 +362,8 @@ router.get('/control/guestlist', requireScanner, async (req, res) => {
     .top-bar { flex-direction: column; align-items: flex-start; gap: 18px; }
     .pill-link { align-self: stretch; justify-content: center; }
     select, input[type="search"] { min-width: 100%; }
-    .table-wrapper { padding: 8px; }
-    main { padding: 24px 16px 40px; }
+    .table-wrapper { padding: 8px 0 16px; }
+    main { padding: 16px 0 40px; }
   }
 </style>
 </head>
@@ -367,7 +380,7 @@ router.get('/control/guestlist', requireScanner, async (req, res) => {
   </header>
   <main>
     <div class="page">
-      <section>
+      <section class="info-block">
         <h1>${escapeHtml(eventDoc.name)}</h1>
         <p class="muted">${formatDateTime(eventDoc.startsAt)}</p>
         ${feedback ? `<div class="feedback ${feedback.kind}">${escapeHtml(feedback.text)}</div>` : ''}
