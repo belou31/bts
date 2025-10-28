@@ -19,3 +19,19 @@
   - Script exports are written by default into `data/outputs`.
 
 For the full reference (commands, environment variables, templates), read [docs/scripts-catalog.md](docs/scripts-catalog.md).
+
+## HelloAsso Stub
+
+- Local checkout simulator listening on `http://127.0.0.1:3005`.
+- Launch with `npm run helloasso:stub` (or `node helloasso-stub/server.js`).
+- Point the BTS app to it via `HELLOASSO_API_URL=http://127.0.0.1:3005`; the rest of the HelloAsso integration keeps working unchanged.
+- Define `HELLOASSO_WEBHOOK_URL` (or `HELLOASSO_STUB_WEBHOOK_URL`) so the stub relays payment webhooks to the BTS `/pay/webhook` endpoint.
+- Visit `http://127.0.0.1:3005/` to inspect intents and play success/failure scenarios.
+
+## Payment Providers
+
+- Select the active PSP through `PAYMENT_PROVIDER` (defaults to `helloasso`) while keeping the same endpoints (`/event`, `/renew`, `/pay/*`).
+- HelloAsso uses the same env keys across environments; switch mode by changing `HELLOASSO_API_URL` (`http://127.0.0.1:3005` for the stub, sandbox URL for INT, production URL for PROD).
+- Checkout URLs (return/back/error) and status normalisation are now delegated to the provider adapter, so routes behave identically across DEV/INT/PROD.
+- The `sumup` provider is scaffolded and ready to be implemented next.
+- SumUp integration expects standard OAuth credentials (`SUMUP_CLIENT_ID` / `SUMUP_CLIENT_SECRET`) plus checkout settings (`SUMUP_API_BASE`, `SUMUP_RETURN_URL`, `SUMUP_CALLBACK_URL`); run `npm run sumup:stub` to mimic the remote API locally during development.

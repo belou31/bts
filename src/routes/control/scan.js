@@ -2,13 +2,13 @@
 // src/routes/scan.js (ESM)
 import express from 'express';
 import mongoose, { isValidObjectId } from 'mongoose';
-import { Ticket } from '../models/Ticket.js';
-import { Order } from '../models/Order.js';
-import { Event } from '../models/Event.js';
-import { Tariff } from '../models/Tariff.js';
-import { ScanLog } from '../models/ScanLog.js';
-import { verifySignature, renderQrSvg } from '../services/qr.js';
-import requireScanner from '../middlewares/require-scanner.js';
+import { Ticket } from '../../models/Ticket.js';
+import { Order } from '../../models/Order.js';
+import { Event } from '../../models/Event.js';
+import { Tariff } from '../../models/Tariff.js';
+import { ScanLog } from '../../models/ScanLog.js';
+import { verifySignature, renderQrSvg } from '../../services/qr.js';
+import requireScanner from '../../middlewares/require-scanner.js';
 
 function basePath() {
   // "" en DEV, "/bts" en INT/PROD (ou ce que tu définis)

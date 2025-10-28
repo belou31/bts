@@ -13,7 +13,7 @@ export function splitInstallments(totalCents, count, firstDue = new Date()) {
   return schedule;
 }
 
-/** Version "montants seuls" (pour HelloAsso terms[]) */
+/** Version "montants seuls" (pour les plans d'échéance fournisseur) */
 export function splitInstallmentAmounts(totalCents, count) {
   if (![1,2,3].includes(count)) throw new Error('count must be 1|2|3');
   const base = Math.floor(totalCents / count);

@@ -44,11 +44,11 @@ const OrderSchema = new mongoose.Schema({
   lines:      { type: [LineSchema], default: [] },
   totalCents: { type: Number, default: 0 },
 
-  status: { type: String, enum: ['pending','paid','failed','canceled'], default: 'pending', index: true },
+  status: { type: String, enum: ['pending','paid','failed','canceled','refunded'], default: 'pending', index: true },
 
-  paymentProvider:     { type: String, default: 'helloasso' },
+  paymentProvider:     { type: String, default: process.env.PAYMENT_PROVIDER || 'helloasso' },
 
-  // ✅ New canonical provider meta bag (used by renew/tbh7 routes & ha.js)
+  // ✅ New canonical provider meta bag (used by renew/tbh7 routes & pay.js)
   paymentProviderMeta: { type: mongoose.Schema.Types.Mixed, default: {} },
 
   // ⬅ Legacy (keep for compatibility with older data/logic if any)
@@ -81,7 +81,7 @@ OrderSchema.index(
   { name:'uniq_paid_per_payer', unique:true, partialFilterExpression:{ status:'paid' } }
 );
 
-// (2) Lookup by HelloAsso intent / token (canonical)
+// (2) Lookup by payment provider intent / token (canonical)
 OrderSchema.index({ 'paymentProviderMeta.checkoutIntentId': 1 }, { sparse: true, name: 'idx_provider_intent' });
 OrderSchema.index({ 'paymentProviderMeta.tokenHash': 1 },        { sparse: true, name: 'idx_provider_tokenhash' });
 

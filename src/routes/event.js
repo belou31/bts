@@ -9,9 +9,10 @@ import { Order } from '../models/Order.js';          // supposé existant
 import { Tariff } from '../models/Tariff.js';        // supposé existant
 import { TariffPrice } from '../models/TariffPrice.js'; // supposé existant
 import { Zone } from '../models/Zone.js';
-import { createCheckoutIntent } from '../services/helloasso.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
 
 const router = Router();
+const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
 // Helper: reconnaît un ID virtuel de zone (ex: DEBOUT-Z001)
@@ -282,7 +283,7 @@ router.post('/:eventId/checkout', async (req, res) => {
     const ord = await Order.create({
       itemName:`EVENT_${ev.slug}`,
       phase: 'event',
-      paymentProvider: 'helloasso',
+      paymentProvider: PAYMENT_PROVIDER_ID,
       paymentProviderMeta: {},
 
       createdAt: now,
@@ -312,7 +313,7 @@ router.post('/:eventId/checkout', async (req, res) => {
         eventSlug:    ev.slug,
         eventName:    ev.name,       // ⬅️ pour l’objet + template email
         eventStartsAt: ev.startsAt,  // ⬅️ utile si affichage date/heure match
-        provider:     'helloasso'
+        provider:     PAYMENT_PROVIDER_ID
       },
 
       origin: { flow: 'event', uiPath: '/event', apiPath: `${req.baseUrl||''}${req.path}` },
@@ -333,38 +334,37 @@ router.post('/:eventId/checkout', async (req, res) => {
       ));
     }
 
-    // Intent paiement (HelloAsso ou STUB)
+    // Intent paiement
     let intent = null;
     try {
-      const addOID = (u) => u + (u.includes('?') ? '&' : '?') + `oid=${encodeURIComponent(String(ord._id))}`;
-      const retUrl = process.env.HELLOASSO_RETURN_URL || '';
+      const urls = buildReturnUrls(ord);
       intent = await createCheckoutIntent({
         order: ord,
-        returnUrl: addOID(retUrl),
-        backUrl:   addOID(retUrl.replace('/ha/return','/ha/back')),
-        errorUrl:  addOID(retUrl.replace('/ha/return','/ha/error'))
-      });  
-
-      if (intent?.id) {
-        ord.paymentProvider = 'helloasso';
-        ord.paymentProviderMeta = { ...(ord.paymentProviderMeta||{}), checkoutIntentId: String(intent.id) };
+        returnUrl: urls.returnUrl,
+        backUrl: urls.backUrl,
+        errorUrl: urls.errorUrl
+      });
+      if (intent?.id || intent?.checkoutReference || intent?.raw?.checkout_reference) {
+        const checkoutId = String(intent.id || intent.checkoutReference || intent.raw?.checkout_reference || '');
+        ord.paymentProvider = PAYMENT_PROVIDER_ID;
+        ord.paymentProviderMeta = {
+          ...(ord.paymentProviderMeta || {}),
+          name: PAYMENT_PROVIDER_ID,
+          checkoutIntentId: checkoutId,
+          checkoutReference: intent.checkoutReference || intent.raw?.checkout_reference || checkoutId,
+          providerOrderId:
+            intent.providerOrderId ||
+            intent.raw?.order?.id ||
+            intent.raw?.orderId ||
+            intent.raw?.transaction_code ||
+            intent.raw?.transaction_id ||
+            intent.raw?.id ||
+            null
+        };
         await ord.save();
       }
     } catch (err) {
-      // En DEV, si HELLOASSO_STUB=true, on renvoie un faux redirect pour tester le flux bout-en-bout
-      if (String(process.env.HELLOASSO_STUB||'').toLowerCase() === 'true') {
-        const appUrl = process.env.APP_URL || '';
-        // ➕ inclure oid & ci pour aider /ha/return à corréler
-        const fakeCi = `stub_${ord._id}`;
-        ord.paymentProvider = 'helloasso';
-        ord.paymentProviderMeta = { ...(ord.paymentProviderMeta||{}), checkoutIntentId: fakeCi, stub:true };
-        await ord.save();
-        intent = {
-          redirectUrl: `${appUrl.replace(/\/$/,'')}/ha/return?stub=1&result=success&oid=${ord._id}&ci=${fakeCi}&orderId=${ord._id}`
-        };
-      } else {
-        throw new Error(`HelloAsso indisponible: ${err.message||err}`);
-      }
+      throw new Error(`Payment provider unavailable: ${err.message || err}`);
     }
 
     const redirectUrl = intent?.redirectUrl || intent?.url || null;

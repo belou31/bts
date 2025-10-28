@@ -7,19 +7,13 @@ import { Tariff }      from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Order }       from '../models/Order.js';
 
-import { createCheckoutIntent } from '../services/helloasso.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
 import { makeTokenHash }        from '../utils/ha-token.js';
 
 const router = express.Router();
 
 /* ====== ENV / Const ====== */
-const APP_URL         = process.env.APP_URL || '';
-const HELLOASSO_STUB  = String(process.env.HELLOASSO_STUB || 'false').toLowerCase() === 'true';
-const STUB_RESULT     = (process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
-
-const HA_RETURN_URL   = process.env.HELLOASSO_RETURN_URL || (APP_URL ? `${APP_URL}/ha/return` : '/ha/return');
-const HA_BACK_URL     = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/back');
-const HA_ERR_URL      = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/error');
+const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 
 // zones TBH7 ciblées (clés exactes de Zone.key)
 const TBH7_ZONE_KEYS = ['TBH7', 'TBH7-VIRAGE'];
@@ -242,47 +236,43 @@ router.post('/checkout', async (req, res) => {
       lines,
       totalCents,
       status: 'pending',
-      paymentProvider: 'helloasso',
+      paymentProvider: PAYMENT_PROVIDER_ID,
       paymentProviderMeta: {},
 origin: { flow: 'tbh7', uiPath: '/tbh7', apiPath: `${req.baseUrl||''}${req.path}` },
 mailTemplateKind: 'tbh7',
 phase: 'tbh7'
     });
 
-    // DEV: STUB HelloAsso
-    if (HELLOASSO_STUB) {
-      const intentId  = `stub-${Date.now()}`;
-      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: intentId });
-
-      order.paymentProviderMeta = {
-        ...(order.paymentProviderMeta || {}),
-        checkoutIntentId: intentId,
-        tokenHash
-      };
-      await order.save();
-
-      const ok = STUB_RESULT === 'success' || STUB_RESULT === 'ok' || STUB_RESULT === 'true' || STUB_RESULT === '1';
-      const redirectUrl = `${HA_RETURN_URL}?oid=${order._id}&ci=${intentId}&h=${tokenHash}&stub=1&result=${ok ? 'success' : 'failure'}`;
-      return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
-    }
-
-    // INT/PROD: HelloAsso Checkout
-    const { redirectUrl, raw, error } = await createCheckoutIntent({
+    const urls = buildReturnUrls(order);
+    const intent = await createCheckoutIntent({
       order,
-      returnUrl: HA_RETURN_URL,
-      backUrl:   HA_BACK_URL,
-      errorUrl:  HA_ERR_URL
+      returnUrl: urls.returnUrl,
+      backUrl: urls.backUrl,
+      errorUrl: urls.errorUrl
     });
+    const { redirectUrl, raw, error } = intent;
     if (error || !redirectUrl) {
       console.error('[tbh7] createCheckoutIntent failed:', error);
-      return res.status(502).json({ error: 'helloasso_unavailable' });
+      return res.status(502).json({ error: 'payment_unavailable' });
     }
 
-    if (raw?.id) {
-      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: raw.id });
+    const checkoutId = String(intent?.id || intent?.checkoutReference || raw?.id || raw?.checkout_reference || '');
+    if (checkoutId) {
+      const checkoutReference = raw?.checkout_reference || intent?.checkoutReference || checkoutId;
+      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: checkoutId });
       order.paymentProviderMeta = {
         ...(order.paymentProviderMeta || {}),
-        checkoutIntentId: raw.id,
+        name: PAYMENT_PROVIDER_ID,
+        checkoutIntentId: checkoutId,
+        checkoutReference,
+        providerOrderId:
+          intent.providerOrderId ||
+          raw?.order?.id ||
+          raw?.orderId ||
+          raw?.transaction_code ||
+          raw?.transaction_id ||
+          raw?.id ||
+          null,
         tokenHash
       };
       await order.save();

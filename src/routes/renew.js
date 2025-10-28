@@ -1,7 +1,6 @@
 // src/routes/renew.js
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
 
 import { Subscriber }  from '../models/Subscriber.js';
 import { Seat }        from '../models/Seat.js';
@@ -9,20 +8,14 @@ import { Tariff }      from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Order }       from '../models/Order.js';
 
-import { createCheckoutIntent } from '../services/helloasso.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
 import { makeTokenHash } from '../utils/ha-token.js';
 import { findSingleGaps }      from '../utils/no-single-gap.js';
 
 const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const APP_URL = process.env.APP_URL || '';
-const HELLOASSO_STUB = String(process.env.HELLOASSO_STUB || 'false').toLowerCase() === 'true';
-const STUB_RESULT = (process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
-
-const HA_RETURN_URL = process.env.HELLOASSO_RETURN_URL || (APP_URL ? `${APP_URL}/ha/return` : '/ha/return');
-const HA_BACK_URL   = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/back');
-const HA_ERR_URL    = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/error');
+const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 
 // ---------- Helpers ----------
 function zoneKeyFromSeatId(seatId) {
@@ -172,7 +165,7 @@ router.get('/renew', async (req, res) => {
 
 // ---------- POST /s/renew?id=<jwt> ----------
 /**
- * Reçoit le panier Renew et crée l’Order + intent HelloAsso.
+ * Reçoit le panier Renew et crée l’Order + intent chez le prestataire de paiement.
  * Body: { items:[{seatId, lastName, firstName, tariffCode, justif?, info?}, ...], payer:{firstName,lastName,email}, schedule:1|2|3 }
  * Réponse: { ok:true, orderId, totalCents, redirectUrl }
  */
@@ -259,8 +252,8 @@ router.post('/renew', async (req, res) => {
       lines,
       totalCents,
       status: 'pending',
-      paymentProvider: 'helloasso',
-      paymentProviderMeta: {},               // ← standard HELLOASSO
+      paymentProvider: PAYMENT_PROVIDER_ID,
+      paymentProviderMeta: {},
       origin: {
         flow:   'renew',
         uiPath: '/renew',
@@ -269,49 +262,38 @@ router.post('/renew', async (req, res) => {
       mailTemplateKind: 'renew'
     });
 
-    // STUB (DEV) : pas d'appel réseau, on génère un intentId local + tokenHash
-    if (HELLOASSO_STUB) {
-      const intentId  = `stub-${Date.now()}`;
-      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: intentId });
-
-      order.paymentProviderMeta = {
-        ...(order.paymentProviderMeta || {}),
-        checkoutIntentId: intentId,
-        tokenHash
-      };
-      await order.save();
-
-      const ok = STUB_RESULT === 'success' || STUB_RESULT === 'ok' || STUB_RESULT === 'true' || STUB_RESULT === '1';
-      const redirectUrl = `${HA_RETURN_URL}?oid=${order._id}&ci=${intentId}&h=${tokenHash}&stub=1&result=${ok ? 'success' : 'failure'}`;
-      return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
-    }
-
-    // SANDBOX/PROD : crée un CheckoutIntent HelloAsso
-    // ➜ Ajoute ?oid=<OrderId> aux URLs de retour pour la corrélation au /ha/return
-    const withOID = (u, oid) => u + (u.includes('?') ? '&' : '?') + `oid=${encodeURIComponent(String(oid))}`;
-    const retUrl  = withOID(HA_RETURN_URL, order._id);
-    const backUrl = withOID(HA_BACK_URL,   order._id);
-    const errUrl  = withOID(HA_ERR_URL,    order._id);
-
-    const { redirectUrl, raw, error } = await createCheckoutIntent({
+    const urls = buildReturnUrls(order);
+    const intent = await createCheckoutIntent({
       order,
-      returnUrl: retUrl,
-      backUrl:   backUrl,
-      errorUrl:  errUrl
+      returnUrl: urls.returnUrl,
+      backUrl: urls.backUrl,
+      errorUrl: urls.errorUrl
     });
+    const { redirectUrl, raw, error } = intent;
 
     if (error || !redirectUrl) {
       console.error('[renew] createCheckoutIntent failed:', error);
-      return res.status(502).json({ error: 'helloasso_unavailable' });
+      return res.status(502).json({ error: 'payment_unavailable' });
     }
 
-    // Persist intent + tokenHash pour le retour /ha/return
-    if (raw?.id) {
-      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: raw.id });
+    // Persist intent + tokenHash pour le retour /pay/return
+    const checkoutId = String(intent?.id || intent?.checkoutReference || raw?.id || raw?.checkout_reference || '');
+    if (checkoutId) {
+      const checkoutReference = raw?.checkout_reference || intent?.checkoutReference || checkoutId;
+      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: checkoutId });
       order.paymentProviderMeta = {
         ...(order.paymentProviderMeta || {}),
-        name: 'helloasso',
-        checkoutIntentId: String(raw.id),
+        name: PAYMENT_PROVIDER_ID,
+        checkoutIntentId: checkoutId,
+        checkoutReference,
+        providerOrderId:
+          intent.providerOrderId ||
+          raw?.order?.id ||
+          raw?.orderId ||
+          raw?.transaction_code ||
+          raw?.transaction_id ||
+          raw?.id ||
+          null,
         tokenHash
       };
       await order.save();

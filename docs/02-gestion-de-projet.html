@@ -1,25 +1,73 @@
----
-title: Gestion de projet (agile)
-nav_order: 3
----
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BTS – Gestion de projet (Phase 1)</title>
+<style>
+:root{
+  --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#94a3b8; --border:#1f2937;
+  --accent:#22d3ee; --ok:#34d399; --warn:#fbbf24; --danger:#f87171;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#0b1020;color:var(--text);font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--accent);text-decoration:none}
+.container{max-width:1100px;margin:0 auto;padding:24px}
+header{position:sticky;top:0;background:rgba(17,24,39,.9);border-bottom:1px solid var(--border);backdrop-filter:saturate(140%) blur(6px);}
+header .inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:14px;padding:12px 24px}
+header img{height:38px}
+h1{font-size:28px;margin:18px 0 8px}
+h2{font-size:22px;margin:20px 0 8px}
+h3{font-size:18px;margin:18px 0 6px}
+p{margin:8px 0}
+ul{margin:6px 0 12px 22px}
+code,kbd,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,"Courier New",monospace}
+pre{background:#0b1020;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;white-space:pre}
+table{width:100%;border-collapse:collapse;margin:10px 0 16px}
+th,td{border:1px solid var(--border);padding:8px;vertical-align:top}
+.small{color:var(--muted);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;margin:16px 0}
+footer{border-top:1px solid var(--border);margin-top:24px;padding:16px 24px;color:var(--muted)}
+.toc{background:#0b1020;border:1px solid var(--border);border-radius:12px;padding:12px}
+hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+</style>
+</head>
+<body>
+<header><div class="inner">
+  <img src="logo.png" alt="Belougas" />
+  <div>
+    <div class="small">BelougasTicketingSystem · Phase 1 · 2025-10-26</div>
+    <strong>BTS – Gestion de projet (Phase 1)</strong>
+  </div>
+</div></header>
+<main class="container">
 
-# Gestion de projet (agile)
-
-## Approche
-- Itérative / incrémentale par **modules** (Renew → TBH7 → Public).
-- Branches Git :
-  - `dev` : développement libre.
-  - `int` : intégration E2E (sandbox HA, base INT).
-  - `main` : production (stabilisée).
-- Revue via PR / bundles git si besoin.
-
-## Environnements
-- **DEV** (local) : `.env`, Mongo locale (ou Docker), HelloAsso **stubbé** si souhaité.
-- **INT** (VPS) : `.env` dédié, `HELLOASSO_ENV=sandbox`, logs, données de test.
-- **PROD** (VPS) : `.env` dédié, `HELLOASSO_ENV=prod`.
-
-## Definition of Done (phase Renew)
-- Lien de renouvellement fonctionne (sièges, tarifs visibles).
-- Choix tarifs + champs justificatifs conditionnels.
-- Checkout HelloAsso (sandbox INT / prod PROD).
-- Logs & exports OK.
+<div class="card"><h1>Gestion de projet – Approche agile</h1></div>
+<h2>1. Organisation</h2>
+<ul>
+  <li>Backlog GitHub (Issues/Projects), épique « Phase 1 – Renew ».</li>
+  <li>Itérations courtes (1–2 jours), démonstrations en INT.</li>
+  <li>DoD : code linté/testé, scriptable (import/export), doc à jour, test fumée INT OK.</li>
+</ul>
+<h2>2. Environnements</h2>
+<ul>
+  <li><strong>DEV</strong> : Node/Express local, HelloAsso stub possible.</li>
+  <li><strong>INT</strong> : VPS OVH, <code>billetterie-dev.belougas.fr</code>, Mongo <code>bts_int</code>, HA sandbox, PM2 <code>bts-int</code>.</li>
+  <li><strong>PROD</strong> : VPS OVH, <code>billetterie.belougas.fr</code>, Mongo <code>bts_prod</code>, HA prod, PM2 <code>bts-prod</code>.</li>
+</ul>
+<h2>3. Versionning & déploiement</h2>
+<ul>
+  <li>Flux à 3 branches : <code>dev → int → main</code>.</li>
+  <li>INT : <code>git reset --hard origin/int && npm ci && pm2 restart bts-int</code></li>
+  <li>PROD : <code>git reset --hard origin/main && npm ci && pm2 restart bts-prod</code></li>
+</ul>
+<h2>4. Qualité & tests</h2>
+<ul>
+  <li>Tests manuels guidés, scripts CSV, /health, paiements sandbox, attestation e-mail.</li>
+  <li>Audit CSV : cohérence sièges/renouvellements/prix.</li>
+</ul>
+</main>
+<footer>
+  <div>Licence MIT · © TBHC / Belougas</div>
+</footer>
+</body></html>
