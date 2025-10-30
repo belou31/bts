@@ -214,7 +214,7 @@ export async function renderOrderEmail(order) {
     null;
 
   const haOrderBlock = haOrderId
-    ? `<p>Référence HelloAsso : <b>${haOrderId}</b></p>`
+    ? `<p>Référence ${currentPaymentProviderLabel()} : <b>${haOrderId}</b></p>`
     : '';
 
   // Rendu unique (4 colonnes) → LINES_HTML

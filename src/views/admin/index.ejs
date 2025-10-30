@@ -120,6 +120,37 @@
     .script-item.danger {
       border-color: var(--danger);
     }
+    .automation-jobs {
+      margin-top: 16px;
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+    }
+    .automation-jobs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .automation-jobs table {
+      font-size: 12px;
+      border: 1px solid var(--border);
+    }
+    .automation-jobs thead th {
+      background: #f7f9ff;
+    }
+    .automation-job-status {
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .automation-jobs-empty {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .automation-jobs tr.highlight {
+      background: #fff7d6;
+      transition: background 0.8s ease;
+    }
     .script-item header {
       display: flex;
       justify-content: space-between;
@@ -484,7 +515,12 @@
       <% for (const group of scriptGroups || []) { %>
         <div class="script-group <%= group.id === activeGroupId ? 'active' : '' %>" data-script-group="<%= group.id %>">
           <% for (const script of group.scripts || []) {
-               const runUrl = urlFor('/admin/scripts/' + script.id + '/run') + (tokenSuffix || '');
+               const isAutomation = !!(script.automation && script.automation.taskId);
+               const runUrl = urlFor((isAutomation ? '/admin/automation/scripts/' : '/admin/scripts/') + script.id + (isAutomation ? '/jobs' : '/run')) + (tokenSuffix || '');
+               const jobsUrl = isAutomation ? (urlFor('/admin/automation/scripts/' + script.id + '/jobs') + (tokenSuffix || '')) : '';
+               const jobDetailBase = urlFor('/admin/automation/jobs/');
+               const automationJobList = (automationJobs && automationJobs[script.id]) || [];
+               const defaultDryRun = script.automation && script.automation.defaultDryRun ? 'true' : 'false';
           %>
             <article class="script-item <%= script.danger ? 'danger' : '' %>">
               <header>
@@ -494,6 +530,12 @@
               <div class="script-desc"><%= script.description %></div>
               <div class="script-meta">
                 <div><strong>Commande</strong> : <code><%= script.command %></code></div>
+                <% if (isAutomation) { %>
+                  <div>
+                    <span class="pill">Automation</span>
+                    Tâche : <code><%= script.automation.taskId %></code>
+                  </div>
+                <% } %>
                 <% if (script.templates && script.templates.length) { %>
                   <div>Templates :</div>
                   <ul class="templates">
@@ -520,16 +562,29 @@
                 <% } %>
               </div>
 
-              <form class="script-runner" data-script-form data-script-id="<%= script.id %>" data-action="<%= runUrl %>">
+              <form
+                class="script-runner"
+                data-script-form
+                data-script-id="<%= script.id %>"
+                data-mode="<%= isAutomation ? 'automation' : 'cli' %>"
+                data-action="<%= runUrl %>"
+                <% if (isAutomation) { %>
+                  data-jobs-url="<%= jobsUrl %>"
+                  data-job-detail-base="<%= jobDetailBase %>"
+                  data-token-suffix="<%= tokenSuffix || '' %>"
+                  data-default-dry-run="<%= defaultDryRun %>"
+                <% } %>>
                 <% if (script.form && script.form.fields && script.form.fields.length) { %>
                   <div class="script-form-grid">
                     <% for (const field of script.form.fields) { 
                          const inputRole = script.id + ':' + field.name;
                          const fieldType = field.type || 'text';
                     %>
-                      <% if (fieldType === 'checkbox') { %>
+                      <% if (fieldType === 'checkbox') {
+                           const defaultChecked = field.default === true;
+                      %>
                         <label class="checkbox">
-                          <input type="checkbox" data-role="<%= inputRole %>" />
+                          <input type="checkbox" data-role="<%= inputRole %>" <%= defaultChecked ? 'checked' : '' %> />
                           <span>
                             <%= field.label %>
                             <% if (field.hint) { %><small class="field-hint"><%= field.hint %></small><% } %>
@@ -546,10 +601,12 @@
                   </div>
                 <% } %>
 
-                <label>
-                  Arguments additionnels
-                  <input type="text" name="argLine" placeholder="ex : --apply --dry-run --extra=value" />
-                </label>
+                <% if (!isAutomation) { %>
+                  <label>
+                    Arguments additionnels
+                    <input type="text" name="argLine" placeholder="ex : --apply --dry-run --extra=value" />
+                  </label>
+                <% } %>
                 <% if (script.danger) { %>
                 <label>
                   Confirmation (<code><%= script.id %></code>)
@@ -559,6 +616,49 @@
                 <button type="submit">Exécuter</button>
                 <div class="script-output" data-output></div>
               </form>
+
+              <% if (isAutomation) { %>
+                <div
+                  class="automation-jobs"
+                  data-automation-jobs="<%= script.id %>"
+                  data-jobs-url="<%= jobsUrl %>"
+                  data-job-detail-base="<%= jobDetailBase %>"
+                  data-token-suffix="<%= tokenSuffix || '' %>">
+                  <div class="automation-jobs-header">
+                    <h3>Historique des jobs</h3>
+                    <button type="button" class="btn btn-small" data-refresh-jobs="<%= script.id %>">Rafraîchir</button>
+                  </div>
+                  <% if (automationJobList.length) { %>
+                    <table data-jobs-table>
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Statut</th>
+                          <th>Mode</th>
+                          <th>Résumé</th>
+                          <th>Créé</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <% for (const job of automationJobList) {
+                             const jobSummary = job?.result?.summary || job?.error?.message || '';
+                             const createdLabel = job?.createdAt ? new Date(job.createdAt).toLocaleString() : '—';
+                        %>
+                          <tr data-job-id="<%= job.id %>">
+                            <td class="mono"><%= job.id.slice(-6) %></td>
+                            <td class="automation-job-status"><%= job.status %></td>
+                            <td><%= job.dryRun ? 'dry-run' : 'envoi' %></td>
+                            <td><%= jobSummary || '—' %></td>
+                            <td><%= createdLabel %></td>
+                          </tr>
+                        <% } %>
+                      </tbody>
+                    </table>
+                  <% } else { %>
+                    <div class="automation-jobs-empty">Aucun job récent.</div>
+                  <% } %>
+                </div>
+              <% } %>
             </article>
           <% } %>
         </div>
@@ -977,6 +1077,7 @@
 
   <script>
     const SCRIPT_FORMS = <%- JSON.stringify(scriptForms || {}).replace(/</g, '\\u003c') %>;
+    const AUTOMATION_JOBS_STATE = <%- JSON.stringify(automationJobs || {}).replace(/</g, '\\u003c') %>;
     (() => {
       const monitorTabs = document.querySelectorAll('[data-monitor-button]');
       const monitorPanels = document.querySelectorAll('[data-monitor-panel]');
@@ -1012,9 +1113,9 @@
 
       const collectScriptArgs = (form, argLine) => {
         const scriptId = form.dataset.scriptId;
-        if (!scriptId) return { args: [] };
+        if (!scriptId) return { args: [], values: {}, anyFieldValue: false };
         const schema = SCRIPT_FORMS?.[scriptId];
-        if (!schema?.fields?.length) return { args: [] };
+        if (!schema?.fields?.length) return { args: [], values: {}, anyFieldValue: false };
 
         const hasManualArgs = typeof argLine === 'string' && argLine.trim().length > 0;
         const values = {};
@@ -1040,14 +1141,14 @@
         });
 
         if (!anyFieldValue) {
-          return { args: [] };
+          return { args: [], values, anyFieldValue: false, missing };
         }
 
         if (missing.length) {
           if (hasManualArgs) {
-            return { args: [] };
+            return { args: [], values, anyFieldValue, missing };
           }
-          return { error: `Champs requis : ${missing.join(', ')}` };
+          return { error: `Champs requis : ${missing.join(', ')}`, values, anyFieldValue, missing };
         }
 
         const positional = [];
@@ -1100,10 +1201,80 @@
           ...trailing.map(item => item.value)
         ];
 
-        return { args };
+        return { args, values, anyFieldValue: true, missing: [] };
       };
 
-      document.querySelectorAll('[data-script-form]').forEach(form => {
+      const escapeHtml = (value) => {
+        if (value == null) return '';
+        return String(value).replace(/[&<>"']/g, (char) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        }[char] || char));
+      };
+
+      const escapeSelector = (value) => String(value).replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+
+      const sanitizeParams = (input = {}) => {
+        const out = {};
+        Object.entries(input).forEach(([key, value]) => {
+          if (value === '' || value === undefined || value === null) return;
+          out[key] = value;
+        });
+        return out;
+      };
+
+      const renderAutomationJobs = (scriptId) => {
+        const container = document.querySelector(`[data-automation-jobs="${scriptId}"]`);
+        if (!container) return;
+        const jobs = AUTOMATION_JOBS_STATE[scriptId] || [];
+        const table = container.querySelector('table[data-jobs-table]');
+        const tbody = table ? table.querySelector('tbody') : null;
+        const empty = container.querySelector('.automation-jobs-empty');
+        if (!jobs.length) {
+          if (tbody) tbody.innerHTML = '';
+          if (table) table.style.display = 'none';
+          if (empty) empty.style.display = 'block';
+          return;
+        }
+        if (table) table.style.display = '';
+        if (empty) empty.style.display = 'none';
+        if (!tbody) return;
+        tbody.innerHTML = jobs.map(job => {
+          const summary = job?.result?.summary || job?.error?.message || '';
+          const createdLabel = job?.createdAt ? new Date(job.createdAt).toLocaleString() : '—';
+          const status = job?.status || 'unknown';
+          const modeLabel = job?.dryRun ? 'dry-run' : 'envoi';
+          return `<tr data-job-id="${escapeHtml(job.id)}"><td class="mono">${escapeHtml((job.id || '').slice(-6))}</td><td class="automation-job-status">${escapeHtml(status)}</td><td>${escapeHtml(modeLabel)}</td><td>${escapeHtml(summary || '—')}</td><td>${escapeHtml(createdLabel)}</td></tr>`;
+        }).join('');
+      };
+
+      const refreshAutomationJobs = async (scriptId, { highlightJobId } = {}) => {
+        const container = document.querySelector(`[data-automation-jobs="${scriptId}"]`);
+        if (!container) return;
+        const jobsUrl = container.dataset.jobsUrl || '';
+        if (!jobsUrl) return;
+        try {
+          const response = await fetch(jobsUrl);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          AUTOMATION_JOBS_STATE[scriptId] = Array.isArray(data.jobs) ? data.jobs : [];
+          renderAutomationJobs(scriptId);
+          if (highlightJobId) {
+            const row = container.querySelector(`tr[data-job-id="${escapeSelector(highlightJobId)}"]`);
+            if (row) {
+              row.classList.add('highlight');
+              setTimeout(() => row.classList.remove('highlight'), 1800);
+            }
+          }
+        } catch (error) {
+          console.error('⚠️ Impossible de rafraîchir les jobs automation', error);
+        }
+      };
+
+      const setupCliForm = (form) => {
         form.addEventListener('submit', async (event) => {
           event.preventDefault();
           const output = form.querySelector('[data-output]');
@@ -1128,12 +1299,8 @@
                 ...(presetArgs.length ? { args: presetArgs } : {})
               })
             });
-            let data;
-            try {
-              data = await response.json();
-            } catch (parseErr) {
-              data = {};
-            }
+            let data = {};
+            try { data = await response.json(); } catch (_) {}
             if (!response.ok) {
               output.textContent = `✖ ${data.error || response.statusText}`;
             } else {
@@ -1148,6 +1315,79 @@
             button.disabled = false;
           }
         });
+      };
+
+      const setupAutomationForm = (form) => {
+        const scriptId = form.dataset.scriptId;
+        const defaultDryRun = form.dataset.defaultDryRun === 'true';
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const output = form.querySelector('[data-output]');
+          const button = form.querySelector('button[type="submit"]');
+          const confirm = form.querySelector('input[name="confirm"]')?.value || '';
+          const collected = collectScriptArgs(form, '');
+          if (collected.error) {
+            output.textContent = `✖ ${collected.error}`;
+            return;
+          }
+          const paramsRaw = { ...collected.values };
+          let dryRun = defaultDryRun;
+          if (Object.prototype.hasOwnProperty.call(paramsRaw, 'dryRun')) {
+            dryRun = Boolean(paramsRaw.dryRun);
+            delete paramsRaw.dryRun;
+          }
+          if (Object.prototype.hasOwnProperty.call(paramsRaw, 'dry')) {
+            dryRun = Boolean(paramsRaw.dry);
+            delete paramsRaw.dry;
+          }
+          const params = sanitizeParams(paramsRaw);
+          output.textContent = '⏳ Job en file…';
+          button.disabled = true;
+          try {
+            const response = await fetch(form.dataset.action, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                params,
+                dryRun,
+                confirm: confirm || undefined,
+                metadata: { source: 'admin-ui' }
+              })
+            });
+            let data = {};
+            try { data = await response.json(); } catch (_) {}
+            if (!response.ok) {
+              output.textContent = `✖ ${data.error || response.statusText}`;
+            } else {
+              const job = data.job || {};
+              output.textContent = `✔ Job ${job.id || '—'} (${job.status || 'queued'})`;
+              refreshAutomationJobs(scriptId, { highlightJobId: job.id });
+              setTimeout(() => refreshAutomationJobs(scriptId), 4000);
+            }
+          } catch (err) {
+            output.textContent = `✖ ${err && err.message ? err.message : err}`;
+          } finally {
+            button.disabled = false;
+          }
+        });
+      };
+
+      document.querySelectorAll('[data-script-form]').forEach(form => {
+        const mode = form.dataset.mode || 'cli';
+        if (mode === 'automation') {
+          setupAutomationForm(form);
+        } else {
+          setupCliForm(form);
+        }
+      });
+
+      document.querySelectorAll('[data-refresh-jobs]').forEach(btn => {
+        const scriptId = btn.dataset.refreshJobs;
+        btn.addEventListener('click', () => refreshAutomationJobs(scriptId));
+      });
+
+      Object.keys(AUTOMATION_JOBS_STATE || {}).forEach(scriptId => {
+        renderAutomationJobs(scriptId);
       });
 
       document.querySelectorAll('[data-upload-form]').forEach(form => {

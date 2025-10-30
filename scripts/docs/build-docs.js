@@ -214,7 +214,7 @@ const body3 = `
 │   │   ├── index.js              # Montage des sous-routes
 │   │   ├── renew.js              # GET/POST renouvellement (token → sièges, tarifs, checkout)
 │   │   ├── payments-helloasso.js # POST checkout HelloAsso (intent)
-│   │   ├── ha.js                 # GET /ha/return|back|error (validation + attestation e-mail)
+│   │   ├── pay.js                # GET /pay/return|back|error (validation + attestation e-mail)
 │   │   ├── admin.js              # Admin (phases, close/open renewal, etc.)
 │   │   └── admin-email.js        # Test e-mail SMTP
 │   ├── services/
@@ -313,9 +313,9 @@ HELLOASSO_ENV=sandbox
 HELLOASSO_ORG_SLUG=...
 HELLOASSO_CLIENT_ID_SANDBOX=...
 HELLOASSO_CLIENT_SECRET_SANDBOX=...
-HELLOASSO_RETURN_URL_SANDBOX=https://billetterie-dev.belougas.fr/bts/ha/return
-HELLOASSO_ERROR_URL_SANDBOX=https://billetterie-dev.belougas.fr/bts/ha/error
-HELLOASSO_BACK_URL_SANDBOX=https://billetterie-dev.belougas.fr/bts/ha/back
+HELLOASSO_RETURN_URL_SANDBOX=https://billetterie-dev.belougas.fr/bts/pay/return
+HELLOASSO_ERROR_URL_SANDBOX=https://billetterie-dev.belougas.fr/bts/pay/error
+HELLOASSO_BACK_URL_SANDBOX=https://billetterie-dev.belougas.fr/bts/pay/back
 
 APP_URL=https://billetterie-dev.belougas.fr/bts
 SELF_API_BASE=http://127.0.0.1:8081
@@ -530,7 +530,7 @@ bruno-group,bruno@example.com,https://billetterie-dev.belougas.fr/bts/s/renew?id
 <ul>
   <li>Test SMTP : <code>/api/admin/email/test?to=...</code> (header admin si nécessaire).</li>
   <li>Invitations : script CLI (dry-run conseillé).</li>
-  <li>Attestation : envoi automatique au retour HelloAsso payé (<code>/ha/return</code>).</li>
+  <li>Attestation : envoi automatique au retour HelloAsso payé (<code>/pay/return</code>).</li>
 </ul>
 
 <h2>6. Supervision &amp; sécurité</h2>

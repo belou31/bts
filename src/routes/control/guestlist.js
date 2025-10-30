@@ -1,11 +1,11 @@
-// src/routes/control-guestlist.js
+// src/routes/control/guestlist.js
 import { Router } from 'express';
 import mongoose, { isValidObjectId } from 'mongoose';
-import { Event } from '../models/Event.js';
-import { Order } from '../models/Order.js';
-import { Ticket } from '../models/Ticket.js';
-import { ScanLog } from '../models/ScanLog.js';
-import requireScanner from '../middlewares/require-scanner.js';
+import { Event } from '../../models/Event.js';
+import { Order } from '../../models/Order.js';
+import { Ticket } from '../../models/Ticket.js';
+import { ScanLog } from '../../models/ScanLog.js';
+import requireScanner from '../../middlewares/require-scanner.js';
 
 const router = Router();
 

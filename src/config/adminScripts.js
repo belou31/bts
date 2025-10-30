@@ -44,7 +44,7 @@ export const adminScriptGroups = [
           script: 'scripts/00-initialization/check-env.js',
           args: []
         },
-        description: 'Verifies the consistency of APP_URL/BASE_PATH and HelloAsso configuration for the current APP_ENV.'
+        description: 'Verifies the consistency of APP_URL/BASE_PATH and payment provider configuration for the current APP_ENV.'
       },
       {
         id: 'customize-app',
@@ -245,6 +245,54 @@ export const adminScriptGroups = [
               label: 'Fichier de sortie (optionnel)',
               placeholder: 'renew-groups.csv',
               arg: { type: 'option', template: '--out=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'send-renew-invites',
+        label: 'Send Renewal Invitations',
+        order: 2.5,
+        path: 'scripts/03-season-management/send-renew-invites.js',
+        command: 'node scripts/03-season-management/send-renew-invites.js <renew-groups.csv> [--dry]',
+        automation: {
+          taskId: 'season.send-renew-invites',
+          defaultDryRun: true
+        },
+        description: 'Sends renewal invitation emails using the automation job runner (supports dry-run).',
+        notes: [
+          'Dry-run activé par défaut depuis l’interface ; décochez pour envoyer réellement.',
+          'Le CSV doit contenir les colonnes email, renewUrl, firstName/lastName et optionnellement seats.'
+        ],
+        templates: ['data/templates/csv/renew-groups.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'csv',
+              label: 'CSV destinataires',
+              placeholder: 'renew-groups.csv',
+              required: true
+            },
+            {
+              name: 'subject',
+              label: 'Objet (optionnel)',
+              placeholder: 'Renouvellement d’abonnement'
+            },
+            {
+              name: 'seasonCode',
+              label: 'Code saison (optionnel)',
+              placeholder: '2025-2026'
+            },
+            {
+              name: 'deadline',
+              label: 'Date limite (optionnel)',
+              placeholder: '31/08/2025'
+            },
+            {
+              name: 'dryRun',
+              label: 'Dry-run (ne pas envoyer)',
+              type: 'checkbox',
+              default: true
             }
           ]
         }
@@ -1663,6 +1711,15 @@ export function getScriptGroup(id) {
 export function getAdminScript(scriptId) {
   for (const group of adminScriptGroups) {
     const script = group.scripts.find(s => s.id === scriptId);
+    if (script) return { group, script };
+  }
+  return null;
+}
+
+export function getAdminScriptByTaskId(taskId) {
+  if (!taskId) return null;
+  for (const group of adminScriptGroups) {
+    const script = group.scripts.find(s => s?.automation?.taskId === taskId);
     if (script) return { group, script };
   }
   return null;

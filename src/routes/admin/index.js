@@ -5,21 +5,31 @@ import path from 'node:path';
 import fs from 'node:fs';
 import childProcess from 'node:child_process';
 import mongoose from 'mongoose';
-import { Order } from '../models/Order.js';
-import { Seat }  from '../models/Seat.js';
-import { Zone }  from '../models/Zone.js';
-import { Venue } from '../models/Venue.js';
-import { Season } from '../models/Season.js';
-import { Event } from '../models/Event.js';
-import { Tariff } from '../models/Tariff.js';
-import { TariffPrice } from '../models/TariffPrice.js';
-import { Subscriber } from '../models/Subscriber.js';
-import { Ticket } from '../models/Ticket.js';
-import { ScanLog } from '../models/ScanLog.js';
-import { ZoneCatalog } from '../models/ZoneCatalog.js';
-import { SeatCatalog } from '../models/SeatCatalog.js';
-import { exportOrdersCsv, exportSeatsCsv } from '../services/exports.js';
-import { adminScriptGroups, getAdminScript } from '../config/adminScripts.js';
+import { Order } from '../../models/Order.js';
+import { Seat }  from '../../models/Seat.js';
+import { Zone }  from '../../models/Zone.js';
+import { Venue } from '../../models/Venue.js';
+import { Season } from '../../models/Season.js';
+import { Event } from '../../models/Event.js';
+import { Tariff } from '../../models/Tariff.js';
+import { TariffPrice } from '../../models/TariffPrice.js';
+import { Subscriber } from '../../models/Subscriber.js';
+import { Ticket } from '../../models/Ticket.js';
+import { ScanLog } from '../../models/ScanLog.js';
+import { ZoneCatalog } from '../../models/ZoneCatalog.js';
+import { SeatCatalog } from '../../models/SeatCatalog.js';
+import { exportOrdersCsv, exportSeatsCsv } from '../../services/exports.js';
+import {
+  registerDefaultAutomationTasks,
+  ensureTask as ensureAutomationTask,
+  createJob as createAutomationJob,
+  runJob as runAutomationJob,
+  runJobDetached as runAutomationJobDetached,
+  listJobs as listAutomationJobs,
+  getJob as getAutomationJob
+} from '../../services/automation/index.js';
+import { serializeJob as serializeAutomationJob } from '../../services/automation/serializers.js';
+import { adminScriptGroups, getAdminScript } from '../../config/adminScripts.js';
 
 const router = express.Router();
 
@@ -76,6 +86,31 @@ function parseArgLine(line = '') {
   }
   if (current) args.push(current);
   return args;
+}
+
+const RESERVED_AUTOMATION_KEYS = new Set([
+  'dryRun',
+  'dry',
+  'confirm',
+  'metadata',
+  'sync',
+  'wait',
+  'runMode',
+  'params'
+]);
+
+function extractAutomationParams(body = {}) {
+  if (!body || typeof body !== 'object') return {};
+  const params = {};
+  if (body.params && typeof body.params === 'object') {
+    Object.assign(params, body.params);
+  }
+  for (const [key, value] of Object.entries(body)) {
+    if (!RESERVED_AUTOMATION_KEYS.has(key)) {
+      params[key] = value;
+    }
+  }
+  return params;
 }
 
 async function runAdminScript(script, userArgs = []) {
@@ -198,15 +233,26 @@ function prepareScriptCatalog() {
     }));
 
   const scriptForms = {};
+  const automationScripts = [];
   for (const group of scriptGroups) {
     for (const script of group.scripts) {
       if (script?.form?.fields?.length) {
         scriptForms[script.id] = script.form;
       }
+      if (script?.automation?.taskId) {
+        automationScripts.push({
+          scriptId: script.id,
+          taskId: script.automation.taskId,
+          label: script.label,
+          groupId: group.id,
+          defaultDryRun: Boolean(script.automation.defaultDryRun),
+          danger: Boolean(script.danger)
+        });
+      }
     }
   }
 
-  return { scriptGroups, scriptForms };
+  return { scriptGroups, scriptForms, automationScripts };
 }
 
 /* ===================== Page HTML ===================== */
@@ -221,7 +267,7 @@ router.get('/operate', async (req, res) => {
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
-  const { scriptGroups, scriptForms } = prepareScriptCatalog();
+  const { scriptGroups, scriptForms, automationScripts } = prepareScriptCatalog();
 
   const activeGroupId = typeof req.query.group === 'string' && req.query.group
     ? req.query.group
@@ -229,6 +275,30 @@ router.get('/operate', async (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
+  const automationJobs = {};
+
+  if (automationScripts.length > 0) {
+    const jobTuples = await Promise.all(
+      automationScripts.map(async (entry) => {
+        try {
+          const jobs = await listAutomationJobs({
+            scriptId: entry.taskId,
+            limit: 10
+          });
+          return [
+            entry.scriptId,
+            jobs.map(job => serializeAutomationJob(job))
+          ];
+        } catch (error) {
+          console.error('[admin] automation jobs fetch error:', error?.message || error);
+          return [entry.scriptId, []];
+        }
+      })
+    );
+    for (const [scriptId, jobs] of jobTuples) {
+      automationJobs[scriptId] = jobs;
+    }
+  }
 
   return res.render('admin/index', {
     basePath: BASE_PATH || '',
@@ -238,6 +308,8 @@ router.get('/operate', async (req, res) => {
     urlFor,
     scriptGroups,
     scriptForms,
+    automationScripts,
+    automationJobs,
     activeGroupId,
     outputsList,
     inputsList,
@@ -616,6 +688,8 @@ router.get('/monitor', async (req, res) => {
     urlFor,
     scriptGroups: [],
     scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
     activeGroupId: null,
     outputsList: [],
     inputsList: [],
@@ -631,6 +705,10 @@ router.post('/scripts/:scriptId/run', async (req, res) => {
   const found = getAdminScript(scriptId);
   if (!found?.script) {
     return res.status(404).json({ error: 'Unknown script' });
+  }
+
+  if (found.script?.automation?.taskId) {
+    return res.status(400).json({ error: 'Script is managed via automation workflow.' });
   }
 
   if (!found.script.run?.script) {
@@ -662,6 +740,128 @@ router.post('/scripts/:scriptId/run', async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ error: err?.message || String(err) });
+  }
+});
+
+router.post('/automation/scripts/:scriptId/jobs', async (req, res) => {
+  const scriptId = (req.params.scriptId || '').toString();
+  const found = getAdminScript(scriptId);
+  const automationTaskId = found?.script?.automation?.taskId;
+  if (!automationTaskId) {
+    return res.status(404).json({ error: 'Automation script not found' });
+  }
+
+  if (found.script.danger) {
+    const confirmToken = typeof req.body?.confirm === 'string' ? req.body.confirm.trim() : '';
+    if (confirmToken !== found.script.id) {
+      return res.status(400).json({
+        error: 'Confirmation required',
+        confirmToken: found.script.id
+      });
+    }
+  }
+
+  let task;
+  try {
+    task = ensureAutomationTask(automationTaskId);
+  } catch (error) {
+    return res.status(500).json({ error: error?.message || 'Automation task unavailable' });
+  }
+
+  const params = extractAutomationParams(req.body);
+  const defaultDryRun = Boolean(found.script.automation?.defaultDryRun);
+  const dryRun = req.body?.dryRun != null
+    ? Boolean(req.body.dryRun)
+    : req.body?.dry != null
+      ? Boolean(req.body.dry)
+      : defaultDryRun;
+
+  if (dryRun && task.allowDryRun === false) {
+    return res.status(400).json({ error: 'Dry-run not supported for this task.' });
+  }
+
+  try {
+    if (typeof task.validateParams === 'function') {
+      await Promise.resolve(task.validateParams(params, { dryRun }));
+    }
+  } catch (error) {
+    return res.status(400).json({ error: error?.message || 'Invalid parameters.' });
+  }
+
+  try {
+    const job = await createAutomationJob({
+      scriptId: task.id,
+      params,
+      dryRun,
+      version: task.version,
+      requestedBy: 'admin-ui',
+      requestContext: {
+        integration: 'admin-ui',
+        ip: req.ip,
+        userAgent: req.get('user-agent') || null,
+        metadata: req.body?.metadata || null
+      }
+    });
+
+    const runMode = String(req.body?.runMode || '').toLowerCase();
+    const sync = runMode === 'sync' || Boolean(req.body?.sync) || Boolean(req.body?.wait);
+
+    if (sync) {
+      const finished = await runAutomationJob(job);
+      return res.status(201).json({ job: serializeAutomationJob(finished, { includeLogs: true }) });
+    }
+
+    runAutomationJobDetached(job._id).catch((error) => {
+      console.error('[admin] automation job failed', job._id, error);
+    });
+
+    return res.status(202).json({ job: serializeAutomationJob(job) });
+  } catch (error) {
+    return res.status(500).json({ error: error?.message || 'Unable to schedule job.' });
+  }
+});
+
+router.get('/automation/scripts/:scriptId/jobs', async (req, res) => {
+  const scriptId = (req.params.scriptId || '').toString();
+  const found = getAdminScript(scriptId);
+  const automationTaskId = found?.script?.automation?.taskId;
+  if (!automationTaskId) {
+    return res.status(404).json({ error: 'Automation script not found' });
+  }
+
+  try {
+    const limitRaw = req.query.limit != null ? Number(req.query.limit) : undefined;
+    const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
+    const includeLogs =
+      typeof req.query.logs === 'string' &&
+      ['1', 'true', 'yes'].includes(req.query.logs.toLowerCase());
+    const jobs = await listAutomationJobs({
+      scriptId: automationTaskId,
+      limit: limit ?? 20,
+      status: req.query.status || undefined
+    });
+    return res.json({
+      jobs: jobs.map(job => serializeAutomationJob(job, { includeLogs }))
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error?.message || 'Unable to list jobs.' });
+  }
+});
+
+router.get('/automation/jobs/:jobId', async (req, res) => {
+  try {
+    const job = await getAutomationJob(req.params.jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found.' });
+    }
+    const includeLogs =
+      typeof req.query.logs === 'string' &&
+      ['1', 'true', 'yes'].includes(req.query.logs.toLowerCase());
+    return res.json({
+      job: serializeAutomationJob(job, { includeLogs })
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error?.message || 'Unable to fetch job.' });
   }
 });
 
@@ -905,3 +1105,4 @@ router.get('/stats/zones', async (_req, res) => {
 });
 
 export default router;
+registerDefaultAutomationTasks();

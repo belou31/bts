@@ -9,20 +9,14 @@ import { Tariff }      from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Order }       from '../models/Order.js';
 
-import { createCheckoutIntent } from '../services/helloasso.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
 import { makeTokenHash }        from '../utils/ha-token.js';
 import { findSingleGaps }       from '../utils/no-single-gap.js';
 
 const router = express.Router();
 
 /* ====== ENV / Const ====== */
-const APP_URL         = process.env.APP_URL || '';
-const HELLOASSO_STUB  = String(process.env.HELLOASSO_STUB || 'false').toLowerCase() === 'true';
-const STUB_RESULT     = (process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
-
-const HA_RETURN_URL   = process.env.HELLOASSO_RETURN_URL || (APP_URL ? `${APP_URL}/ha/return` : '/ha/return');
-const HA_BACK_URL     = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/back');
-const HA_ERR_URL      = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/error');
+const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 10); // durée du hold en minutes
 const HOLD_MS  = HOLD_MIN * 60 * 1000;
@@ -287,7 +281,7 @@ router.post('/checkout', async (req, res) => {
       payerEmail:     norm(payer.email     || ''),
       paymentSplit:   schedule,
       lines, totalCents, status: 'pending',
-      paymentProvider: 'helloasso',
+      paymentProvider: PAYMENT_PROVIDER_ID,
       paymentProviderMeta: {},
       origin: { flow: 'subscription', uiPath: '/subscription', apiPath: `${req.baseUrl||''}${req.path}` },
       mailTemplateKind: 'subscription'
@@ -339,38 +333,36 @@ router.post('/checkout', async (req, res) => {
       }
     }
       
-    // HelloAsso (STUB en DEV)
-    if (HELLOASSO_STUB) {
-      const intentId  = `stub-${Date.now()}`;
-      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: intentId });
-      order.paymentProviderMeta = { ...(order.paymentProviderMeta || {}), checkoutIntentId: intentId, tokenHash };
-      await order.save();
-
-      const ok = ['success','ok','true','1'].includes(STUB_RESULT);
-      const redirectUrl = `${HA_RETURN_URL}?oid=${order._id}&ci=${intentId}&h=${tokenHash}&stub=1&result=${ok ? 'success' : 'failure'}`;
-      return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
-    }
-
-    // INT/PROD
-    // Corrélation fiable au retour: ajoute ?oid=<orderId> aux 3 URLs
-    const addOID = (u) => u + (u.includes('?') ? '&' : '?') + `oid=${encodeURIComponent(order._id.toString())}`;
-    const { redirectUrl, raw, error } = await createCheckoutIntent({
+    const urls = buildReturnUrls(order);
+    const intent = await createCheckoutIntent({
       order,
-      returnUrl: addOID(HA_RETURN_URL),
-      backUrl:   addOID(HA_BACK_URL),
-      errorUrl:  addOID(HA_ERR_URL)
+      returnUrl: urls.returnUrl,
+      backUrl: urls.backUrl,
+      errorUrl: urls.errorUrl
     });
+    const { redirectUrl, raw, error } = intent;
 
     if (error || !redirectUrl) {
       console.error('[subscription] createCheckoutIntent failed:', error);
-      return res.status(502).json({ error: 'helloasso_unavailable' });
+      return res.status(502).json({ error: 'payment_unavailable' });
     }
-    if (raw?.id) {
-      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: String(raw.id) });
+    const checkoutId = String(intent?.id || intent?.checkoutReference || raw?.id || raw?.checkout_reference || '');
+    if (checkoutId) {
+      const checkoutReference = raw?.checkout_reference || intent?.checkoutReference || checkoutId;
+      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: checkoutId });
       order.paymentProviderMeta = {
         ...(order.paymentProviderMeta || {}),
-        name: 'helloasso',
-        checkoutIntentId: String(raw.id),
+        name: PAYMENT_PROVIDER_ID,
+        checkoutIntentId: checkoutId,
+        checkoutReference,
+        providerOrderId:
+          intent.providerOrderId ||
+          raw?.order?.id ||
+          raw?.orderId ||
+          raw?.transaction_code ||
+          raw?.transaction_id ||
+          raw?.id ||
+          null,
         tokenHash
       };
 

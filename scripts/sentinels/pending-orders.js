@@ -18,8 +18,8 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 import { Order } from '../../src/models/Order.js';
 import { Seat }  from '../../src/models/Seat.js';
-import { getCheckoutStatus } from '../../src/services/helloasso.js';
-import { normalizeHaStatus, isPaidLike,
+import { getCheckoutStatus, currentPaymentProviderId } from '../../src/services/payments/index.js';
+import { normalizePaymentStatus, isPaidLike,
          finalizePaidIfNoConflict,
          sendOrderAttestationIfNeeded,
          sendConflictEmail } from '../../src/services/order-finalization.js';
@@ -32,6 +32,7 @@ const sinceMin = Number((process.argv.find(a=>a.startsWith('--sinceMinutes='))||
 // ====== Housekeeping (holds & pending expirés) ======
 const HOLD_EXPIRE_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 5);
 const PENDING_MAX_MIN = Number(process.env.PENDING_MAX_MIN || 5);
+const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 
 // Libère les sièges d'une commande annulée (holds posés avec meta.hold.orderId = order._id)
 async function releaseSeatsForOrder(order) {
@@ -91,7 +92,7 @@ async function runOnce() {
 
   const list = await Order.find({
     status: { $in: ['pending'] },
-    paymentProvider: 'helloasso',
+    paymentProvider: PAYMENT_PROVIDER_ID,
     'paymentProviderMeta.checkoutIntentId': { $exists: true, $ne: null },
     createdAt: { $gte: since }
   }).sort({ createdAt: -1 }).lean();
@@ -106,7 +107,7 @@ async function runOnce() {
     try { raw = await getCheckoutStatus(intent); }
     catch (e) { console.warn('[sentinel] getCheckoutStatus failed:', intent, e.message); raw = ''; }
 
-    const status = normalizeHaStatus(raw);
+    const status = normalizePaymentStatus(raw);
 
     if (!isPaidLike(status)) {
       console.log(`[sentinel] keep pending ${o._id} → ${status||'(empty)'}`);

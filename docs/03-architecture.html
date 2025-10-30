@@ -1,90 +1,130 @@
----
-title: Architecture & arborescence
-nav_order: 4
----
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BTS – Architecture (Phase 1)</title>
+<style>
+:root{
+  --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#94a3b8; --border:#1f2937;
+  --accent:#22d3ee; --ok:#34d399; --warn:#fbbf24; --danger:#f87171;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#0b1020;color:var(--text);font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--accent);text-decoration:none}
+.container{max-width:1100px;margin:0 auto;padding:24px}
+header{position:sticky;top:0;background:rgba(17,24,39,.9);border-bottom:1px solid var(--border);backdrop-filter:saturate(140%) blur(6px);}
+header .inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:14px;padding:12px 24px}
+header img{height:38px}
+h1{font-size:28px;margin:18px 0 8px}
+h2{font-size:22px;margin:20px 0 8px}
+h3{font-size:18px;margin:18px 0 6px}
+p{margin:8px 0}
+ul{margin:6px 0 12px 22px}
+code,kbd,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,"Courier New",monospace}
+pre{background:#0b1020;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;white-space:pre}
+table{width:100%;border-collapse:collapse;margin:10px 0 16px}
+th,td{border:1px solid var(--border);padding:8px;vertical-align:top}
+.small{color:var(--muted);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;margin:16px 0}
+footer{border-top:1px solid var(--border);margin-top:24px;padding:16px 24px;color:var(--muted)}
+.toc{background:#0b1020;border:1px solid var(--border);border-radius:12px;padding:12px}
+hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+</style>
+</head>
+<body>
+<header><div class="inner">
+  <img src="logo.png" alt="Belougas" />
+  <div>
+    <div class="small">BelougasTicketingSystem · Phase 1 · 2025-10-26</div>
+    <strong>BTS – Architecture (Phase 1)</strong>
+  </div>
+</div></header>
+<main class="container">
 
-# Architecture générale
+<div class="card"><h1>Architecture générale</h1></div>
 
-## Backend
-- **Express** (routes REST + pages HTML statiques)
-- **MongoDB** (sièges, abonnés, saisons, tarifs)
-- **JWT** (tokens de renouvellement)
-- **HelloAsso** (Checkout, sandbox/prod)
+<h2>1. Vue d’ensemble</h2>
+<ul>
+  <li>API Node.js/Express (routes REST + front statique sous <code>/static</code> et <code>/venues/&lt;slug&gt;/plan.svg</code>).</li>
+  <li>MongoDB : <code>Subscriber</code>, <code>Seat</code>, <code>SeatHold</code>, <code>Season</code>, <code>Tariff</code>, <code>TariffPrice</code>, <code>Counter</code>, <code>Order</code>.</li>
+  <li>Paiement HelloAsso (sandbox/prod) ; attestation e-mail après retour.</li>
+  <li>Infra : Nginx (TLS) + PM2 (bts-int, bts-prod) sur VPS OVH.</li>
+</ul>
 
-## Arborescence (extrait)
-src/
-loaders/
-express.js # construit l'app Express (CORS, helmet, static, routes)
-mongo.js # connexion Mongo (MONGO_URI)
-models/
-Seat.js # {seasonCode, venueSlug, seatId, zoneKey, status, provisionedFor}
-Subscriber.js # abonnés (flat), groupKey, prefSeatId, previousSeasonSeats
-Season.js # phases (renewal, tbh7, public)
-Tariff.js # catalogue des tarifs
-TariffPrice.js # prix par zone/saison/lieu
-TariffPriceCatalog.js # tarifs catalogue réutilisables (liste zone × tarif)
-routes/
-index.js # routeur principal (inclut /s/renew)
-renew.js # GET/POST renouvellement
-admin.js # endpoints admin light (phases, exports, etc.)
-public/
-html/
-renew.html # page de renouvellement
-static/
-styles/
-renew.css # styles renew
-venues/
-<slug>/
-plan.svg # plan du lieu (servi & parsing SVG)
-scripts/
-01-venue-management/
-register-venue.js
-import-seats.js
-import-zones.js
-validate-svg.js
-import-tariffs.js
-export-tariffs.js
-import-tariff-prices.js
-export-zone-tariffs.js
-export-zone-tariffs-matrix.js
-clone-zone-tariffs.mjs
-03-season-management/
-upsert-season.js
-instantiate-venue-for-season.js
-instantiate-tariffs.js
-import-renewers-flat.js
-import-subscription-orders.js
-provision-season-seats.js
-renewal-provision-seats.js
-export-renew-groups.js
-export-renew-seats.js
-renewal-close-phase.js
-renewal-add-subscriber-and-provision.mjs
-docs/
+<h2>2. Arborescence (principale)</h2>
+<pre><code>.
+├── data/                         # CSV d'import/export (tarifs, prix, abonnés, liens)
+├── docs/                         # Pages HTML de documentation (GitHub Pages)
+├── scripts/
+│   ├── 00-initialization/        # reset-db, check-env, customize-app
+│   ├── 01-venue-management/      # register-venue, import seats/zones, validate SVG
+│   ├── 02-tariff-management/     # import/export catalogue & matrices de tarifs
+│   ├── 03-season-management/     # instanciation siège/zone/tarif, seed, renewal
+│   ├── 04-event-management/      # création events, imports QR, prix, set-onsale
+│   ├── 05-misc/                  # exports/rapports, audits
+│   └── docs/
+│       └── build-docs.js         # Générateur des pages HTML (ce fichier)
+├── src/
+│   ├── config/
+│   │   └── env.js                # Sélection des variables selon APP_ENV (dev/int/prod)
+│   ├── loaders/
+│   │   ├── express.js            # Création app Express, static (/static, /venues, basePath)
+│   │   ├── mongo.js              # Connexion Mongo (MONGO_URI_DEV/INT/PROD)
+│   │   └── mailer.js             # Nodemailer (Gmail), bascule MAIL_ENABLED
+│   ├── models/
+│   │   ├── Counter.js            # Compteur (séquences: subscriberNo)
+│   │   ├── Order.js              # Commande (checkoutId, payer, lines, status)
+│   │   ├── Seat.js               # Siège (status available/provisioned/held/booked)
+│   │   ├── SeatHold.js           # Blocage temporaire (TTL index)
+│   │   ├── Season.js             # Saison (code, venueSlug, phases)
+│   │   ├── Subscriber.js         # Abonné (groupKey, subscriberNo, ...)
+│   │   ├── Tariff.js             # Catalogue de tarifs (codes, labels, champs requis)
+│   │   ├── TariffPrice.js        # Prix par zone/saison/venue/tarif
+│   │   └── TariffPriceCatalog.js# Catalogue de prix réutilisable (zone × tarif)
+│   ├── routes/
+│   │   ├── index.js              # Montage des sous-routes
+│   │   ├── renew.js              # GET/POST renouvellement (token → sièges, tarifs, checkout)
+│   │   ├── payments-helloasso.js # POST checkout HelloAsso (intent)
+│   │   ├── pay.js                # GET /pay/return|back|error (validation + attestation e-mail)
+│   │   ├── admin.js              # Admin (phases, close/open renewal, etc.)
+│   │   └── admin-email.js        # Test e-mail SMTP
+│   ├── services/
+│   │   ├── attestation.js        # Rendu HTML de l’attestation e-mail
+│   │   ├── helloasso.js          # Client HelloAsso (token, endpoints, status)
+│   │   └── mailer.js             # Envoi d’e-mails (from/subject/html...)
+│   ├── utils/
+│   │   ├── money.js              # fmtEuros, splitInstallments...
+│   │   └── pricing.js            # needJustification, computeSubscriptionPriceCents
+│   ├── public/
+│   │   ├── html/
+│   │   │   └── renew.html        # Front Renew (HTML)
+│   │   ├── styles/
+│   │   │   └── renew.css         # Styles
+│   │   ├── static/
+│   │   │   └── img/logo.png      # Logo club
+│   │   └── venues/
+│   │       └── patinoire-blagnac/
+│   │           └── plan.svg      # Plan SVG (ids de sièges)
+│   └── server.js                 # Entrée de l'application (start Express + Mongo)
+├── package.json
+└── README.md
+</code></pre>
 
-04-event-management/
-build-allowed-from-prices.js
-import-qr-bank.js
-instantiate-tariffs.js
-send-all-season-tickets-for-event.js
-resend-season-tickets-for-event.js
-import-orders.js
-export-orders.js
-resend-event-tickets.js
-tickets-pdf.js
-set-onsale.js
-seats-hold-release.js
-05-misc/
-orders-import-csv.js
-orders-delete-csv.js
-reports/export-orders.js
-reports/export-seats.js
-sentinels/pending-orders.js
-audit-missing-seats.js
-
-
-
-## Points clés
-- **Plan SVG** non stocké en base : servi en statique, parsé côté scripts pour générer le **catalogue de sièges** (collection `seatcatalogs`).
-- Instanciation par saison → collection **`seats`**.
-- Les **tokens** de renouvellement contiennent `seasonCode`, `venueSlug`, `groupKey`, `email`, **`seatIds`**.
+<h2>3. Modèles clés (rappel)</h2>
+<table>
+<tr><th>Modèle</th><th>Champs principaux</th></tr>
+<tr><td>Season</td><td>code, name, active, <strong>venueSlug</strong>, phases[{name,openAt,closeAt,enabled}]</td></tr>
+<tr><td>Seat</td><td>seatId, zoneKey, seasonCode, venueSlug, status, provisionedFor</td></tr>
+<tr><td>SeatHold</td><td>seatId, orderId, expiresAt (TTL index)</td></tr>
+<tr><td>Subscriber</td><td>subscriberNo?, firstName, lastName, email, phone, group, groupKey, previousSeasonSeats, status</td></tr>
+<tr><td>Tariff</td><td>code, label, active, requiresField, fieldLabel, requiresInfo, sortOrder</td></tr>
+<tr><td>TariffPrice</td><td>seasonCode, venueSlug, zoneKey, tariffCode, priceCents</td></tr>
+<tr><td>Counter</td><td>key, seq (numérotation abonné)</td></tr>
+<tr><td>Order</td><td>seasonCode, payer, totalCents, installments, status, checkoutIntentId, haPaymentRef?, lines[{seatId,zoneKey,tariffCode,priceCents,subscriberId}]</td></tr>
+</table>
+</main>
+<footer>
+  <div>Licence MIT · © TBHC / Belougas</div>
+</footer>
+</body></html>

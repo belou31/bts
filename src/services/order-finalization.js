@@ -5,23 +5,19 @@ import { Ticket } from '../models/Ticket.js';
 import { renderOrderEmail, subjectForOrder, attachQrFromBank } from './mailer.js';
 import { buildTicketsPdfBuffer } from './tickets-pdf.js';
 import { sendMail } from '../loaders/mailer.js';
+import { normalizeStatus as providerNormalizeStatus } from './payments/index.js';
 
-export function normalizeHaStatus(input, fallback) {
-  let raw = input;
-  if (raw && typeof raw === 'object') {
-    raw = raw.status || raw.state || raw.code || raw.result || raw.paymentStatus ||
-          (raw.data && (raw.data.status || raw.data.state || raw.data.code)) || '';
-  }
-  raw = String(raw || fallback || '').trim().toLowerCase();
-  if (!raw) return '';
-  if (raw === 'payment_succeeded' || raw === 'success' || raw === 'succeeded' || raw === 'ok') return 'succeeded';
-  if (raw === 'paid' || raw === 'payment_accepted' || raw === 'processed') return 'paid';
-  if (raw.startsWith('authoriz')) return 'authorized';
-  return raw;
+export function normalizePaymentStatus(input, fallback) {
+  return providerNormalizeStatus(input, fallback);
 }
+
+export const normalizeHaStatus = normalizePaymentStatus;
 
 export const isPaidLike = (s) =>
   /^(paid|processed|authorized|authorized_ok|ok|success|succeeded)$/i.test(String(s||''));
+
+export const isRefundedLike = (s) =>
+  /^(refunded|refund|reimbursed|reversed|chargeback|payment_refunded)$/i.test(String(s||''));
 
 const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid||''));
 const isRealSeatId        = (sid) => /^[A-Z0-9]+-[A-Z]+-\d{1,4}$/i.test(String(sid||''));
