@@ -34,11 +34,10 @@ export async function createJob({
 
 export async function runJob(job, { skipValidation = false } = {}) {
   if (!job) throw new Error('Job document required');
-  const task = skipValidation ? null : ensureTask(job.scriptId);
   const jobDoc = job instanceof AutomationJob ? job : await AutomationJob.findById(job);
   if (!jobDoc) throw new Error('Job not found');
 
-  const resolvedTask = task || ensureTask(jobDoc.scriptId);
+  const resolvedTask = ensureTask(jobDoc.scriptId);
 
   const logger = createJobLogger(jobDoc);
 
@@ -54,7 +53,7 @@ export async function runJob(job, { skipValidation = false } = {}) {
   });
 
   try {
-    if (resolvedTask.validateParams) {
+    if (!skipValidation && resolvedTask.validateParams) {
       await Promise.resolve(resolvedTask.validateParams(jobDoc.params || {}, context));
     }
     const output = await Promise.resolve(
@@ -119,4 +118,3 @@ export async function appendJobLog(jobId, entry) {
   await jobDoc.save();
   return asPlainObject(jobDoc);
 }
-

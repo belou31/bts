@@ -176,7 +176,7 @@ export const sendRenewInvitesTask = {
   allowDryRun: true,
   schema: {
     type: 'object',
-    required: ['csv'],
+    required: [],
     properties: {
       csv: { type: 'string', description: 'Chemin vers le CSV des abonnés' },
       subject: { type: 'string', description: 'Objet de l’e-mail à envoyer' },
@@ -190,23 +190,40 @@ export const sendRenewInvitesTask = {
       deadline: { type: 'string' },
       venue: { type: 'string' },
       fromName: { type: 'string' },
-      providerLabel: { type: 'string' }
+      providerLabel: { type: 'string' },
+      invitees: {
+        type: 'array',
+        description: 'Liste inline des invitations (alternative au CSV)',
+        items: {
+          type: 'object',
+          properties: {
+            email: { type: 'string' },
+            renewUrl: { type: 'string' },
+            firstName: { type: 'string' },
+            lastName: { type: 'string' },
+            seats: { type: 'string' }
+          }
+        }
+      }
     },
     additionalProperties: true
   },
   description: 'Lecture du CSV, rendu du template d’e-mail et envoi (ou dry-run) des invitations.',
   async validateParams(params = {}) {
-    if (!params.csv) {
-      throw new Error('Paramètre "csv" obligatoire pour send-renew-invites.');
+    const hasInline = Array.isArray(params.invitees) && params.invitees.length > 0;
+    if (!hasInline && !params.csv) {
+      throw new Error('Fournissez soit un CSV (paramètre "csv"), soit des invitations inline ("invitees").');
     }
   },
   async handler(params = {}, context) {
     const logger = context?.logger;
     const dryRun = Boolean(context?.dryRun);
 
-    const csvPath = resolveCsvPath(params.csv, context);
-    const subject =
-      params.subject || params.emailSubject || DEFAULT_SUBJECT;
+    const inlineInvitees = Array.isArray(params.invitees) ? params.invitees : [];
+    const usingInline = inlineInvitees.length > 0;
+
+    const csvPath = usingInline ? null : resolveCsvPath(params.csv, context);
+    const subject = params.subject || params.emailSubject || DEFAULT_SUBJECT;
     const limit =
       params.limit != null ? Number(params.limit) : Number.POSITIVE_INFINITY;
     const offset = params.offset != null ? Math.max(Number(params.offset), 0) : 0;
@@ -222,6 +239,7 @@ export const sendRenewInvitesTask = {
 
     logger?.info('Launching send-renew-invites task', {
       csvPath,
+      inlineInvitees: usingInline ? inlineInvitees.length : 0,
       subject,
       limit: Number.isFinite(limit) ? limit : null,
       offset,
@@ -230,37 +248,66 @@ export const sendRenewInvitesTask = {
       dryRun
     });
 
-    const csv = await iterateCsv(csvPath, { forcedSeparator });
-    const header = csv.header;
-    const getIdx = csv.getIdx;
-    const separator = csv.separator;
-
-    logger?.debug?.('CSV header loaded', {
-      header,
-      separator
-    });
-
-    const idxEmail = getIdx(EMAIL_ALIASES);
-    const idxUrl = getIdx(URL_ALIASES);
-    const idxFN = getIdx(FIRST_NAME_ALIASES);
-    const idxLN = getIdx(LAST_NAME_ALIASES);
-    const idxSeats = getIdx(SEATS_ALIASES);
-
-    if (idxEmail === -1) {
-      throw new Error('Colonne email introuvable dans le CSV.');
-    }
-    if (idxUrl === -1) {
-      throw new Error('Colonne lien (renewUrl) introuvable dans le CSV.');
-    }
-
     let processed = 0;
     let sent = 0;
     let skippedInvalidEmail = 0;
     let skippedMissingUrl = 0;
     let skippedOffset = 0;
     let errors = 0;
+    let iterator;
+    let iteratorType = 'csv';
 
-    for await (const row of csv.rows) {
+    if (usingInline) {
+      iteratorType = 'inline';
+      iterator = (async function* buildInlineIterator() {
+        for (const invite of inlineInvitees) {
+          yield invite;
+        }
+      })();
+    } else {
+      const csv = await iterateCsv(csvPath, { forcedSeparator });
+      const header = csv.header;
+      const getIdx = csv.getIdx;
+      const separator = csv.separator;
+
+      logger?.debug?.('CSV header loaded', {
+        header,
+        separator
+      });
+
+      const idxEmail = getIdx(EMAIL_ALIASES);
+      const idxUrl = getIdx(URL_ALIASES);
+      const idxFN = getIdx(FIRST_NAME_ALIASES);
+      const idxLN = getIdx(LAST_NAME_ALIASES);
+      const idxSeats = getIdx(SEATS_ALIASES);
+
+      if (idxEmail === -1) {
+        throw new Error('Colonne email introuvable dans le CSV.');
+      }
+      if (idxUrl === -1) {
+        throw new Error('Colonne lien (renewUrl) introuvable dans le CSV.');
+      }
+
+      iterator = (async function* buildCsvIterator() {
+        for await (const row of csv.rows) {
+          yield {
+            email: idxEmail >= 0 ? row[idxEmail] : '',
+            renewUrl: idxUrl >= 0 ? row[idxUrl] : '',
+            firstName: idxFN >= 0 ? row[idxFN] : '',
+            lastName: idxLN >= 0 ? row[idxLN] : '',
+            seats: idxSeats >= 0 ? row[idxSeats] : ''
+          };
+        }
+      })();
+    }
+
+    for await (const entry of iterator) {
+      const email = entry?.email || entry?.payerEmail || entry?.contact || entry?.mail || '';
+      const renewUrl = entry?.renewUrl || entry?.url || entry?.link || entry?.renew || '';
+      const firstName = entry?.firstName || entry?.payerFirstName || '';
+      const lastName = entry?.lastName || entry?.payerLastName || '';
+      const seatsRaw = entry?.seats || entry?.seatIds || entry?.seat_ids || entry?.seats_list || '';
+
       processed++;
       if (sent >= limit) {
         logger?.info('Limit reached, stopping iteration', { limit });
@@ -270,12 +317,6 @@ export const sendRenewInvitesTask = {
         skippedOffset++;
         continue;
       }
-
-      const email = idxEmail >= 0 ? row[idxEmail] : '';
-      const renewUrl = idxUrl >= 0 ? row[idxUrl] : '';
-      const firstName = idxFN >= 0 ? row[idxFN] : '';
-      const lastName = idxLN >= 0 ? row[idxLN] : '';
-      const seatsRaw = idxSeats >= 0 ? row[idxSeats] : '';
 
       if (!isValidEmail(email)) {
         skippedInvalidEmail++;
@@ -339,13 +380,14 @@ export const sendRenewInvitesTask = {
         });
       }
 
-      if (!dryRun && delayMs > 0 && sent < limit) {
+      if (!dryRun && delayMs > 0 && sent < limit && iteratorType === 'csv') {
         await sleep(delayMs);
       }
     }
 
     const result = {
       csvPath,
+      inlineInvitees: usingInline ? inlineInvitees.length : 0,
       subject,
       dryRun,
       counts: {

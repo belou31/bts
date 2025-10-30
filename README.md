@@ -20,6 +20,34 @@
 
 For the full reference (commands, environment variables, templates), read [docs/scripts-catalog.md](docs/scripts-catalog.md).
 
+## Spreadsheet Automations
+
+- `scripts_libreoffice/` — Python macros for LibreOffice Calc (DEV/local flows).
+- `scripts_google/` — Google Apps Script snippets for Google Sheets (INT/PROD).
+- `scripts_microsoft/` — VBA scaffolding for Microsoft Excel (future extension).
+
+Each tree mirrors the `scripts/` lifecycle categories (`02-tariff-management`, `03-season-management`, `04-event-management`) so spreadsheet tooling stays aligned with the admin “Operate” catalog.
+
+### Shared automation secrets
+
+Keep JWT-related secrets outside the repository in `~/.config/bts/automation.env` (or set `BTS_AUTOMATION_ENV` to another path). Example:
+
+```
+AUTOMATION_JWT_SECRET=super-secret-shared-key
+AUTOMATION_JWT_ISS=libreoffice
+AUTOMATION_JWT_AUD=bts-automation
+```
+
+- LibreOffice macros automatically read this file via `env_loader.py` when present. Copy `scripts_libreoffice/env_loader.py`, `menu_placeholders.py`, and any automation macro (e.g. `03-season-management/send_renew_invites.py`) into your LibreOffice `Scripts/python/` directory so they can pick it up.
+- Node scripts can source the same file by prepending `-r ./tools/loadAutomationEnv.js` (alongside `-r dotenv/config` if you also load an environment-specific `.env`). For convenience set:
+
+  ```bash
+  export NODE_OPTIONS="-r dotenv/config -r ./tools/loadAutomationEnv.js"
+  export DOTENV_CONFIG_PATH=.env.dev   # or .env.prod/.env.int
+  ```
+
+  Commands like `node scripts/03-season-management/import-renewers-flat.js …` will then have access to both your project `.env` and the shared automation secrets without duplicating values.
+
 ## HelloAsso Stub
 
 - Local checkout simulator listening on `http://127.0.0.1:3005`.
