@@ -10,6 +10,7 @@ import { Tariff } from '../models/Tariff.js';        // supposé existant
 import { TariffPrice } from '../models/TariffPrice.js'; // supposé existant
 import { Zone } from '../models/Zone.js';
 import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
+import { resolveLinePlacement } from '../utils/event-attendance.js';
 
 const router = Router();
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
@@ -69,13 +70,21 @@ async function computeSeatStates(ev){
 
   // Surcouche: ordres paid pour CET évènement -> booked
   const paid = await Order.find(
-    { 'meta.eventId': String(ev._id), status:'paid' },
-    { 'lines.seatId':1, _id:0 }
+    {
+      status: 'paid',
+      $or: [
+        { eventId: ev._id },
+        { 'meta.eventId': String(ev._id) }
+      ]
+    },
+    { lines: 1, _id: 0 }
   ).lean();
 
   for (const ord of (paid||[])) {
     for (const ln of (ord.lines||[])) {
-      const sid = String(ln.seatId||'').trim();
+      const placement = resolveLinePlacement(ln);
+      if (placement.released) continue;
+      const sid = String(placement.seatId||'').trim();
       if (!sid) continue;                 // lignes de zone → pas de seatId
       if (/-Z\d{3,}$/i.test(sid)) continue; // IDs virtuels (zones) → ignorer
       if (!byId.has(sid)) continue;       // ⛔ ne crée PAS de siège fantôme
@@ -146,12 +155,21 @@ router.get('/:eventId/status', async (req, res) => {
       }));
 
       const zoneSold = new Map();
-      const [eventOrders, subscriptionOrders] = await Promise.all([
-        Order.find(
-          { 'meta.eventId': String(ev._id), status: { $nin: ['canceled', 'failed'] } },
-          { lines: 1 }
-        ).lean(),
-        Order.find(
+      const eventOrders = await Order.find(
+        {
+          status: { $nin: ['canceled', 'failed'] },
+          $or: [
+            { eventId: ev._id },
+            { 'meta.eventId': String(ev._id) }
+          ]
+        },
+        { lines: 1, parentOrderId: 1 }
+      ).lean();
+
+      let subscriptionOrders = [];
+      const hasImportedSeason = eventOrders.some(o => o.parentOrderId);
+      if (!hasImportedSeason) {
+        subscriptionOrders = await Order.find(
           {
             phase: 'subscription',
             seasonCode: ev.seasonCode,
@@ -159,14 +177,16 @@ router.get('/:eventId/status', async (req, res) => {
             status: { $nin: ['canceled', 'failed'] }
           },
           { lines: 1 }
-        ).lean()
-      ]);
+        ).lean();
+      }
 
       for (const ord of eventOrders) {
         for (const line of ord?.lines || []) {
-          const key = String(line?.zoneKey || '').toUpperCase();
+          const placement = resolveLinePlacement(line);
+          if (placement.released) continue;
+          const key = String(placement.zoneKey || '').toUpperCase();
           if (!zoneCapacity.has(key)) continue;
-          const seatId = typeof line?.seatId === 'string' ? line.seatId.trim() : '';
+          const seatId = typeof placement?.seatId === 'string' ? placement.seatId.trim() : '';
           if (seatId) continue;
           const qtyRaw = Number(line?.qty ?? line?.quantity ?? 1);
           const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
@@ -281,6 +301,7 @@ router.post('/:eventId/checkout', async (req, res) => {
     const uniqueGroupKey = `EVENT-${ev.slug}-${new mongoose.Types.ObjectId().toString()}`;
 
     const ord = await Order.create({
+      eventId: ev._id,
       itemName:`EVENT_${ev.slug}`,
       phase: 'event',
       paymentProvider: PAYMENT_PROVIDER_ID,
