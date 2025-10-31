@@ -89,8 +89,16 @@ automationJobSchema.methods.markDone = function markDone(status, payload = {}) {
   this.status = status;
   this.finishedAt = new Date();
   if (status === 'succeeded') {
+    let summaryValue = payload?.summary;
+    if (summaryValue && typeof summaryValue !== 'string') {
+      try {
+        summaryValue = JSON.stringify(summaryValue);
+      } catch (error) {
+        summaryValue = String(summaryValue);
+      }
+    }
     this.result = {
-      summary: payload?.summary,
+      summary: summaryValue,
       payload: payload?.payload ?? null
     };
     this.error = undefined;

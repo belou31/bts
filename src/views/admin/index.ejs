@@ -977,22 +977,92 @@
               <div class="empty-state">Pas de données siège.</div>
             <% } %>
           </section>
+          <section class="card">
+            <h4>Présence abonnés</h4>
+            <% const evAttendance = monitoring.event.attendance || {}; const totalAttendance = (evAttendance.kept || 0) + (evAttendance.released || 0) + (evAttendance.moved || 0); %>
+            <% if (totalAttendance > 0) { %>
+              <ul class="metrics-list">
+                <li>
+                  <span>Gardées</span>
+                  <span><%= evAttendance.kept || 0 %> (<%= Math.round(((evAttendance.kept || 0) / totalAttendance) * 100) %>%)</span>
+                </li>
+                <li>
+                  <span>Libérées</span>
+                  <span><%= evAttendance.released || 0 %> (<%= Math.round(((evAttendance.released || 0) / totalAttendance) * 100) %>%)</span>
+                </li>
+                <li>
+                  <span>Déplacées</span>
+                  <span><%= evAttendance.moved || 0 %> (<%= Math.round(((evAttendance.moved || 0) / totalAttendance) * 100) %>%)</span>
+                </li>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Aucun billet abonné importé.</div>
+            <% } %>
+          </section>
         </div>
 
-        <div class="monitoring-grid">
+        <div class="monitoring-grid" data-event-orders-block data-event-slug="<%= monitoring.event.selectedEvent.slug %>">
           <section class="card">
             <h4>Commandes récentes</h4>
             <% if (monitoring.event.orders && monitoring.event.orders.length) { %>
               <div class="scroll-table">
                 <table>
-                  <tr><th>ID</th><th>Créée</th><th>Status</th><th>Email</th><th>Lignes</th><th>Total</th></tr>
+                  <tr>
+                    <th>ID</th>
+                    <th>Parent</th>
+                    <th>Créée</th>
+                    <th>Status</th>
+                    <th>Email</th>
+                    <th>Lignes</th>
+                    <th>Présence</th>
+                    <th>Ajustements</th>
+                    <th></th>
+                    <th>Total</th>
+                  </tr>
                   <% monitoring.event.orders.forEach(o => { %>
                     <tr>
                       <td><code><%= o.id %></code></td>
+                      <td>
+                        <% if (o.parentOrderId) { %>
+                          <code><%= o.parentOrderId.slice(-6) %></code>
+                        <% } else { %>
+                          <span class="muted">—</span>
+                        <% } %>
+                      </td>
                       <td><%= o.createdAt ? new Date(o.createdAt).toLocaleString() : '—' %></td>
                       <td><%= o.status %></td>
                       <td><%= o.payerEmail || '—' %></td>
                       <td><%= o.lineCount %></td>
+                      <td class="mono">K:<%= o.attendance?.kept ?? 0 %> / R:<%= o.attendance?.released ?? 0 %> / M:<%= o.attendance?.moved ?? 0 %></td>
+                      <td>
+                        <% if (o.overrides && o.overrides.length) { %>
+                          <ul style="margin:0;padding-left:16px;">
+                            <% o.overrides.slice(0,4).forEach(ov => { %>
+                              <li>
+                                <strong><%= ov.status === 'released' ? 'Libérée' : 'Déplacée' %></strong>
+                                <% if (ov.seatId) { %>
+                                  → <code><%= ov.seatId %></code>
+                                <% } else if (ov.zoneKey) { %>
+                                  → zone <%= ov.zoneKey %>
+                                <% } %>
+                                <% if (ov.note) { %>
+                                  <span class="muted"> — <%= ov.note %></span>
+                                <% } %>
+                              </li>
+                            <% }) %>
+                            <% if (o.overrides.length > 4) { %>
+                              <li class="muted">(+<%= o.overrides.length - 4 %> autres)</li>
+                            <% } %>
+                          </ul>
+                        <% } else { %>
+                          <span class="muted">—</span>
+                        <% } %>
+                      </td>
+                      <td>
+                        <button type="button" class="btn btn-small" data-attendance-edit data-order-id="<%= o.id %>">
+                          Ajuster
+                        </button>
+                      </td>
                       <td><%= ((o.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
                     </tr>
                   <% }) %>
@@ -1070,6 +1140,24 @@
       <% } else { %>
         <div class="empty-state">Sélectionnez un événement pour afficher les détails.</div>
       <% } %>
+    </div>
+  </div>
+
+  <div class="modal hidden" data-attendance-modal>
+    <div class="modal-backdrop" data-attendance-close></div>
+    <div class="modal-dialog">
+      <header class="modal-header">
+        <h3>Ajuster la présence</h3>
+        <button type="button" class="modal-close" data-attendance-close>&times;</button>
+      </header>
+      <div class="modal-body" data-attendance-body>
+        <div class="empty-state">Chargement…</div>
+      </div>
+      <footer class="modal-footer">
+        <div class="modal-summary" data-attendance-summary></div>
+        <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
+        <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
+      </footer>
     </div>
   </div>
 
@@ -1449,6 +1537,211 @@
           reader.readAsDataURL(file);
         });
       });
+
+      /* ----- Attendance modal wiring ----- */
+      const defaultEventSlug = <%- JSON.stringify((locals.monitoring && locals.monitoring.event && locals.monitoring.event.selectedEvent && locals.monitoring.event.selectedEvent.slug) ? locals.monitoring.event.selectedEvent.slug : '') %>;
+
+      const attendanceModal = document.querySelector('[data-attendance-modal]');
+      const attendanceBody = attendanceModal?.querySelector('[data-attendance-body]') || null;
+      const attendanceSubmit = attendanceModal?.querySelector('[data-attendance-submit]') || null;
+      let attendanceState = {
+        eventSlug: null,
+        orderId: null,
+        lineIndex: null,
+        order: null
+      };
+
+      const closeAttendance = () => {
+        if (!attendanceModal) return;
+        attendanceModal.classList.add('hidden');
+        if (attendanceBody) attendanceBody.innerHTML = '<div class="empty-state">Chargement…</div>';
+        attendanceState = { eventSlug: null, orderId: null, lineIndex: null, order: null };
+        if (attendanceSubmit) {
+          attendanceSubmit.disabled = false;
+          attendanceSubmit.textContent = 'Enregistrer';
+        }
+      };
+
+      const openAttendance = () => {
+        if (!attendanceModal) return;
+        attendanceModal.classList.remove('hidden');
+      };
+
+      document.querySelectorAll('[data-attendance-close]').forEach(btn => {
+        btn.addEventListener('click', closeAttendance);
+      });
+
+      const renderAttendanceForm = (order) => {
+        if (!attendanceBody) return;
+        if (!order?.lines?.length) {
+          attendanceBody.innerHTML = '<div class="empty-state">Commande vide.</div>';
+          return;
+        }
+
+        attendanceState.order = order;
+        const options = order.lines.map(line => {
+          const label = line.seatId || line.placement?.seatId || line.zoneKey || `Ligne ${line.index + 1}`;
+          return `<option value="${line.index}">${escapeHtml(label)}</option>`;
+        }).join('');
+
+        const getLine = (idx) => order.lines[idx] || order.lines[0];
+        const current = getLine(order.lines[0]?.index ?? 0);
+        const currentStatus = current?.attendance?.status || 'kept';
+        const currentSeat = current?.attendance?.overrideSeatId || '';
+        const currentZone = current?.attendance?.overrideZoneKey || '';
+        const currentNote = current?.attendance?.note || '';
+
+        attendanceBody.innerHTML = `
+          <form data-attendance-form>
+            <div class="form-group">
+              <label>Ligne</label>
+              <select name="lineIndex" data-attendance-line>
+                ${options}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Statut</label>
+              <select name="status" data-attendance-status>
+                <option value="kept" ${currentStatus === 'kept' ? 'selected' : ''}>Conserver</option>
+                <option value="released" ${currentStatus === 'released' ? 'selected' : ''}>Libérer</option>
+                <option value="moved" ${currentStatus === 'moved' ? 'selected' : ''}>Déplacer</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Siège alternatif</label>
+              <input type="text" name="overrideSeatId" data-attendance-seat value="${escapeHtml(currentSeat)}" placeholder="ex: N5-J-057" />
+            </div>
+            <div class="form-group">
+              <label>Zone alternative</label>
+              <input type="text" name="overrideZoneKey" data-attendance-zone value="${escapeHtml(currentZone)}" placeholder="Zone (optionnel)" />
+            </div>
+            <div class="form-group">
+              <label>Note</label>
+              <textarea name="note" data-attendance-note rows="2">${escapeHtml(currentNote)}</textarea>
+            </div>
+            <div class="form-help">Déplacer &rarr; indiquer siège ou zone. Libérer peut laisser vide.</div>
+          </form>
+        `;
+
+        const lineSelect = attendanceBody.querySelector('[data-attendance-line]');
+        if (lineSelect) {
+          lineSelect.value = String(current?.index ?? order.lines[0].index);
+          attendanceState.lineIndex = Number(lineSelect.value);
+          lineSelect.addEventListener('change', () => {
+            const idx = Number(lineSelect.value);
+            const line = getLine(idx);
+            const st = line?.attendance?.status || 'kept';
+            const seat = line?.attendance?.overrideSeatId || '';
+            const zone = line?.attendance?.overrideZoneKey || '';
+            const note = line?.attendance?.note || '';
+            attendanceBody.querySelector('[data-attendance-status]').value = st;
+            attendanceBody.querySelector('[data-attendance-seat]').value = seat;
+            attendanceBody.querySelector('[data-attendance-zone]').value = zone;
+            attendanceBody.querySelector('[data-attendance-note]').value = note;
+            attendanceState.lineIndex = idx;
+          });
+        }
+      };
+
+      const fetchAttendance = async () => {
+        if (!attendanceState.eventSlug || !attendanceState.orderId) return;
+        try {
+          const endpoint = `${'<%= urlFor('/admin/events') %>'}/${encodeURIComponent(attendanceState.eventSlug)}/orders/${encodeURIComponent(attendanceState.orderId)}/attendance<%= tokenSuffix %>`;
+          const res = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+          if (!res.ok) throw new Error('Chargement impossible');
+          const data = await res.json();
+          if (!data?.ok) throw new Error(data?.error || 'Erreur API');
+          renderAttendanceForm(data.order);
+          const totals = data.attendanceSummary || null;
+          const summaryTarget = document.querySelector('[data-attendance-summary]');
+          if (totals && summaryTarget) {
+            summaryTarget.innerHTML = `Gardées: ${totals.kept || 0} — Libérées: ${totals.released || 0} — Déplacées: ${totals.moved || 0}`;
+          }
+        } catch (err) {
+          if (attendanceBody) attendanceBody.innerHTML = `<div class="error">${escapeHtml(err.message || 'Erreur inconnue')}</div>`;
+        }
+      };
+
+      const submitAttendance = async () => {
+        if (!attendanceState.eventSlug || !attendanceState.orderId) return;
+        if (!attendanceBody) return;
+        const form = attendanceBody.querySelector('[data-attendance-form]');
+        if (!form) return;
+        const lineIndex = attendanceState.lineIndex ?? Number(form.querySelector('[data-attendance-line]')?.value || 0);
+        const status = form.querySelector('[data-attendance-status]')?.value || 'kept';
+        const seat = form.querySelector('[data-attendance-seat]')?.value || '';
+        const zone = form.querySelector('[data-attendance-zone]')?.value || '';
+        const note = form.querySelector('[data-attendance-note]')?.value || '';
+
+        const endpoint = `${'<%= urlFor('/admin/events') %>'}/${encodeURIComponent(attendanceState.eventSlug)}/orders/${encodeURIComponent(attendanceState.orderId)}/attendance<%= tokenSuffix %>`;
+        if (attendanceSubmit) attendanceSubmit.disabled = true;
+        try {
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json'
+            },
+            body: JSON.stringify({ lineIndex, status, overrideSeatId: seat, overrideZoneKey: zone, note })
+          });
+          const data = await res.json();
+          if (!res.ok || !data?.ok) {
+            throw new Error(data?.error || 'Enregistrement impossible');
+          }
+          renderAttendanceForm(data.order);
+          const totals = data.attendanceSummary || null;
+          const summaryTarget = document.querySelector('[data-attendance-summary]');
+          if (totals && summaryTarget) {
+            summaryTarget.innerHTML = `Gardées: ${totals.kept || 0} — Libérées: ${totals.released || 0} — Déplacées: ${totals.moved || 0}`;
+          }
+          attendanceState.order = data.order;
+          if (attendanceSubmit) {
+            attendanceSubmit.disabled = false;
+            attendanceSubmit.textContent = 'Enregistré';
+            setTimeout(() => { attendanceSubmit.textContent = 'Enregistrer'; }, 1200);
+          }
+          const block = document.querySelector('[data-event-orders-block]');
+          if (block) block.setAttribute('data-needs-refresh', '1');
+        } catch (err) {
+          if (attendanceSubmit) {
+            attendanceSubmit.disabled = false;
+            attendanceSubmit.textContent = 'Réessayer';
+          }
+          const alert = document.createElement('div');
+          alert.className = 'error';
+          alert.textContent = err.message || 'Erreur inconnue';
+          attendanceBody?.prepend(alert);
+        }
+      };
+
+      if (attendanceSubmit) {
+        attendanceSubmit.addEventListener('click', submitAttendance);
+      }
+
+      document.querySelectorAll('[data-attendance-edit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const orderId = btn.dataset.orderId;
+          const container = btn.closest('[data-event-orders-block]');
+          const eventSlug = container?.dataset.eventSlug || defaultEventSlug;
+          if (!orderId || !eventSlug) return;
+          attendanceState = { eventSlug, orderId, lineIndex: null, order: null };
+          openAttendance();
+          fetchAttendance();
+        });
+      });
+
+      document.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Escape' && attendanceModal && !attendanceModal.classList.contains('hidden')) {
+          closeAttendance();
+        }
+      });
+
+      attendanceModal?.addEventListener('click', (evt) => {
+        if (evt.target === attendanceModal) {
+          closeAttendance();
+        }
+      });
+
     })();
   </script>
 </body>

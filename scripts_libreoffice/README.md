@@ -22,8 +22,19 @@ LibreOffice then loads the macros straight from the repository; restart Calc whe
 
 LibreOffice surfaces the full BTS catalog under the global **Add-ons** menu when the extension is installed. `bts-menu-creation/registry/data/org/openoffice/Office/Addons.xcu` mirrors every 02/03/04 script:
 
-- Commands with existing automations (e.g. “Send renewal invites”) call the real Python macro.
-- All other entries call into `menu_placeholders.py`, which displays the canonical Node.js command so operators can copy/paste it until dedicated Calc automations are written.
+- Commands with existing automations (currently “Send renewal invites” and “Importer commandes”) call the real Python macros.
+- Other entries still rely on `menu_placeholders.py`, which displays the canonical Node.js command so operators can copy/paste it until dedicated Calc automations are written.
+
+### Available macros
+
+| Macro | Sheet | Default behaviour | Environment overrides |
+| --- | --- | --- | --- |
+| `03-season-management/send_renew_invites.py` | `Invitations` | Sends renew invites (`dryRun=false`). | `BTS_BASE_URL`, `AUTOMATION_JWT_*`, `AUTOMATION_JWT_SCOPES`. |
+| `04-event-management/import_orders.py` | `EventOrders` | Posts to `event.import-orders` with `dryRun=true`, no seat overwrite (`force=false`), no email. | `BTS_EVENT_ORDERS_SHEET`, `BTS_EVENT_IMPORT_DRY_RUN`, `BTS_EVENT_IMPORT_FORCE`, `BTS_EVENT_IMPORT_SEND_EMAIL`. |
+
+Both macros load their configuration from the sheet name first; if the sheet is missing the active sheet is used instead.
+
+Populate the `EventOrders` sheet with the same headers as the Google workflow (payerEmail, eventSlug/eventId, zoneKey/seatId, tariffCode, priceCents/priceEuro, quantity, etc.). The macro groups rows by `orderId`/`groupKey`, posts them to the automation API, and surfaces the job id plus a `/tmp/bts/log-*.txt` path for diagnostics.
 
 ### Logging
 

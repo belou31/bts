@@ -6,6 +6,7 @@ import PDFDocument from 'pdfkit';
 import svgToPdf from 'svg-to-pdfkit';
 import { Tariff } from '../models/Tariff.js';
 import { hexToQrSvg } from './qr.js';
+import { currentPaymentProviderLabel } from './payments/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);

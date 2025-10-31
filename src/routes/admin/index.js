@@ -18,6 +18,7 @@ import { Ticket } from '../../models/Ticket.js';
 import { ScanLog } from '../../models/ScanLog.js';
 import { ZoneCatalog } from '../../models/ZoneCatalog.js';
 import { SeatCatalog } from '../../models/SeatCatalog.js';
+import { resolveLinePlacement, applyAttendancePatch, summarizeAttendance } from '../../utils/event-attendance.js';
 import { exportOrdersCsv, exportSeatsCsv } from '../../services/exports.js';
 import {
   registerDefaultAutomationTasks,
@@ -168,6 +169,62 @@ function listFiles(root, limit = 50) {
   } catch {
     return [];
   }
+}
+
+async function findEventByKey(eventKey) {
+  if (!eventKey) return null;
+  const key = String(eventKey).trim();
+  if (!key) return null;
+  if (mongoose.isValidObjectId(key)) {
+    const byId = await Event.findById(key).lean();
+    if (byId) return byId;
+  }
+  return await Event.findOne({ slug: key }).lean();
+}
+
+function normalizeAttendanceOrder(order) {
+  if (!order) return null;
+  const lines = Array.isArray(order.lines) ? order.lines : [];
+  const outLines = lines.map((line, index) => {
+    const placement = resolveLinePlacement(line);
+    const attendance = line?.attendance || null;
+    return {
+      index,
+      sourceLineId: line?.sourceLineId || null,
+      seatId: line?.seatId || '',
+      zoneKey: line?.zoneKey || '',
+      tariffCode: line?.tariffCode || '',
+      priceCents: line?.priceCents || 0,
+      holderFirstName: line?.holderFirstName || '',
+      holderLastName: line?.holderLastName || '',
+      attendance,
+      placement
+    };
+  });
+
+  return {
+    id: String(order._id),
+    parentOrderId: order.parentOrderId ? String(order.parentOrderId) : null,
+    status: order.status,
+    totalCents: order.totalCents,
+    createdAt: order.createdAt,
+    payerEmail: order.payerEmail || '',
+    lineCount: outLines.length,
+    lines: outLines
+  };
+}
+
+function orderMatchesEvent(order, eventDoc) {
+  if (!order || !eventDoc) return false;
+  const eventIdStr = String(eventDoc._id);
+  const direct = order.eventId ? String(order.eventId) : null;
+  const metaId = order.meta?.eventId ? String(order.meta.eventId) : null;
+  const metaSlug = order.meta?.eventSlug ? String(order.meta.eventSlug) : null;
+
+  if (direct && direct === eventIdStr) return true;
+  if (metaId && metaId === eventIdStr) return true;
+  if (metaSlug && metaSlug === eventDoc.slug) return true;
+  return false;
 }
 
 /* ===================== Sécurité =====================
@@ -526,7 +583,14 @@ router.get('/monitor', async (req, res) => {
     }));
   }
 
-  const eventMatch = selectedEventId ? { 'meta.eventId': selectedEventId } : null;
+  const eventOrderMatch = selectedEventId
+    ? {
+        $or: [
+          { eventId: selectedEventId },
+          { 'meta.eventId': selectedEventId }
+        ]
+      }
+    : null;
   const eventSeatMatch = selectedEvent
     ? { seasonCode: selectedEvent.seasonCode, venueSlug: selectedEvent.venueSlug }
     : null;
@@ -537,23 +601,30 @@ router.get('/monitor', async (req, res) => {
   let eventSeatCounts = {};
   let eventSubscribers = [];
   let eventScans = [];
+  let eventAttendance = { kept: 0, released: 0, moved: 0 };
 
   if (selectedEventId) {
     const [
       eventOrdersRaw,
       eventOrderStatsAgg,
+      attendanceStatsAgg,
       eventTicketsRaw,
       eventSeatStatsAgg,
       eventSubscribersRaw,
       eventScansRaw
     ] = await Promise.all([
-      Order.find(eventMatch)
+      Order.find(eventOrderMatch)
         .sort({ createdAt: -1 })
         .limit(20)
         .lean(),
       Order.aggregate([
-        { $match: { 'meta.eventId': selectedEventId } },
+        { $match: eventOrderMatch },
         { $group: { _id: '$status', count: { $sum: 1 }, totalCents: { $sum: '$totalCents' } } }
+      ]),
+      Order.aggregate([
+        { $match: eventOrderMatch },
+        { $unwind: '$lines' },
+        { $group: { _id: '$lines.attendance.status', count: { $sum: 1 } } }
       ]),
       Ticket.find({ eventId: selectedEventId })
         .sort({ createdAt: -1 })
@@ -577,19 +648,55 @@ router.get('/monitor', async (req, res) => {
         .lean()
     ]);
 
-    eventOrders = eventOrdersRaw.map(o => ({
-      id: String(o._id),
-      status: o.status,
-      totalCents: o.totalCents,
-      createdAt: o.createdAt,
-      payerEmail: o.payerEmail,
-      lineCount: Array.isArray(o.lines) ? o.lines.length : 0
-    }));
+    eventAttendance = { kept: 0, released: 0, moved: 0 };
+    const attendanceAgg = Array.isArray(attendanceStatsAgg) ? attendanceStatsAgg : [];
+
+    eventOrders = eventOrdersRaw.map(o => {
+      const lines = Array.isArray(o.lines) ? o.lines : [];
+      const attendance = { kept: 0, released: 0, moved: 0 };
+      const overrides = [];
+
+      for (const line of lines) {
+        const rawStatus = String(line?.attendance?.status || 'kept').toLowerCase();
+        const status = rawStatus === 'released' ? 'released' : rawStatus === 'moved' ? 'moved' : 'kept';
+        attendance[status] += 1;
+        eventAttendance[status] += 1;
+
+        if (status !== 'kept') {
+          const placement = resolveLinePlacement(line);
+          overrides.push({
+            status,
+            seatId: placement.seatId || line.seatId || '',
+            zoneKey: placement.zoneKey || line.zoneKey || '',
+            note: line?.attendance?.note || ''
+          });
+        }
+      }
+
+      return {
+        id: String(o._id),
+        parentOrderId: o.parentOrderId ? String(o.parentOrderId) : null,
+        status: o.status,
+        totalCents: o.totalCents,
+        createdAt: o.createdAt,
+        payerEmail: o.payerEmail,
+        lineCount: lines.length,
+        attendance,
+        overrides
+      };
+    });
 
     eventOrderStats = eventOrderStatsAgg.reduce((acc, row) => {
       acc[row._id || 'unknown'] = { count: row.count, totalCents: row.totalCents };
       return acc;
     }, {});
+
+    for (const row of attendanceAgg) {
+      const key = String(row?._id || 'kept').toLowerCase();
+      if (key === 'released') eventAttendance.released = row.count || 0;
+      else if (key === 'moved') eventAttendance.moved = row.count || 0;
+      else eventAttendance.kept = (eventAttendance.kept || 0) + (row.count || 0);
+    }
 
     eventTickets = eventTicketsRaw.map(t => ({
       id: String(t._id),
@@ -675,6 +782,7 @@ router.get('/monitor', async (req, res) => {
       orderStats: eventOrderStats,
       tickets: eventTickets,
       seatCounts: eventSeatCounts,
+      attendance: eventAttendance,
       subscribers: eventSubscribers,
       scans: eventScans
     }
@@ -697,6 +805,155 @@ router.get('/monitor', async (req, res) => {
     monitorTab,
     monitoring
   });
+});
+
+/* ===================== Event attendance adjustments ===================== */
+
+router.get('/events/:eventKey/orders/:orderId/attendance', async (req, res) => {
+  try {
+    const eventKey = String(req.params.eventKey || '').trim();
+    const orderId = String(req.params.orderId || '').trim();
+    if (!eventKey || !orderId) {
+      return res.status(400).json({ ok: false, error: 'eventKey and orderId are required' });
+    }
+
+    const eventDoc = await findEventByKey(eventKey);
+    if (!eventDoc) {
+      return res.status(404).json({ ok: false, error: 'Event not found' });
+    }
+
+    const order = await Order.findById(orderId).lean();
+    if (!order) {
+      return res.status(404).json({ ok: false, error: 'Order not found' });
+    }
+    if (!orderMatchesEvent(order, eventDoc)) {
+      return res.status(404).json({ ok: false, error: 'Order not linked to this event' });
+    }
+
+    const payload = normalizeAttendanceOrder(order);
+    const attendance = summarizeAttendance(order.lines || []);
+    return res.json({
+      ok: true,
+      order: payload,
+      event: { id: String(eventDoc._id), slug: eventDoc.slug },
+      attendanceSummary: attendance
+    });
+  } catch (err) {
+    console.error('[admin] GET attendance error', err);
+    return res.status(500).json({ ok: false, error: err?.message || 'Internal error' });
+  }
+});
+
+router.post('/events/:eventKey/orders/:orderId/attendance', async (req, res) => {
+  try {
+    const eventKey = String(req.params.eventKey || '').trim();
+    const orderId = String(req.params.orderId || '').trim();
+    const { lineIndex, sourceLineId, status, overrideSeatId, overrideZoneKey, note } = req.body || {};
+
+    if (!eventKey || !orderId) {
+      return res.status(400).json({ ok: false, error: 'eventKey and orderId are required' });
+    }
+
+    const eventDoc = await findEventByKey(eventKey);
+    if (!eventDoc) {
+      return res.status(404).json({ ok: false, error: 'Event not found' });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ ok: false, error: 'Order not found' });
+    }
+    if (!orderMatchesEvent(order, eventDoc)) {
+      return res.status(404).json({ ok: false, error: 'Order not linked to this event' });
+    }
+
+    const lines = Array.isArray(order.lines) ? order.lines : [];
+    if (!lines.length) {
+      return res.status(400).json({ ok: false, error: 'Order has no lines to update' });
+    }
+
+    let index = Number.isInteger(lineIndex) ? lineIndex : null;
+    if (index === null && typeof lineIndex === 'string' && lineIndex !== '') {
+      const parsed = Number(lineIndex);
+      if (Number.isFinite(parsed)) index = parsed;
+    }
+
+    if (index === null && sourceLineId) {
+      const sought = String(sourceLineId).trim();
+      index = lines.findIndex(l => String(l?.sourceLineId || '') === sought);
+    }
+
+    if (!Number.isInteger(index) || index < 0 || index >= lines.length) {
+      return res.status(400).json({ ok: false, error: 'Invalid line selection' });
+    }
+
+    const cleanStatus = String(status || '').trim().toLowerCase();
+    if (!['kept', 'released', 'moved'].includes(cleanStatus)) {
+      return res.status(400).json({ ok: false, error: 'Invalid status' });
+    }
+
+    const seatOverride = String(overrideSeatId || '').trim();
+    const zoneOverride = String(overrideZoneKey || '').trim().toUpperCase();
+    const noteText = String(note || '').trim();
+
+    if (cleanStatus === 'moved' && !seatOverride && !zoneOverride) {
+      return res.status(400).json({ ok: false, error: 'Moved status requires a seat or zone override' });
+    }
+
+    const line = lines[index];
+    const attendancePayload = applyAttendancePatch(line, {
+      status: cleanStatus,
+      overrideSeatId: seatOverride,
+      overrideZoneKey: zoneOverride,
+      note: noteText
+    }, new Date(), 'admin-ui');
+
+    order.lines[index].attendance = attendancePayload;
+    order.markModified('lines');
+    await order.save();
+
+    const attendance = summarizeAttendance(order.lines || []);
+
+    if (order.parentOrderId && cleanStatus === 'released') {
+      await Order.updateOne(
+        { _id: order.parentOrderId, 'lines.sourceLineId': line?.sourceLineId || null },
+        {
+          ...(line?.sourceLineId
+            ? {
+                $set: {
+                  'lines.$.meta.lastReleasedEventId': String(eventDoc._id),
+                  'lines.$.meta.lastReleasedAt': new Date(),
+                  'lines.$.meta.lastReleasedReason': noteText || 'event_override'
+                }
+              }
+            : {
+                $set: {
+                  'meta.lastReleasedEventId': String(eventDoc._id),
+                  'meta.lastReleasedAt': new Date()
+                }
+              })
+        }
+      ).catch(err => {
+        console.warn('[admin] parent order annot update failed', err?.message || err);
+      });
+    }
+
+    const payload = normalizeAttendanceOrder(order.toObject());
+    console.info('[admin] attendance update', {
+      event: { id: String(eventDoc._id), slug: eventDoc.slug },
+      orderId: String(order._id),
+      parentOrderId: order.parentOrderId ? String(order.parentOrderId) : null,
+      lineIndex: index,
+      status: cleanStatus,
+      overrideSeatId: seatOverride,
+      overrideZoneKey: zoneOverride,
+      operator: 'admin-ui'
+    });
+    return res.json({ ok: true, order: payload, attendanceSummary: attendance });
+  } catch (err) {
+    console.error('[admin] POST attendance error', err);
+    return res.status(500).json({ ok: false, error: err?.message || 'Internal error' });
+  }
 });
 
 /* ===================== Script runner ===================== */

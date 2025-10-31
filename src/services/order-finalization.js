@@ -6,6 +6,7 @@ import { renderOrderEmail, subjectForOrder, attachQrFromBank } from './mailer.js
 import { buildTicketsPdfBuffer } from './tickets-pdf.js';
 import { sendMail } from '../loaders/mailer.js';
 import { normalizeStatus as providerNormalizeStatus } from './payments/index.js';
+import { resolveLinePlacement } from '../utils/event-attendance.js';
 
 export function normalizePaymentStatus(input, fallback) {
   return providerNormalizeStatus(input, fallback);
@@ -24,12 +25,17 @@ const isRealSeatId        = (sid) => /^[A-Z0-9]+-[A-Z]+-\d{1,4}$/i.test(String(s
 
 
 export function realSeatIdsFromOrder(order) {
-  return Array.from(new Set(
-    (order?.lines || [])
-      .map(l => String(l.seatId || '').trim())
-      // Ne garder que les vrais seatIds (ZONE-ROW-###) et exclure explicitement les IDs virtuels de zone
-      .filter(s => s && isRealSeatId(s) && !isVirtualZoneSeatId(s))
-    ));
+  const seats = [];
+  for (const line of (order?.lines || [])) {
+    const placement = resolveLinePlacement(line);
+    if (placement.released) continue;
+    const seatId = String(placement.seatId || '').trim();
+    if (!seatId) continue;
+    if (!isRealSeatId(seatId)) continue;
+    if (isVirtualZoneSeatId(seatId)) continue;
+    seats.push(seatId);
+  }
+  return Array.from(new Set(seats));
 }
 
 
@@ -41,7 +47,7 @@ function generateTicketHex(orderId, index, seatId, zoneKey, tariffCode) {
 }
 
 export async function ensureTicketsForEventOrder(order) {
-  const eventIdRaw = order?.meta?.eventId;
+  const eventIdRaw = order?.eventId || order?.meta?.eventId;
   if (!eventIdRaw) return { created: 0, updated: 0 };
 
   let metaTickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
@@ -261,7 +267,8 @@ export async function ensureTicketsForEventOrder(order) {
 // Finalisation atomique anti-doublon. Ne fait PAS d’email.
 export async function finalizePaidIfNoConflict(order) {
   const seatIds = realSeatIdsFromOrder(order);
-  const isEvent = !!order?.meta?.eventId;   // ⬅️ nouvel indicateur
+  const eventIdRaw = order?.eventId || order?.meta?.eventId;
+  const isEvent = !!eventIdRaw;   // ⬅️ nouvel indicateur
   const meta = { ...(order.paymentProviderMeta || {}) };
   const now = new Date();
 
@@ -377,7 +384,7 @@ export async function finalizePaidIfNoConflict(order) {
 
 export async function sendOrderAttestationIfNeeded(order) {
 
-  const isEvent = !!order?.meta?.eventId;
+  const isEvent = !!(order?.eventId || order?.meta?.eventId);
 
   const tpl = isEvent
     ? (process.env.EMAIL_TEMPLATE_EVENT_CONFIRM || 'event-confirmation')

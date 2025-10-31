@@ -2,11 +2,29 @@
 import mongoose from 'mongoose';
 
 /* ----- Line items ----- */
+const AttendanceSchema = new mongoose.Schema({
+  status: {
+    type: String,
+    enum: ['kept', 'released', 'moved'],
+    default: 'kept'
+  },
+  overrideSeatId: { type: String, default: '' },
+  overrideZoneKey: { type: String, default: '' },
+  note: { type: String, default: '' },
+  updatedAt: { type: Date, default: null },
+  updatedBy: { type: String, default: '' }
+}, { _id: false, minimize: false });
+
 const LineSchema = new mongoose.Schema({
   seatId:          { type: String, default: '' },
   zoneKey:         { type: String, default: '' },   // ← needed for TBH7 / standing zones
   tariffCode:      { type: String, index: true },
   priceCents:      { type: Number, default: 0 },
+
+  // Saison -> évènement : permet d'identifier la ligne d'origine
+  sourceLineId:    { type: String, default: '' },
+
+  attendance:      { type: AttendanceSchema, default: undefined },
 
   holderFirstName: { type: String, default: '' },
   holderLastName:  { type: String, default: '' },
@@ -29,6 +47,9 @@ const OriginSchema = new mongoose.Schema({
 const OrderSchema = new mongoose.Schema({
   seasonCode: { type: String, index: true },
   venueSlug:  { type: String, index: true },
+
+  eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', index: true, default: null },
+  parentOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', index: true, default: null },
 
   groupKey:   { type: String, index: true },
 
@@ -79,6 +100,11 @@ OrderSchema.index(
 OrderSchema.index(
   { seasonCode:1, venueSlug:1, groupKey:1, payerEmail:1, status:1 },
   { name:'uniq_paid_per_payer', unique:true, partialFilterExpression:{ status:'paid' } }
+);
+
+OrderSchema.index(
+  { eventId:1, parentOrderId:1, status:1 },
+  { name:'idx_event_parent_status' }
 );
 
 // (2) Lookup by payment provider intent / token (canonical)

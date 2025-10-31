@@ -461,7 +461,7 @@
                   <value/>
                 </prop>
                 <prop oor:name="URL" oor:type="xs:string">
-                  <value>vnd.sun.star.script:menu_placeholders.py$event_import_orders?language=Python&amp;location=user</value>
+                  <value>vnd.sun.star.script:scripts_libreoffice/04-event-management/import_orders.py$import_event_orders_from_calc?language=Python&amp;location=user</value>
                 </prop>
                 <prop oor:name="Target" oor:type="xs:string">
                   <value>_self</value>

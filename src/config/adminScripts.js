@@ -1151,6 +1151,35 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'event-sync-season-orders',
+        label: 'Sync Season Orders to Event',
+        order: 3.4,
+        path: 'scripts/04-event-management/sync-season-orders-to-event.js',
+        command: 'node scripts/04-event-management/sync-season-orders-to-event.js --event=<slug|ObjectId> [--commit]',
+        run: {
+          script: 'scripts/04-event-management/sync-season-orders-to-event.js',
+          args: []
+        },
+        description: 'Clones paid subscription orders into child event orders so subscribers receive tickets. Dry-run by défaut (sans --commit).',
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l\'événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Appliquer (--commit)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            }
+          ]
+        }
+      },
+      {
         id: 'event-import-orders',
         label: 'Import Orders for Event',
         order: 3.5,
@@ -1170,6 +1199,41 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/event-orders.csv',
               required: true,
               arg: { type: 'positional', index: 0 }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-export-attendance-overrides',
+        label: 'Export Attendance Overrides',
+        order: 3.6,
+        path: 'scripts/04-event-management/export-attendance-overrides.js',
+        command: 'node scripts/04-event-management/export-attendance-overrides.js --event=<slug|ObjectId> [--statuses=released,moved] [--out=overrides.csv]',
+        run: {
+          script: 'scripts/04-event-management/export-attendance-overrides.js',
+          args: []
+        },
+        description: 'Exports event lines flagged released/moved for follow-up (CSV by default).',
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l\'événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'statuses',
+              label: 'Statuts (CSV)',
+              placeholder: 'released,moved',
+              arg: { type: 'option', template: '--statuses=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Fichier de sortie',
+              placeholder: 'data/outputs/event-overrides.csv',
+              arg: { type: 'option', template: '--out=${value}' }
             }
           ]
         }
