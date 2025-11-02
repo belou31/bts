@@ -34,6 +34,7 @@ def _module_dir() -> Path:
 try:
     from scripts_libreoffice.env_loader import ensure_loaded as _ensure_env_loaded
     from scripts_libreoffice.log_utils import capture_logs, current_log_path
+    from scripts_libreoffice.config_loader import load_config_map, resolve_setting
 except ImportError:
     module_dir = _module_dir()
     parent_dir = module_dir.parent
@@ -43,6 +44,7 @@ except ImportError:
             sys.path.append(candidate_str)
     from env_loader import ensure_loaded as _ensure_env_loaded  # type: ignore
     from log_utils import capture_logs, current_log_path  # type: ignore
+    from config_loader import load_config_map, resolve_setting  # type: ignore
 
 _ensure_env_loaded()
 
@@ -61,6 +63,7 @@ DEFAULT_DEADLINE = os.environ.get('RENEW_DEADLINE', '')
 DEFAULT_PROVIDER_LABEL = os.environ.get('PAYMENT_PROVIDER_NAME', 'HelloAsso')
 DRY_RUN_DEFAULT = True
 SHEET_NAME = 'Invitations'
+CONFIG_SHEET_NAME = os.environ.get('BTS_CONFIG_SHEET', 'BTS_Config')
 
 
 # === Helpers ================================================================
@@ -133,6 +136,68 @@ def _sheet_by_name(doc, name: str):
         return None
 
 
+def _apply_config_overrides(doc, sheet_name: str):
+    config_map = load_config_map(doc, CONFIG_SHEET_NAME)
+    if not config_map:
+        return
+
+    global BTS_BASE_URL
+    global AUTOMATION_SECRET
+    global AUTOMATION_ISS
+    global AUTOMATION_AUD
+    global AUTOMATION_SCOPES
+
+    base_url = resolve_setting(
+        'BTS_BASE_URL',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('base.url', 'base_url', 'bts_base_url'),
+        default=BTS_BASE_URL,
+    )
+    if base_url:
+        BTS_BASE_URL = base_url
+
+    secret = resolve_setting(
+        'AUTOMATION_JWT_SECRET',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('automation.secret', 'automation.jwt.secret', 'automation_jwt_secret'),
+        default=AUTOMATION_SECRET,
+    )
+    if secret:
+        AUTOMATION_SECRET = secret
+
+    issuer = resolve_setting(
+        'AUTOMATION_JWT_ISS',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('jwt.iss', 'automation.jwt.iss', 'automation_jwt_iss'),
+        default=AUTOMATION_ISS,
+    )
+    if issuer:
+        AUTOMATION_ISS = issuer
+
+    audience = resolve_setting(
+        'AUTOMATION_JWT_AUD',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('jwt.aud', 'automation.jwt.aud', 'automation_jwt_aud'),
+        default=AUTOMATION_AUD,
+    )
+    if audience:
+        AUTOMATION_AUD = audience
+
+    scopes = resolve_setting(
+        'AUTOMATION_JWT_SCOPES',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('jwt.scopes', 'automation.jwt.scopes', 'automation_jwt_scopes'),
+        default=' '.join(AUTOMATION_SCOPES),
+    )
+    if scopes:
+        AUTOMATION_SCOPES = scopes.split()
+
+
 def _sheet_data(sheet) -> List[List[Any]]:
     cursor = sheet.createCursor()
     cursor.gotoEndOfUsedArea(True)
@@ -179,7 +244,7 @@ def _invite_rows(rows: List[List[Any]]) -> List[Dict[str, Any]]:
     return invitees
 
 
-def _job_request(invitees: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _job_request(invitees: List[Dict[str, Any]], sheet_name: str) -> Dict[str, Any]:
     return {
         'dryRun': DRY_RUN_DEFAULT,
         'params': {
@@ -193,7 +258,8 @@ def _job_request(invitees: List[Dict[str, Any]]) -> Dict[str, Any]:
         },
         'metadata': {
             'source': 'libreoffice',
-            'sheetName': SHEET_NAME
+            'sheetName': sheet_name,
+            'configSheet': CONFIG_SHEET_NAME
         }
     }
 
@@ -222,6 +288,8 @@ def send_renew_invites_from_calc():
     with capture_logs('send-renew-invites'):
         doc = XSCRIPTCONTEXT.getDocument()
         sheet = _sheet_by_name(doc, SHEET_NAME) or doc.CurrentController.ActiveSheet
+        sheet_name = getattr(sheet, 'Name', SHEET_NAME)
+        _apply_config_overrides(doc, sheet_name)
         data = _sheet_data(sheet)
         if len(data) <= 1:
             _notify('No data rows found.')
@@ -238,7 +306,7 @@ def send_renew_invites_from_calc():
             return
 
         try:
-            result = _automation_fetch('scripts/season.send-renew-invites/jobs', _job_request(invitees))
+            result = _automation_fetch('scripts/season.send-renew-invites/jobs', _job_request(invitees, sheet_name))
             job = result.get('job', {})
             _notify(f"Job {job.get('id', 'unknown')} queued ({job.get('status', 'queued')}).")
         except Exception as err:

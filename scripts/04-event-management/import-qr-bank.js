@@ -1,4 +1,4 @@
-// scripts/03-event-management/events/import-qr-bank.js
+// scripts/04-event-management/import-qr-bank.js
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
@@ -11,6 +11,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const INPUT_DIR = path.resolve(process.cwd(), 'data/inputs');
+const DEFAULT_BANK = { provider: 'bank', codes: [] };
 
 function resolveInputFile(p) {
   if (!p) return p;
@@ -36,7 +37,7 @@ async function readCsv(path, onRow) {
 async function main(){
   const argv = yargs(hideBin(process.argv))
     .option('event', { type:'string', demandOption:true, desc:'eventId ou slug' })
-    .option('csv', { type:'string', demandOption:true, desc:'CSV: qrcode,tariff' })
+    .option('csv', { type:'string', demandOption:true, desc:'CSV: qrcode[,ignored]' })
     .option('append', { type:'boolean', default:true, desc:'Ajouter (true) ou remplacer (false)' })
     .help().argv;
 
@@ -52,26 +53,45 @@ async function main(){
   })();
   if (!ev) throw new Error('Event introuvable');
 
-  if (!ev.qrBank) ev.qrBank = { provider:'bank', buckets:{} };
-  if (!ev.qrBank.buckets) ev.qrBank.buckets = {};
+  if (!ev.qrBank) ev.qrBank = { ...DEFAULT_BANK };
+  if (!Array.isArray(ev.qrBank.codes)) ev.qrBank.codes = [];
 
-  const accum = argv.append ? { ...ev.qrBank.buckets } : {};
+  let accum = [];
+  if (argv.append) {
+    if (Array.isArray(ev.qrBank.codes) && ev.qrBank.codes.length > 0) {
+      accum = [...ev.qrBank.codes];
+    } else if (ev.qrBank.buckets && typeof ev.qrBank.buckets === 'object') {
+      for (const value of Object.values(ev.qrBank.buckets)) {
+        if (Array.isArray(value)) {
+          for (const hex of value) {
+            if (hex) accum.push(String(hex).trim());
+          }
+        }
+      }
+    }
+  }
 
   const csvPath = resolveInputFile(argv.csv);
   if (!fs.existsSync(csvPath)) throw new Error(`CSV introuvable: ${argv.csv} (cherché aussi dans data/inputs)`);
 
+  let added = 0;
   await readCsv(csvPath, async (parts, n) => {
-    const [hex, tariff] = parts;
-    if (!hex) throw new Error(`Ligne ${n}: qrcode manquant`);
-    const key = String(tariff || 'NORMAL').toUpperCase();
-    accum[key] = accum[key] || [];
-    accum[key].push(hex);
+    const [hex] = parts;
+    const value = String(hex || '').trim();
+    if (!value) throw new Error(`Ligne ${n}: qrcode manquant`);
+    accum.push(value);
+    added++;
   });
 
-  ev.qrBank.buckets = accum;
+  const provider = ev.qrBank?.provider || 'bank';
+  ev.qrBank.provider = provider;
+  ev.qrBank.codes = accum;
+  if ('buckets' in ev.qrBank) {
+    delete ev.qrBank.buckets;
+  }
   await ev.save();
 
-  console.log('✅ QR importés pour', ev.slug, Object.fromEntries(Object.entries(accum).map(([k,v])=>[k, v.length])));
+  console.log('✅ QR importés pour', ev.slug, { total: accum.length, added });
   await mongoose.disconnect();
 }
 

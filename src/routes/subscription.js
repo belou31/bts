@@ -13,7 +13,7 @@ import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from 
 import { makeTokenHash }        from '../utils/ha-token.js';
 import { findSingleGaps }       from '../utils/no-single-gap.js';
 
-const router = express.Router();
+const router = express.Router({ mergeParams: true });
 
 /* ====== ENV / Const ====== */
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
@@ -35,7 +35,30 @@ async function getActiveSeasonAndVenue() {
   const seasonCode = s.code || s.seasonCode;
   const venueSlug  = s.venueSlug || s.venue;
   if (!seasonCode || !venueSlug) { const e = new Error('No active season/venue'); e.status = 503; throw e; }
-  return { seasonCode, venueSlug };
+  return { seasonCode, venueSlug, season: s };
+}
+
+async function resolveSeasonAndVenue(inputSeasonCode = '') {
+  const requested = norm(inputSeasonCode);
+  if (requested && requested.toLowerCase() !== 'current') {
+    const seasonDoc = await Season.findOne({
+      $or: [{ code: requested }, { seasonCode: requested }]
+    }).lean();
+    if (!seasonDoc) {
+      const err = new Error(`Season not found: ${requested}`);
+      err.status = 404;
+      throw err;
+    }
+    const seasonCode = seasonDoc.code || seasonDoc.seasonCode || requested;
+    const venueSlug = seasonDoc.venueSlug || seasonDoc.venue;
+    if (!venueSlug) {
+      const err = new Error('Season missing venue');
+      err.status = 500;
+      throw err;
+    }
+    return { seasonCode, venueSlug, season: seasonDoc };
+  }
+  return await getActiveSeasonAndVenue();
 }
 
 function buildPricesIndex(list) {
@@ -84,13 +107,14 @@ async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, stat
 }
 
 
-/* ====== GET /api/sub/status ======
+/* ====== GET /api/season/:seasonCode/status ======
  * Répond: { seasonCode, venueSlug, tariffs[], prices[], seats[], zones[] }
  * zones[]: [{ key,name,quota,capacity,remaining,svgSelector }]
  */
-router.get('/status', async (_req, res, next) => {
+router.get('/status', async (req, res, next) => {
   try {
-    const { seasonCode, venueSlug } = await getActiveSeasonAndVenue();
+    const seasonParam = req.params?.seasonCode || req.query?.season || req.query?.seasonCode || '';
+    const { seasonCode, venueSlug, season } = await resolveSeasonAndVenue(seasonParam);
     // --- Sièges de la salle (pour le clic direct sur siège côté front)
     const seats = await Seat.find(
       { seasonCode, venueSlug },
@@ -133,11 +157,11 @@ router.get('/status', async (_req, res, next) => {
       };
     });
 
-    res.json({ seasonCode, venueSlug, tariffs, prices, seats, zones: zonesOut });
+    res.json({ seasonCode, seasonName: season?.name || null, venueSlug, tariffs, prices, seats, zones: zonesOut });
   } catch (e) { next(e); }
 });
 
-/* ====== POST /api/sub/checkout ======
+/* ====== POST /api/season/:seasonCode/checkout ======
  * Body: {
  *   payer:{firstName,lastName,email},
  *   schedule:1|2|3,
@@ -147,7 +171,8 @@ router.get('/status', async (_req, res, next) => {
  */
 router.post('/checkout', async (req, res) => {
   try {
-    const { seasonCode, venueSlug } = await getActiveSeasonAndVenue();
+    const seasonParam = req.params?.seasonCode || req.body?.seasonCode || req.query?.season || '';
+    const { seasonCode, venueSlug, season } = await resolveSeasonAndVenue(seasonParam);
     const payer    = req.body?.payer || {};
     const schedule = Number(req.body?.schedule || 1);
     // Accepte "items" (nouveau) ET "lines" (héritage generic-view)
@@ -271,6 +296,8 @@ router.post('/checkout', async (req, res) => {
     const totalCents = lines.reduce((acc, l) => acc + Number(l.priceCents || 0), 0);
 
     // Créer l’order (pending)
+    const seasonPath = `/season/${encodeURIComponent(seasonCode)}`;
+
     const order = await Order.create({
       itemName:`SUBSCRIPTION_${seasonCode}`,
       seasonCode, venueSlug,
@@ -283,8 +310,13 @@ router.post('/checkout', async (req, res) => {
       lines, totalCents, status: 'pending',
       paymentProvider: PAYMENT_PROVIDER_ID,
       paymentProviderMeta: {},
-      origin: { flow: 'subscription', uiPath: '/subscription', apiPath: `${req.baseUrl||''}${req.path}` },
-      mailTemplateKind: 'subscription'
+      origin: { flow: 'subscription', uiPath: seasonPath, apiPath: `${req.baseUrl||''}${req.path}` },
+      mailTemplateKind: 'subscription',
+      meta: {
+        seasonCode,
+        seasonName: season?.name || null,
+        source: 'season-subscription'
+      }
     });
 
     // HOLD des sièges réels (status available -> busy + meta.hold)
@@ -372,7 +404,7 @@ router.post('/checkout', async (req, res) => {
     return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
   } catch (e) {
     const code = e.status || 500;
-    console.error('[POST /api/sub/checkout] error:', e);
+    console.error('[POST /api/season/checkout] error:', e);
     return res.status(code).json({ error: e.message || 'internal_error' });
   }
 });

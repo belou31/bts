@@ -1359,7 +1359,7 @@ export const adminScriptGroups = [
           script: 'scripts/04-event-management/import-qr-bank.js',
           args: []
         },
-        description: 'Imports QR codes for an event, grouped by tariff buckets.',
+        description: 'Imports QR codes for an event as a single shared pool.',
         form: {
           fields: [
             {

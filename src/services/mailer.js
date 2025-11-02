@@ -352,54 +352,77 @@ export async function buildTicketsPdfBuffer(order) {
 
 
 
-// NEW: attribue des QR depuis la “banque” selon le tarif des lignes (event only)
+// Attribue des QR depuis la banque associée à l'événement (event only)
 export async function attachQrFromBank(db, order){
   const Events = db.collection('events');
   const evId   = String(order?.meta?.eventId||'');
   if (!evId) return { ok:false, reason:'no-event' };
   const { ObjectId } = await import('mongodb');
   const ev = await Events.findOne({ _id: new ObjectId(evId) });
-  if (!ev?.qrBank?.buckets) return { ok:false, reason:'no-bank' };
-
-  const buckets = ev.qrBank.buckets || {};
-  const neededCounts = new Map();
-  for (const ln of (order?.lines||[])) {
-    const key = String(ln.tariffCode || ln.tariff || 'NORMAL').toUpperCase();
-    neededCounts.set(key, (neededCounts.get(key) || 0) + 1);
-  }
-
-  for (const [key, count] of neededCounts.entries()) {
-    const available = Array.isArray(buckets[key]) ? buckets[key].length : 0;
-    if (available < count) {
-      return {
-        ok: false,
-        reason: 'depleted',
-        detail: { tariff: key, needed: count, available, eventId: evId, eventSlug: ev.slug || null }
-      };
+  const flattenBuckets = (buckets) => {
+    if (!buckets || typeof buckets !== 'object') return [];
+    const acc = [];
+    for (const value of Object.values(buckets)) {
+      if (!Array.isArray(value)) continue;
+      for (const hex of value) {
+        if (!hex) continue;
+        acc.push(String(hex).trim());
+      }
     }
+    return acc;
+  };
+
+  const bank = ev?.qrBank || null;
+  if (!bank) return { ok:false, reason:'no-bank' };
+
+  const lines = Array.isArray(order?.lines) ? order.lines : [];
+  const needed = lines.length;
+
+  const availableCodes = Array.isArray(bank.codes) && bank.codes.length > 0
+    ? [...bank.codes]
+    : flattenBuckets(bank.buckets);
+
+  if (!availableCodes.length) {
+    if (needed === 0) return { ok:true, tickets: [] };
+    return {
+      ok: false,
+      reason: 'depleted',
+      detail: { needed, available: 0, eventId: evId, eventSlug: ev.slug || null }
+    };
+  }
+  const initialAvailable = availableCodes.length;
+
+  if (initialAvailable < needed) {
+    return {
+      ok: false,
+      reason: 'depleted',
+      detail: { needed, available: initialAvailable, eventId: evId, eventSlug: ev.slug || null }
+    };
   }
 
-  const picked = [];
-  for (const ln of (order?.lines||[])) {
-    const key  = String(ln.tariffCode || ln.tariff || 'NORMAL').toUpperCase();
-    const list = buckets[key] || [];
-    const hex  = list.shift(); // consomme 1 code
-    // sécurité: on a déjà vérifié les disponibilités, mais on garde un garde-fou
+  const tickets = [];
+  for (const ln of lines) {
+    const hex = availableCodes.shift();
     if (!hex) {
       return {
         ok: false,
         reason: 'depleted',
-        detail: { tariff: key, needed: 1, available: 0, eventId: evId, eventSlug: ev.slug || null }
+        detail: { needed, available: initialAvailable - availableCodes.length, eventId: evId, eventSlug: ev.slug || null }
       };
     }
-    picked.push({
-      seatId: ln.seatId || '',
-      zoneKey: ln.zoneKey || '',
-      tariff: key,
+    const tariff = String(ln?.tariffCode || ln?.tariff || 'NORMAL').toUpperCase();
+    tickets.push({
+      seatId: ln?.seatId || '',
+      zoneKey: ln?.zoneKey || '',
+      tariff,
       hex
     });
   }
 
-  await Events.updateOne({ _id: ev._id }, { $set: { 'qrBank.buckets': buckets } });
-  return { ok:true, tickets: picked };
+  const update = { $set: { 'qrBank.codes': availableCodes } };
+  if (bank.buckets) {
+    update.$unset = { 'qrBank.buckets': '' };
+  }
+  await Events.updateOne({ _id: ev._id }, update);
+  return { ok:true, tickets };
 }

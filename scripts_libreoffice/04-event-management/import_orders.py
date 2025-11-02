@@ -22,6 +22,7 @@ import uno
 try:
     from scripts_libreoffice.env_loader import ensure_loaded as _ensure_env_loaded
     from scripts_libreoffice.log_utils import capture_logs, current_log_path
+    from scripts_libreoffice.config_loader import load_config_map, resolve_setting
 except ImportError:
     def _module_dir():
         try:
@@ -42,6 +43,7 @@ except ImportError:
             sys.path.append(path_str)
     from env_loader import ensure_loaded as _ensure_env_loaded  # type: ignore
     from log_utils import capture_logs, current_log_path  # type: ignore
+    from config_loader import load_config_map, resolve_setting  # type: ignore
 
 _ensure_env_loaded()
 
@@ -58,6 +60,7 @@ SHEET_NAME = os.environ.get('BTS_EVENT_ORDERS_SHEET', 'EventOrders')
 DRY_RUN_DEFAULT = os.environ.get('BTS_EVENT_IMPORT_DRY_RUN', 'true').lower() in {'1', 'true', 'yes', 'y'}
 FORCE_DEFAULT = os.environ.get('BTS_EVENT_IMPORT_FORCE', 'false').lower() in {'1', 'true', 'yes', 'y'}
 SEND_EMAIL_DEFAULT = os.environ.get('BTS_EVENT_IMPORT_SEND_EMAIL', 'false').lower() in {'1', 'true', 'yes', 'y'}
+CONFIG_SHEET_NAME = os.environ.get('BTS_CONFIG_SHEET', 'BTS_Config')
 
 
 def _notify(message: str):
@@ -83,6 +86,111 @@ def _sheet_by_name(doc, name: str):
         return doc.Sheets.getByName(name)
     except Exception:
         return None
+
+
+def _parse_bool(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    text = value.strip().lower()
+    if not text:
+        return default
+    if text in {'1', 'true', 'yes', 'y', 'on'}:
+        return True
+    if text in {'0', 'false', 'no', 'n', 'off'}:
+        return False
+    return default
+
+
+def _apply_config_overrides(doc, sheet_name: str):
+    config_map = load_config_map(doc, CONFIG_SHEET_NAME)
+    if not config_map:
+        return
+
+    global BTS_BASE_URL
+    global AUTOMATION_SECRET
+    global AUTOMATION_ISS
+    global AUTOMATION_AUD
+    global AUTOMATION_SCOPES
+    global DRY_RUN_DEFAULT
+    global FORCE_DEFAULT
+    global SEND_EMAIL_DEFAULT
+
+    base_url = resolve_setting(
+        'BTS_BASE_URL',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('base.url', 'base_url', 'bts_base_url'),
+        default=BTS_BASE_URL,
+    )
+    if base_url:
+        BTS_BASE_URL = base_url
+
+    secret = resolve_setting(
+        'AUTOMATION_JWT_SECRET',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('automation.secret', 'automation.jwt.secret', 'automation_jwt_secret'),
+        default=AUTOMATION_SECRET,
+    )
+    if secret:
+        AUTOMATION_SECRET = secret
+
+    issuer = resolve_setting(
+        'AUTOMATION_JWT_ISS',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('jwt.iss', 'automation.jwt.iss', 'automation_jwt_iss'),
+        default=AUTOMATION_ISS,
+    )
+    if issuer:
+        AUTOMATION_ISS = issuer
+
+    audience = resolve_setting(
+        'AUTOMATION_JWT_AUD',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('jwt.aud', 'automation.jwt.aud', 'automation_jwt_aud'),
+        default=AUTOMATION_AUD,
+    )
+    if audience:
+        AUTOMATION_AUD = audience
+
+    scopes = resolve_setting(
+        'AUTOMATION_JWT_SCOPES',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('jwt.scopes', 'automation.jwt.scopes', 'automation_jwt_scopes'),
+        default=' '.join(AUTOMATION_SCOPES),
+    )
+    if scopes:
+        AUTOMATION_SCOPES = scopes.split()
+
+    dry_raw = resolve_setting(
+        'BTS_EVENT_IMPORT_DRY_RUN',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('event.import.dryrun', 'event_import_dry_run', 'bts_event_import_dry_run'),
+        default='true' if DRY_RUN_DEFAULT else 'false',
+    )
+    DRY_RUN_DEFAULT = _parse_bool(dry_raw, DRY_RUN_DEFAULT)
+
+    force_raw = resolve_setting(
+        'BTS_EVENT_IMPORT_FORCE',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('event.import.force', 'event_import_force', 'bts_event_import_force'),
+        default='true' if FORCE_DEFAULT else 'false',
+    )
+    FORCE_DEFAULT = _parse_bool(force_raw, FORCE_DEFAULT)
+
+    send_email_raw = resolve_setting(
+        'BTS_EVENT_IMPORT_SEND_EMAIL',
+        config_map,
+        sheet_name=sheet_name,
+        aliases=('event.import.sendemail', 'event_import_send_email', 'bts_event_import_send_email'),
+        default='true' if SEND_EMAIL_DEFAULT else 'false',
+    )
+    SEND_EMAIL_DEFAULT = _parse_bool(send_email_raw, SEND_EMAIL_DEFAULT)
 
 
 def _sheet_data(sheet) -> List[List[Any]]:
@@ -300,6 +408,8 @@ def import_event_orders_from_calc():
     with capture_logs('import-event-orders'):
         doc = XSCRIPTCONTEXT.getDocument()
         sheet = _sheet_by_name(doc, SHEET_NAME) or doc.CurrentController.ActiveSheet
+        sheet_name = getattr(sheet, 'Name', SHEET_NAME)
+        _apply_config_overrides(doc, sheet_name)
         orders = _collect_orders(sheet)
         if not orders:
             _notify('Aucune commande valide détectée (payerEmail + eventSlug/eventId + zoneKey/seatId).')
@@ -312,8 +422,9 @@ def import_event_orders_from_calc():
             'orders': orders,
             'metadata': {
                 'source': 'libreoffice',
-                'sheetName': getattr(sheet, 'Name', SHEET_NAME),
-                'workbookUrl': getattr(doc, 'URL', '')
+                'sheetName': sheet_name,
+                'workbookUrl': getattr(doc, 'URL', ''),
+                'configSheet': CONFIG_SHEET_NAME
             }
         }
 
