@@ -104,32 +104,27 @@ async function main() {
   // --- Règle SPECIALE: zones S3 et S4A ---
   const specialeFilter = { ...base, zoneKey: { $in: ['S3', 'S4A'] } };
 
-  // --- Règle VISITORS: zone S2, rangées F ou G (seatId "S2-F-XXX" / "S2-G-XXX") ---
-  const visitorsFilter = { ...base, seatId: { $regex: /^(?:S2)-(?:D|E|F|G)-\d+$/ } };
+  // --- Règle VISITORS: zone S1, rangées F ou G (seatId "S2-F-XXX" / "S2-G-XXX") ---
+  const visitorsFilter = { ...base, seatId: { $regex: /^(?:S2)-(?:F|G)-\d+$/ } };
+
+  // --- Règle VISITORS: zone S1, rangées F ou G (seatId "S2-F-XXX" / "S2-G-XXX") ---
+  const partnersFilter = { ...base, seatId: { $regex: /^(?:S2)-(?:D|E)-\d+$/ } };
 
   // --- Règle FANCLUB (TBH7): zones N5,N6,N7, rangées L,M,N ---
   const fanclubFilter = { ...base, seatId: { $regex: /^(?:N5|N6|N6B)-(?:L|M)-\d+$/ } };
 
   // --- Règle fanclubFilter2: sièges unitaires
   const fanclub2List = [
-    'N7-L-084', 'N7-L-085', 'N7-L-086', 'N7-L-087', 'N7-L-088',
-    'N7-M-101', 'N7-M-102', 'N7-M-103', 'N7-M-104', 'N7-M-105',
-    'N7-N-013', 'N7-N-014', 'N7-N-015', 'N7-N-016', 'N7-N-017', 'N7-N-018', 'N7-N-019', 'N7-N-020', 'N7-N-021', 'N7-N-022', 'N7-N-023','N7-N-024'
+    'N7-L-084', 'N7-L-085', 'N7-L-086',
+    'N7-M-101', 'N7-M-102', 'N7-M-103'
   ];
   const fanclub2Filter = {
     ...base,
     $or: fanclub2List.map(id => ({ seatId: { $regex: patternForId(id) } }))
   };
 
-  // --- Règle tisseoClubeoFilter: sièges unitaires
-  const tisseoClubeoList = [
-    'N7-L-089', 'N7-L-090', 'N7-L-091', 'N7-L-092', 'N7-L-093', 'N7-L-094', 'N7-L-095', 'N7-L-096', 'N7-L-097', 'N7-L-098', 'N7-L-099', 'N7-L-100', 'N7-L-101',
-    'N7-M-106', 'N7-M-107', 'N7-M-108', 'N7-M-109', 'N7-M-110', 'N7-M-111', 'N7-M-112', 'N7-M-113', 'N7-M-114', 'N7-M-115', 'N7-M-116', 'N7-M-117', 'N7-M-118'
-  ];
-  const tisseoClubeoFilter = {
-    ...base,
-    $or: tisseoClubeoList.map(id => ({ seatId: { $regex: patternForId(id) } }))
-  };
+  // --- Règle FANCLUB (TBH7): zones N5,N6,N7, rangées L,M,N ---
+  const clubeoFilter = { ...base, seatId: { $regex: /^(?:N2|N7)-(?:N)-\d+$/ } };
 
 
 
@@ -164,9 +159,10 @@ async function main() {
   await applyCategory('VIP (zone S4)', vipFilter);
   await applyCategory('SPECIALE (zones S3,S4A)', specialeFilter);
   await applyCategory('VISITORS (S2 rangées F,G)', visitorsFilter);
+  await applyCategory('PARTNERS (S2 rangées D,E)', partnersFilter);
   await applyCategory('FANCLUB TBH7 (N5/N6/N7 rangées L,M,N)', fanclubFilter);
   await applyCategory('FANCLUB TBH7 2 (sièges en N7)', fanclub2Filter);
-  await applyCategory('TISSEO CLUBEO (sièges en N7)', tisseoClubeoFilter);
+  await applyCategory('TISSEO CLUBEO (sièges en N7)', clubeoFilter);
   await applyCategory('UNAVAILABLE (sièges unitaires)', unavailableFilter);
 
   if (!APPLY) {
