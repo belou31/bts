@@ -30,6 +30,11 @@ const argv = yargs(hideBin(process.argv))
     default: false,
     describe: 'Ne fait que journaliser sans envoyer d’email'
   })
+  .option('force', {
+    type: 'boolean',
+    default: false,
+    describe: 'Réexpédie même si les billets ont déjà été envoyés'
+  })
   .help()
   .alias('h', 'help')
   .strict()
@@ -129,13 +134,14 @@ async function main() {
 
   const cursor = Order.find(query).sort({ createdAt: 1 }).cursor();
 
-  const stats = {
-    scanned: 0,
-    sent: 0,
-    dryRun: argv['dry-run'] ? 0 : null,
-    skipped: 0,
-    errors: 0
-  };
+const stats = {
+  scanned: 0,
+  sent: 0,
+  dryRun: argv['dry-run'] ? 0 : null,
+  skipped: 0,
+  errors: 0,
+  alreadySent: 0
+};
 
   const processedRecipients = new Set();
   let limitRemaining = Number(argv.limit || 0);
@@ -147,6 +153,12 @@ async function main() {
     const key = `${String(order.payerEmail || '').trim().toLowerCase()}::${order.groupKey || ''}`;
     if (processedRecipients.has(key)) {
       stats.skipped += 1;
+      continue;
+    }
+
+    const alreadySentAt = order?.meta?.seasonTickets?.lastSentAt;
+    if (alreadySentAt && !argv.force) {
+      stats.alreadySent += 1;
       continue;
     }
 
@@ -194,6 +206,18 @@ async function main() {
       if (result.ok) {
         stats.sent += 1;
         processedRecipients.add(key);
+        await Order.updateOne(
+          { _id: fresh._id },
+          {
+            $set: {
+              'meta.seasonTickets': {
+                lastSentAt: new Date(),
+                lastSentMode: result.dryRun ? 'dry-run' : 'send',
+                lastSentBy: 'send-all-season-tickets-script'
+              }
+            }
+          }
+        );
       } else if (result.dryRun) {
         stats.sent += 1;
         stats.dryRun = (stats.dryRun ?? 0) + 1;
@@ -214,6 +238,7 @@ async function main() {
   console.log(`Scannés : ${stats.scanned}`);
   console.log(`Envoyés : ${stats.sent}${argv['dry-run'] ? ' (dry-run)' : ''}`);
   console.log(`Ignorés : ${stats.skipped}`);
+  console.log(`Déjà envoyés : ${stats.alreadySent}`);
   console.log(`Erreurs : ${stats.errors}`);
 }
 
