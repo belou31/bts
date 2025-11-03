@@ -25,13 +25,13 @@
             <node oor:name="Submenu">
               <node oor:name="m0201" oor:op="replace">
                 <prop oor:name="Title" oor:type="xs:string">
-                  <value xml:lang="en">Import tariffs catalog (CSV)</value>
+                  <value xml:lang="en">Import tariffs catalog (sheet)</value>
                 </prop>
                 <prop oor:name="Context" oor:type="xs:string">
                   <value/>
                 </prop>
                 <prop oor:name="URL" oor:type="xs:string">
-                  <value>vnd.sun.star.script:menu_placeholders.py$tariff_import_tariffs?language=Python&amp;location=user</value>
+                  <value>vnd.sun.star.script:scripts_libreoffice/02-tariff-management/import_tariffs.py$import_tariffs_from_calc?language=Python&amp;location=user</value>
                 </prop>
                 <prop oor:name="Target" oor:type="xs:string">
                   <value>_self</value>
@@ -59,7 +59,7 @@
                   <value/>
                 </prop>
                 <prop oor:name="URL" oor:type="xs:string">
-                  <value>vnd.sun.star.script:menu_placeholders.py$tariff_import_tariff_prices?language=Python&amp;location=user</value>
+                  <value>vnd.sun.star.script:scripts_libreoffice/02-tariff-management/import_tariff_prices.py$import_tariff_prices_from_calc?language=Python&amp;location=user</value>
                 </prop>
                 <prop oor:name="Target" oor:type="xs:string">
                   <value>_self</value>

@@ -36,6 +36,8 @@ Keep JWT-related secrets outside the repository in `~/.config/bts/automation.env
 AUTOMATION_JWT_SECRET=super-secret-shared-key
 AUTOMATION_JWT_ISS=libreoffice
 AUTOMATION_JWT_AUD=bts-automation
+AUTOMATION_JWT_SCOPES=automation:jobs:write automation:jobs:run
+BTS_BASE_URL=https://billetterie-test.belougas.fr/bts
 ```
 
 - LibreOffice macros automatically read this file via `env_loader.py` when present. Copy `scripts_libreoffice/env_loader.py`, `menu_placeholders.py`, and any automation macro (e.g. `03-season-management/send_renew_invites.py`) into your LibreOffice `Scripts/python/` directory so they can pick it up.

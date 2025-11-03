@@ -56,38 +56,71 @@ export default function routes(router) {
     });
   });
 
-  router.get('/subscription', (_req, res) => {
-    const providerName = currentPaymentProviderLabel();
+  router.get('/season/:seasonCode', async (req, res, next) => {
+    try {
+      const rawSeason = String(req.params.seasonCode || '').trim();
+      if (!rawSeason) return res.status(400).send('Season code required');
 
-    res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
-      title: 'Abonnements — BTS',
-      heading: 'Abonnements Saison 2025-2026',
-      lead: "L'abonnement donne accès à tous les matchs à domicile des Bélougas D2, D3 et Féminin Elite, pour la saison régulière, les playoffs et les matchs amicaux.",
-      planHelp: 'Cliquez sur un siège ou utilisez le sélecteur de zone TBH7 / Debout pour ajouter des places.',
-      scheduleOptions: [1, 2, 3],
-      zoneSelector: {
-        enabled: true,
-        label: 'Choisir sur Plan ou Ajouter Zone:',
-        addLabel: 'Ajouter',
-        options: []
-      },
-      paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
-      assets: ASSET_PREFIX,
-      config: {
-        title: 'Les Bélougas - Abonnements 2025-2026',
-        api: {
-          status: 'api/sub/status',
-          checkout: 'api/sub/checkout'
+      const seasonDoc = await Season.findOne({
+        $or: [{ code: rawSeason }, { seasonCode: rawSeason }]
+      }).lean();
+      if (!seasonDoc) return res.status(404).send('Season not found');
+
+      const seasonCode = seasonDoc.code || seasonDoc.seasonCode || rawSeason;
+      const seasonName = seasonDoc.name || `Saison ${seasonCode}`;
+      const providerName = currentPaymentProviderLabel();
+
+      const encodedSeason = encodeURIComponent(seasonCode);
+      const baseForJoin = BASE_PATH || '/';
+      const statusPath = path.posix.join(baseForJoin, 'api/season', encodedSeason, 'status');
+      const checkoutPath = path.posix.join(baseForJoin, 'api/season', encodedSeason, 'checkout');
+
+      res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
+        title: `Abonnements — ${seasonName}`,
+        heading: `Abonnements ${seasonCode}`,
+        lead: "L'abonnement donne accès à tous les matchs à domicile des Bélougas D2, D3 et Féminin Elite, pour la saison régulière, les playoffs et les matchs amicaux.",
+        planHelp: 'Cliquez sur un siège ou utilisez le sélecteur de zone TBH7 / Debout pour ajouter des places.',
+        scheduleOptions: [1, 2, 3],
+        zoneSelector: {
+          enabled: true,
+          label: 'Choisir sur Plan ou Ajouter Zone:',
+          addLabel: 'Ajouter',
+          options: []
         },
-        selection: { type: 'seats' },
-        buildRowsFromData: false,
-        svgSeatClasses: { allowed: 'seat-allowed' }
-      },
-      orderPageConfig: {
-        focusField: 'payerEmail'
-      },
-      customJs: ['static/js/subscription.js']
-    });
+        paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
+        assets: ASSET_PREFIX,
+        config: {
+          title: `Les Bélougas - Abonnements ${seasonCode}`,
+          seasonCode,
+          seasonName,
+          api: {
+            status: statusPath,
+            checkout: checkoutPath
+          },
+          selection: { type: 'seats' },
+          buildRowsFromData: false,
+          svgSeatClasses: { allowed: 'seat-allowed' }
+        },
+        orderPageConfig: {
+          focusField: 'payerEmail'
+        },
+        customJs: ['static/js/subscription.js']
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/subscription', async (_req, res, next) => {
+    try {
+      const seasonDoc = await Season.findOne({ isActive: true }).lean();
+      if (!seasonDoc) return res.status(503).send('No active season');
+      const code = seasonDoc.code || seasonDoc.seasonCode;
+      const target = path.posix.join(BASE_PATH || '/', 'season', encodeURIComponent(code));
+      return res.redirect(target);
+    } catch (err) {
+      next(err);
+    }
   });
 
   // NEW: route "slug" (/event/:ev) – recommandée
@@ -212,7 +245,15 @@ export default function routes(router) {
   // API JSON
   router.use('/api/tbh7', tbh7Router);
 
-  router.use('/api/sub', subscriptionRouter);
+  router.use('/api/season/:seasonCode', subscriptionRouter);
+  router.use('/api/season', subscriptionRouter);
+  router.use('/api/sub', (req, res, next) => {
+    req.params = req.params || {};
+    if (!req.params.seasonCode) {
+      req.params.seasonCode = req.query?.season || req.query?.seasonCode || '';
+    }
+    return subscriptionRouter(req, res, next);
+  });
 
   router.use('/api/event', eventRoutes);
 
@@ -233,3 +274,4 @@ export default function routes(router) {
   // Page racine -> redirige vers /renew (optionnel)
   //router.get('/', (_req, res) => res.redirect('./renew'));
 }
+import { Season } from '../models/Season.js';

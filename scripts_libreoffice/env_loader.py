@@ -1,9 +1,11 @@
 """
-Utility to load shared BTS automation secrets into the LibreOffice macro runtime.
+Utility to load shared BTS automation settings into the LibreOffice macro runtime.
 
 Secrets are stored outside the repository (default: ~/.config/bts/automation.env)
 so they can be shared between Calc macros and external tooling without being
-committed. Values in the current environment always win to allow overrides.
+committed. Typical entries include `AUTOMATION_JWT_SECRET`, `BTS_BASE_URL`,
+`AUTOMATION_JWT_ISS`, `AUTOMATION_JWT_AUD`, and `AUTOMATION_JWT_SCOPES`.
+Values in the current environment always win to allow overrides.
 """
 
 from __future__ import annotations

@@ -8,10 +8,11 @@ const EventSchema = new mongoose.Schema({
   venueSlug:  { type: String, index: true, required: true },
   priceTableKey: { type: String, default: null },              // table tarifs dédiée
   isOnSale:   { type: Boolean, default: false },
-  // Banque de QR pré-générés (phase 1) : { provider:"bank", buckets:{ NORMAL:[hex...], JEUNE:[hex...] } }
+  // Banque de QR pré-générés (phase 1) : { provider:"bank", codes:[hex...] }
   qrBank: {
     provider: { type: String, default: 'bank' },
-    buckets:  { type: mongoose.Schema.Types.Mixed, default: {} }
+    buckets:  { type: mongoose.Schema.Types.Mixed, default: undefined },
+    codes:    { type: [String], default: [] }
   },
   // Optionnel : description courte affichable côté front
   description: { type: String, default: '' }
