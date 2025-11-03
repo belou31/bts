@@ -104,7 +104,6 @@ _COMMAND_SPECS = [
     ("event_import_qr_bank", "Import QR bank (CSV)", "node scripts/04-event-management/import-qr-bank.js --event=<slug> --csv=<codes.csv>"),
     ("event_seats_hold_release", "Manage event seat holds", "node scripts/04-event-management/seats-hold-release.js --file=holds.csv [--commit] [--force]"),
     ("event_send_all_season_tickets", "Send all season tickets for event", "node scripts/04-event-management/send-all-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run]"),
-    ("event_resend_season_tickets", "Resend season tickets for event", "node scripts/04-event-management/resend-season-tickets-for-event.js --event=<slug> --order=<orderId[,orderId2]> [--dry-run]"),
     ("event_import_orders", "Import event orders (CSV)", "node scripts/04-event-management/import-orders.js <orders.csv> [--status=paid] [--commit] [--force] [--sendEmail]"),
     ("event_import_invitations_with_qr", "Import invitations with QR (CSV)", "node scripts/04-event-management/import-invitations-with-qr.js <invitations.csv> [--event=<slug>] [--status=paid] [--commit] [--force] [--no-finalize]"),
     ("event_export_orders", "Export event orders (CSV)", "node scripts/04-event-management/export-orders.js --event=<slug> [--status=paid] [--out=orders.csv]"),

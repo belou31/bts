@@ -1429,7 +1429,7 @@ export const adminScriptGroups = [
           script: 'scripts/04-event-management/send-all-season-tickets-for-event.js',
           args: []
         },
-        description: 'Generates and emails season tickets for a specific event using the season subscription base, optionally in dry-run mode.',
+        description: 'Ensures event orders carry tickets and emails them to subscribers (works on orders created by the sync command).',
         form: {
           fields: [
             {
@@ -1446,40 +1446,10 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--limit=${value}' }
             },
             {
-              name: 'fallbackZone',
-              label: 'Zone fallback (optionnel)',
-              placeholder: 'SAME | N4 | DEBOUT',
-              arg: { type: 'option', template: '--fallback-zone=${value}' }
-            }
-          ]
-        }
-      },
-      {
-        id: 'event-resend-season-tickets',
-        label: 'Resend Season Tickets for Event',
-        order: 7,
-        path: 'scripts/04-event-management/resend-season-tickets-for-event.js',
-        command: 'node scripts/04-event-management/resend-season-tickets-for-event.js --event=<slug> --order=<orderId[,orderId2]> [--dry-run]',
-        run: {
-          script: 'scripts/04-event-management/resend-season-tickets-for-event.js',
-          args: []
-        },
-        description: 'Send season ticket emails for specific subscription order(s) (comma-separated).',
-        form: {
-          fields: [
-            {
-              name: 'event',
-              label: 'Slug ou ID de l’événement',
-              placeholder: 'match-2025-09-21-bts-vs-xxx',
-              required: true,
-              arg: { type: 'option', template: '--event=${value}' }
-            },
-            {
-              name: 'order',
-              label: 'OrderId (séparés par des virgules)',
-              placeholder: '68f137992cbaad229d6a4dbf,abc123',
-              required: true,
-              arg: { type: 'option', template: '--order=${value}' }
+              name: 'dryRun',
+              label: 'Mode test (dry-run)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--dry-run' }
             }
           ]
         }
