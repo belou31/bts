@@ -261,7 +261,7 @@ export default function routes(router) {
 
   router.use('/admin/supervision', supervisionRoutes);
 
-  router.use('/control/scan', scanRoutes);
+  router.use('/', scanRoutes);
   router.use('/control/guestlist', controlGuestlistRoutes);
 
   // API sous /s
