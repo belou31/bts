@@ -9,7 +9,7 @@ import { Order } from '../../src/models/Order.js';
 import { buildTicketsPdfBuffer } from '../../src/services/tickets-pdf.js';
 import { renderOrderEmail, subjectForOrder, attachQrFromBank } from '../../src/services/mailer.js';
 import { sendMail } from '../../src/loaders/mailer.js';
-import { ensureTicketsForEventOrder } from '../../src/services/order-finalization.js';
+import { ensureTicketsForEventOrder, generateTicketHex } from '../../src/services/order-finalization.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -157,7 +157,33 @@ async function main() {
       }
 
       await ensureTicketsForEventOrder(order);
-      const fresh = await Order.findById(order._id).lean();
+      let fresh = await Order.findById(order._id);
+      if (!fresh?.meta?.tickets || !fresh.meta.tickets.length) {
+        const tickets = [];
+        const lines = Array.isArray(fresh?.lines) ? fresh.lines : [];
+        for (let idx = 0; idx < lines.length; idx++) {
+          const line = lines[idx];
+          const seatId = String(line?.seatId || '').trim();
+          const zoneKey = String(line?.zoneKey || '').trim().toUpperCase();
+          const tariff = String(line?.tariffCode || '').trim().toUpperCase();
+          const hex = generateTicketHex(fresh._id, idx, seatId, zoneKey, tariff);
+          tickets.push({
+            seatId,
+            zoneKey,
+            tariff,
+            hex,
+            holderFirstName: line?.holderFirstName || '',
+            holderLastName: line?.holderLastName || ''
+          });
+        }
+        fresh.meta = { ...(fresh.meta || {}), tickets };
+        await fresh.save();
+        await ensureTicketsForEventOrder(fresh);
+        fresh = await Order.findById(fresh._id).lean();
+      } else {
+        fresh = fresh.toObject();
+      }
+
       if (!fresh?.meta?.tickets || !fresh.meta.tickets.length) {
         stats.skipped += 1;
         console.warn(`[warn] order ${order._id} has no tickets after attach/ensure (${bankResult?.reason || 'no-meta'})`);

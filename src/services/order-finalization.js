@@ -39,7 +39,7 @@ export function realSeatIdsFromOrder(order) {
 }
 
 
-function generateTicketHex(orderId, index, seatId, zoneKey, tariffCode) {
+export function generateTicketHex(orderId, index, seatId, zoneKey, tariffCode) {
   const seat = seatId ? `S:${seatId}` : `Z:${zoneKey || 'ZONE'}`;
   const tariff = tariffCode ? `T:${tariffCode}` : 'T:NORMAL';
   const payload = `E:${orderId}:${seat}:${tariff}:${index}`;
