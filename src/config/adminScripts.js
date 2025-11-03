@@ -1450,6 +1450,12 @@ export const adminScriptGroups = [
               label: 'Mode test (dry-run)',
               type: 'checkbox',
               arg: { type: 'flag', flag: '--dry-run' }
+            },
+            {
+              name: 'force',
+              label: 'Réexpédier même si déjà envoyé',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--force' }
             }
           ]
         }
