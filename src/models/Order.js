@@ -2,11 +2,29 @@
 import mongoose from 'mongoose';
 
 /* ----- Line items ----- */
+const AttendanceSchema = new mongoose.Schema({
+  status: {
+    type: String,
+    enum: ['kept', 'released', 'moved'],
+    default: 'kept'
+  },
+  overrideSeatId: { type: String, default: '' },
+  overrideZoneKey: { type: String, default: '' },
+  note: { type: String, default: '' },
+  updatedAt: { type: Date, default: null },
+  updatedBy: { type: String, default: '' }
+}, { _id: false, minimize: false });
+
 const LineSchema = new mongoose.Schema({
   seatId:          { type: String, default: '' },
   zoneKey:         { type: String, default: '' },   // ← needed for TBH7 / standing zones
   tariffCode:      { type: String, index: true },
   priceCents:      { type: Number, default: 0 },
+
+  // Saison -> évènement : permet d'identifier la ligne d'origine
+  sourceLineId:    { type: String, default: '' },
+
+  attendance:      { type: AttendanceSchema, default: undefined },
 
   holderFirstName: { type: String, default: '' },
   holderLastName:  { type: String, default: '' },
@@ -30,6 +48,9 @@ const OrderSchema = new mongoose.Schema({
   seasonCode: { type: String, index: true },
   venueSlug:  { type: String, index: true },
 
+  eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', index: true, default: null },
+  parentOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', index: true, default: null },
+
   groupKey:   { type: String, index: true },
 
   itemName:   { type: String, index: true },
@@ -44,11 +65,11 @@ const OrderSchema = new mongoose.Schema({
   lines:      { type: [LineSchema], default: [] },
   totalCents: { type: Number, default: 0 },
 
-  status: { type: String, enum: ['pending','paid','failed','canceled'], default: 'pending', index: true },
+  status: { type: String, enum: ['pending','paid','failed','canceled','refunded'], default: 'pending', index: true },
 
-  paymentProvider:     { type: String, default: 'helloasso' },
+  paymentProvider:     { type: String, default: process.env.PAYMENT_PROVIDER || 'helloasso' },
 
-  // ✅ New canonical provider meta bag (used by renew/tbh7 routes & ha.js)
+  // ✅ New canonical provider meta bag (used by renew/tbh7 routes & pay.js)
   paymentProviderMeta: { type: mongoose.Schema.Types.Mixed, default: {} },
 
   // ⬅ Legacy (keep for compatibility with older data/logic if any)
@@ -81,7 +102,12 @@ OrderSchema.index(
   { name:'uniq_paid_per_payer', unique:true, partialFilterExpression:{ status:'paid' } }
 );
 
-// (2) Lookup by HelloAsso intent / token (canonical)
+OrderSchema.index(
+  { eventId:1, parentOrderId:1, status:1 },
+  { name:'idx_event_parent_status' }
+);
+
+// (2) Lookup by payment provider intent / token (canonical)
 OrderSchema.index({ 'paymentProviderMeta.checkoutIntentId': 1 }, { sparse: true, name: 'idx_provider_intent' });
 OrderSchema.index({ 'paymentProviderMeta.tokenHash': 1 },        { sparse: true, name: 'idx_provider_tokenhash' });
 

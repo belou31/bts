@@ -15,3 +15,4 @@ export { TariffPriceCatalog } from './TariffPriceCatalog.js';
 export { Subscriber }    from './Subscriber.js';
 export { Venue }         from './Venue.js';
 export { ZoneHold }      from './ZoneHold.js';
+export { AutomationJob } from './AutomationJob.js';

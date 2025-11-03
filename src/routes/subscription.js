@@ -9,20 +9,14 @@ import { Tariff }      from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Order }       from '../models/Order.js';
 
-import { createCheckoutIntent } from '../services/helloasso.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
 import { makeTokenHash }        from '../utils/ha-token.js';
 import { findSingleGaps }       from '../utils/no-single-gap.js';
 
-const router = express.Router();
+const router = express.Router({ mergeParams: true });
 
 /* ====== ENV / Const ====== */
-const APP_URL         = process.env.APP_URL || '';
-const HELLOASSO_STUB  = String(process.env.HELLOASSO_STUB || 'false').toLowerCase() === 'true';
-const STUB_RESULT     = (process.env.HELLOASSO_STUB_RESULT || 'success').toLowerCase();
-
-const HA_RETURN_URL   = process.env.HELLOASSO_RETURN_URL || (APP_URL ? `${APP_URL}/ha/return` : '/ha/return');
-const HA_BACK_URL     = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/back');
-const HA_ERR_URL      = HA_RETURN_URL.replace(/\/ha\/return(?:\/)?$/, '/ha/error');
+const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 10); // durée du hold en minutes
 const HOLD_MS  = HOLD_MIN * 60 * 1000;
@@ -41,7 +35,30 @@ async function getActiveSeasonAndVenue() {
   const seasonCode = s.code || s.seasonCode;
   const venueSlug  = s.venueSlug || s.venue;
   if (!seasonCode || !venueSlug) { const e = new Error('No active season/venue'); e.status = 503; throw e; }
-  return { seasonCode, venueSlug };
+  return { seasonCode, venueSlug, season: s };
+}
+
+async function resolveSeasonAndVenue(inputSeasonCode = '') {
+  const requested = norm(inputSeasonCode);
+  if (requested && requested.toLowerCase() !== 'current') {
+    const seasonDoc = await Season.findOne({
+      $or: [{ code: requested }, { seasonCode: requested }]
+    }).lean();
+    if (!seasonDoc) {
+      const err = new Error(`Season not found: ${requested}`);
+      err.status = 404;
+      throw err;
+    }
+    const seasonCode = seasonDoc.code || seasonDoc.seasonCode || requested;
+    const venueSlug = seasonDoc.venueSlug || seasonDoc.venue;
+    if (!venueSlug) {
+      const err = new Error('Season missing venue');
+      err.status = 500;
+      throw err;
+    }
+    return { seasonCode, venueSlug, season: seasonDoc };
+  }
+  return await getActiveSeasonAndVenue();
 }
 
 function buildPricesIndex(list) {
@@ -90,13 +107,14 @@ async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, stat
 }
 
 
-/* ====== GET /api/sub/status ======
+/* ====== GET /api/season/:seasonCode/status ======
  * Répond: { seasonCode, venueSlug, tariffs[], prices[], seats[], zones[] }
  * zones[]: [{ key,name,quota,capacity,remaining,svgSelector }]
  */
-router.get('/status', async (_req, res, next) => {
+router.get('/status', async (req, res, next) => {
   try {
-    const { seasonCode, venueSlug } = await getActiveSeasonAndVenue();
+    const seasonParam = req.params?.seasonCode || req.query?.season || req.query?.seasonCode || '';
+    const { seasonCode, venueSlug, season } = await resolveSeasonAndVenue(seasonParam);
     // --- Sièges de la salle (pour le clic direct sur siège côté front)
     const seats = await Seat.find(
       { seasonCode, venueSlug },
@@ -139,11 +157,11 @@ router.get('/status', async (_req, res, next) => {
       };
     });
 
-    res.json({ seasonCode, venueSlug, tariffs, prices, seats, zones: zonesOut });
+    res.json({ seasonCode, seasonName: season?.name || null, venueSlug, tariffs, prices, seats, zones: zonesOut });
   } catch (e) { next(e); }
 });
 
-/* ====== POST /api/sub/checkout ======
+/* ====== POST /api/season/:seasonCode/checkout ======
  * Body: {
  *   payer:{firstName,lastName,email},
  *   schedule:1|2|3,
@@ -153,7 +171,8 @@ router.get('/status', async (_req, res, next) => {
  */
 router.post('/checkout', async (req, res) => {
   try {
-    const { seasonCode, venueSlug } = await getActiveSeasonAndVenue();
+    const seasonParam = req.params?.seasonCode || req.body?.seasonCode || req.query?.season || '';
+    const { seasonCode, venueSlug, season } = await resolveSeasonAndVenue(seasonParam);
     const payer    = req.body?.payer || {};
     const schedule = Number(req.body?.schedule || 1);
     // Accepte "items" (nouveau) ET "lines" (héritage generic-view)
@@ -277,6 +296,8 @@ router.post('/checkout', async (req, res) => {
     const totalCents = lines.reduce((acc, l) => acc + Number(l.priceCents || 0), 0);
 
     // Créer l’order (pending)
+    const seasonPath = `/season/${encodeURIComponent(seasonCode)}`;
+
     const order = await Order.create({
       itemName:`SUBSCRIPTION_${seasonCode}`,
       seasonCode, venueSlug,
@@ -287,10 +308,15 @@ router.post('/checkout', async (req, res) => {
       payerEmail:     norm(payer.email     || ''),
       paymentSplit:   schedule,
       lines, totalCents, status: 'pending',
-      paymentProvider: 'helloasso',
+      paymentProvider: PAYMENT_PROVIDER_ID,
       paymentProviderMeta: {},
-      origin: { flow: 'subscription', uiPath: '/subscription', apiPath: `${req.baseUrl||''}${req.path}` },
-      mailTemplateKind: 'subscription'
+      origin: { flow: 'subscription', uiPath: seasonPath, apiPath: `${req.baseUrl||''}${req.path}` },
+      mailTemplateKind: 'subscription',
+      meta: {
+        seasonCode,
+        seasonName: season?.name || null,
+        source: 'season-subscription'
+      }
     });
 
     // HOLD des sièges réels (status available -> busy + meta.hold)
@@ -339,38 +365,36 @@ router.post('/checkout', async (req, res) => {
       }
     }
       
-    // HelloAsso (STUB en DEV)
-    if (HELLOASSO_STUB) {
-      const intentId  = `stub-${Date.now()}`;
-      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: intentId });
-      order.paymentProviderMeta = { ...(order.paymentProviderMeta || {}), checkoutIntentId: intentId, tokenHash };
-      await order.save();
-
-      const ok = ['success','ok','true','1'].includes(STUB_RESULT);
-      const redirectUrl = `${HA_RETURN_URL}?oid=${order._id}&ci=${intentId}&h=${tokenHash}&stub=1&result=${ok ? 'success' : 'failure'}`;
-      return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
-    }
-
-    // INT/PROD
-    // Corrélation fiable au retour: ajoute ?oid=<orderId> aux 3 URLs
-    const addOID = (u) => u + (u.includes('?') ? '&' : '?') + `oid=${encodeURIComponent(order._id.toString())}`;
-    const { redirectUrl, raw, error } = await createCheckoutIntent({
+    const urls = buildReturnUrls(order);
+    const intent = await createCheckoutIntent({
       order,
-      returnUrl: addOID(HA_RETURN_URL),
-      backUrl:   addOID(HA_BACK_URL),
-      errorUrl:  addOID(HA_ERR_URL)
+      returnUrl: urls.returnUrl,
+      backUrl: urls.backUrl,
+      errorUrl: urls.errorUrl
     });
+    const { redirectUrl, raw, error } = intent;
 
     if (error || !redirectUrl) {
       console.error('[subscription] createCheckoutIntent failed:', error);
-      return res.status(502).json({ error: 'helloasso_unavailable' });
+      return res.status(502).json({ error: 'payment_unavailable' });
     }
-    if (raw?.id) {
-      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: String(raw.id) });
+    const checkoutId = String(intent?.id || intent?.checkoutReference || raw?.id || raw?.checkout_reference || '');
+    if (checkoutId) {
+      const checkoutReference = raw?.checkout_reference || intent?.checkoutReference || checkoutId;
+      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: checkoutId });
       order.paymentProviderMeta = {
         ...(order.paymentProviderMeta || {}),
-        name: 'helloasso',
-        checkoutIntentId: String(raw.id),
+        name: PAYMENT_PROVIDER_ID,
+        checkoutIntentId: checkoutId,
+        checkoutReference,
+        providerOrderId:
+          intent.providerOrderId ||
+          raw?.order?.id ||
+          raw?.orderId ||
+          raw?.transaction_code ||
+          raw?.transaction_id ||
+          raw?.id ||
+          null,
         tokenHash
       };
 
@@ -380,7 +404,7 @@ router.post('/checkout', async (req, res) => {
     return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
   } catch (e) {
     const code = e.status || 500;
-    console.error('[POST /api/sub/checkout] error:', e);
+    console.error('[POST /api/season/checkout] error:', e);
     return res.status(code).json({ error: e.message || 'internal_error' });
   }
 });

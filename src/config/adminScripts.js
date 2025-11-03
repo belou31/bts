@@ -44,7 +44,7 @@ export const adminScriptGroups = [
           script: 'scripts/00-initialization/check-env.js',
           args: []
         },
-        description: 'Verifies the consistency of APP_URL/BASE_PATH and HelloAsso configuration for the current APP_ENV.'
+        description: 'Verifies the consistency of APP_URL/BASE_PATH and payment provider configuration for the current APP_ENV.'
       },
       {
         id: 'customize-app',
@@ -245,6 +245,54 @@ export const adminScriptGroups = [
               label: 'Fichier de sortie (optionnel)',
               placeholder: 'renew-groups.csv',
               arg: { type: 'option', template: '--out=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'send-renew-invites',
+        label: 'Send Renewal Invitations',
+        order: 2.5,
+        path: 'scripts/03-season-management/send-renew-invites.js',
+        command: 'node scripts/03-season-management/send-renew-invites.js <renew-groups.csv> [--dry]',
+        automation: {
+          taskId: 'season.send-renew-invites',
+          defaultDryRun: true
+        },
+        description: 'Sends renewal invitation emails using the automation job runner (supports dry-run).',
+        notes: [
+          'Dry-run activé par défaut depuis l’interface ; décochez pour envoyer réellement.',
+          'Le CSV doit contenir les colonnes email, renewUrl, firstName/lastName et optionnellement seats.'
+        ],
+        templates: ['data/templates/csv/renew-groups.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'csv',
+              label: 'CSV destinataires',
+              placeholder: 'renew-groups.csv',
+              required: true
+            },
+            {
+              name: 'subject',
+              label: 'Objet (optionnel)',
+              placeholder: 'Renouvellement d’abonnement'
+            },
+            {
+              name: 'seasonCode',
+              label: 'Code saison (optionnel)',
+              placeholder: '2025-2026'
+            },
+            {
+              name: 'deadline',
+              label: 'Date limite (optionnel)',
+              placeholder: '31/08/2025'
+            },
+            {
+              name: 'dryRun',
+              label: 'Dry-run (ne pas envoyer)',
+              type: 'checkbox',
+              default: true
             }
           ]
         }
@@ -1103,6 +1151,35 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'event-sync-season-orders',
+        label: 'Sync Season Orders to Event',
+        order: 3.4,
+        path: 'scripts/04-event-management/sync-season-orders-to-event.js',
+        command: 'node scripts/04-event-management/sync-season-orders-to-event.js --event=<slug|ObjectId> [--commit]',
+        run: {
+          script: 'scripts/04-event-management/sync-season-orders-to-event.js',
+          args: []
+        },
+        description: 'Clones paid subscription orders into child event orders so subscribers receive tickets. Dry-run by défaut (sans --commit).',
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l\'événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Appliquer (--commit)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            }
+          ]
+        }
+      },
+      {
         id: 'event-import-orders',
         label: 'Import Orders for Event',
         order: 3.5,
@@ -1122,6 +1199,41 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/event-orders.csv',
               required: true,
               arg: { type: 'positional', index: 0 }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-export-attendance-overrides',
+        label: 'Export Attendance Overrides',
+        order: 3.6,
+        path: 'scripts/04-event-management/export-attendance-overrides.js',
+        command: 'node scripts/04-event-management/export-attendance-overrides.js --event=<slug|ObjectId> [--statuses=released,moved] [--out=overrides.csv]',
+        run: {
+          script: 'scripts/04-event-management/export-attendance-overrides.js',
+          args: []
+        },
+        description: 'Exports event lines flagged released/moved for follow-up (CSV by default).',
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l\'événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'statuses',
+              label: 'Statuts (CSV)',
+              placeholder: 'released,moved',
+              arg: { type: 'option', template: '--statuses=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Fichier de sortie',
+              placeholder: 'data/outputs/event-overrides.csv',
+              arg: { type: 'option', template: '--out=${value}' }
             }
           ]
         }
@@ -1247,7 +1359,7 @@ export const adminScriptGroups = [
           script: 'scripts/04-event-management/import-qr-bank.js',
           args: []
         },
-        description: 'Imports QR codes for an event, grouped by tariff buckets.',
+        description: 'Imports QR codes for an event as a single shared pool.',
         form: {
           fields: [
             {
@@ -1317,7 +1429,7 @@ export const adminScriptGroups = [
           script: 'scripts/04-event-management/send-all-season-tickets-for-event.js',
           args: []
         },
-        description: 'Generates and emails season tickets for a specific event using the season subscription base, optionally in dry-run mode.',
+        description: 'Ensures event orders carry tickets and emails them to subscribers (works on orders created by the sync command).',
         form: {
           fields: [
             {
@@ -1334,40 +1446,10 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--limit=${value}' }
             },
             {
-              name: 'fallbackZone',
-              label: 'Zone fallback (optionnel)',
-              placeholder: 'SAME | N4 | DEBOUT',
-              arg: { type: 'option', template: '--fallback-zone=${value}' }
-            }
-          ]
-        }
-      },
-      {
-        id: 'event-resend-season-tickets',
-        label: 'Resend Season Tickets for Event',
-        order: 7,
-        path: 'scripts/04-event-management/resend-season-tickets-for-event.js',
-        command: 'node scripts/04-event-management/resend-season-tickets-for-event.js --event=<slug> --order=<orderId[,orderId2]> [--dry-run]',
-        run: {
-          script: 'scripts/04-event-management/resend-season-tickets-for-event.js',
-          args: []
-        },
-        description: 'Send season ticket emails for specific subscription order(s) (comma-separated).',
-        form: {
-          fields: [
-            {
-              name: 'event',
-              label: 'Slug ou ID de l’événement',
-              placeholder: 'match-2025-09-21-bts-vs-xxx',
-              required: true,
-              arg: { type: 'option', template: '--event=${value}' }
-            },
-            {
-              name: 'order',
-              label: 'OrderId (séparés par des virgules)',
-              placeholder: '68f137992cbaad229d6a4dbf,abc123',
-              required: true,
-              arg: { type: 'option', template: '--order=${value}' }
+              name: 'dryRun',
+              label: 'Mode test (dry-run)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--dry-run' }
             }
           ]
         }
@@ -1663,6 +1745,15 @@ export function getScriptGroup(id) {
 export function getAdminScript(scriptId) {
   for (const group of adminScriptGroups) {
     const script = group.scripts.find(s => s.id === scriptId);
+    if (script) return { group, script };
+  }
+  return null;
+}
+
+export function getAdminScriptByTaskId(taskId) {
+  if (!taskId) return null;
+  for (const group of adminScriptGroups) {
+    const script = group.scripts.find(s => s?.automation?.taskId === taskId);
     if (script) return { group, script };
   }
   return null;

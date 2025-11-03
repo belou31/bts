@@ -60,8 +60,8 @@ HELLOASSO_STUB=false
 HELLOASSO_ENV=sandbox
 HELLOASSO_CLIENT_ID=...
 HELLOASSO_CLIENT_SECRET=...
-HELLOASSO_RETURN_URL=https://billetterie-dev.belougas.fr/bts/ha/return
-HELLOASSO_WEBHOOK_URL=https://billetterie-dev.belougas.fr/bts/ha/webhook
+HELLOASSO_RETURN_URL=https://billetterie-dev.belougas.fr/bts/pay/return
+HELLOASSO_WEBHOOK_URL=https://billetterie-dev.belougas.fr/bts/pay/webhook
 
 PM2 :
 
@@ -94,7 +94,7 @@ HELLOASSO_STUB_RESULT=success   # ou "failure"
 
 
 
-Le checkout créé un PaymentIntent, finalise automatiquement (succès/échec) et renvoie une redirectUrl vers /ha/return?status=....
+Le checkout créé un PaymentIntent, finalise automatiquement (succès/échec) et renvoie une redirectUrl vers /pay/return?status=....
 
 💡 La règle “1 seule commande par groupe (season+venue)” est appliquée : si un Order status=paid existe, l’API renvoie 409 already_renewed.
 

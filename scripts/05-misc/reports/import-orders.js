@@ -235,7 +235,9 @@ async function run() {
       paymentProviderMeta: { importedAt: new Date(), source: 'csv', legacyOrderId: KEEP_IDS ? undefined : oid },
       origin: {
         flow,
-        uiPath: flow === 'renew' ? '/renew' : '/subscription',
+        uiPath: flow === 'renew'
+          ? '/renew'
+          : (b.seasonCode ? `/season/${b.seasonCode}` : '/season'),
         apiPath: '/admin/import'
       },
       mailTemplateKind: templateForFlow(flow),

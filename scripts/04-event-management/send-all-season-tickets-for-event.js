@@ -1,449 +1,225 @@
-// scripts/04-event-management/send-all-season-tickets-for-event.js
-// Usage:
-//  node scripts/04-event-management/send-all-season-tickets-for-event.js --event 2025-09-20-belougas-vs-vipers-123456 [--limit 200] [--dry-run] [--fallback-zone SAME|N4|DEBOUT]
+#!/usr/bin/env node
 
-import path from 'node:path';
 import mongoose from 'mongoose';
-import { fileURLToPath } from 'node:url';
+import { hideBin } from 'yargs/helpers';
+import yargs from 'yargs';
 
 import { Event } from '../../src/models/Event.js';
 import { Order } from '../../src/models/Order.js';
-import { Seat }  from '../../src/models/Seat.js';
-import { Subscriber } from '../../src/models/Subscriber.js';
 import { buildTicketsPdfBuffer } from '../../src/services/tickets-pdf.js';
-import { renderOrderEmail, subjectForOrder } from '../../src/services/mailer.js';
+import { renderOrderEmail, subjectForOrder, attachQrFromBank } from '../../src/services/mailer.js';
 import { sendMail } from '../../src/loaders/mailer.js';
-import { upsertEventTickets } from '../../src/services/ticket-persistence.js';
+import { ensureTicketsForEventOrder, generateTicketHex } from '../../src/services/order-finalization.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
 
+const argv = yargs(hideBin(process.argv))
+  .option('event', {
+    type: 'string',
+    demandOption: true,
+    describe: 'Slug ou ObjectId de l\'évènement'
+  })
+  .option('limit', {
+    type: 'number',
+    default: 0,
+    describe: 'Nombre maximal d’envois (0 = illimité)'
+  })
+  .option('dry-run', {
+    type: 'boolean',
+    default: false,
+    describe: 'Ne fait que journaliser sans envoyer d’email'
+  })
+  .help()
+  .alias('h', 'help')
+  .strict()
+  .argv;
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-
-function argval(name, def = '') {
-  const i = process.argv.findIndex(a => a === `--${name}`);
-  if (i >= 0 && i + 1 < process.argv.length) return process.argv[i + 1];
-  const kv = process.argv.find(a => a.startsWith(`--${name}=`));
-  if (kv) return kv.split('=').slice(1).join('=');
-  return def;
+function isObjectId(input) {
+  return /^[0-9a-fA-F]{24}$/.test(String(input || ''));
 }
-const EVENT_KEY     = argval('event', '').trim();
-const LIMIT         = Number(argval('limit', '0')) || 0;
-const DRY_RUN       = process.argv.includes('--dry-run');
-const FALLBACK_ZONE = (argval('fallback-zone', 'SAME') || 'SAME').toUpperCase();
 
-if (!EVENT_KEY) {
-  console.error('Missing --event <slug|ObjectId>');
-  process.exit(1);
+async function resolveEvent(key) {
+  if (!key) return null;
+  const trimmed = String(key).trim();
+  if (!trimmed) return null;
+  if (isObjectId(trimmed)) {
+    const byId = await Event.findById(trimmed).lean();
+    if (byId) return byId;
+  }
+  return await Event.findOne({ slug: trimmed }).lean();
 }
 
-const TICKET_TIMEZONE = process.env.TICKET_TIMEZONE || process.env.CLUB_TIMEZONE || 'Europe/Paris';
+async function deliverOrder({ order, eventDoc, dryRun }) {
+  const ticketsMeta = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+  if (!ticketsMeta.length) {
+    return { ok: false, reason: 'no_tickets' };
+  }
 
-function fmtDateFR(d) {
+  const pdf = await buildTicketsPdfBuffer(order);
+  if (!pdf || !pdf.length) {
+    return { ok: false, reason: 'nopdf' };
+  }
+
+  const eventDate = eventDoc.startsAt ? new Date(eventDoc.startsAt) : null;
+  const eventDateLabel = eventDate ? eventDate.toLocaleString('fr-FR') : '';
+  const defaultSubject = `Vos billets — ${eventDoc.name}${eventDateLabel ? ` — ${eventDateLabel}` : ''}`;
+  const subject = subjectForOrder(order) || defaultSubject;
+
+  let html;
   try {
-    const dt = d instanceof Date ? d : new Date(d);
-    return dt.toLocaleString('fr-FR', {
-      dateStyle: 'long',
-      timeStyle: 'short',
-      timeZone: TICKET_TIMEZONE
-    });
-  } catch { return ''; }
-}
+    html = await renderOrderEmail(order);
+  } catch {
+    html = '';
+  }
 
-function zoneFromSeatId(seatId) {
-  const s = String(seatId || '').trim();
-  if (!s) return '';
-  const parts = s.split('-');
-  return parts.length ? parts[0].toUpperCase() : '';
-}
+  if (!html) {
+    const whenLabel = eventDateLabel || 'Date à confirmer';
+    html = `
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial">
+        <h2 style="margin:0 0 .5rem">Billets pour ${eventDoc.name}</h2>
+        <p style="margin:.25rem 0;color:#444">
+          Date : <strong>${whenLabel}</strong>
+        </p>
+        <p style="margin:.75rem 0">
+          Retrouvez vos billets en pièce jointe (PDF). Présentez le QR à l'entrée.
+        </p>
+        <p style="margin:.75rem 0;color:#666">
+          Cet envoi concerne votre abonnement (${order.payerFirstName || ''} ${order.payerLastName || ''}).
+        </p>
+      </div>`;
+  }
 
-// HEX pour contrôle d’accès
-// - billet siège: base64("E:<eventId>:S:<seatId>")
-// - billet fallback zone: base64("E:<eventId>:Z:<zoneKey>:O:<orderId>:S:<origSeatId>")
-function hexSeat(evId, seatId) {
-  return Buffer.from(`E:${evId}:S:${seatId}`, 'utf8').toString('base64');
-}
-function hexZone(evId, zoneKey, orderId, origSeatId='') {
-  return Buffer.from(`E:${evId}:Z:${zoneKey}:O:${orderId}:S:${origSeatId}`, 'utf8').toString('base64');
+  if (dryRun) {
+    return { ok: true, dryRun: true };
+  }
+
+  await sendMail({
+    to: order.payerEmail,
+    subject,
+    html,
+    attachments: [{
+      filename: `Billets_${eventDoc.slug}_${String(order._id).slice(-6)}.pdf`,
+      contentType: 'application/pdf',
+      content: pdf
+    }]
+  });
+
+  return { ok: true };
 }
 
 async function main() {
-  const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/bts';
+  const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://localhost:27017/bts';
   await mongoose.connect(mongoUri);
 
-  // 1) Evènement
-  const ev = await (async () => {
-    const bySlug = await Event.findOne({ slug: EVENT_KEY }).lean();
-    if (bySlug) return bySlug;
-    if (mongoose.isValidObjectId(EVENT_KEY)) {
-      const byId = await Event.findById(EVENT_KEY).lean();
-      if (byId) return byId;
-    }
-    throw new Error(`Event not found: ${EVENT_KEY}`);
-  })();
-
-  // 2) Index des sièges réels + leur statut pour ce match
-  const seats = await Seat.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug })
-                          .select('seatId zoneKey status -_id').lean();
-  const realSeatIds = new Set(seats.map(s => String(s.seatId)));
-  const seatStatus  = new Map(seats.map(s => [String(s.seatId), String(s.status || 'available').toLowerCase()]));
-  const seatZone    = new Map(seats.map(s => [String(s.seatId), String(s.zoneKey || '').toUpperCase()]));
-
-  async function deliverVirtualOrder(orderDoc) {
-    const tickets = Array.isArray(orderDoc?.meta?.tickets) ? orderDoc.meta.tickets : [];
-    try {
-      const pdf = await buildTicketsPdfBuffer(orderDoc);
-      if (!pdf || !pdf.length) {
-        console.warn('[warn] no PDF produced for order', String(orderDoc._id));
-        return { ok: false, reason: 'nopdf' };
-      }
-
-      const hasFallback = tickets.some(t => t.fallback);
-      const fallbackMsg = hasFallback
-        ? `<p style="margin:.75rem 0;background:#FFF6E5;border:1px solid #F6C15C;padding:12px;border-radius:8px">
-             <strong>Note :</strong> certaines places donnent accès à une zone libre (aucun siège numéroté). Présentez-vous à l’entrée pour être orienté.
-           </p>`
-        : '';
-
-      const defaultSubject = `Vos billets — ${ev.name} — ${fmtDateFR(ev.startsAt)}`;
-      const subject = subjectForOrder(orderDoc) || defaultSubject;
-
-      let html;
-      try {
-        html = await renderOrderEmail(orderDoc);
-      } catch {
-        html = '';
-      }
-
-      if (!html) {
-        html = `
-          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial">
-            <h2 style="margin:0 0 .5rem">Billets pour ${ev.name}</h2>
-            <p style="margin:.25rem 0;color:#444">
-              Date : <strong>${fmtDateFR(ev.startsAt)}</strong>
-            </p>
-            ${fallbackMsg}
-            <p style="margin:.75rem 0">
-              Retrouvez vos billets en pièce jointe (PDF). Présentez le QR à l'entrée.
-            </p>
-            <p style="margin:.75rem 0;color:#666">
-              Cet envoi concerne votre abonnement (${orderDoc.payerFirstName || ''} ${orderDoc.payerLastName || ''}).
-            </p>
-          </div>`;
-      } else if (fallbackMsg) {
-        if (html.includes('<!--FALLBACK_NOTE-->')) {
-          html = html.replace('<!--FALLBACK_NOTE-->', fallbackMsg);
-        } else if (html.includes('</h2>')) {
-          html = html.replace('</h2>', `</h2>${fallbackMsg}`);
-        } else if (html.includes('</body>')) {
-          html = html.replace('</body>', `${fallbackMsg}</body>`);
-        } else {
-          html = fallbackMsg + html;
-        }
-      }
-
-      if (DRY_RUN) {
-        console.log(`[dry-run] to=${orderDoc.payerEmail} order=${orderDoc._id} seats=${orderDoc.lines?.length || 0} fallback=${hasFallback}`);
-        return { ok: true, dryRun: true };
-      }
-
-      await sendMail({
-        to: orderDoc.payerEmail,
-        subject,
-        html,
-        attachments: [{
-          filename: `Billets_${ev.slug}_${String(orderDoc._id).slice(-6)}.pdf`,
-          contentType: 'application/pdf',
-          content: pdf
-        }]
-      });
-      return { ok: true };
-    } catch (err) {
-      errors++;
-      console.error('[error] send failed for order', String(orderDoc._id), err?.message || err);
-      return { ok: false, error: err };
-    }
+  const eventDoc = await resolveEvent(argv.event);
+  if (!eventDoc) {
+    throw new Error(`Évènement introuvable pour "${argv.event}"`);
   }
 
-  // 3) Orders d’abonnement payés (source)
-  const q = {
-    phase:  'subscription',
+  const eventIdStr = String(eventDoc._id);
+  const query = {
     status: 'paid',
-    seasonCode: ev.seasonCode,
-    venueSlug:  ev.venueSlug,
-    payerEmail: { $ne: null }
+    payerEmail: { $ne: null },
+    $or: [
+      { eventId: eventDoc._id },
+      { 'meta.eventId': eventIdStr }
+    ]
   };
+
+  const cursor = Order.find(query).sort({ createdAt: 1 }).cursor();
+
+  const stats = {
+    scanned: 0,
+    sent: 0,
+    dryRun: argv['dry-run'] ? 0 : null,
+    skipped: 0,
+    errors: 0
+  };
+
   const processedRecipients = new Set();
-  const cursor = Order.find(q).sort({ createdAt: 1 }).cursor();
+  let limitRemaining = Number(argv.limit || 0);
 
-  let sent = 0, scanned = 0, skipped = 0, fallbackCount = 0, errors = 0;
-  let ticketsCreated = 0, ticketsUpdated = 0;
+  for await (const order of cursor) {
+    stats.scanned += 1;
+    if (limitRemaining > 0 && stats.sent >= limitRemaining) break;
 
-  for await (const sub of cursor) {
-    scanned++;
-    if (LIMIT && sent >= LIMIT) break;
-    if (!sub?.payerEmail) { skipped++; continue; }
-
-    // Lignes d’abonnement mappées -> lignes “billets” pour CE match
-    const pseudoOrderId = new mongoose.Types.ObjectId();
-    const lines = [];
-    const tickets = [];
-    const fallbackSeatId = (zoneKey) => {
-      const zoneLabel = String(zoneKey || FALLBACK_ZONE || 'ZONE').toUpperCase();
-      const suffix = String(sub._id || pseudoOrderId).slice(-6).toUpperCase();
-      const index = String(lines.length + 1).padStart(2, '0');
-      return `${zoneLabel}-GA-${suffix}-${index}`;
-    };
-
-    for (const ln of (sub.lines || [])) {
-      const rawSeatId = String(ln.seatId || '').trim();
-      const zoneFromOrder = String(ln.zoneKey || '').trim().toUpperCase();
-      const seatKnown = rawSeatId ? realSeatIds.has(rawSeatId) : false;
-      const status = seatKnown ? (seatStatus.get(rawSeatId) || 'available') : 'missing';
-      const seatUsable = seatKnown && ['available', 'booked', 'provisioned'].includes(status);
-      const zoneComputed = seatKnown
-        ? (seatZone.get(rawSeatId) || zoneFromOrder || zoneFromSeatId(rawSeatId) || '').toUpperCase()
-        : (zoneFromOrder || zoneFromSeatId(rawSeatId) || FALLBACK_ZONE || '').toUpperCase();
-      const fallbackZone = FALLBACK_ZONE ? FALLBACK_ZONE.toUpperCase() : 'ZONE';
-      const zoneForTicket = (zoneComputed || fallbackZone).toUpperCase();
-      const seatIdForTickets = seatUsable ? rawSeatId : fallbackSeatId(zoneForTicket || fallbackZone);
-      const priceCents = Number(ln.priceCents || 0);
-      const holderFirstName = String(ln.holderFirstName || '');
-      const holderLastName  = String(ln.holderLastName  || '');
-      const tariffCode = String(ln.tariffCode || 'SUBSCRIPTION').toUpperCase();
-
-      if (seatUsable) {
-        lines.push({
-          seatId: rawSeatId,
-          zoneKey: zoneForTicket,
-          tariffCode,
-          priceCents,
-          holderFirstName,
-          holderLastName
-        });
-        tickets.push({
-          seatId: rawSeatId,
-          zoneKey: zoneForTicket,
-          tariff: tariffCode,
-          hex: hexSeat(ev._id, rawSeatId),
-          fallback: false
-        });
-      } else {
-        fallbackCount++;
-        const note = seatKnown
-          ? `Siège d’origine indisponible (${rawSeatId}). Accès garanti, siège attribué par l’organisation.`
-          : `Zone ${zoneForTicket} en accès libre (aucun siège numéroté).`;
-
-        lines.push({
-          seatId: seatIdForTickets,
-          zoneKey: zoneForTicket,
-          tariffCode: 'SUBSCRIPTION',
-          priceCents,
-          holderFirstName,
-          holderLastName
-        });
-        tickets.push({
-          seatId: seatIdForTickets,
-          zoneKey: zoneForTicket,
-          tariff: 'ABONNÉ',
-          hex: hexZone(ev._id, zoneForTicket || fallbackZone, sub._id || pseudoOrderId, seatIdForTickets),
-          fallback: true,
-          note
-        });
-      }
-    }
-
-    if (!lines.length) { skipped++; continue; }
-
-    // Order “virtuel” pour CE match (format attendu par tickets-pdf.js)
-    const orderGroupKey = String(sub.groupKey || '');
-    const virtualOrder = {
-      _id: sub._id, // peu importe, c’est pour la trace
-      mailTemplateKind: 'event',
-      lines,
-      seasonCode: ev.seasonCode,
-      venueSlug: ev.venueSlug,
-      payerFirstName: sub.payerFirstName || sub.payer?.firstName || '',
-      payerLastName:  sub.payerLastName  || sub.payer?.lastName  || '',
-      payerEmail:     sub.payerEmail     || sub.payer?.email     || '',
-      groupKey: orderGroupKey,
-      meta: {
-        provider: 'season',
-        eventId:      String(ev._id),
-        eventSlug:    ev.slug,
-        eventName:    ev.name,
-        eventStartsAt: ev.startsAt,
-        tickets
-      }
-    };
-
-    const persistStats = await upsertEventTickets({
-      event: ev,
-      virtualOrder,
-      sourceOrderId: sub._id
-    });
-    ticketsCreated += persistStats.created;
-    ticketsUpdated += persistStats.updated;
-
-    const payEmailNorm = String(virtualOrder.payerEmail || '').trim().toLowerCase();
-    if (payEmailNorm) processedRecipients.add(`${payEmailNorm}::${orderGroupKey}`);
-
-    const res = await deliverVirtualOrder(virtualOrder);
-    if (res.ok) sent++;
-    else skipped++;
-  }
-
-async function processSubscribersFallback(alreadyProcessed) {
-  const subs = await Subscriber.find({
-    seasonCode: ev.seasonCode,
-    venueSlug: ev.venueSlug,
-    email: { $ne: null },
-    status: { $in: ['active', 'pending'] }
-  }).lean();
-  if (!subs.length) return;
-
-  const buckets = new Map();
-  for (const record of subs) {
-    const email = String(record.email || '').trim().toLowerCase();
-    const seatId = String(record.prefSeatId || '').trim();
-    if (!email || !seatId) continue;
-    const groupKey = String(record.groupKey || '');
-    const bucketKey = `${email}::${groupKey}`;
-    if (alreadyProcessed.has(bucketKey)) continue;
-    if (!buckets.has(bucketKey)) {
-      buckets.set(bucketKey, { email, groupKey, records: [] });
-    }
-    buckets.get(bucketKey).records.push(record);
-  }
-
-  for (const [bucketKey, bucket] of buckets.entries()) {
-    if (LIMIT && sent >= LIMIT) break;
-
-    const { email, groupKey, records } = bucket;
-    const uniqueSeats = new Map();
-    for (const rec of records) {
-      const seatId = String(rec.prefSeatId || '').trim();
-      if (!seatId || uniqueSeats.has(seatId)) continue;
-      uniqueSeats.set(seatId, rec);
-    }
-
-    const pseudoOrderId = new mongoose.Types.ObjectId();
-    const lines = [];
-    const tickets = [];
-    const fallbackSeatId = (zoneKey) => {
-      const zoneLabel = String(zoneKey || FALLBACK_ZONE || 'ZONE').toUpperCase();
-      const suffix = String(pseudoOrderId).slice(-6).toUpperCase();
-      const index = String(lines.length + 1).padStart(2, '0');
-      return `${zoneLabel}-GA-${suffix}-${index}`;
-    };
-
-    for (const [seatId, rec] of uniqueSeats.entries()) {
-      const seatKnown = realSeatIds.has(seatId);
-      const statusSeat = seatKnown ? (seatStatus.get(seatId) || 'available') : 'missing';
-      const seatUsable = seatKnown && ['available', 'booked', 'provisioned'].includes(statusSeat);
-      const zoneComputed = seatKnown
-        ? (seatZone.get(seatId) || zoneFromSeatId(seatId) || '').toUpperCase()
-        : (zoneFromSeatId(seatId) || FALLBACK_ZONE || '').toUpperCase();
-      const fallbackZone = FALLBACK_ZONE ? FALLBACK_ZONE.toUpperCase() : 'ZONE';
-      const zoneForTicket = (zoneComputed || fallbackZone).toUpperCase();
-      const seatIdForTickets = seatUsable ? seatId : fallbackSeatId(zoneForTicket || fallbackZone);
-      const holderFirstName = rec.firstName || '';
-      const holderLastName  = rec.lastName  || '';
-
-      if (seatUsable) {
-        lines.push({
-          seatId,
-          zoneKey: zoneForTicket,
-          tariffCode: 'SUBSCRIPTION',
-          priceCents: 0,
-          holderFirstName,
-          holderLastName
-        });
-        tickets.push({
-          seatId,
-          zoneKey: zoneForTicket,
-          tariff: 'ABONNÉ',
-          hex: hexSeat(ev._id, seatId),
-          fallback: false
-        });
-      } else {
-        fallbackCount++;
-      const note = seatKnown
-        ? `Siège d’origine indisponible (${seatId}). Accès garanti, siège attribué par l’organisation.`
-        : `Zone ${zoneForTicket} en accès libre (aucun siège numéroté).`;
-
-        lines.push({
-          seatId: seatIdForTickets,
-          zoneKey: zoneForTicket,
-          tariffCode: 'SUBSCRIPTION',
-          priceCents: 0,
-          holderFirstName,
-          holderLastName
-        });
-        tickets.push({
-          seatId: seatIdForTickets,
-          zoneKey: zoneForTicket,
-          tariff: 'ABONNÉ',
-          hex: hexZone(ev._id, zoneForTicket || fallbackZone, pseudoOrderId, seatIdForTickets),
-          fallback: true,
-          note
-        });
-      }
-    }
-
-    if (!lines.length) {
-      skipped++;
-      alreadyProcessed.add(bucketKey);
+    const key = `${String(order.payerEmail || '').trim().toLowerCase()}::${order.groupKey || ''}`;
+    if (processedRecipients.has(key)) {
+      stats.skipped += 1;
       continue;
     }
 
-    scanned++;
-    const primary = records.find(r => r.firstName || r.lastName) || records[0];
-    const virtualOrder = {
-      _id: pseudoOrderId,
-      mailTemplateKind: 'event',
-      lines,
-      seasonCode: ev.seasonCode,
-      venueSlug: ev.venueSlug,
-      groupKey,
-      payerFirstName: primary?.firstName || '',
-      payerLastName:  primary?.lastName  || '',
-      payerEmail: email,
-      meta: {
-        provider: 'season',
-        eventId: String(ev._id),
-        eventSlug: ev.slug,
-        eventName: ev.name,
-        eventStartsAt: ev.startsAt,
-        tickets
+    try {
+      const bankResult = await attachQrFromBank(mongoose.connection.db, order);
+      if (bankResult?.ok === false && bankResult?.reason && bankResult.reason !== 'no-event') {
+        console.warn(`[warn] QR bank attach failed for order ${order._id}: ${bankResult.reason}`);
       }
-    };
 
-    const persistStats = await upsertEventTickets({
-      event: ev,
-      virtualOrder,
-      sourceOrderId: pseudoOrderId
-    });
-    ticketsCreated += persistStats.created;
-    ticketsUpdated += persistStats.updated;
+      await ensureTicketsForEventOrder(order);
+      let fresh = await Order.findById(order._id);
+      if (!fresh?.meta?.tickets || !fresh.meta.tickets.length) {
+        const tickets = [];
+        const lines = Array.isArray(fresh?.lines) ? fresh.lines : [];
+        for (let idx = 0; idx < lines.length; idx++) {
+          const line = lines[idx];
+          const seatId = String(line?.seatId || '').trim();
+          const zoneKey = String(line?.zoneKey || '').trim().toUpperCase();
+          const tariff = String(line?.tariffCode || '').trim().toUpperCase();
+          const hex = generateTicketHex(fresh._id, idx, seatId, zoneKey, tariff);
+          tickets.push({
+            seatId,
+            zoneKey,
+            tariff,
+            hex,
+            holderFirstName: line?.holderFirstName || '',
+            holderLastName: line?.holderLastName || ''
+          });
+        }
+        fresh.meta = { ...(fresh.meta || {}), tickets };
+        await fresh.save();
+        await ensureTicketsForEventOrder(fresh);
+        fresh = await Order.findById(fresh._id).lean();
+      } else {
+        fresh = fresh.toObject();
+      }
 
-    const res = await deliverVirtualOrder(virtualOrder);
-    if (res.ok) sent++;
-    else skipped++;
-    alreadyProcessed.add(bucketKey);
+      if (!fresh?.meta?.tickets || !fresh.meta.tickets.length) {
+        stats.skipped += 1;
+        console.warn(`[warn] order ${order._id} has no tickets after attach/ensure (${bankResult?.reason || 'no-meta'})`);
+        continue;
+      }
+
+      const result = await deliverOrder({ order: fresh, eventDoc, dryRun: argv['dry-run'] });
+      if (result.ok) {
+        stats.sent += 1;
+        processedRecipients.add(key);
+      } else if (result.dryRun) {
+        stats.sent += 1;
+        stats.dryRun = (stats.dryRun ?? 0) + 1;
+        processedRecipients.add(key);
+        console.log(`[dry-run] order=${fresh._id} email=${fresh.payerEmail}`);
+      } else {
+        stats.skipped += 1;
+        console.warn(`[warn] order ${fresh._id} skipped (${result.reason || 'unknown'})`);
+      }
+    } catch (err) {
+      stats.errors += 1;
+      console.error('[send-season-tickets] order failed', String(order._id), err?.message || err);
+    }
   }
+
+  console.log('--- Résumé ---');
+  console.log(`Event: ${eventDoc.slug} (${eventIdStr})`);
+  console.log(`Scannés : ${stats.scanned}`);
+  console.log(`Envoyés : ${stats.sent}${argv['dry-run'] ? ' (dry-run)' : ''}`);
+  console.log(`Ignorés : ${stats.skipped}`);
+  console.log(`Erreurs : ${stats.errors}`);
 }
 
-  await processSubscribersFallback(processedRecipients);
-
-  await mongoose.disconnect();
-  console.log(JSON.stringify({ ok: true, scanned, sent, skipped, fallbackCount, errors, ticketsCreated, ticketsUpdated }, null, 2));
-}
-
-main().catch(async (e) => {
-  console.error('[fatal]', e?.message || e);
-  try { await mongoose.disconnect(); } catch {}
-  process.exit(1);
-});
+main()
+  .then(() => mongoose.disconnect())
+  .catch(err => {
+    console.error('❌', err?.message || err);
+    mongoose.disconnect().finally(() => process.exit(1));
+  });

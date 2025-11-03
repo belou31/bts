@@ -307,7 +307,7 @@ async function main() {
       } catch { existing = null; }
     }
 
-    const orderDoc = {
+  const orderDoc = {
       ...(existing ? { _id: existing._id } : (parsed.objectId ? { _id: parsed.objectId } : {})),
       seasonCode,
       venueSlug,
@@ -340,7 +340,7 @@ async function main() {
       },
       origin: {
         flow: 'subscription',
-        uiPath: '/subscription',
+        uiPath: seasonCode ? `/season/${seasonCode}` : '/season',
         apiPath: '/admin/import/subscription-orders'
       },
       mailTemplateKind: 'subscription',

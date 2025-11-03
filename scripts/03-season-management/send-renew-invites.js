@@ -1,188 +1,140 @@
 #!/usr/bin/env node
-// ESM
 import 'dotenv/config';
-import fs from 'fs';
-import path from 'path';
-import readline from 'readline';
-import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
 
-import { renderEmailTemplate } from '../../src/utils/email-template.js';
-import { sendMail } from '../../src/loaders/mailer.js';
+import { connectDB } from '../../src/loaders/mongoose.js';
+import {
+  registerDefaultAutomationTasks,
+  createJob,
+  runJob
+} from '../../src/services/automation/index.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-const ROOT       = path.resolve(__dirname, '../..'); // racine projet
-
-function die(msg, code=1){ console.error(msg); process.exit(code); }
-
-function parseArgs(argv){
-  const args = {};
-  for (const a of argv.slice(2)) {
-    const m = a.match(/^--([^=]+)=(.*)$/);
-    if (m) args[m[1]] = m[2];
-    else if (a.startsWith('--')) args[a.slice(2)] = true;
+function parseArgs(argv) {
+  const args = { _: [] };
+  for (const token of argv.slice(2)) {
+    if (!token) continue;
+    if (token.startsWith('--')) {
+      const trimmed = token.slice(2);
+      if (!trimmed) continue;
+      const eqIndex = trimmed.indexOf('=');
+      if (eqIndex >= 0) {
+        const key = trimmed.slice(0, eqIndex);
+        const value = trimmed.slice(eqIndex + 1);
+        args[key] = value;
+      } else {
+        args[trimmed] = true;
+      }
+    } else {
+      args._.push(token);
+    }
   }
   return args;
 }
 
-// --- CSV helpers ---
-function stripBOM(s=''){ return s.replace(/^\uFEFF/, ''); }
-
-function detectSep(headerLine, forcedSep) {
-  if (forcedSep) return forcedSep;
-  const h = headerLine;
-  const count = (c) => (h.match(new RegExp(`\\${c}`, 'g')) || []).length;
-  const sc = count(';');
-  const cc = count(',');
-  // si bcp de ';', on prend ';', sinon ','
-  return (sc > cc) ? ';' : ',';
+function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return fallback;
+  return ['1', 'true', 'yes', 'y', 'on', 'enabled'].includes(normalized);
 }
 
-// parse une ligne CSV selon sep (gère quotes et "" d’échappement)
-function splitCsvLine(line, sep) {
-  const out = [];
-  let cur = '', inq = false;
-  for (let i=0;i<line.length;i++){
-    const c = line[i];
-    if (c === '"') {
-      if (inq && line[i+1] === '"') { cur+='"'; i++; } // "" -> "
-      else inq = !inq;
-    } else if (c === sep && !inq) {
-      out.push(cur); cur='';
-    } else {
-      cur += c;
-    }
-  }
-  out.push(cur);
-  return out.map(s => s.trim());
-}
-
-function indexHeaders(hdrs) {
-  const map = {};
-  hdrs.forEach((h,i) => { map[h.trim().toLowerCase()] = i; });
-  return (aliases) => {
-    for (const n of aliases) {
-      const idx = map[n.toLowerCase()];
-      if (idx != null) return idx;
-    }
-    return -1;
-  };
-}
-
-function isEmail(s=''){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s).trim()); }
-
-function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
-
-function buildSeatsBlock(seatIdsStr) {
-  const seats = String(seatIdsStr||'').split(/[;|,]/).map(s=>s.trim()).filter(Boolean);
-  if (!seats.length) return '';
-  const lis = seats.map(s => `<li>${s}</li>`).join('');
-  return `<h2>Vos sièges concernés</h2><ul>${lis}</ul>`;
-}
-
-function buildDeadlineBlock(deadline) {
-  if (!deadline) return '';
-  return `<p><b>Date limite :</b> ${deadline}</p>`;
+function toNumber(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 async function main() {
   const args = parseArgs(process.argv);
 
-  const csvPath = args.csv || args.file || 'renew-groups.csv';
-  const subject = args.subject || process.env.EMAIL_SUBJECT_RENEW_INVITE || 'Renouvellement d’abonnement';
-  const limit   = args.limit ? Number(args.limit) : Infinity;
-  const offset  = args.offset ? Number(args.offset) : 0;
-  const delayMs = args.delay  ? Number(args.delay)  : 800;
-  const dryRun  = String(args.dryRun || args['dry-run'] || '').toLowerCase() === 'true' || false;
-  const forcedSep = args.sep ? String(args.sep) : ''; // ex: --sep=';'
+  const csv =
+    args.csv ||
+    args.file ||
+    args._[0] ||
+    'renew-groups.csv';
 
-  const templateName = process.env.EMAIL_TEMPLATE_RENEW_INVITE || 'renew-invite';
-  const seasonCode = process.env.SEASON_CODE || '';
-  const venueSlug  = process.env.VENUE_SLUG  || '';
-  const clubName   = process.env.CLUB_NAME   || 'Bélougas Toulouse-Blagnac';
-  const deadline   = process.env.RENEW_DEADLINE || '';
-
-  if (!fs.existsSync(csvPath)) die(`CSV introuvable: ${csvPath}`);
-
-  const rl = readline.createInterface({
-    input: fs.createReadStream(csvPath, 'utf8'),
-    crlfDelay: Infinity
-  });
-
-  let sep = ',';
-  let lineNum = 0, sent = 0, skipped = 0;
-  let headers = [];
-  let getIdx = null;
-
-  for await (const rawLine of rl) {
-    let line = stripBOM(String(rawLine || '').trim());
-    if (!line) continue;
-
-    lineNum++;
-
-    if (!headers.length) {
-      // auto-détection du séparateur sur la 1ère ligne non vide, sauf si --sep fourni
-      sep = detectSep(line, forcedSep);
-      headers = splitCsvLine(line, sep);
-      getIdx = indexHeaders(headers);
-
-      // debug facultatif :
-      // console.log('[csv] sep=', JSON.stringify(sep), 'headers=', headers);
-      continue;
-    }
-
-    const cols = splitCsvLine(line, sep);
-
-    if (lineNum-1 <= offset) { skipped++; continue; }
-    if (sent >= limit) break;
-
-    // on couvre : groupKey;email;seatIds;token;url
-    const idxEmail = getIdx(['email','payerEmail','contact','mail']);
-    const idxUrl   = getIdx(['url','link','renewurl','renew_url','renew']);
-    const idxFN    = getIdx(['firstName','first_name','payerFirstName']);
-    const idxLN    = getIdx(['lastName','last_name','payerLastName']);
-    const idxSeats = getIdx(['seats','seatIds','seat_ids','seats_list']);
-
-    const email    = idxEmail>=0 ? cols[idxEmail] : '';
-    const renewUrl = idxUrl>=0   ? cols[idxUrl]   : '';
-    const firstName= idxFN>=0    ? cols[idxFN]    : '';
-    const lastName = idxLN>=0    ? cols[idxLN]    : '';
-    const seatsRaw = idxSeats>=0 ? cols[idxSeats] : '';
-
-    if (!isEmail(email)) { 
-      console.warn(`[skip L${lineNum}] email invalide: "${email}"`);
-      continue;
-    }
-    if (!renewUrl) {
-      console.warn(`[skip L${lineNum}] renewUrl manquant pour ${email}`);
-      continue;
-    }
-
-    const html = await renderEmailTemplate(templateName, {
-      firstName, lastName, email,
-      seasonCode, venueSlug, clubName,
-      renewUrl,
-      seatsBlock: buildSeatsBlock(seatsRaw),
-      deadlineBlock: buildDeadlineBlock(deadline)
-    });
-
-    const mail = { to: email, subject, html };
-
-    if (dryRun) {
-      console.log(`[dry-run] ${email} <- ${subject}`);
-    } else {
-      try {
-        await sendMail(mail);
-        console.log(`[ok] ${email}`);
-      } catch (e) {
-        console.error(`[ERR] ${email}:`, e.message || e);
-      }
-      await sleep(delayMs);
-    }
-    sent++;
+  if (!csv) {
+    console.error('❌ CSV path required (argument or --csv=path).');
+    process.exit(1);
   }
 
-  console.log(`Done. sent=${sent} skipped=${skipped}, CSV=${csvPath}, sep="${sep}"`);
+  const dryRun = toBoolean(
+    args.dry ?? args['dry-run'] ?? args.dryRun,
+    false
+  );
+
+  registerDefaultAutomationTasks();
+  await connectDB();
+
+  const params = {
+    csv,
+    subject: args.subject || args.subj,
+    limit: toNumber(args.limit, undefined),
+    offset: toNumber(args.offset, undefined),
+    delayMs: toNumber(args.delay ?? args.delayMs, undefined),
+    separator: args.sep || args.separator,
+    template: args.template || args.templateName,
+    seasonCode: args.season || args.seasonCode,
+    clubName: args.club || args.clubName,
+    deadline: args.deadline || args.limitDate || args.deadlineDate,
+    venue: args.venue || args.venueSlug,
+    fromName: args.from || args.fromName,
+    providerLabel: args.provider || args.providerLabel
+  };
+
+  const requestedBy =
+    args.requestedBy ||
+    process.env.USER ||
+    process.env.LOGNAME ||
+    'cli';
+
+  const job = await createJob({
+    scriptId: 'season.send-renew-invites',
+    params,
+    dryRun,
+    requestedBy,
+    requestContext: {
+      integration: 'cli',
+      userAgent: 'scripts/send-renew-invites'
+    }
+  });
+
+  const result = await runJob(job);
+
+  if (result.status === 'succeeded') {
+    const summary = result.result?.summary || 'Job completed successfully.';
+    console.log(`✅ ${summary}`);
+    if (result.result?.payload) {
+      console.log(JSON.stringify(result.result.payload, null, 2));
+    }
+    await mongoose.disconnect();
+    process.exit(0);
+  }
+
+  console.error('❌ Job failed.');
+  if (result.error) {
+    console.error(result.error.message);
+    if (result.error.stack) console.error(result.error.stack);
+    if (result.error.details) console.error(JSON.stringify(result.error.details, null, 2));
+  }
+  if (Array.isArray(result.logs) && result.logs.length > 0) {
+    console.error('Logs:');
+    for (const log of result.logs.slice(-10)) {
+      const level = log.level?.toUpperCase() || 'INFO';
+      console.error(`  [${level}] ${log.message}`);
+    }
+  }
+
+  await mongoose.disconnect();
+  process.exit(1);
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+main().catch(async (error) => {
+  console.error('❌ Unexpected error:', error);
+  try {
+    await mongoose.disconnect();
+  } catch {}
+  process.exit(1);
+});
+

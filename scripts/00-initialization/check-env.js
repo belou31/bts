@@ -22,7 +22,7 @@ function ok(name, cond, fix='') {
   else { console.error(`❌ ${name}${fix ? ' → ' + fix : ''}`); process.exitCode = 1; }
 }
 
-const { APP_ENV, APP_URL, BASE_PATH, HELLOASSO_RETURN_URL, HELLOASSO_STUB, HELLOASSO_API_URL } = process.env;
+const { APP_ENV, APP_URL, BASE_PATH, HELLOASSO_RETURN_URL, HELLOASSO_API_URL } = process.env;
 
 ok('APP_ENV défini', !!APP_ENV);
 ok('APP_URL valide', (()=>{ try { new URL(APP_URL); return true; } catch { return false; } })(), 'ex: http://localhost:8080 ou https://.../bts');
@@ -39,12 +39,15 @@ ok('HELLOASSO_RETURN_URL cohérente', (()=> {
   } catch { return false; }
 })(), isDev ? 'DEV: pas de /bts dans le path' : 'INT/PROD: path doit commencer par /bts/');
 
-ok('HELLOASSO mode', isDev ? (HELLOASSO_STUB === 'true') : (HELLOASSO_STUB === 'false'),
-   isDev ? 'DEV: HELLOASSO_STUB=true' : 'INT/PROD: HELLOASSO_STUB=false');
-
-ok('HELLOASSO_API_URL cohérente', isDev ? (HELLOASSO_API_URL === '' || !HELLOASSO_API_URL)
-                                        : !!HELLOASSO_API_URL,
-   isDev ? 'DEV: vide (stub)' : 'INT: sandbox / PROD: production');
+ok('HELLOASSO_API_URL cohérente', (() => {
+  if (!HELLOASSO_API_URL) return true; // fallback to provider default
+  try {
+    const u = new URL(HELLOASSO_API_URL);
+    return Boolean(u.protocol && u.hostname);
+  } catch {
+    return false;
+  }
+})(), 'Définir une URL valide (ex: http://127.0.0.1:3005 ou https://api.helloasso.com)');
 
 // Bonus: warns utiles
 function warn(name, cond, msg){ if(!cond) console.warn(`⚠️  ${name}: ${msg}`); }

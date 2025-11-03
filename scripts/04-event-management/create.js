@@ -53,7 +53,7 @@ async function main() {
     priceTableKey,
     isOnSale: argv.onsale,
     description: argv.desc,
-    qrBank: { provider: 'bank', buckets: {} }
+    qrBank: { provider: 'bank', codes: [] }
   });
 
   console.log('✅ Event créé :', { id: String(doc._id), slug: doc.slug, priceTableKey });

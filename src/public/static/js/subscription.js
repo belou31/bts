@@ -39,7 +39,7 @@
     const counters   = new Map(); // zoneKey -> max index seen for virtual ids
     const zoneLabels = new Map();
     const zoneButtons = new Map();
-    let zones        = [];        // [{ key, name, remaining, svgSelector }, ...] from /api/sub/status
+    let zones        = [];        // [{ key, name, remaining, svgSelector }, ...] from /api/season/:seasonCode/status
     let remaining    = new Map(); // zoneKey -> remaining server quota (minus cart)
     // Gestion des SIÈGES
     let seats       = [];        // [{ seatId, status, zoneKey }]
@@ -181,7 +181,7 @@
       seats    = Array.isArray(data?.seats) ? data.seats : [];
       bySeatId = new Map(seats.map(s => [String(s.seatId), s]));
 
-      // data.zones must be provided by /api/sub/status
+      // data.zones must be provided by /api/season/:seasonCode/status
       zones = Array.isArray(data?.zones)
         ? data.zones.map(z => ({ ...z, key: normZoneKey(z.key) }))
         : [];

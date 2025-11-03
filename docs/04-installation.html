@@ -1,227 +1,148 @@
----
-title: Installation (DEV/INT/PROD)
-nav_order: 5
----
-
-# Installation
-
-## Pré-requis
-- Node.js 20.x, npm
-- MongoDB local (DEV) + comptes dédiés INT/PROD
-- Nginx (VPS), PM2
-- `.env` par déploiement (un seul fichier), ex.:
-
-MONGO_URI=mongodb://127.0.0.1:27017/bts
-JWT_SECRET=une_chaine_longue
-PORT=8080
-APP_URL=http://localhost:8080
-SELF_API_BASE=http://127.0.0.1:8080
-FRONTEND_ORIGIN=http://localhost:8080
-HELLOASSO_STUB=true
-HELLOASSO_STUB_RESULT=success
-
-
-
-## Installation locale (DEV)
-```bash
-git clone git@github.com:belou00/bts.git
-cd bts
-npm ci
-npm run dev
-# => http://localhost:8080/health
-
-Déploiement INT/PROD (VPS)
-
-    Dossiers séparés /var/www/bts-int, /var/www/bts-prod
-
-    .env propre à chaque dossier (Mongo + HelloAsso sandbox/prod)
-
-    Nginx reverse proxy (/bts → 127.0.0.1:PORT)
-
-    PM2 :
-
-cd /var/www/bts-int
-pm2 start src/server.js --name bts-int --update-env
-pm2 save
-
-Tests progressifs
-
-curl -s http://localhost:8080/health | jq .
-curl -I http://localhost:8080/venues/patinoire-blagnac/plan.svg
-curl -s http://localhost:8080/api/v1/venues | jq .
-
-
-## docs/05-exploitation.md  ✅ (long — complet)
-```markdown
----
-title: Exploitation (Renew)
-nav_order: 6
----
-
-# Exploitation – Renouvellements (v1)
-
-Cette procédure part d’une base propre et va jusqu’à la **génération des liens**.
-
-> Convention : un seul fichier **.env** par déploiement (DEV/INT/PROD).
-
----
-
-## 0) (optionnel) Reset DB
-
-```bash
-node scripts/admin/reset-db.js --force
-
-1) Enregistrer le lieu + copier le plan
-
-node scripts/01-venue-management/register-venue.js patinoire-blagnac "Patinoire de Blagnac" src/public/static/venues/patinoire-blagnac/plan.svg --overwrite
-
-    Copie le SVG en src/public/static/venues/<slug>/plan.svg
-
-    Enregistre le lieu en base (pour les routes publiques /static/venues/<slug>/plan.svg)
-
-2) Importer les sièges depuis le SVG
-
-node scripts/01-venue-management/import-seats.js --venue=patinoire-blagnac
-# Optionnel : ajouter --csv=data/seats.csv pour surcharger zone/numéro (et --plan=... pour un SVG alternatif)
-# log: "Found XXXX seats in SVG" + "Upserted XXXX seats into catalog ..."
-
-3) Instancier le lieu pour la saison (sièges + zones)
-
-node scripts/03-season-management/instantiate-venue-for-season.js 2025-2026 patinoire-blagnac
-# log attendu: Seats → created/ skipped + Zones → upserts/ skipped
-
-Vérifs :
-
-mongosh bts --eval 'db.seats.countDocuments({seasonCode:"2025-2026",venueSlug:"patinoire-blagnac"})'
-mongosh bts --eval 'db.seats.find({seasonCode:"2025-2026",venueSlug:"patinoire-blagnac"}).limit(5).forEach(p=>print(p.seatId))'
-
-4) Créer / activer la saison + phase renewal
-
-node scripts/admin/upsert-season.js 2025-2026 --name="Saison 2025-2026" --enable-renewal
-
-5) Importer le catalogue des tarifs
-
-data/tariff_catalog.csv :
-
-code,label,requiresField,fieldLabel,requiresInfo,sortOrder,active
-NORMAL,Tarif normal,false,,false,10,true
-ETUD,Tarif étudiant,true,Numéro INE,true,20,true
-12_17,12-17 ans,false,,true,30,true
-U12,Moins de 12 ans,false,,true,40,true
-CLUB_AD,Club - Licencié majeur,true,Numéro de licence,false,50,true
-CLUB_U18,Club - Licencié mineur,true,Numéro de licence,false,60,true
-CLUB_PARENT,Club - Parent de licencié,true,Numéro de licence,false,70,true
-
-Commande :
-
-node scripts/02-tariff-management/import-tariffs.js data/tariff_catalog.csv
-
-6) Importer le catalogue de prix (format liste par défaut)
-
-data/prices_patinoire-blagnac_2025-2026.csv :
-
-zoneKey,tariffCode,priceEuro
-S1,NORMAL,180
-S1,ETUD,126
-S1,12_17,90
-S1,U12,70
-S1,CLUB_AD,120
-S1,CLUB_U18,80
-S1,CLUB_PARENT,120
-
-Commande :
-
-node scripts/02-tariff-management/import-tariff-prices.js season-game data/prices_patinoire-blagnac_2025-2026.csv --venue=patinoire-blagnac
-
-7) Instancier les tarifs pour la saison
-
-node scripts/03-season-management/instantiate-tariffs.js 2025-2026 patinoire-blagnac --catalog=season-game --clear
-
-8) Importer les abonnés flat (1 ligne = 1 siège)
-
-data/subscribers_flat.csv :
-
-firstName,lastName,email,phone,seasonCode,venueSlug,seatId,group
-Alice,Durand,alice@example.com,0600000001,2025-2026,patinoire-blagnac,S1-A-001,
-Bob,Durand,alice@example.com,0600000001,2025-2026,patinoire-blagnac,S1-A-002,
-Chloe,Martin,bruno@example.com,0600000002,2025-2026,patinoire-blagnac,N1-H-015,LesMartin
-
-Commande :
-
-node scripts/03-season-management/import-renewers-flat.js data/subscribers_flat.csv 2025-2026 --venue=patinoire-blagnac
-
-9) (Optionnel) Provisionner les sièges renewal
-
-node scripts/03-season-management/renewal-provision-seats.js 2025-2026 --venue=patinoire-blagnac
-
-10) Exporter les liens de renouvellement (par groupe)
-
-node scripts/03-season-management/export-renew-groups.js 2025-2026 --venue=patinoire-blagnac \
-  --base=http://localhost:8080 --out=renew-groups.csv
-
-Le CSV contient : groupKey,email,seats,token,renewUrl.
-11) Tester un lien
-
-Ouvrir la colonne renewUrl (colonne 5) :
-
-xdg-open "$(awk -F, 'NR==2{u=$5; gsub(/^\"|\"$/, "", u); print u}' renew-groups.csv)"
-
-Tester l’API via le token (colonne 4) :
-
-TOKEN="$(awk -F, 'NR==2{t=$4; gsub(/^\"|\"$/, "", t); print t}' renew-groups.csv)"
-curl -H "Accept: application/json" "http://localhost:8080/s/renew?id=$TOKEN" | jq .
-
-Audits & diagnostics
-
-Nombre de sièges saison :
-
-mongosh bts --eval 'db.seats.countDocuments({seasonCode:"2025-2026",venueSlug:"patinoire-blagnac"})'
-
-Tarifs actifs :
-
-mongosh bts --eval 'db.tariffs.find({active:true}).project({code:1,label:1})'
-
-Prix d’une zone :
-
-mongosh bts --eval 'db.tariffprices.find({seasonCode:"2025-2026",venueSlug:"patinoire-blagnac",zoneKey:"S1"})'
-
-Exemple abonné :
-
-mongosh bts --eval 'db.subscribers.findOne({seasonCode:"2025-2026",venueSlug:"patinoire-blagnac"},{firstName:1,lastName:1,email:1,prefSeatId:1,previousSeasonSeats:1,groupKey:1})'
-
-Provisionnés :
-
-mongosh bts --eval 'db.seats.find({seasonCode:"2025-2026",venueSlug:"patinoire-blagnac",status:"provisioned"}).limit(5).project({seatId:1,provisionedFor:1})'
-
-Phases saison :
-
-mongosh bts --eval 'db.seasons.findOne({code:"2025-2026"})'
-
-
----
-
-# 4) Publier la doc
-
-Depuis ta branche de travail (ex: `dev`) :
-
-```bash
-git checkout dev
-mkdir -p docs/assets
-# (copie ton logo en docs/assets/logo.png si tu veux)
-git add docs
-git commit -m "Docs: site GitHub Pages (just-the-docs) + 05-exploitation complet"
-git push origin dev
-
-Puis promouvoir vers int/main (comme on a vu) :
-
-git checkout int
-git merge --ff-only dev
-git push origin int
-
-git checkout main
-git merge --ff-only int
-git push origin main
-
-GitHub Pages va reconstruire automatiquement depuis main / docs et publier sous https://belou00.github.io/bts.
-
-Si tu veux, je peux aussi te donner un petit workflow GitHub Actions pour builder la doc (mais avec Deploy from a branch → /docs, ce n’est pas obligatoire).
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BTS – Guide d’installation (Phase 1)</title>
+<style>
+:root{
+  --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#94a3b8; --border:#1f2937;
+  --accent:#22d3ee; --ok:#34d399; --warn:#fbbf24; --danger:#f87171;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#0b1020;color:var(--text);font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--accent);text-decoration:none}
+.container{max-width:1100px;margin:0 auto;padding:24px}
+header{position:sticky;top:0;background:rgba(17,24,39,.9);border-bottom:1px solid var(--border);backdrop-filter:saturate(140%) blur(6px);}
+header .inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:14px;padding:12px 24px}
+header img{height:38px}
+h1{font-size:28px;margin:18px 0 8px}
+h2{font-size:22px;margin:20px 0 8px}
+h3{font-size:18px;margin:18px 0 6px}
+p{margin:8px 0}
+ul{margin:6px 0 12px 22px}
+code,kbd,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,"Courier New",monospace}
+pre{background:#0b1020;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;white-space:pre}
+table{width:100%;border-collapse:collapse;margin:10px 0 16px}
+th,td{border:1px solid var(--border);padding:8px;vertical-align:top}
+.small{color:var(--muted);font-size:12px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;margin:16px 0}
+footer{border-top:1px solid var(--border);margin-top:24px;padding:16px 24px;color:var(--muted)}
+.toc{background:#0b1020;border:1px solid var(--border);border-radius:12px;padding:12px}
+hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+</style>
+</head>
+<body>
+<header><div class="inner">
+  <img src="logo.png" alt="Belougas" />
+  <div>
+    <div class="small">BelougasTicketingSystem · Phase 1 · 2025-10-26</div>
+    <strong>BTS – Guide d’installation (Phase 1)</strong>
+  </div>
+</div></header>
+<main class="container">
+
+<div class="card"><h1>Guide d’installation</h1></div>
+
+<h2>1. Pré-requis</h2>
+<ul>
+  <li>Ubuntu 22.04, Node ≥ 20, npm ≥ 10, MongoDB, Nginx, Certbot.</li>
+  <li>DNS : <code>billetterie-dev.belougas.fr</code> (INT) et <code>billetterie.belougas.fr</code> (PROD) → IP VPS.</li>
+</ul>
+
+<h2>2. Vérifications de base</h2>
+<pre><code>node -v           # → v20.x
+npm -v            # → 10.x
+mongod --version  # → &gt;= 6.x
+nginx -v          # → nginx/1.2x
+</code></pre>
+
+<h2>3. Dépôts & arborescence</h2>
+<pre><code>sudo mkdir -p /var/www/bts-int /var/www/bts-prod /var/log/pm2
+sudo chown -R $USER:$USER /var/www
+
+git clone git@github.com:belou00/bts.git /var/www/bts-int
+cd /var/www/bts-int &amp;&amp; git checkout int &amp;&amp; npm ci --omit=dev
+
+git clone git@github.com:belou00/bts.git /var/www/bts-prod
+cd /var/www/bts-prod &amp;&amp; git checkout main &amp;&amp; npm ci --omit=dev
+</code></pre>
+
+<h2>4. MongoDB (auth + utilisateurs)</h2>
+<p><strong>/etc/mongod.conf</strong> :</p>
+<pre><code>security:
+  authorization: enabled
+net:
+  bindIp: 127.0.0.1
+</code></pre>
+<p>Création des users :</p>
+<pre><code>// INT
+use bts_int
+db.createUser({ user:"bts_int", pwd:"***", roles:[{role:"readWrite",db:"bts_int"}] })
+// PROD
+use bts_prod
+db.createUser({ user:"bts_prod", pwd:"***", roles:[{role:"readWrite",db:"bts_prod"}] })
+</code></pre>
+<p><em>Tests attendus</em> :</p>
+<pre><code>mongosh "mongodb://bts_int:&lt;PASS&gt;@127.0.0.1:27017/bts_int?authSource=bts_int" --eval 'db.runCommand({ping:1})'
+# → { ok: 1 }
+</code></pre>
+
+<h2>5. Variables d’environnement (INT exemple)</h2>
+<pre><code>APP_ENV=integration
+PORT=8081
+MONGO_URI_INT=mongodb://bts_int:&lt;PASS&gt;@127.0.0.1:27017/bts_int?authSource=bts_int
+JWT_SECRET=***INT***
+
+HELLOASSO_ENV=sandbox
+HELLOASSO_ORG_SLUG=...
+HELLOASSO_CLIENT_ID_SANDBOX=...
+HELLOASSO_CLIENT_SECRET_SANDBOX=...
+HELLOASSO_RETURN_URL_SANDBOX=https://billetterie-dev.belougas.fr/bts/pay/return
+HELLOASSO_ERROR_URL_SANDBOX=https://billetterie-dev.belougas.fr/bts/pay/error
+HELLOASSO_BACK_URL_SANDBOX=https://billetterie-dev.belougas.fr/bts/pay/back
+
+APP_URL=https://billetterie-dev.belougas.fr/bts
+SELF_API_BASE=http://127.0.0.1:8081
+FRONTEND_ORIGIN=https://billetterie-dev.belougas.fr
+
+GMAIL_USER=...
+GMAIL_APP_PASSWORD=...
+FROM_EMAIL=billetterie@tbhc.fr
+</code></pre>
+
+<h2>6. PM2 (démarrage + tests)</h2>
+<pre><code>pm2 start /var/www/ecosystem.config.js --only bts-int
+pm2 status
+pm2 logs bts-int --lines 50
+# Attendu dans les logs : "[BTS] Mongo connected", "API listening on http://localhost:8081"
+</code></pre>
+
+<h2>7. Nginx &amp; TLS</h2>
+<p>Test du proxy :</p>
+<pre><code>curl -s https://billetterie-dev.belougas.fr/bts/health | jq .
+# Attendu: {"ok":true,"env":"integration",...}
+</code></pre>
+<p>Challenge ACME (si besoin) :</p>
+<pre><code>sudo mkdir -p /var/www/html/.well-known/acme-challenge
+echo ok | sudo tee /var/www/html/.well-known/acme-challenge/test.txt
+curl -I http://billetterie-dev.belougas.fr/.well-known/acme-challenge/test.txt
+# Attendu: 200 OK (ou 301→200), pas d'intercepteur tiers
+</code></pre>
+
+<h2>8. Tests fonctionnels</h2>
+<pre><code># Front statique (CSS/plan)
+curl -I https://billetterie-dev.belougas.fr/bts/static/styles/renew.css     # → 200
+curl -I https://billetterie-dev.belougas.fr/bts/venues/patinoire-blagnac/plan.svg  # → 200
+
+# Santé API
+curl -s https://billetterie-dev.belougas.fr/bts/health | jq .
+
+# E-mail test (adapter requireAdmin)
+curl -s "https://billetterie-dev.belougas.fr/bts/api/admin/email/test?to=toi@mail.com"   -H "x-admin-key: &lt;SECRET&gt;" | jq .
+</code></pre>
+</main>
+<footer>
+  <div>Licence MIT · © TBHC / Belougas</div>
+</footer>
+</body></html>

@@ -578,7 +578,7 @@ function setFeedback(kind, title, details=[]) {
   el.innerHTML = `<span class="fb-icon">${icon}</span><span class="fb-text"><strong>${escapeHtml(title||'')}</strong>${list}</span>`;
 }
 
-// ——— Extraction "human-friendly" des erreurs HelloAsso, même quand elles
+// ——— Extraction "human-friendly" des erreurs ${currentPaymentProviderLabel()}, même quand elles
 // arrivent sous forme de chaîne contenant du JSON imbriqué.
 function extractHaMessages(from) {
   try {
@@ -595,7 +595,7 @@ function extractHaMessages(from) {
         return extractHaMessages(from.error);
       }
     }
-    // Cas 2 : chaîne brute (ex: "HelloAsso checkout 400 {\"errors\":[{...}]}")
+    // Cas 2 : chaîne brute (ex: "${currentPaymentProviderLabel()} checkout 400 {\"errors\":[{...}]}")
     const text = typeof from === 'string' ? from : '';
     if (!text) return [];
     // a) si la chaîne entière est du JSON
@@ -613,7 +613,7 @@ function extractHaMessages(from) {
       msgs.push(m[1]);
     }
     if (msgs.length) return msgs;
-    // c) fallback : si on voit "HelloAsso checkout 400", message générique
+    // c) fallback : si on voit "${currentPaymentProviderLabel()} checkout 400", message générique
     if (/helloasso\s+checkout\s+400/i.test(text)) {
       return ['Certaines informations ne sont pas valides. Veuillez corriger les champs en erreur.'];
     }
@@ -751,7 +751,7 @@ async function submitPayment() {
             title = 'Échéancier invalide';
             details = ['Choisissez 1, 2 ou 3 échéances.'];
           }
-          // 🔹 Tableau d’erreurs HelloAsso structuré
+          // 🔹 Tableau d’erreurs ${currentPaymentProviderLabel()} structuré
           else if (Array.isArray(err?.errors) && err.errors.length) {
             title = 'Veuillez corriger les éléments suivants :';
             details = err.errors.map(e => e?.message || e?.code || 'Champ invalide');
@@ -760,7 +760,7 @@ async function submitPayment() {
           else if (typeof err?.message === 'string' && err.message.trim()) {
             title = err.message.trim();
           }
-          // 🔹 Extraction des messages HelloAsso depuis une chaîne imbriquée
+          // 🔹 Extraction des messages ${currentPaymentProviderLabel()} depuis une chaîne imbriquée
           else {
             const msgs = extractHaMessages(err);
             if (msgs.length) {

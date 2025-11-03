@@ -8,7 +8,7 @@ const PaymentIntentSchema = new mongoose.Schema({
   payerEmail: String,
   lines: [{ type: Object }],
   totalCents: Number,
-  provider: { type: String, default: 'helloasso' },
+  provider: { type: String, default: process.env.PAYMENT_PROVIDER || 'helloasso' },
   installments: { type: Number, default: 1 },
   status: { type: String, default: 'created' },
   providerRef: String
