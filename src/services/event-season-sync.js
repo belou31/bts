@@ -166,10 +166,15 @@ export async function syncSeasonOrdersToEvent({ eventId = null, eventSlug = null
   }
 
   const query = {
-    phase: 'subscription',
     status: 'paid',
     seasonCode: eventDoc.seasonCode,
-    venueSlug: eventDoc.venueSlug
+    venueSlug: eventDoc.venueSlug,
+    payerEmail: { $ne: null },
+    $or: [
+      { phase: 'subscription' },
+      { 'origin.flow': 'subscription' },
+      { mailTemplateKind: 'subscription' }
+    ]
   };
 
   const cursor = Order.find(query).cursor();
