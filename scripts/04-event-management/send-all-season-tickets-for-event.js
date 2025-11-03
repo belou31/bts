@@ -7,7 +7,7 @@ import yargs from 'yargs';
 import { Event } from '../../src/models/Event.js';
 import { Order } from '../../src/models/Order.js';
 import { buildTicketsPdfBuffer } from '../../src/services/tickets-pdf.js';
-import { renderOrderEmail, subjectForOrder } from '../../src/services/mailer.js';
+import { renderOrderEmail, subjectForOrder, attachQrFromBank } from '../../src/services/mailer.js';
 import { sendMail } from '../../src/loaders/mailer.js';
 import { ensureTicketsForEventOrder } from '../../src/services/order-finalization.js';
 
@@ -151,10 +151,16 @@ async function main() {
     }
 
     try {
+      const bankResult = await attachQrFromBank(mongoose.connection.db, order);
+      if (bankResult?.ok === false && bankResult?.reason && bankResult.reason !== 'no-event') {
+        console.warn(`[warn] QR bank attach failed for order ${order._id}: ${bankResult.reason}`);
+      }
+
       await ensureTicketsForEventOrder(order);
       const fresh = await Order.findById(order._id).lean();
       if (!fresh?.meta?.tickets || !fresh.meta.tickets.length) {
         stats.skipped += 1;
+        console.warn(`[warn] order ${order._id} has no tickets after attach/ensure (${bankResult?.reason || 'no-meta'})`);
         continue;
       }
 
