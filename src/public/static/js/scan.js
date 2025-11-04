@@ -135,6 +135,19 @@ const authToggleLabel = authToggle?.querySelector('.toggle-label');
 const scanToggleLabel = scanToggle?.querySelector('.toggle-label');
 const modeToggleLabel = modeToggle?.querySelector('.toggle-label');
 const knownEvents = new Map();
+
+const bodyEl = document.body || document.querySelector('body');
+const portraitQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(orientation: portrait)') : null;
+const narrowQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 768px)') : null;
+const scanCountContainer = scannedCountEl ? scannedCountEl.parentElement : null;
+const scanCountHomeParent = scanCountContainer?.parentElement || null;
+const scanCountHomeMarker = (scanCountContainer && scanCountHomeParent)
+  ? document.createComment('scan-count-home')
+  : null;
+if (scanCountContainer && scanCountHomeMarker && scanCountHomeParent) {
+  scanCountHomeParent.insertBefore(scanCountHomeMarker, scanCountContainer.nextSibling);
+}
+
 const HISTORY_ACTION_MAP = {
   accept: { action: 'accept', status: 'accepted' },
   force: { action: 'accept', status: 'forced_accept' },
@@ -470,6 +483,55 @@ function isRecentlyScanned(value, withinMs = RECENT_SCAN_WINDOW_MS) {
   return last && (Date.now() - last) < withinMs;
 }
 
+function shouldUseImmersiveMode() {
+  if (!scanActive) return false;
+  const portraitOk = portraitQuery ? portraitQuery.matches : true;
+  const narrowOk = narrowQuery ? narrowQuery.matches : true;
+  return portraitOk && narrowOk;
+}
+
+function relocateScanCount(immersive) {
+  if (!scanCountContainer) return;
+  if (immersive) {
+    if (previewWrapper && scanCountContainer.parentElement !== previewWrapper) {
+      previewWrapper.append(scanCountContainer);
+    }
+    return;
+  }
+  if (scanCountHomeParent && scanCountHomeMarker && scanCountContainer.parentElement !== scanCountHomeParent) {
+    scanCountHomeParent.insertBefore(scanCountContainer, scanCountHomeMarker);
+  }
+}
+
+function updateImmersiveMode() {
+  if (!bodyEl) return;
+  const immersive = shouldUseImmersiveMode();
+  bodyEl.classList.toggle('scan-immersive', immersive);
+  relocateScanCount(immersive);
+}
+
+if (portraitQuery) {
+  const portraitHandler = () => updateImmersiveMode();
+  if (typeof portraitQuery.addEventListener === 'function') {
+    portraitQuery.addEventListener('change', portraitHandler);
+  } else if (typeof portraitQuery.addListener === 'function') {
+    portraitQuery.addListener(portraitHandler);
+  }
+}
+
+if (narrowQuery) {
+  const narrowHandler = () => updateImmersiveMode();
+  if (typeof narrowQuery.addEventListener === 'function') {
+    narrowQuery.addEventListener('change', narrowHandler);
+  } else if (typeof narrowQuery.addListener === 'function') {
+    narrowQuery.addListener(narrowHandler);
+  }
+}
+
+window.addEventListener('resize', updateImmersiveMode);
+window.addEventListener('orientationchange', updateImmersiveMode);
+updateImmersiveMode();
+
 function setScanToggleState(state) {
   scanActive = !!state;
   if (scanToggle) {
@@ -485,6 +547,7 @@ function setScanToggleState(state) {
   if (!scanActive) {
     hidePreviewGain();
   }
+  updateImmersiveMode();
 }
 
 function stopScanning() {
@@ -753,14 +816,16 @@ function logAction({ action, status, entryKey, info, event }) {
 }
 
 function renderTicketHistory(logs) {
-  if (!Array.isArray(logs) || !logs.length) return null;
+  if (!Array.isArray(logs) || logs.length <= 1) return null;
+  const entries = logs.slice(1); // skip current action
+  if (!entries.length) return null;
   const wrap = document.createElement('div');
   wrap.className = 'ticket-history';
   const table = document.createElement('table');
   const thead = document.createElement('thead');
   thead.innerHTML = '<tr><th>Date</th><th>Action</th><th>Statut</th></tr>';
   const tbody = document.createElement('tbody');
-  logs.forEach((log) => {
+  entries.forEach((log) => {
     const tr = document.createElement('tr');
     const actionLabel = ACTION_LABELS[log.action] || log.action;
     const statusLabel = translateReason(log.status);
@@ -1038,7 +1103,8 @@ function buildTicketCard(match) {
     addBtn('Refuser', 'action-reject', () => handleReject(match));
   }
 
-  if (actions.childElementCount > 0) {
+  const hasActions = actions.childElementCount > 0;
+  if (hasActions) {
     card.append(actions);
   }
 

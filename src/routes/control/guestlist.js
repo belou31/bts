@@ -15,6 +15,10 @@ function basePath() {
   return process.env.BASE_PATH || '';
 }
 
+function withBasePath(pathname = '') {
+  return `${basePath()}${pathname}`.replace(/\/{2,}/g, '/');
+}
+
 async function loadEventByIdOrSlug(eventIdOrSlug) {
   const raw = String(eventIdOrSlug || '').trim();
   if (!raw) throw new Error('Event not found');
@@ -105,7 +109,8 @@ router.get('/control/event/:eventIdOrSlug/guestlist', (req, res) => {
   const params = buildCredentialParams(req.query);
   if (key) params.set('event', key);
   const qs = params.toString();
-  res.redirect(302, `/control/guestlist${qs ? `?${qs}` : ''}`);
+  const target = withBasePath(`/control/guestlist${qs ? `?${qs}` : ''}`);
+  res.redirect(302, target);
 });
 
 router.get('/admin/event/:eventIdOrSlug/guestlist', (req, res) => {
@@ -113,13 +118,15 @@ router.get('/admin/event/:eventIdOrSlug/guestlist', (req, res) => {
   const params = buildCredentialParams(req.query);
   if (key) params.set('event', key);
   const qs = params.toString();
-  res.redirect(302, `/control/guestlist${qs ? `?${qs}` : ''}`);
+  const target = withBasePath(`/control/guestlist${qs ? `?${qs}` : ''}`);
+  res.redirect(302, target);
 });
 
 router.get('/admin/guestlist', (req, res) => {
   const params = buildCredentialParams(req.query);
   const qs = params.toString();
-  res.redirect(302, `/control/guestlist${qs ? `?${qs}` : ''}`);
+  const target = withBasePath(`/control/guestlist${qs ? `?${qs}` : ''}`);
+  res.redirect(302, target);
 });
 
 router.get('/control/guestlist', requireScanner, async (req, res) => {
@@ -264,16 +271,22 @@ router.get('/control/guestlist', requireScanner, async (req, res) => {
       return `<option value="${attrValue}"${key === selectedEventKey ? ' selected' : ''}>${escapeHtml(label)}</option>`;
     }).join('');
 
+    const basePathValue = basePath();
+    const guestlistBase = `${basePathValue}/control/guestlist`.replace(/\/{2,}/g, '/');
+
     const rowsHtml = rows.map((row) => {
       const seatLabel = row.seat.label || (row.ticket?.seatId ? String(row.ticket.seatId) : '');
       const searchAttr = escapeHtml(row.searchIndex);
+      const encodedTicketId = encodeURIComponent(row.id);
+      const enterAction = `${guestlistBase}/tickets/${encodedTicketId}/enter`.replace(/\/{2,}/g, '/');
+      const exitAction = `${guestlistBase}/tickets/${encodedTicketId}/exit`.replace(/\/{2,}/g, '/');
       const actionButtons = `
-        <form method="post" action="/control/guestlist/tickets/${escapeHtml(row.id)}/enter" class="inline-form">
+        <form method="post" action="${escapeHtml(enterAction)}" class="inline-form">
           <input type="hidden" name="event" value="${escapeHtml(selectedEventKey)}">
           ${hiddenCredentialInputs}
           <button type="submit" class="btn btn-enter">Entrée</button>
         </form>
-        <form method="post" action="/control/guestlist/tickets/${escapeHtml(row.id)}/exit" class="inline-form">
+        <form method="post" action="${escapeHtml(exitAction)}" class="inline-form">
           <input type="hidden" name="event" value="${escapeHtml(selectedEventKey)}">
           ${hiddenCredentialInputs}
           <button type="submit" class="btn btn-exit">Sortie</button>
@@ -301,7 +314,6 @@ router.get('/control/guestlist', requireScanner, async (req, res) => {
         </tr>`;
     }).join('');
 
-    const basePathValue = basePath();
     const assetBase = `${basePathValue}/static/`.replace(/\/{2,}/g, '/');
     const logoSrc = `${assetBase}img/logo.png`;
     const scanLink = `${basePathValue}/control/scan?event=${encodeURIComponent(selectedEventKey)}`.replace(/\/{2,}/g, '/');
@@ -478,8 +490,8 @@ async function handleTicketAction(req, res, action) {
     const ticket = await Ticket.findById(ticketId);
     if (!ticket) {
       const paramsString = params.toString();
-      const target = `/control/guestlist?${paramsString ? `${paramsString}&` : ''}feedback=${feedback}`;
-      res.redirect(303, target.replace(/\/{2,}/g, '/'));
+      const target = withBasePath(`/control/guestlist?${paramsString ? `${paramsString}&` : ''}feedback=${feedback}`);
+      res.redirect(303, target);
       return;
     }
 
@@ -510,8 +522,8 @@ async function handleTicketAction(req, res, action) {
   }
 
   const paramsString = params.toString();
-  const redirectTarget = `/control/guestlist?${paramsString ? `${paramsString}&` : ''}feedback=${feedback}`;
-  res.redirect(303, redirectTarget.replace(/\/{2,}/g, '/'));
+  const redirectTarget = withBasePath(`/control/guestlist?${paramsString ? `${paramsString}&` : ''}feedback=${feedback}`);
+  res.redirect(303, redirectTarget);
 }
 
 router.post('/control/guestlist/tickets/:ticketId/:action(enter|exit)', requireScanner, async (req, res) => {
