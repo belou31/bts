@@ -32,7 +32,6 @@ body.scan-immersive .preview-wrapper::after{border-radius:0}
 body.scan-immersive .preview-wrapper canvas{border-radius:0}
 body.scan-immersive .ticket-card .section-info,
 body.scan-immersive .ticket-card .section-order{display:none!important}
-body.scan-immersive .ticket-history{display:none!important}
 @media (orientation:landscape){
   .scan-layout{flex-direction:row;align-items:flex-start;gap:32px}
   .scan-panel{flex:0 0 min(500px,45%)}

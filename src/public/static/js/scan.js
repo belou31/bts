@@ -816,14 +816,16 @@ function logAction({ action, status, entryKey, info, event }) {
 }
 
 function renderTicketHistory(logs) {
-  if (!Array.isArray(logs) || !logs.length) return null;
+  if (!Array.isArray(logs) || logs.length <= 1) return null;
+  const entries = logs.slice(1); // skip current action
+  if (!entries.length) return null;
   const wrap = document.createElement('div');
   wrap.className = 'ticket-history';
   const table = document.createElement('table');
   const thead = document.createElement('thead');
   thead.innerHTML = '<tr><th>Date</th><th>Action</th><th>Statut</th></tr>';
   const tbody = document.createElement('tbody');
-  logs.forEach((log) => {
+  entries.forEach((log) => {
     const tr = document.createElement('tr');
     const actionLabel = ACTION_LABELS[log.action] || log.action;
     const statusLabel = translateReason(log.status);
@@ -1107,8 +1109,7 @@ function buildTicketCard(match) {
   }
 
   const historyTable = renderTicketHistory(match.logs);
-  const showHistory = historyTable && !(document.body?.classList?.contains('scan-immersive'));
-  if (showHistory) card.append(historyTable);
+  if (historyTable) card.append(historyTable);
 
   return card;
 }
