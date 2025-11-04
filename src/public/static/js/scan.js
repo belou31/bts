@@ -139,6 +139,14 @@ const knownEvents = new Map();
 const bodyEl = document.body || document.querySelector('body');
 const portraitQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(orientation: portrait)') : null;
 const narrowQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 768px)') : null;
+const scanCountContainer = scannedCountEl ? scannedCountEl.parentElement : null;
+const scanCountHomeParent = scanCountContainer?.parentElement || null;
+const scanCountHomeMarker = (scanCountContainer && scanCountHomeParent)
+  ? document.createComment('scan-count-home')
+  : null;
+if (scanCountContainer && scanCountHomeMarker && scanCountHomeParent) {
+  scanCountHomeParent.insertBefore(scanCountHomeMarker, scanCountContainer.nextSibling);
+}
 
 const HISTORY_ACTION_MAP = {
   accept: { action: 'accept', status: 'accepted' },
@@ -482,9 +490,24 @@ function shouldUseImmersiveMode() {
   return portraitOk && narrowOk;
 }
 
+function relocateScanCount(immersive) {
+  if (!scanCountContainer) return;
+  if (immersive) {
+    if (previewWrapper && scanCountContainer.parentElement !== previewWrapper) {
+      previewWrapper.append(scanCountContainer);
+    }
+    return;
+  }
+  if (scanCountHomeParent && scanCountHomeMarker && scanCountContainer.parentElement !== scanCountHomeParent) {
+    scanCountHomeParent.insertBefore(scanCountContainer, scanCountHomeMarker);
+  }
+}
+
 function updateImmersiveMode() {
   if (!bodyEl) return;
-  bodyEl.classList.toggle('scan-immersive', shouldUseImmersiveMode());
+  const immersive = shouldUseImmersiveMode();
+  bodyEl.classList.toggle('scan-immersive', immersive);
+  relocateScanCount(immersive);
 }
 
 if (portraitQuery) {
@@ -831,6 +854,76 @@ function renderTicketList() {
   });
 }
 
+function createCollapsibleSection({ label, className, collapsed = false, collapseOnContentClick = true }) {
+  const section = document.createElement('div');
+  section.className = `card-section ${className}`;
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'section-toggle';
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+  const toggleText = document.createElement('span');
+  toggleText.className = 'toggle-text';
+  toggleText.textContent = label;
+  const toggleIcon = document.createElement('span');
+  toggleIcon.className = 'toggle-icon';
+  toggleIcon.setAttribute('aria-hidden', 'true');
+  toggle.append(toggleText, toggleIcon);
+
+  const content = document.createElement('div');
+  content.className = 'section-content';
+
+  section.append(toggle, content);
+
+  const interactiveSelectors = 'button,a,input,textarea,select,label';
+
+  function setCollapsed(next) {
+    section.classList.toggle('collapsed', next);
+    section.classList.toggle('expanded', !next);
+    toggle.setAttribute('aria-expanded', String(!next));
+  }
+
+  setCollapsed(collapsed);
+
+  toggle.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const currentlyCollapsed = section.classList.contains('collapsed');
+    if (currentlyCollapsed) {
+      setCollapsed(false);
+    } else if (!collapseOnContentClick) {
+      setCollapsed(true);
+    } else {
+      setCollapsed(true);
+    }
+  });
+
+  if (collapseOnContentClick) {
+    section.addEventListener('click', (event) => {
+      if (event.target.closest('.section-toggle')) return;
+      if (event.target.closest(interactiveSelectors)) return;
+      const currentlyCollapsed = section.classList.contains('collapsed');
+      setCollapsed(!currentlyCollapsed);
+    });
+  }
+
+  section.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !section.classList.contains('collapsed')) {
+      setCollapsed(true);
+    }
+  });
+
+  return {
+    section,
+    content,
+    toggle,
+    setCollapsed,
+    setLabel(text) {
+      toggleText.textContent = text;
+    }
+  };
+}
+
 function buildTicketCard(match) {
   const card = document.createElement('div');
   card.className = 'ticket-card';
@@ -855,12 +948,14 @@ function buildTicketCard(match) {
   const body = document.createElement('div');
   body.className = 'card-body';
 
-  const sectionTariff = document.createElement('div');
-  sectionTariff.className = 'card-section section-tariff';
-  const tariffTitle = document.createElement('div');
-  tariffTitle.className = 'section-title';
-  tariffTitle.textContent = 'Tarif';
-  sectionTariff.append(tariffTitle);
+  const tariffSection = createCollapsibleSection({
+    label: 'Tarif',
+    className: 'section-tariff',
+    collapsed: false,
+    collapseOnContentClick: true
+  });
+  const sectionTariff = tariffSection.section;
+  const tariffContent = tariffSection.content;
   const tariffDetails = match.tariff || {};
   const fallbackTariffText = match.ticketId ? '—' : 'QR';
   const labelRaw = String(match.tariffLabel || tariffDetails.label || '').trim();
@@ -875,7 +970,7 @@ function buildTicketCard(match) {
   tariffLabelEl.textContent = displayLabel;
   tariffMainContent.append(tariffLabelEl);
   tariffMain.append(tariffMainContent);
-  sectionTariff.append(tariffMain);
+  tariffContent.append(tariffMain);
 
   const fieldLabelText = String(match.tariffFieldLabel || tariffDetails.fieldLabel || '').trim();
   const requiresInfoText = String(match.tariffRequiresInfo || tariffDetails.requiresInfo || '').trim();
@@ -906,7 +1001,7 @@ function buildTicketCard(match) {
     const fieldValueEl = document.createElement('strong');
     fieldValueEl.textContent = requiresFieldKey || 'Requis';
     fieldItem.append(fieldValueEl);
-    sectionTariff.append(fieldItem);
+    tariffContent.append(fieldItem);
   }
 
   const infoItem = document.createElement('div');
@@ -917,7 +1012,7 @@ function buildTicketCard(match) {
   infoValueEl.textContent = requiresInfoText || '—';
   tariffInfoContent.append(infoValueEl);
   infoItem.append(tariffInfoContent);
-  sectionTariff.append(infoItem);
+  tariffContent.append(infoItem);
   if (requiresInfoText) {
     sectionTariff.classList.add('attention');
   }
@@ -930,17 +1025,19 @@ function buildTicketCard(match) {
       badge.textContent = cond;
       if (idx % 2 === 1) badge.classList.add('alt');
       badgeWrap.append(badge);
-      sectionTariff.append(badgeWrap);
+      tariffContent.append(badgeWrap);
     });
   }
   body.append(sectionTariff);
 
-  const sectionSeat = document.createElement('div');
-  sectionSeat.className = 'card-section section-seat';
-  const seatTitle = document.createElement('div');
-  seatTitle.className = 'section-subtitle';
-  seatTitle.textContent = 'Place — Bénéficiaire';
-  sectionSeat.append(seatTitle);
+  const seatSection = createCollapsibleSection({
+    label: 'Place — Bénéficiaire',
+    className: 'section-seat',
+    collapsed: false,
+    collapseOnContentClick: true
+  });
+  const sectionSeat = seatSection.section;
+  const seatContent = seatSection.content;
   const seatInfo = document.createElement('div');
   seatInfo.className = 'card-item highlight';
   const seatInfoContent = document.createElement('div');
@@ -949,7 +1046,7 @@ function buildTicketCard(match) {
   seatInfoStrong.textContent = match.location || match.qrValue || '—';
   seatInfoContent.append(seatInfoStrong);
   seatInfo.append(seatInfoContent);
-  sectionSeat.append(seatInfo);
+  seatContent.append(seatInfo);
   const holderName = [match?.holder?.firstName, match?.holder?.lastName].filter(Boolean).join(' ').trim();
   const holderEmail = (match?.holder?.email || '').trim();
   const beneficiary = document.createElement('div');
@@ -962,28 +1059,30 @@ function buildTicketCard(match) {
   beneficiaryStrong.textContent = beneficiaryLine;
   beneficiaryContent.append(beneficiaryStrong);
   beneficiary.append(beneficiaryContent);
-  sectionSeat.append(beneficiary);
+  seatContent.append(beneficiary);
   if (!match.ticketId) {
     const qrWrap = document.createElement('div');
     qrWrap.className = 'qr-preview';
     qrWrap.textContent = 'QR';
-    sectionSeat.append(qrWrap);
+    seatContent.append(qrWrap);
     drawQrInline(qrWrap, match.qrValue);
   }
   body.append(sectionSeat);
 
-  const sectionInfo = document.createElement('div');
-  sectionInfo.className = 'card-section section-info';
-  const infoTitle = document.createElement('div');
-  infoTitle.className = 'section-subtitle';
-  infoTitle.textContent = 'Information';
-  sectionInfo.append(infoTitle);
+  const infoSection = createCollapsibleSection({
+    label: 'Information',
+    className: 'section-info',
+    collapsed: true,
+    collapseOnContentClick: true
+  });
+  const sectionInfo = infoSection.section;
+  const infoContentContainer = infoSection.content;
   const reasonText = match.reason ? translateReason(match.reason) : (match.status && match.status !== 'ready' ? translateReason(match.status) : '');
   const qrLine = document.createElement('div');
   qrLine.className = 'card-item inline';
   const qrValue = match.ticketId ? shortId(match.ticketId) : (match.qrValue || '—');
   qrLine.innerHTML = `<span>QR :</span><strong>${qrValue}</strong>`;
-  sectionInfo.append(qrLine);
+  infoContentContainer.append(qrLine);
 
   const infoContent = document.createElement('div');
   infoContent.className = 'card-item highlight';
@@ -996,18 +1095,17 @@ function buildTicketCard(match) {
   infoStrong.textContent = details.join(' • ') || '—';
   infoContentWrap.append(infoStrong);
   infoContent.append(infoContentWrap);
-  sectionInfo.append(infoContent);
+  infoContentContainer.append(infoContent);
   body.append(sectionInfo);
 
-  const sectionOrder = document.createElement('div');
-  sectionOrder.className = 'card-section section-order';
-  const orderHeader = document.createElement('div');
-  orderHeader.className = 'section-title-row';
-  const orderTitle = document.createElement('div');
-  orderTitle.className = 'section-title';
-  orderTitle.textContent = 'Commande';
-  orderHeader.append(orderTitle);
-  sectionOrder.append(orderHeader);
+  const orderSection = createCollapsibleSection({
+    label: 'Commande',
+    className: 'section-order',
+    collapsed: true,
+    collapseOnContentClick: true
+  });
+  const sectionOrder = orderSection.section;
+  const orderContent = orderSection.content;
   if (match.order) {
     const idLine = document.createElement('div');
     idLine.className = 'card-item highlight';
@@ -1017,13 +1115,22 @@ function buildTicketCard(match) {
     idStrong.textContent = `#${match.order.id || '—'}`;
     idWrap.append(idStrong);
     idLine.append(idWrap);
-    sectionOrder.append(idLine);
+    orderContent.append(idLine);
     const total = Number(match.order.totalTickets || 0);
     if (total > 0) {
       const scanned = Math.min(Number(match.order.scannedTickets || 0), total);
       const index = Number(match.order.ticketIndex || 0);
       const billetLabel = index > 0 ? `${index}/${total}` : `${scanned}/${total}`;
-      sectionOrder.querySelector('.section-title').innerHTML = `Commande — <strong>${billetLabel}</strong>`;
+      orderSection.setLabel(`Commande ${billetLabel}`);
+      const ratioLine = document.createElement('div');
+      ratioLine.className = 'card-item meta';
+      const ratioContent = document.createElement('div');
+      ratioContent.className = 'card-item-content';
+      const ratioStrong = document.createElement('strong');
+      ratioStrong.textContent = `Billet ${billetLabel}`;
+      ratioContent.append(ratioStrong);
+      ratioLine.append(ratioContent);
+      orderContent.append(ratioLine);
     }
     const contactName = [match.order.payerFirstName, match.order.payerLastName].filter(Boolean).join(' ').trim();
     const contactLabel = document.createElement('div');
@@ -1035,7 +1142,7 @@ function buildTicketCard(match) {
     contactStrong.textContent = contactLine;
     contactWrap.append(contactStrong);
     contactLabel.append(contactWrap);
-    sectionOrder.append(contactLabel);
+    orderContent.append(contactLabel);
 
   } else {
     const fallback = document.createElement('div');
@@ -1046,7 +1153,7 @@ function buildTicketCard(match) {
     fallbackStrong.textContent = '—';
     fallbackWrap.append(fallbackStrong);
     fallback.append(fallbackWrap);
-    sectionOrder.append(fallback);
+    orderContent.append(fallback);
   }
   body.append(sectionOrder);
 
