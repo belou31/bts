@@ -94,8 +94,17 @@ function replaceSlotWithSvg(svg, slotId, innerSvg) {
 
 
 function beneficiaryForTicket(ticket, order) {
-  // Essaye de retrouver la ligne correspondante (même seatId, à défaut même zoneKey)
   const lines = Array.isArray(order?.lines) ? order.lines : [];
+  const metaTickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+
+  const metaIndex = metaTickets.indexOf(ticket);
+  if (metaIndex >= 0 && metaIndex < lines.length) {
+    const byIndex = lines[metaIndex] || {};
+    const idxName = [byIndex.holderFirstName, byIndex.holderLastName].filter(Boolean).join(' ').trim();
+    if (idxName) return idxName;
+  }
+
+  // Essaye de retrouver la ligne correspondante (même seatId, à défaut même zoneKey)
   let ln = null;
   if (ticket?.seatId) ln = lines.find(l => String(l.seatId||'') === String(ticket.seatId||''));
   if (!ln && ticket?.zoneKey) {
@@ -115,6 +124,10 @@ function beneficiaryForTicket(ticket, order) {
   const lnw = ln?.holderLastName || '';
   const name = [fn, lnw].filter(Boolean).join(' ').trim();
   if (name) return name;
+
+  const ticketName = [ticket?.holderFirstName, ticket?.holderLastName].filter(Boolean).join(' ').trim();
+  if (ticketName) return ticketName;
+
   return [order?.payerFirstName, order?.payerLastName].filter(Boolean).join(' ').trim();
 }
 
