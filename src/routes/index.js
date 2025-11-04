@@ -262,7 +262,7 @@ export default function routes(router) {
   router.use('/admin/supervision', supervisionRoutes);
 
   router.use('/', scanRoutes);
-  router.use('/control/guestlist', controlGuestlistRoutes);
+  router.use('/', controlGuestlistRoutes);
 
   // API sous /s
   router.use('/s', renewApi);
