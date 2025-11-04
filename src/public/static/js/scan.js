@@ -854,76 +854,6 @@ function renderTicketList() {
   });
 }
 
-function createCollapsibleSection({ label, className, collapsed = false, collapseOnContentClick = true }) {
-  const section = document.createElement('div');
-  section.className = `card-section ${className}`;
-
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.className = 'section-toggle';
-  toggle.setAttribute('aria-expanded', String(!collapsed));
-  const toggleText = document.createElement('span');
-  toggleText.className = 'toggle-text';
-  toggleText.textContent = label;
-  const toggleIcon = document.createElement('span');
-  toggleIcon.className = 'toggle-icon';
-  toggleIcon.setAttribute('aria-hidden', 'true');
-  toggle.append(toggleText, toggleIcon);
-
-  const content = document.createElement('div');
-  content.className = 'section-content';
-
-  section.append(toggle, content);
-
-  const interactiveSelectors = 'button,a,input,textarea,select,label';
-
-  function setCollapsed(next) {
-    section.classList.toggle('collapsed', next);
-    section.classList.toggle('expanded', !next);
-    toggle.setAttribute('aria-expanded', String(!next));
-  }
-
-  setCollapsed(collapsed);
-
-  toggle.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const currentlyCollapsed = section.classList.contains('collapsed');
-    if (currentlyCollapsed) {
-      setCollapsed(false);
-    } else if (!collapseOnContentClick) {
-      setCollapsed(true);
-    } else {
-      setCollapsed(true);
-    }
-  });
-
-  if (collapseOnContentClick) {
-    section.addEventListener('click', (event) => {
-      if (event.target.closest('.section-toggle')) return;
-      if (event.target.closest(interactiveSelectors)) return;
-      const currentlyCollapsed = section.classList.contains('collapsed');
-      setCollapsed(!currentlyCollapsed);
-    });
-  }
-
-  section.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !section.classList.contains('collapsed')) {
-      setCollapsed(true);
-    }
-  });
-
-  return {
-    section,
-    content,
-    toggle,
-    setCollapsed,
-    setLabel(text) {
-      toggleText.textContent = text;
-    }
-  };
-}
-
 function buildTicketCard(match) {
   const card = document.createElement('div');
   card.className = 'ticket-card';
@@ -948,14 +878,12 @@ function buildTicketCard(match) {
   const body = document.createElement('div');
   body.className = 'card-body';
 
-  const tariffSection = createCollapsibleSection({
-    label: 'Tarif',
-    className: 'section-tariff',
-    collapsed: false,
-    collapseOnContentClick: true
-  });
-  const sectionTariff = tariffSection.section;
-  const tariffContent = tariffSection.content;
+  const sectionTariff = document.createElement('div');
+  sectionTariff.className = 'card-section section-tariff';
+  const tariffTitle = document.createElement('div');
+  tariffTitle.className = 'section-title';
+  tariffTitle.textContent = 'Tarif';
+  sectionTariff.append(tariffTitle);
   const tariffDetails = match.tariff || {};
   const fallbackTariffText = match.ticketId ? '—' : 'QR';
   const labelRaw = String(match.tariffLabel || tariffDetails.label || '').trim();
@@ -970,7 +898,7 @@ function buildTicketCard(match) {
   tariffLabelEl.textContent = displayLabel;
   tariffMainContent.append(tariffLabelEl);
   tariffMain.append(tariffMainContent);
-  tariffContent.append(tariffMain);
+  sectionTariff.append(tariffMain);
 
   const fieldLabelText = String(match.tariffFieldLabel || tariffDetails.fieldLabel || '').trim();
   const requiresInfoText = String(match.tariffRequiresInfo || tariffDetails.requiresInfo || '').trim();
@@ -1001,7 +929,7 @@ function buildTicketCard(match) {
     const fieldValueEl = document.createElement('strong');
     fieldValueEl.textContent = requiresFieldKey || 'Requis';
     fieldItem.append(fieldValueEl);
-    tariffContent.append(fieldItem);
+    sectionTariff.append(fieldItem);
   }
 
   const infoItem = document.createElement('div');
@@ -1012,7 +940,7 @@ function buildTicketCard(match) {
   infoValueEl.textContent = requiresInfoText || '—';
   tariffInfoContent.append(infoValueEl);
   infoItem.append(tariffInfoContent);
-  tariffContent.append(infoItem);
+  sectionTariff.append(infoItem);
   if (requiresInfoText) {
     sectionTariff.classList.add('attention');
   }
@@ -1025,19 +953,17 @@ function buildTicketCard(match) {
       badge.textContent = cond;
       if (idx % 2 === 1) badge.classList.add('alt');
       badgeWrap.append(badge);
-      tariffContent.append(badgeWrap);
+      sectionTariff.append(badgeWrap);
     });
   }
   body.append(sectionTariff);
 
-  const seatSection = createCollapsibleSection({
-    label: 'Place — Bénéficiaire',
-    className: 'section-seat',
-    collapsed: false,
-    collapseOnContentClick: true
-  });
-  const sectionSeat = seatSection.section;
-  const seatContent = seatSection.content;
+  const sectionSeat = document.createElement('div');
+  sectionSeat.className = 'card-section section-seat';
+  const seatTitle = document.createElement('div');
+  seatTitle.className = 'section-subtitle';
+  seatTitle.textContent = 'Place — Bénéficiaire';
+  sectionSeat.append(seatTitle);
   const seatInfo = document.createElement('div');
   seatInfo.className = 'card-item highlight';
   const seatInfoContent = document.createElement('div');
@@ -1046,7 +972,7 @@ function buildTicketCard(match) {
   seatInfoStrong.textContent = match.location || match.qrValue || '—';
   seatInfoContent.append(seatInfoStrong);
   seatInfo.append(seatInfoContent);
-  seatContent.append(seatInfo);
+  sectionSeat.append(seatInfo);
   const holderName = [match?.holder?.firstName, match?.holder?.lastName].filter(Boolean).join(' ').trim();
   const holderEmail = (match?.holder?.email || '').trim();
   const beneficiary = document.createElement('div');
@@ -1059,30 +985,28 @@ function buildTicketCard(match) {
   beneficiaryStrong.textContent = beneficiaryLine;
   beneficiaryContent.append(beneficiaryStrong);
   beneficiary.append(beneficiaryContent);
-  seatContent.append(beneficiary);
+  sectionSeat.append(beneficiary);
   if (!match.ticketId) {
     const qrWrap = document.createElement('div');
     qrWrap.className = 'qr-preview';
     qrWrap.textContent = 'QR';
-    seatContent.append(qrWrap);
+    sectionSeat.append(qrWrap);
     drawQrInline(qrWrap, match.qrValue);
   }
   body.append(sectionSeat);
 
-  const infoSection = createCollapsibleSection({
-    label: 'Information',
-    className: 'section-info',
-    collapsed: true,
-    collapseOnContentClick: true
-  });
-  const sectionInfo = infoSection.section;
-  const infoContentContainer = infoSection.content;
+  const sectionInfo = document.createElement('div');
+  sectionInfo.className = 'card-section section-info';
+  const infoTitle = document.createElement('div');
+  infoTitle.className = 'section-subtitle';
+  infoTitle.textContent = 'Information';
+  sectionInfo.append(infoTitle);
   const reasonText = match.reason ? translateReason(match.reason) : (match.status && match.status !== 'ready' ? translateReason(match.status) : '');
   const qrLine = document.createElement('div');
   qrLine.className = 'card-item inline';
   const qrValue = match.ticketId ? shortId(match.ticketId) : (match.qrValue || '—');
   qrLine.innerHTML = `<span>QR :</span><strong>${qrValue}</strong>`;
-  infoContentContainer.append(qrLine);
+  sectionInfo.append(qrLine);
 
   const infoContent = document.createElement('div');
   infoContent.className = 'card-item highlight';
@@ -1095,17 +1019,18 @@ function buildTicketCard(match) {
   infoStrong.textContent = details.join(' • ') || '—';
   infoContentWrap.append(infoStrong);
   infoContent.append(infoContentWrap);
-  infoContentContainer.append(infoContent);
+  sectionInfo.append(infoContent);
   body.append(sectionInfo);
 
-  const orderSection = createCollapsibleSection({
-    label: 'Commande',
-    className: 'section-order',
-    collapsed: true,
-    collapseOnContentClick: true
-  });
-  const sectionOrder = orderSection.section;
-  const orderContent = orderSection.content;
+  const sectionOrder = document.createElement('div');
+  sectionOrder.className = 'card-section section-order';
+  const orderHeader = document.createElement('div');
+  orderHeader.className = 'section-title-row';
+  const orderTitle = document.createElement('div');
+  orderTitle.className = 'section-title';
+  orderTitle.textContent = 'Commande';
+  orderHeader.append(orderTitle);
+  sectionOrder.append(orderHeader);
   if (match.order) {
     const idLine = document.createElement('div');
     idLine.className = 'card-item highlight';
@@ -1115,22 +1040,13 @@ function buildTicketCard(match) {
     idStrong.textContent = `#${match.order.id || '—'}`;
     idWrap.append(idStrong);
     idLine.append(idWrap);
-    orderContent.append(idLine);
+    sectionOrder.append(idLine);
     const total = Number(match.order.totalTickets || 0);
     if (total > 0) {
       const scanned = Math.min(Number(match.order.scannedTickets || 0), total);
       const index = Number(match.order.ticketIndex || 0);
       const billetLabel = index > 0 ? `${index}/${total}` : `${scanned}/${total}`;
-      orderSection.setLabel(`Commande ${billetLabel}`);
-      const ratioLine = document.createElement('div');
-      ratioLine.className = 'card-item meta';
-      const ratioContent = document.createElement('div');
-      ratioContent.className = 'card-item-content';
-      const ratioStrong = document.createElement('strong');
-      ratioStrong.textContent = `Billet ${billetLabel}`;
-      ratioContent.append(ratioStrong);
-      ratioLine.append(ratioContent);
-      orderContent.append(ratioLine);
+      sectionOrder.querySelector('.section-title').innerHTML = `Commande — <strong>${billetLabel}</strong>`;
     }
     const contactName = [match.order.payerFirstName, match.order.payerLastName].filter(Boolean).join(' ').trim();
     const contactLabel = document.createElement('div');
@@ -1142,7 +1058,7 @@ function buildTicketCard(match) {
     contactStrong.textContent = contactLine;
     contactWrap.append(contactStrong);
     contactLabel.append(contactWrap);
-    orderContent.append(contactLabel);
+    sectionOrder.append(contactLabel);
 
   } else {
     const fallback = document.createElement('div');
@@ -1153,7 +1069,7 @@ function buildTicketCard(match) {
     fallbackStrong.textContent = '—';
     fallbackWrap.append(fallbackStrong);
     fallback.append(fallbackWrap);
-    orderContent.append(fallback);
+    sectionOrder.append(fallback);
   }
   body.append(sectionOrder);
 
@@ -1185,12 +1101,14 @@ function buildTicketCard(match) {
     addBtn('Refuser', 'action-reject', () => handleReject(match));
   }
 
-  if (actions.childElementCount > 0) {
+  const hasActions = actions.childElementCount > 0;
+  if (hasActions) {
     card.append(actions);
   }
 
   const historyTable = renderTicketHistory(match.logs);
-  if (historyTable) card.append(historyTable);
+  const showHistory = historyTable && !(document.body?.classList?.contains('scan-immersive'));
+  if (showHistory) card.append(historyTable);
 
   return card;
 }
