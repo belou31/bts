@@ -135,6 +135,11 @@ const authToggleLabel = authToggle?.querySelector('.toggle-label');
 const scanToggleLabel = scanToggle?.querySelector('.toggle-label');
 const modeToggleLabel = modeToggle?.querySelector('.toggle-label');
 const knownEvents = new Map();
+
+const bodyEl = document.body || document.querySelector('body');
+const portraitQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(orientation: portrait)') : null;
+const narrowQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 768px)') : null;
+
 const HISTORY_ACTION_MAP = {
   accept: { action: 'accept', status: 'accepted' },
   force: { action: 'accept', status: 'forced_accept' },
@@ -470,6 +475,40 @@ function isRecentlyScanned(value, withinMs = RECENT_SCAN_WINDOW_MS) {
   return last && (Date.now() - last) < withinMs;
 }
 
+function shouldUseImmersiveMode() {
+  if (!scanActive) return false;
+  const portraitOk = portraitQuery ? portraitQuery.matches : true;
+  const narrowOk = narrowQuery ? narrowQuery.matches : true;
+  return portraitOk && narrowOk;
+}
+
+function updateImmersiveMode() {
+  if (!bodyEl) return;
+  bodyEl.classList.toggle('scan-immersive', shouldUseImmersiveMode());
+}
+
+if (portraitQuery) {
+  const portraitHandler = () => updateImmersiveMode();
+  if (typeof portraitQuery.addEventListener === 'function') {
+    portraitQuery.addEventListener('change', portraitHandler);
+  } else if (typeof portraitQuery.addListener === 'function') {
+    portraitQuery.addListener(portraitHandler);
+  }
+}
+
+if (narrowQuery) {
+  const narrowHandler = () => updateImmersiveMode();
+  if (typeof narrowQuery.addEventListener === 'function') {
+    narrowQuery.addEventListener('change', narrowHandler);
+  } else if (typeof narrowQuery.addListener === 'function') {
+    narrowQuery.addListener(narrowHandler);
+  }
+}
+
+window.addEventListener('resize', updateImmersiveMode);
+window.addEventListener('orientationchange', updateImmersiveMode);
+updateImmersiveMode();
+
 function setScanToggleState(state) {
   scanActive = !!state;
   if (scanToggle) {
@@ -485,6 +524,7 @@ function setScanToggleState(state) {
   if (!scanActive) {
     hidePreviewGain();
   }
+  updateImmersiveMode();
 }
 
 function stopScanning() {

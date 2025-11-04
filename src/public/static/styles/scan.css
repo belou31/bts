@@ -14,6 +14,17 @@ a{color:inherit;text-decoration:none}
 main{padding:16px;max-width:1200px;margin:0 auto}
 .scan-layout{display:flex;flex-direction:column;gap:24px}
 .scan-panel{display:flex;flex-direction:column;gap:16px;flex:1 1 auto}
+body.scan-immersive .top-bar{display:none!important}
+body.scan-immersive main{padding:0;max-width:none}
+body.scan-immersive .scan-layout{gap:0}
+body.scan-immersive .scan-panel{gap:0}
+body.scan-immersive .grid,body.scan-immersive .top-controls,body.scan-immersive .status-row{display:none!important}
+body.scan-immersive .preview-wrapper{max-height:none;aspect-ratio:auto;height:60vh;margin:0}
+body.scan-immersive .preview-wrapper video,body.scan-immersive .preview-wrapper canvas{border-radius:0}
+body.scan-immersive .results{margin:0;padding:16px 16px 140px}
+body.scan-immersive .sub-controls{position:fixed;bottom:16px;left:0;width:100%;padding:0 16px;justify-content:center;z-index:30;pointer-events:none;background:linear-gradient(180deg,rgba(11,15,23,0),rgba(11,15,23,0.85))}
+body.scan-immersive .scan-inline{width:100%;justify-content:center;pointer-events:auto}
+body.scan-immersive .scan-inline .toggle{flex:1 1 auto}
 @media (orientation:landscape){
   .scan-layout{flex-direction:row;align-items:flex-start;gap:32px}
   .scan-panel{flex:0 0 min(500px,45%)}
