@@ -120,7 +120,7 @@ async function runOnce() {
      const fin = await finalizePaidIfNoConflict(order);
       if (fin.ok) {
       console.log(`[sentinel] order ${o._id} → paid, seats booked: ${fin.booked}`);
-      await sendOrderAttestationIfNeeded(order);
+      await sendOrderAttestationIfNeeded(order, { source: 'sentinel/pending-orders' });
      } else {
       console.warn(`[sentinel] conflict — order ${o._id} marked failed`, fin.conflicts);
       await sendConflictEmail(order);

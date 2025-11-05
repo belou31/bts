@@ -215,7 +215,7 @@ async function main() {
         }
       }
 
-      await sendOrderAttestationIfNeeded(order);
+      await sendOrderAttestationIfNeeded(order, { force: true, source: 'script:resend-event-tickets' });
       stats.sent++;
       console.log(`✉️  Sent ${order._id} → ${order.payerEmail}`);
     } catch (err) {

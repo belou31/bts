@@ -863,7 +863,7 @@ export async function importEventOrders({
     if (sendEmail && isPaidLike(parsed.status)) {
       try {
         await ensureTicketsForEventOrder(order);
-        await sendOrderAttestationIfNeeded(order);
+        await sendOrderAttestationIfNeeded(order, { source: 'importer:event-orders' });
         log('info', `  ↳ Confirmation envoyée: ${order.payerEmail}`);
       } catch (error) {
         log(
