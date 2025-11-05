@@ -420,7 +420,7 @@ router.get('/return', async (req, res) => {
       if (finalizeInfo.ok) {
         state = 'success';
         if (!finalizeInfo.alreadyFinalized) {
-          try { await sendOrderAttestationIfNeeded(order); }
+          try { await sendOrderAttestationIfNeeded(order, { source: 'return' }); }
           catch (err) {
             console.warn('[pay/return] mail send failed:', err?.message || err);
             warnings.push('Le courriel de confirmation n’a pas pu être envoyé automatiquement.');
@@ -735,7 +735,7 @@ try {
       const fin = await finalizePaidIfNoConflict(order);
       if (fin.ok) {
         if (!fin.alreadyFinalized) {
-          await sendOrderAttestationIfNeeded(order);
+          await sendOrderAttestationIfNeeded(order, { source: 'webhook' });
         }
         return res.status(200).send(fin.alreadyFinalized ? 'ok-already-finalized' : 'ok');
       } else {

@@ -428,7 +428,7 @@ async function main() {
 
     if (SEND_EMAILS) {
       try {
-        await sendOrderAttestationIfNeeded(order);
+        await sendOrderAttestationIfNeeded(order, { source: 'script:import-subscription-orders' });
         console.log(`  ↳ Confirmation envoyée: ${order.payerEmail}`);
       } catch (err) {
         console.error(`  ✉️  Échec envoi email pour ${orderId}: ${err.message}`);

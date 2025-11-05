@@ -1,6 +1,7 @@
 //src/services/order-finalization.js
 import mongoose from 'mongoose';
 import { Seat } from '../models/Seat.js';
+import { Order } from '../models/Order.js';
 import { Ticket } from '../models/Ticket.js';
 import { renderOrderEmail, subjectForOrder, attachQrFromBank } from './mailer.js';
 import { buildTicketsPdfBuffer } from './tickets-pdf.js';
@@ -382,57 +383,172 @@ export async function finalizePaidIfNoConflict(order) {
   }  
 }
 
-export async function sendOrderAttestationIfNeeded(order) {
-
-  const isEvent = !!(order?.eventId || order?.meta?.eventId);
-
-  const tpl = isEvent
-    ? (process.env.EMAIL_TEMPLATE_EVENT_CONFIRM || 'event-confirmation')
-    : (process.env.EMAIL_TEMPLATE_SUBSCRIPTION_CONFIRM || 'subscription-confirmation');
-
-  const subject = subjectForOrder(order);
-  const html = await renderOrderEmail(order);  
-
-   // 1) Banque de QR → order.meta.tickets
-   try {
-     const r = await attachQrFromBank(mongoose.connection.db, order);
-   if (r?.ok && Array.isArray(r.tickets) && r.tickets.length) {
-     order.meta = { ...(order.meta || {}), tickets: r.tickets };
-      await order.save();
-    }
-  } catch (e) {
-    console.warn('[mail] attachQrFromBank failed:', e.message);
+export async function sendOrderAttestationIfNeeded(order, options = {}) {
+  if (!order?._id) {
+    throw new Error('sendOrderAttestationIfNeeded requires an order with _id');
   }
+
+  const { force = false, source = 'auto' } = options;
+  const now = new Date();
+  const meta = { ...(order.paymentProviderMeta || {}) };
+  const alreadySentAt = meta.attestationSentAt ? new Date(meta.attestationSentAt) : null;
+
+  if (!force && alreadySentAt) {
+    return false;
+  }
+
+  const lockTtlRaw = Number(process.env.ATTESTATION_SEND_LOCK_MS);
+  const lockTtlMs = Number.isFinite(lockTtlRaw) && lockTtlRaw > 0 ? lockTtlRaw : 10 * 60 * 1000;
+  const staleCutoff = new Date(now.getTime() - lockTtlMs);
+  const lockUpdate = {
+    $set: {
+      'paymentProviderMeta.attestationSendingAt': now,
+      'paymentProviderMeta.attestationSendingSource': source
+    }
+  };
+  let lockAcquired = false;
 
   try {
-    await ensureTicketsForEventOrder(order);
-  } catch (e) {
-    console.warn('[mail] ensureTicketsForEventOrder failed:', e.message);
+    if (force) {
+      await Order.updateOne({ _id: order._id }, lockUpdate);
+      lockAcquired = true;
+    } else {
+      const lockFilter = {
+        _id: order._id,
+        $and: [
+          {
+            $or: [
+              { 'paymentProviderMeta.attestationSentAt': { $exists: false } },
+              { 'paymentProviderMeta.attestationSentAt': null }
+            ]
+          },
+          {
+            $or: [
+              { 'paymentProviderMeta.attestationSendingAt': { $exists: false } },
+              { 'paymentProviderMeta.attestationSendingAt': null },
+              { 'paymentProviderMeta.attestationSendingAt': { $lte: staleCutoff } }
+            ]
+          }
+        ]
+      };
+      const res = await Order.updateOne(lockFilter, lockUpdate);
+      if (!res.modifiedCount) {
+        return false;
+      }
+      lockAcquired = true;
+    }
+
+    const sendingMeta = {
+      ...meta,
+      attestationSendingAt: now,
+      attestationSendingSource: source
+    };
+    order.paymentProviderMeta = sendingMeta;
+    order.markModified('paymentProviderMeta');
+
+    const isEvent = !!(order?.eventId || order?.meta?.eventId);
+
+    const tpl = isEvent
+      ? (process.env.EMAIL_TEMPLATE_EVENT_CONFIRM || 'event-confirmation')
+      : (process.env.EMAIL_TEMPLATE_SUBSCRIPTION_CONFIRM || 'subscription-confirmation');
+
+    const subject = subjectForOrder(order);
+    const html = await renderOrderEmail(order);
+
+    // 1) Banque de QR → order.meta.tickets
+    try {
+      const r = await attachQrFromBank(mongoose.connection.db, order);
+      if (r?.ok && Array.isArray(r.tickets) && r.tickets.length) {
+        order.meta = { ...(order.meta || {}), tickets: r.tickets };
+        await order.save();
+      }
+    } catch (e) {
+      console.warn('[mail] attachQrFromBank failed:', e.message);
+    }
+
+    try {
+      await ensureTicketsForEventOrder(order);
+    } catch (e) {
+      console.warn('[mail] ensureTicketsForEventOrder failed:', e.message);
+    }
+
+    // 2) Génère le PDF si tickets présents
+    let attachments = [];
+    try {
+      if (Array.isArray(order?.meta?.tickets) && order.meta.tickets.length) {
+        const pdf = await buildTicketsPdfBuffer(order);
+        console.log('[mail/pdf] bytes=', pdf?.length || 0,
+          'tickets=', Array.isArray(order?.meta?.tickets) ? order.meta.tickets.length : 0,
+          'kind=', order?.mailTemplateKind);
+
+        attachments.push({
+          filename: `billets-${String(order._id)}.pdf`,
+          contentType: 'application/pdf',
+          content: pdf
+        });
+      }
+    } catch (e) {
+      console.warn('[mail] buildTicketsPdfBuffer failed:', e.message);
+    }
+
+    await sendMail({ to: order.payerEmail, subject, html, attachments });
+
+    const sentAt = new Date();
+    const finalMeta = {
+      ...order.paymentProviderMeta,
+      attestationSentAt: sentAt
+    };
+    delete finalMeta.attestationSendingAt;
+    delete finalMeta.attestationSendingSource;
+    order.paymentProviderMeta = finalMeta;
+    order.markModified('paymentProviderMeta');
+
+    try {
+      await order.save();
+    } catch (err) {
+      console.warn('[mail] order save after attestation failed:', err?.message || err);
+    }
+
+    return true;
+  } finally {
+    if (lockAcquired) {
+      const update = {
+        $unset: {
+          'paymentProviderMeta.attestationSendingAt': 1,
+          'paymentProviderMeta.attestationSendingSource': 1
+        }
+      };
+      const sentAtFinal = order.paymentProviderMeta?.attestationSentAt;
+      if (sentAtFinal) {
+        update.$set = { 'paymentProviderMeta.attestationSentAt': sentAtFinal };
+      }
+      try {
+        await Order.updateOne(
+          { _id: order._id },
+          update
+        );
+      } catch (e) {
+        console.warn('[mail] unlock attestation failed:', e?.message || e);
+      }
+      if (sentAtFinal) {
+        order.paymentProviderMeta = {
+          ...(order.paymentProviderMeta || {}),
+          attestationSentAt: sentAtFinal
+        };
+      } else if (alreadySentAt) {
+        order.paymentProviderMeta = {
+          ...(order.paymentProviderMeta || {}),
+          attestationSentAt: alreadySentAt
+        };
+      } else if (order.paymentProviderMeta) {
+        delete order.paymentProviderMeta.attestationSentAt;
+      }
+      if (order.paymentProviderMeta) {
+        delete order.paymentProviderMeta.attestationSendingAt;
+        delete order.paymentProviderMeta.attestationSendingSource;
+      }
+    }
   }
-
-   // 2) Génère le PDF si tickets présents
-   let attachments = [];
-   try {
-     if (Array.isArray(order?.meta?.tickets) && order.meta.tickets.length) {
-       const pdf = await buildTicketsPdfBuffer(order);
-console.log('[mail/pdf] bytes=', pdf?.length || 0,
-            'tickets=', Array.isArray(order?.meta?.tickets) ? order.meta.tickets.length : 0,
-            'kind=', order?.mailTemplateKind);
-
-            attachments.push({
-         filename: `billets-${String(order._id)}.pdf`,
-         contentType: 'application/pdf',
-         content: pdf
-       });
-     }
-   } catch (e) {
-     console.warn('[mail] buildTicketsPdfBuffer failed:', e.message);
-   }
-
-
-  await sendMail({ to: order.payerEmail, subject, html, attachments });
-
-  return true;
 }
 
 export async function sendConflictEmail(order) {
