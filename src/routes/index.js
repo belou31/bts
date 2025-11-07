@@ -9,6 +9,7 @@ import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 import tbh7Router from './tbh7.js';
 import subscriptionRouter from './subscription.js';
 import eventRoutes from './event.js';
+import partnerRoutes from './partner.js';
 import adminRoutes from './admin/index.js';
 import supervisionRoutes from './admin/supervision.routes.js';
 import payRoutes from './pay.js';      
@@ -26,6 +27,27 @@ const VIEWS_DIR  = path.resolve(__dirname, '..', 'views');
 // IMPORTANT : en DEV BASE_PATH == '' -> assets doit commencer par /static (absolu)
 const BASE_PATH = (process.env.BASE_PATH || '').trim();
 const ASSET_PREFIX = path.posix.join(BASE_PATH, '/static/').replace(/\/{2,}/g, '/');
+const PARTNER_FRAME_ANCESTORS = (process.env.PARTNER_FRAME_ANCESTORS || '').trim();
+
+function applyPartnerFrameAncestorsHeaders(res) {
+  if (PARTNER_FRAME_ANCESTORS) {
+    res.setHeader('Content-Security-Policy', `frame-ancestors ${PARTNER_FRAME_ANCESTORS}`);
+    const firstOrigin = PARTNER_FRAME_ANCESTORS.split(/\s+/)[0];
+    if (firstOrigin) {
+      const normalized = firstOrigin.toLowerCase();
+      if (normalized === "'self'" || normalized === 'self') {
+        res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+      } else if (normalized === "'none'" || normalized === 'none') {
+        res.setHeader('X-Frame-Options', 'DENY');
+      } else {
+        res.setHeader('X-Frame-Options', `ALLOW-FROM ${firstOrigin}`);
+      }
+    }
+  } else {
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  }
+}
 
 
 export default function routes(router) {
@@ -167,6 +189,50 @@ export default function routes(router) {
     });
   });
 
+  router.get('/partner/:partnerSlug/event/:eventSlug', (req, res) => {
+    const partnerSlug = String(req.params.partnerSlug || '').trim();
+    const eventSlug = String(req.params.eventSlug || '').trim();
+    if (!partnerSlug || !eventSlug) return res.status(400).send('Missing partner or event slug');
+
+    applyPartnerFrameAncestorsHeaders(res);
+
+    const providerName = currentPaymentProviderLabel();
+    const encodedPartner = encodeURIComponent(partnerSlug);
+    const encodedEvent = encodeURIComponent(eventSlug);
+    const baseForJoin = BASE_PATH || '/';
+    const statusPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'status');
+    const checkoutPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'checkout');
+
+    res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
+      title: 'Billetterie Partenaire — BTS',
+      heading: 'Accès Partenaire',
+      lead: 'Réservez vos places via la billetterie dédiée partenaire.',
+      planHelp: 'Sélectionnez un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
+      scheduleOptions: [],
+      paymentHelp: `Tunnel de paiement sécurisé ${providerName}.`,
+      assets: ASSET_PREFIX,
+      zoneSelector: {
+        enabled: true,
+        label: 'Choisir sur Plan ou Ajouter Zone:',
+        addLabel: 'Ajouter',
+        options: []
+      },
+      config: {
+        api: {
+          status: statusPath,
+          checkout: checkoutPath
+        },
+        selection: { type: 'seats' },
+        buildRowsFromData: false,
+        svgSeatClasses: { allowed: 'seat-allowed' },
+        partnerSlug,
+        eventSlug
+      },
+      orderPageConfig: { focusField: 'payerEmail' },
+      customJs: [ASSET_PREFIX + 'js/event.js']
+    });
+  });
+
   // Legacy: /event?eventId=<slug> – conservé pour compat
   router.get('/event', (req, res) => {
 
@@ -244,6 +310,8 @@ export default function routes(router) {
 
   // API JSON
   router.use('/api/tbh7', tbh7Router);
+
+  router.use('/api/partner', partnerRoutes);
 
   router.use('/api/season/:seasonCode', subscriptionRouter);
   router.use('/api/season', subscriptionRouter);
