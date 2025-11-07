@@ -278,6 +278,63 @@ const csvEscape = (v) => {
 };
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 
+async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
+  if (!eventDoc) return {};
+  const seasonCode = eventDoc.seasonCode || null;
+  const venueSlug = eventDoc.venueSlug || null;
+  if (!seasonCode || !venueSlug) return {};
+
+  const paidOrderMatch = orderMatch
+    ? { ...orderMatch, status: 'paid' }
+    : {
+        status: 'paid',
+        $or: [
+          { eventId: eventDoc._id },
+          { 'meta.eventId': String(eventDoc._id) }
+        ]
+      };
+
+  const [seatsRaw, paidOrders] = await Promise.all([
+    Seat.find(
+      { seasonCode, venueSlug },
+      { seatId: 1, zoneKey: 1, status: 1, _id: 0 }
+    ).lean(),
+    Order.find(paidOrderMatch, { lines: 1, _id: 0 }).lean()
+  ]);
+
+  const seatMap = new Map();
+  for (const seat of seatsRaw || []) {
+    const seatId = String(seat?.seatId || '').trim();
+    if (!seatId) continue;
+    seatMap.set(seatId, {
+      seatId,
+      status: String(seat?.status || 'available').toLowerCase()
+    });
+  }
+
+  if (!seatMap.size) return {};
+
+  for (const order of paidOrders || []) {
+    for (const line of order?.lines || []) {
+      const placement = resolveLinePlacement(line);
+      if (!placement || placement.released) continue;
+      const seatId = String(placement?.seatId || '').trim();
+      if (!seatId || isVirtualZoneSeatId(seatId)) continue;
+      if (!seatMap.has(seatId)) continue;
+      const previous = seatMap.get(seatId);
+      if (previous.status === 'booked') continue;
+      seatMap.set(seatId, { ...previous, status: 'booked' });
+    }
+  }
+
+  const counts = {};
+  for (const { status } of seatMap.values()) {
+    const key = status || 'unknown';
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
+
 function prepareScriptCatalog() {
   const scriptGroups = adminScriptGroups
     .slice()
@@ -591,10 +648,6 @@ router.get('/monitor', async (req, res) => {
         ]
       }
     : null;
-  const eventSeatMatch = selectedEvent
-    ? { seasonCode: selectedEvent.seasonCode, venueSlug: selectedEvent.venueSlug }
-    : null;
-
   let eventOrders = [];
   let eventOrderStats = {};
   let eventTickets = [];
@@ -609,7 +662,7 @@ router.get('/monitor', async (req, res) => {
       eventOrderStatsAgg,
       attendanceStatsAgg,
       eventTicketsRaw,
-      eventSeatStatsAgg,
+      eventSeatCountsRaw,
       eventSubscribersRaw,
       eventScansRaw
     ] = await Promise.all([
@@ -630,12 +683,9 @@ router.get('/monitor', async (req, res) => {
         .sort({ createdAt: -1 })
         .limit(20)
         .lean(),
-      eventSeatMatch
-        ? Seat.aggregate([
-            { $match: eventSeatMatch },
-            { $group: { _id: '$status', count: { $sum: 1 } } }
-          ])
-        : Promise.resolve([]),
+      selectedEvent
+        ? computeEventSeatCounts(selectedEvent, eventOrderMatch)
+        : Promise.resolve({}),
       selectedEvent
         ? Subscriber.find({ seasonCode: selectedEvent.seasonCode, venueSlug: selectedEvent.venueSlug })
             .sort({ updatedAt: -1 })
@@ -707,11 +757,8 @@ router.get('/monitor', async (req, res) => {
       createdAt: t.createdAt
     }));
 
-    eventSeatCounts = Array.isArray(eventSeatStatsAgg)
-      ? eventSeatStatsAgg.reduce((acc, row) => {
-          acc[row._id || 'unknown'] = row.count;
-          return acc;
-        }, {})
+    eventSeatCounts = (eventSeatCountsRaw && typeof eventSeatCountsRaw === 'object')
+      ? eventSeatCountsRaw
       : {};
 
     eventSubscribers = eventSubscribersRaw.map(s => ({
