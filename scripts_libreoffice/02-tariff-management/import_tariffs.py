@@ -224,7 +224,8 @@ def _collect_entries(sheet) -> List[Dict[str, Any]]:
             'fieldLabel': _normalize(get(row, 'fieldlabel') or get(row, 'field_label')),
             'requiresInfo': _normalize(get(row, 'requiresinfo') or get(row, 'requires_info')),
             'active': _normalize_bool(get(row, 'active') or get(row, 'enabled'), True),
-            'sortOrder': _normalize(get(row, 'sortorder') or get(row, 'sort_order'))
+            'sortOrder': _normalize(get(row, 'sortorder') or get(row, 'sort_order')),
+            'channels': _normalize(get(row, 'channels') or get(row, 'channel') or get(row, 'scopes'))
         }
         entries.append(entry)
     return entries

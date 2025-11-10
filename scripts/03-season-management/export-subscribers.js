@@ -1,5 +1,5 @@
 /**
- * Export subscribers to CSV.
+ * Export renewers (subscribers eligible for renewals) to CSV.
  *
  * Usage:
  *   node scripts/03-season-management/export-subscribers.js [--season=2025-2026] [--venue=patinoire-blagnac] [--activeOnly]
@@ -29,10 +29,14 @@ const season = process.argv.find(a => a.startsWith('--season='))?.split('=')[1] 
 const venue  = process.argv.find(a => a.startsWith('--venue='))?.split('=')[1]  || null;
 const activeOnly = process.argv.includes('--activeOnly');
 
-const q = {};
-if (season) q.seasonCode = season;
+if (!season) {
+  console.error('Veuillez préciser la saison à exporter: --season=2025-2026');
+  process.exit(1);
+}
+
+const q = { seasonCode: season };
 if (venue)  q.venueSlug  = venue;
-if (activeOnly) q.isActive = true;
+if (activeOnly) q.status = 'active';
 
 const csvEscape = (v) => {
   if (v == null) return '';
@@ -60,7 +64,7 @@ const csvEscape = (v) => {
       s.venueSlug || '',
       s.prefSeatId || '',
       prev,
-      (typeof s.isActive === 'boolean' ? (s.isActive ? '1' : '0') : ''),
+      (s.status === 'active' ? '1' : '0'),
       s.notes || ''
     ].map(csvEscape).join(',');
     process.stdout.write(row + '\n');

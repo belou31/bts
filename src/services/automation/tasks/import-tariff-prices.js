@@ -28,7 +28,8 @@ export const importTariffPricesTask = {
             priceCents: { type: ['number', 'string'] },
             priceEuro: { type: ['number', 'string'] },
             price: { type: ['number', 'string'] },
-            currency: { type: 'string' }
+            currency: { type: 'string' },
+            channels: { type: ['string', 'array'], items: { type: 'string' } }
           }
         }
       }

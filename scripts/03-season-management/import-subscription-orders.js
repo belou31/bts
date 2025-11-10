@@ -23,7 +23,6 @@ dotenv.config();
 
 import { Order } from '../../src/models/Order.js';
 import { Seat } from '../../src/models/Seat.js';
-import { Subscriber } from '../../src/models/Subscriber.js';
 import { sendOrderAttestationIfNeeded } from '../../src/services/order-finalization.js';
 
 const args = minimist(process.argv.slice(2), {
@@ -44,6 +43,14 @@ const COMMIT = !!args.commit;
 const FORCE  = !!args.force;
 const SEND_EMAILS = !!args.sendEmails && COMMIT;
 const DRY_RUN = args.dryRun === true ? true : !COMMIT;
+const VIRTUAL_ZONE_RE = /^.+-Z\d{3,}$/i;
+
+const buildVirtualSeatId = (zoneKey, lineIndex = 0) => {
+  const zone = String(zoneKey || '').trim().toUpperCase();
+  if (!zone) return '';
+  const idx = Number.isFinite(Number(lineIndex)) ? Number(lineIndex) : 0;
+  return `${zone}-Z${String(idx + 1).padStart(3, '0')}`;
+};
 
 function usage() {
   console.error('Usage: node scripts/03-season-management/import-subscription-orders.js <path/orders.csv> [--season=...] [--venue=...] [--status=paid] [--commit] [--force] [--sendEmails]');
@@ -189,15 +196,25 @@ function orderFromRows(orderId, group) {
 
   const createdAt = parseCSVDate(first.createdAt) || new Date();
 
-  const lines = rows.map((row, idx) => ({
-    lineIndex: toNumber(row.lineIndex || idx, idx),
-    seatId: row.seatId || '',
-    zoneKey: row.zoneKey || '',
-    tariffCode: (row.tariffCode || '').toUpperCase(),
-    priceCents: toNumber(row.priceCents || 0, 0),
-    holderFirstName: row.holderFirstName || '',
-    holderLastName:  row.holderLastName  || ''
-  })).sort((a, b) => a.lineIndex - b.lineIndex);
+  const lines = rows.map((row, idx) => {
+    const lineIndex = toNumber(row.lineIndex || idx, idx);
+    const rawSeatId = String(row.seatId || '').trim();
+    const zoneKey = String(row.zoneKey || '').trim().toUpperCase();
+    const needsVirtualSeat = !rawSeatId && !!zoneKey;
+    const seatId = needsVirtualSeat ? buildVirtualSeatId(zoneKey, lineIndex) : rawSeatId;
+    const isVirtualSeat = needsVirtualSeat || VIRTUAL_ZONE_RE.test(seatId);
+
+    return {
+      lineIndex,
+      seatId,
+      zoneKey,
+      tariffCode: (row.tariffCode || '').toUpperCase(),
+      priceCents: toNumber(row.priceCents || 0, 0),
+      holderFirstName: row.holderFirstName || '',
+      holderLastName: row.holderLastName || '',
+      isVirtualSeat
+    };
+  }).sort((a, b) => a.lineIndex - b.lineIndex);
 
   const totalCents = lines.reduce((acc, l) => acc + (l.priceCents || 0), 0) || totalCentsCsv;
 
@@ -249,8 +266,6 @@ async function main() {
   let updated = 0;
   let skipped = 0;
   let bookedSeats = 0;
-  let subscriberUpserts = 0;
-  let subscriberUpdates = 0;
 
   for (const [orderId, pack] of groups.entries()) {
     let parsed;
@@ -264,7 +279,8 @@ async function main() {
 
     const { seasonCode, venueSlug, payerEmail, lines } = parsed;
     const status = parsed.status;
-    const lineSeatIds = Array.from(new Set(lines.map(l => l.seatId).filter(Boolean)));
+    const physicalSeatLines = lines.filter(l => l.seatId && !l.isVirtualSeat);
+    const lineSeatIds = Array.from(new Set(physicalSeatLines.map(l => l.seatId)));
 
     let seatMap = new Map();
     if (lineSeatIds.length) {
@@ -272,7 +288,7 @@ async function main() {
       seatMap = new Map(seats.map(s => [s.seatId, s]));
     }
 
-    if (!FORCE) {
+    if (!FORCE && lineSeatIds.length) {
       let seatIssue = false;
       for (const seatId of lineSeatIds) {
         const seat = seatMap.get(seatId);
@@ -360,47 +376,9 @@ async function main() {
       console.log(`✓ insert: ${orderId}`);
     }
 
-    const subscriberIds = [];
-    for (const line of lines) {
-      const seatId = String(line.seatId || '').trim();
-      if (!seatId) continue;
-      const subscriberFilter = {
-        email: payerEmail.toLowerCase(),
-        seasonCode,
-        venueSlug,
-        prefSeatId: seatId
-      };
-      const subscriberUpdate = {
-        $set: {
-          firstName: line.holderFirstName || parsed.payerFirstName || '',
-          lastName:  line.holderLastName  || parsed.payerLastName  || '',
-          email: payerEmail.toLowerCase(),
-          phone: '',
-          prefSeatId: seatId,
-          seasonCode,
-          venueSlug,
-          groupKey: parsed.groupKey || groupKey,
-          status: status === 'paid' ? 'active' : 'pending'
-        },
-        $addToSet: { previousSeasonSeats: seatId }
-      };
-
-      const subRes = await Subscriber.updateOne(
-        subscriberFilter,
-        subscriberUpdate,
-        { upsert: true, setDefaultsOnInsert: true }
-      );
-      if ((subRes.upsertedCount ?? 0) > 0) subscriberUpserts++;
-      else if ((subRes.modifiedCount ?? subRes.nModified ?? 0) > 0) subscriberUpdates++;
-
-      const subscriberDoc = await Subscriber.findOne(subscriberFilter).lean();
-      if (subscriberDoc?._id) subscriberIds.push({ seatId, subscriberId: subscriberDoc._id });
-    }
-
     let seatsBookedHere = 0;
-    if (/^paid$/i.test(status)) {
-      for (const line of lines) {
-        if (!line.seatId) continue;
+    if (/^paid$/i.test(status) && physicalSeatLines.length) {
+      for (const line of physicalSeatLines) {
         const seatFilter = {
           seasonCode,
           venueSlug,
@@ -438,8 +416,8 @@ async function main() {
 
   console.log('— Résumé —');
   console.log(`Orders: created=${created} updated=${updated} skipped=${skipped}`);
-  console.log(`Subscribers: upserts=${subscriberUpserts} updates=${subscriberUpdates}`);
   console.log(`Seats booked: ${bookedSeats}`);
+  console.log('ℹ️  Renewers collection not modified. Use import-renewers-flat.js to manage next-season eligibility.');
 
   await mongoose.disconnect();
 }

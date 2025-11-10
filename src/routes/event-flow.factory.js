@@ -11,6 +11,7 @@ import { TariffPrice } from '../models/TariffPrice.js';
 import { Zone } from '../models/Zone.js';
 import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
 import { resolveLinePlacement } from '../utils/event-attendance.js';
+import { matchesChannel } from '../utils/channel-scopes.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
@@ -28,15 +29,23 @@ async function loadEvent(eventIdOrSlug) {
 
 // Charge tarifs/prix : priorité à la table "évènement".
 // Si AUCUN tarif d'évènement n'existe, fallback sur saison/lieu (mode legacy).
-async function loadTariffsAndPrices(ev) {
+async function loadTariffsAndPrices(ev, channelCtx) {
   const evTariffs = await Tariff.find({ priceTableKey: ev.priceTableKey, active: true }).lean();
   if (evTariffs.length > 0) {
     const evPrices = await TariffPrice.find({ priceTableKey: ev.priceTableKey }).lean();
-    return { tariffs: evTariffs, prices: evPrices, scope: 'event' };
+    return {
+      tariffs: evTariffs.filter((doc) => matchesChannel(doc?.channels, channelCtx)),
+      prices: evPrices.filter((doc) => matchesChannel(doc?.channels, channelCtx)),
+      scope: 'event'
+    };
   }
   const fbTariffs = await Tariff.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, active: true }).lean();
   const fbPrices = await TariffPrice.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }).lean();
-  return { tariffs: fbTariffs, prices: fbPrices, scope: 'fallback' };
+  return {
+    tariffs: fbTariffs.filter((doc) => matchesChannel(doc?.channels, channelCtx)),
+    prices: fbPrices.filter((doc) => matchesChannel(doc?.channels, channelCtx)),
+    scope: 'fallback'
+  };
 }
 
 function buildAllowedFromPrices(prices) {
@@ -108,7 +117,9 @@ export function createEventFlowRouter({
   itemNamePrefix = 'EVENT',
   groupKeyPrefix = 'EVENT',
   mailTemplateKind = 'event',
-  originExtras = {}
+  originExtras = {},
+  channelResolver = () => ({ kind: 'public' }),
+  originResolver = null
 } = {}) {
   const router = Router();
   const originBuilder = buildOrigin(flowKey, uiPath, originExtras);
@@ -116,10 +127,11 @@ export function createEventFlowRouter({
   // GET /:eventId/status
   router.get('/:eventId/status', async (req, res) => {
     try {
+      const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
       const [seatsBase, { tariffs, prices, scope }] = await Promise.all([
         computeSeatStates(ev),
-        loadTariffsAndPrices(ev)
+        loadTariffsAndPrices(ev, channelCtx)
       ]);
 
       // 1) Zones autorisées à partir des prix (UPPERCASE partout)
@@ -245,7 +257,8 @@ export function createEventFlowRouter({
         zonesMeta,
         zonesKind,
         seats: seatsOut,
-        standingZones
+        standingZones,
+        channel: channelCtx?.kind || 'public'
       });
     } catch (e) {
       res.status(404).json({ ok: false, error: e.message || 'Not found' });
@@ -255,6 +268,7 @@ export function createEventFlowRouter({
   // POST /:eventId/checkout
   router.post('/:eventId/checkout', async (req, res) => {
     try {
+      const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
       assert(ev.isOnSale === true, 'Vente fermée pour cet événement.');
 
@@ -279,7 +293,7 @@ export function createEventFlowRouter({
       }
 
       // Recalcule prix (table évènement si elle existe, sinon fallback)
-      const { prices, scope } = await loadTariffsAndPrices(ev);
+      const { prices, scope } = await loadTariffsAndPrices(ev, channelCtx);
       const pmap = new Map(prices.map(p => [
         `${String(p.zoneKey || '').toUpperCase()}::${String(p.tariffCode || '').toUpperCase()}`,
         Number(p.priceCents) || 0
@@ -314,6 +328,11 @@ export function createEventFlowRouter({
       const until = new Date(now.getTime() + HOLD_MIN * 60 * 1000);
       const uniqueGroupKey = `${groupKeyPrefix}-${ev.slug}-${new mongoose.Types.ObjectId().toString()}`;
 
+      const baseOrigin = originBuilder(req);
+      const resolvedOrigin = typeof originResolver === 'function'
+        ? originResolver(req, baseOrigin, channelCtx) || baseOrigin
+        : baseOrigin;
+
       const ord = await Order.create({
         eventId: ev._id,
         itemName: `${itemNamePrefix}_${ev.slug}`,
@@ -347,7 +366,7 @@ export function createEventFlowRouter({
           provider: PAYMENT_PROVIDER_ID
         },
 
-        origin: originBuilder(req),
+        origin: resolvedOrigin,
         mailTemplateKind,
         hold: { until }
       });

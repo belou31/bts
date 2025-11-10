@@ -1,9 +1,10 @@
-# zoneKey,tariffCode,priceEuro
-S1,NORMAL,180
-S1,REDUCED,140
-S1,CHILD,90
-S2,NORMAL,150
-S2,REDUCED,120
-S2,CHILD,75
-DEBOUT,NORMAL,80
-DEBOUT,REDUCED,60
+# zoneKey,tariffCode,priceEuro,channels
+S1,NORMAL,180,public
+S1,REDUCED,140,public
+S1,CHILD,90,public
+S2,NORMAL,150,public
+S2,REDUCED,120,public
+S2,CHILD,75,public
+DEBOUT,NORMAL,80,public
+DEBOUT,REDUCED,60,public
+ZONE_S3,CS_PARTNER,110,"partner:csebla"

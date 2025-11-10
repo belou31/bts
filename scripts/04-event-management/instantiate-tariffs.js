@@ -78,7 +78,7 @@ try {
 
   console.log(`→ Event: ${event.slug || event._id} · priceTableKey=${event.priceTableKey}`);
 
-  const entryMap = new Map(); // key => { priceCents }
+  const entryMap = new Map(); // key => { priceCents, channels }
   const tariffCodes = new Set();
 
   for (const catalogSlug of catalogList) {
@@ -94,7 +94,11 @@ try {
       const zoneKey = normalizeCode(doc.zoneKey);
       const tariffCode = normalizeCode(doc.tariffCode);
       if (!zoneKey || !tariffCode) continue;
-      entryMap.set(`${zoneKey}::${tariffCode}`, { priceCents: Number(doc.priceCents) || 0, catalogSlug });
+      entryMap.set(`${zoneKey}::${tariffCode}`, {
+        priceCents: Number(doc.priceCents) || 0,
+        catalogSlug,
+        channels: doc.channels
+      });
       tariffCodes.add(tariffCode);
     }
   }
@@ -138,7 +142,8 @@ try {
       fieldLabel: base.fieldLabel ?? null,
       requiresInfo: base.requiresInfo ?? null,
       active: base.active !== false,
-      sortOrder: base.sortOrder ?? 100
+      sortOrder: base.sortOrder ?? 100,
+      channels: base.channels
     });
   }
 
@@ -148,7 +153,8 @@ try {
       priceTableKey: eventPriceTableKey,
       zoneKey,
       tariffCode,
-      priceCents: value.priceCents
+      priceCents: value.priceCents,
+      channels: value.channels
     };
   });
 
@@ -159,9 +165,15 @@ try {
 
   let tariffUpserts = 0;
   for (const doc of tariffDocs.values()) {
+    const setDoc = { ...doc };
+    const updateDoc = { $set: setDoc };
+    if (!doc.channels || !doc.channels.length) {
+      delete setDoc.channels;
+      updateDoc.$unset = { channels: '' };
+    }
     const res = await Tariff.updateOne(
       { priceTableKey: eventPriceTableKey, code: doc.code },
-      { $set: doc },
+      updateDoc,
       { upsert: true }
     );
     if ((res.upsertedCount ?? 0) > 0 || (res.modifiedCount ?? 0) > 0) tariffUpserts++;
@@ -169,17 +181,24 @@ try {
 
   let priceUpserts = 0;
   for (const doc of priceDocs) {
+    const setDoc = {
+      priceTableKey: eventPriceTableKey,
+      zoneKey: doc.zoneKey,
+      tariffCode: doc.tariffCode,
+      priceCents: doc.priceCents
+    };
+    const updateDoc = {
+      $set: setDoc,
+      $unset: { seasonCode: '', venueSlug: '' }
+    };
+    if (doc.channels && doc.channels.length) {
+      setDoc.channels = doc.channels;
+    } else {
+      updateDoc.$unset.channels = '';
+    }
     const res = await TariffPrice.updateOne(
       { priceTableKey: eventPriceTableKey, zoneKey: doc.zoneKey, tariffCode: doc.tariffCode },
-      {
-        $set: {
-          priceTableKey: eventPriceTableKey,
-          zoneKey: doc.zoneKey,
-          tariffCode: doc.tariffCode,
-          priceCents: doc.priceCents
-        },
-        $unset: { seasonCode: '', venueSlug: '' }
-      },
+      updateDoc,
       { upsert: true, setDefaultsOnInsert: true }
     );
     if ((res.upsertedCount ?? 0) > 0 || (res.modifiedCount ?? 0) > 0) priceUpserts++;

@@ -24,7 +24,8 @@ export const importTariffsTask = {
             fieldLabel: { type: 'string' },
             requiresInfo: { type: 'string' },
             active: { type: ['boolean', 'string', 'number'] },
-            sortOrder: { type: ['number', 'string'] }
+            sortOrder: { type: ['number', 'string'] },
+            channels: { type: ['string', 'array'], items: { type: 'string' } }
           }
         }
       }

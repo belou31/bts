@@ -26,6 +26,7 @@ dotenv.config();
 
 import { Tariff } from '../../src/models/Tariff.js';
 import { TariffPriceCatalog } from '../../src/models/TariffPriceCatalog.js';
+import { serializeChannelList } from '../../src/utils/channel-scopes.js';
 
 const INPUT_DIR = path.resolve(process.cwd(), 'data/inputs');
 
@@ -162,7 +163,7 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
     console.error('[import-tariff-prices] CSV stream error:', err?.message || err);
   });
 
-  const headerInfo = { header: null, headerLC: null, mode: null };
+  const headerInfo = { header: null, headerLC: null, mode: null, hasChannels: false };
   const entries = [];
   let rowCount = 0;
   let skips = 0;
@@ -175,6 +176,9 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
       headerInfo.header = parseCSVLine(rawLine, delimiter).map(stripBOM);
       headerInfo.headerLC = headersLC(headerInfo.header);
       headerInfo.mode = detectFormat(headerInfo.headerLC, explicitFormat);
+      headerInfo.hasChannels = headerInfo.headerLC.some((name) =>
+        ['channels', 'channel', 'scopes'].includes(name)
+      );
       if (!headerInfo.mode) {
         throw new Error(`Impossible de détecter le format CSV. En-têtes: ${headerInfo.header.join(' | ')}`);
       }
@@ -200,7 +204,17 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
         skips++;
         continue;
       }
-      entries.push({ zoneKey, tariffCode, priceCents });
+      const channelsRaw = headerInfo.hasChannels
+        ? (map.channels || map.channel || map.scopes || '')
+        : '';
+      const parsedChannels = headerInfo.hasChannels ? serializeChannelList(channelsRaw) : undefined;
+      entries.push({
+        zoneKey,
+        tariffCode,
+        priceCents,
+        channels: parsedChannels,
+        channelsDefined: headerInfo.hasChannels
+      });
     } else {
       const hdr = headerInfo.header;
       const tariffCode = String(stripBOM(cells[0] || '')).trim().toUpperCase();
@@ -214,7 +228,7 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
         if (!zoneKey) continue;
         const priceCents = parsePriceCell(cells[idx]);
         if (!Number.isFinite(priceCents)) continue;
-        entries.push({ zoneKey, tariffCode, priceCents });
+        entries.push({ zoneKey, tariffCode, priceCents, channelsDefined: false });
       }
     }
   }
@@ -315,6 +329,22 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
     console.log(`[import-tariff-prices] Serial write mode (${entries.length} updates)`);
     console.time('[import-tariff-prices] serial-writes');
     for (const entry of entries) {
+      const updateSet = {
+        catalogSlug,
+        venueSlug,
+        zoneKey: entry.zoneKey,
+        tariffCode: entry.tariffCode,
+        priceCents: entry.priceCents,
+        currency: 'EUR'
+      };
+      const updateDoc = { $set: updateSet };
+      if (entry.channelsDefined) {
+        if (entry.channels && entry.channels.length) {
+          updateSet.channels = entry.channels;
+        } else {
+          updateDoc.$unset = { channels: '' };
+        }
+      }
       const res = await TariffPriceCatalog.updateOne(
         {
           catalogSlug,
@@ -322,43 +352,43 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
           zoneKey: entry.zoneKey,
           tariffCode: entry.tariffCode
         },
-        {
-          $set: {
-            catalogSlug,
-            venueSlug,
-            zoneKey: entry.zoneKey,
-            tariffCode: entry.tariffCode,
-            priceCents: entry.priceCents,
-            currency: 'EUR'
-          }
-        },
+        updateDoc,
         { upsert: true }
       );
       if ((res.upsertedCount ?? 0) > 0 || (res.modifiedCount ?? 0) > 0) upserts++;
     }
     console.timeEnd('[import-tariff-prices] serial-writes');
   } else {
-    const bulkOps = entries.map(entry => ({
-      updateOne: {
-        filter: {
-          catalogSlug,
-          venueSlug,
-          zoneKey: entry.zoneKey,
-          tariffCode: entry.tariffCode
-        },
-        update: {
-          $set: {
+    const bulkOps = entries.map(entry => {
+      const updateSet = {
+        catalogSlug,
+        venueSlug,
+        zoneKey: entry.zoneKey,
+        tariffCode: entry.tariffCode,
+        priceCents: entry.priceCents,
+        currency: 'EUR'
+      };
+      const updateDoc = { $set: updateSet };
+      if (entry.channelsDefined) {
+        if (entry.channels && entry.channels.length) {
+          updateSet.channels = entry.channels;
+        } else {
+          updateDoc.$unset = { channels: '' };
+        }
+      }
+      return {
+        updateOne: {
+          filter: {
             catalogSlug,
             venueSlug,
             zoneKey: entry.zoneKey,
-            tariffCode: entry.tariffCode,
-            priceCents: entry.priceCents,
-            currency: 'EUR'
-          }
-        },
-        upsert: true
-      }
-    }));
+            tariffCode: entry.tariffCode
+          },
+          update: updateDoc,
+          upsert: true
+        }
+      };
+    });
 
     console.time('[import-tariff-prices] bulk-write');
     const bulkRes = await TariffPriceCatalog.bulkWrite(bulkOps, { ordered: false });

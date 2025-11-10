@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { Event } from '../../models/Event.js';
 import { Order } from '../../models/Order.js';
 import { Seat } from '../../models/Seat.js';
-import { sendOrderAttestationIfNeeded, isPaidLike, ensureTicketsForEventOrder } from '../order-finalization.js';
+import { sendOrderAttestationIfNeeded, isPaidLike } from '../order-finalization.js';
 import { currentPaymentProviderLabel } from '../payments/index.js';
 
 const ALLOWED_STATUS = new Set([
@@ -862,7 +862,6 @@ export async function importEventOrders({
 
     if (sendEmail && isPaidLike(parsed.status)) {
       try {
-        await ensureTicketsForEventOrder(order);
         await sendOrderAttestationIfNeeded(order, { source: 'importer:event-orders' });
         log('info', `  ↳ Confirmation envoyée: ${order.payerEmail}`);
       } catch (error) {

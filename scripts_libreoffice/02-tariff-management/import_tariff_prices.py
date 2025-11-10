@@ -232,7 +232,8 @@ def _collect_entries(sheet, config_map: Dict[str, str] | None = None, sheet_name
             'tariffCode': tariff_code,
             'priceCents': _normalize(get(row, 'pricecents')),
             'priceEuro': _normalize(get(row, 'priceeuro') or get(row, 'price')),
-            'currency': _normalize(get(row, 'currency')) or 'EUR'
+            'currency': _normalize(get(row, 'currency')) or 'EUR',
+            'channels': _normalize(get(row, 'channels') or get(row, 'channel') or get(row, 'scopes'))
         }
         entries.append(entry)
 
