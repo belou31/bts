@@ -390,10 +390,6 @@ async function main() {
           $set: { status: 'booked' },
           $unset: { 'meta.hold': '' }
         };
-        const matchSubscriber = subscriberIds.find(s => s.seatId === line.seatId);
-        if (matchSubscriber) {
-          seatUpdate.$set.provisionedFor = matchSubscriber.subscriberId;
-        }
         const res = await Seat.updateOne(seatFilter, seatUpdate, { runValidators: false });
         const mod = res.modifiedCount ?? res.nModified ?? 0;
         seatsBookedHere += mod;
