@@ -420,11 +420,11 @@ router.get('/return', async (req, res) => {
       if (finalizeInfo.ok) {
         state = 'success';
         if (!finalizeInfo.alreadyFinalized) {
-          try { await sendOrderAttestationIfNeeded(order, { source: 'return' }); }
-          catch (err) {
-            console.warn('[pay/return] mail send failed:', err?.message || err);
-            warnings.push('Le courriel de confirmation n’a pas pu être envoyé automatiquement.');
-          }
+          const meta = { ...(order.paymentProviderMeta || {}) };
+          meta.lastReturnFinalizeAt = new Date();
+          meta.lastReturnFinalizeSource = 'return';
+          order.paymentProviderMeta = meta;
+          order.markModified?.('paymentProviderMeta');
         }
       } else {
         warnings.push("Le paiement est confirmé, mais la finalisation de vos sièges nécessite une intervention manuelle.");
