@@ -444,7 +444,7 @@ export async function sendOrderAttestationIfNeeded(order, options = {}) {
     throw new Error('sendOrderAttestationIfNeeded requires an order with _id');
   }
 
-  const { force = false, source = 'auto' } = options;
+  const { force = false, source = 'auto', refreshQr = false } = options;
   const now = new Date();
   const meta = { ...(order.paymentProviderMeta || {}) };
   const alreadySentAt = meta.attestationSentAt ? new Date(meta.attestationSentAt) : null;
@@ -511,15 +511,23 @@ export async function sendOrderAttestationIfNeeded(order, options = {}) {
     const subject = subjectForOrder(order);
     const html = await renderOrderEmail(order);
 
-    // 1) Banque de QR → order.meta.tickets
-    try {
-      const r = await attachQrFromBank(mongoose.connection.db, order);
-      if (r?.ok && Array.isArray(r.tickets) && r.tickets.length) {
-        order.meta = { ...(order.meta || {}), tickets: r.tickets };
-        await order.save();
+    // 1) Banque de QR → order.meta.tickets (uniquement si aucune QR existante ou refresh forcé)
+    const tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+    const hasExistingQr = tickets.some((t) => {
+      const hex = String(t?.hex || t?.value || '').trim();
+      return !!hex;
+    });
+    const shouldAttachQrFromBank = refreshQr || (!hasExistingQr && Array.isArray(order?.lines) && order.lines.length > 0);
+    if (shouldAttachQrFromBank) {
+      try {
+        const r = await attachQrFromBank(mongoose.connection.db, order);
+        if (r?.ok && Array.isArray(r.tickets) && r.tickets.length) {
+          order.meta = { ...(order.meta || {}), tickets: r.tickets };
+          await order.save();
+        }
+      } catch (e) {
+        console.warn('[mail] attachQrFromBank failed:', e.message);
       }
-    } catch (e) {
-      console.warn('[mail] attachQrFromBank failed:', e.message);
     }
 
     try {
