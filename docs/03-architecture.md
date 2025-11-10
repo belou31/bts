@@ -25,7 +25,7 @@ src/
     mongo.js        # connexion MONGO_URI
   models/
     Seat.js         # sièges instanciés par saison/lieu
-    Subscriber.js   # abonnés, groupKey, prefSeatId
+    Subscriber.js   # registre \"renewers\" (campagne suivante : groupKey, prefSeatId)
     Season.js       # phases (renewal/tbh7/public)
     Tariff.js       # catalogue tarifs
     TariffPrice.js  # prix par zone/saison/lieu

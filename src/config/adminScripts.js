@@ -936,16 +936,38 @@ export const adminScriptGroups = [
       },
       {
         id: 'export-subscribers',
-        label: 'Export Subscribers',
+        label: 'Export Renewers',
         order: 5,
         path: 'scripts/03-season-management/export-subscribers.js',
-        command: 'node scripts/03-season-management/export-subscribers.js [--season=...] [--venue=...] [--activeOnly]',
+        command: 'node scripts/03-season-management/export-subscribers.js --season=<code> [--venue=...] [--activeOnly]',
         run: {
           script: 'scripts/03-season-management/export-subscribers.js',
           args: []
         },
-        description: 'Exports the subscriber collection for the given season/venue as CSV.',
-        templates: ['data/templates/csv/subscribers-export.template.csv']
+        description: 'Exports the renewer registry (formerly Subscribers collection) for the requested season/venue.',
+        templates: ['data/templates/csv/subscribers-export.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Season code',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Venue slug (optional)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'activeOnly',
+              label: 'Active only',
+              arg: { type: 'flag', flag: '--activeOnly' }
+            }
+          ]
+        }
       },
       {
         id: 'export-subscription-orders',

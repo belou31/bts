@@ -18,6 +18,7 @@ import readline from 'readline';
 import mongoose from 'mongoose';
 
 import { Tariff } from '../../src/models/Tariff.js';
+import { serializeChannelList } from '../../src/utils/channel-scopes.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -58,12 +59,13 @@ function parseBool(v, def=true) {
 
   const rl = readline.createInterface({ input: fs.createReadStream(full, 'utf8'), crlfDelay: Infinity });
 
-  let header = null, upserts = 0;
+  let header = null, upserts = 0, hasChannelsColumn = false;
   for await (const raw of rl) {
     const line = raw.replace(/\r$/, '');
     if (!line.trim()) continue;
     if (!header) {
       header = line.split(',').map(h => h.trim().toLowerCase());
+      hasChannelsColumn = header.includes('channels') || header.includes('channel');
       continue;
     }
     // support des champs CSV quotés pour label/fieldLabel/requiresInfo
@@ -88,9 +90,22 @@ function parseBool(v, def=true) {
 
     if (!code || !label) { console.warn('SKIP invalid row:', line); continue; }
 
+    const channelsInput = hasChannelsColumn ? (get('channels') || get('channel')) : null;
+    const parsedChannels = hasChannelsColumn ? serializeChannelList(channelsInput || '') : undefined;
+
+    const setDoc = { label, requiresField: requiresField || null, fieldLabel, requiresInfo, active, sortOrder };
+    const updateDoc = { $set: setDoc };
+    if (hasChannelsColumn) {
+      if (parsedChannels && parsedChannels.length) {
+        setDoc.channels = parsedChannels;
+      } else {
+        updateDoc.$unset = { channels: '' };
+      }
+    }
+
     await Tariff.findOneAndUpdate(
       { code },
-      { $set: { label, requiresField: requiresField || null, fieldLabel, requiresInfo, active, sortOrder } },
+      updateDoc,
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     upserts++;

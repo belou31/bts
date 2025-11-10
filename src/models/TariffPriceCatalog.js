@@ -1,5 +1,6 @@
 // src/models/TariffPriceCatalog.js
 import mongoose from 'mongoose';
+import { serializeChannelList } from '../utils/channel-scopes.js';
 
 const TariffPriceCatalogSchema = new mongoose.Schema({
   catalogSlug: { type: String, required: true, trim: true, lowercase: true },
@@ -7,7 +8,12 @@ const TariffPriceCatalogSchema = new mongoose.Schema({
   zoneKey:     { type: String, required: true, trim: true, uppercase: true },
   tariffCode:  { type: String, required: true, trim: true, uppercase: true },
   priceCents:  { type: Number, required: true },
-  currency:    { type: String, default: 'EUR' }
+  currency:    { type: String, default: 'EUR' },
+  channels: {
+    type: [String],
+    default: undefined,
+    set: serializeChannelList
+  }
 }, { timestamps: true });
 
 TariffPriceCatalogSchema.index(

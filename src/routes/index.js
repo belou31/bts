@@ -126,7 +126,7 @@ export default function routes(router) {
         orderPageConfig: {
           focusField: 'payerEmail'
         },
-        customJs: ['static/js/subscription.js']
+        customJs: [ASSET_PREFIX + 'js/subscription.js']
       });
     } catch (err) {
       next(err);

@@ -67,19 +67,19 @@ function hasFlag(argv, name) {
   }
 
   // Collect entries: global first, venue-specific overrides afterwards
-  const entryMap = new Map(); // key => { priceCents, catalogSlug }
+  const entryMap = new Map(); // key => { priceCents, catalogSlug, channels }
   for (const slug of catalogSlugs) {
     const globalDocs = await TariffPriceCatalog.find({ catalogSlug: slug, venueSlug: null }).lean();
     for (const doc of globalDocs) {
       const key = `${doc.zoneKey}::${doc.tariffCode}`;
       if (!entryMap.has(key)) {
-        entryMap.set(key, { priceCents: doc.priceCents, catalogSlug: slug });
+        entryMap.set(key, { priceCents: doc.priceCents, catalogSlug: slug, channels: doc.channels });
       }
     }
     const venueDocs = await TariffPriceCatalog.find({ catalogSlug: slug, venueSlug }).lean();
     for (const doc of venueDocs) {
       const key = `${doc.zoneKey}::${doc.tariffCode}`;
-      entryMap.set(key, { priceCents: doc.priceCents, catalogSlug: slug });
+      entryMap.set(key, { priceCents: doc.priceCents, catalogSlug: slug, channels: doc.channels });
     }
   }
 
@@ -91,7 +91,13 @@ function hasFlag(argv, name) {
 
   const entries = Array.from(entryMap.entries()).map(([key, value]) => {
     const [zoneKey, tariffCode] = key.split('::');
-    return { zoneKey, tariffCode, priceCents: value.priceCents, catalogSlug: value.catalogSlug };
+    return {
+      zoneKey,
+      tariffCode,
+      priceCents: value.priceCents,
+      catalogSlug: value.catalogSlug,
+      channels: value.channels
+    };
   });
 
   if (!skipTariffCheck) {
@@ -112,18 +118,23 @@ function hasFlag(argv, name) {
 
   let upserts = 0;
   for (const entry of entries) {
+    const setDoc = {
+      seasonCode,
+      venueSlug,
+      zoneKey: entry.zoneKey,
+      tariffCode: entry.tariffCode,
+      priceCents: entry.priceCents,
+      priceTableKey: null
+    };
+    const updateDoc = { $set: setDoc };
+    if (entry.channels && entry.channels.length) {
+      setDoc.channels = entry.channels;
+    } else {
+      updateDoc.$unset = { channels: '' };
+    }
     const res = await TariffPrice.updateOne(
       { seasonCode, venueSlug, zoneKey: entry.zoneKey, tariffCode: entry.tariffCode, priceTableKey: null },
-      {
-        $set: {
-          seasonCode,
-          venueSlug,
-          zoneKey: entry.zoneKey,
-          tariffCode: entry.tariffCode,
-          priceCents: entry.priceCents,
-          priceTableKey: null
-        }
-      },
+      updateDoc,
       { upsert: true }
     );
     if ((res.upsertedCount ?? 0) > 0 || (res.modifiedCount ?? 0) > 0) upserts++;

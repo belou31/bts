@@ -588,7 +588,8 @@ var BtsApp = (function () {
         fieldLabel: getValue('fieldlabel') || getValue('field_label'),
         requiresInfo: getValue('requiresinfo') || getValue('requires_info'),
         active: parseBooleanConfig(getValue('active') || getValue('enabled'), true),
-        sortOrder: getValue('sortorder') || getValue('sort_order')
+        sortOrder: getValue('sortorder') || getValue('sort_order'),
+        channels: getValue('channels') || getValue('channel') || getValue('scopes')
       });
     }
     return entries;
@@ -631,7 +632,8 @@ var BtsApp = (function () {
         tariffCode,
         priceCents: Number.isFinite(priceCents) ? Math.round(priceCents) : '',
         priceEuro: Number.isFinite(priceEuro) ? priceEuro : '',
-        currency: getValue('currency') || 'EUR'
+        currency: getValue('currency') || 'EUR',
+        channels: getValue('channels') || getValue('channel') || getValue('scopes')
       });
     }
     return entries;

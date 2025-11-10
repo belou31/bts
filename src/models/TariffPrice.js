@@ -1,5 +1,6 @@
 // src/models/TariffPrice.js
 import mongoose from 'mongoose';
+import { serializeChannelList } from '../utils/channel-scopes.js';
 
 const TariffPriceSchema = new mongoose.Schema({
   // Abonnement/historique
@@ -10,7 +11,12 @@ const TariffPriceSchema = new mongoose.Schema({
   tariffCode: { type: String, required: true },                 // ex: "NORMAL", "ETUDIANT"
   priceCents: { type: Number, required: true },                 // ex: 18000
   // Événement : clé de table dédiée
-  priceTableKey: { type: String, index: true, default: null }
+  priceTableKey: { type: String, index: true, default: null },
+  channels: {
+    type: [String],
+    default: undefined,
+    set: serializeChannelList
+  }
 }, { timestamps: true });
 
 TariffPriceSchema.index(
