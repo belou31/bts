@@ -164,7 +164,11 @@ const stats = {
 
     try {
       const bankResult = await attachQrFromBank(mongoose.connection.db, order);
-      if (bankResult?.ok === false && bankResult?.reason && bankResult.reason !== 'no-event') {
+      if (bankResult?.ok && Array.isArray(bankResult.tickets) && bankResult.tickets.length) {
+        order.meta = { ...(order.meta || {}), tickets: bankResult.tickets };
+        order.markModified('meta.tickets');
+        await order.save();
+      } else if (bankResult?.ok === false && bankResult?.reason && bankResult.reason !== 'no-event') {
         console.warn(`[warn] QR bank attach failed for order ${order._id}: ${bankResult.reason}`);
       }
 

@@ -1,5 +1,6 @@
 import { Tariff } from '../../models/Tariff.js';
 import { TariffPriceCatalog } from '../../models/TariffPriceCatalog.js';
+import { serializeChannelList } from '../../utils/channel-scopes.js';
 
 function normalizeBoolean(value, fallback = true) {
   if (value === undefined || value === null || value === '') return fallback;
@@ -80,6 +81,9 @@ export async function importTariffCatalog({
       true
     );
     const sortOrder = normalizeSortOrder(rawEntry.sortOrder ?? rawEntry.sort_order);
+    const channels = serializeChannelList(
+      rawEntry.channels ?? rawEntry.channel ?? rawEntry.scopes ?? rawEntry.channelScopes
+    );
 
     if (dryRun) {
       const exists = await Tariff.exists({ code });
@@ -96,6 +100,7 @@ export async function importTariffCatalog({
       existing.requiresInfo = requiresInfo || null;
       existing.active = active;
       existing.sortOrder = sortOrder;
+      existing.channels = channels;
       await existing.save();
       summary.updated += 1;
       continue;
@@ -108,7 +113,8 @@ export async function importTariffCatalog({
       fieldLabel: fieldLabel || null,
       requiresInfo: requiresInfo || null,
       active,
-      sortOrder
+      sortOrder,
+      channels
     });
     summary.created += 1;
   }
@@ -150,7 +156,10 @@ export async function importTariffPriceCatalog({
       zoneKey,
       tariffCode,
       priceCents,
-      currency: normalizeString(rawEntry.currency || 'EUR') || 'EUR'
+      currency: normalizeString(rawEntry.currency || 'EUR') || 'EUR',
+      channels: serializeChannelList(
+        rawEntry.channels ?? rawEntry.channel ?? rawEntry.scopes ?? rawEntry.channelScopes
+      )
     });
   });
 
@@ -205,7 +214,8 @@ export async function importTariffPriceCatalog({
     const update = {
       $set: {
         priceCents: entry.priceCents,
-        currency: entry.currency
+        currency: entry.currency,
+        channels: entry.channels
       }
     };
     const result = await TariffPriceCatalog.updateOne(filter, update, { upsert: true });

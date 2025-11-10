@@ -23,6 +23,12 @@ export const isRefundedLike = (s) =>
 
 const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid||''));
 const isRealSeatId        = (sid) => /^[A-Z0-9]+-[A-Z]+-\d{1,4}$/i.test(String(sid||''));
+const zoneKeyFromSeatId   = (seatId) => {
+  const raw = String(seatId || '').trim();
+  if (!raw) return '';
+  const idx = raw.indexOf('-');
+  return (idx === -1 ? raw : raw.slice(0, idx)).toUpperCase();
+};
 
 
 export function realSeatIdsFromOrder(order) {
@@ -51,15 +57,65 @@ export async function ensureTicketsForEventOrder(order) {
   const eventIdRaw = order?.eventId || order?.meta?.eventId;
   if (!eventIdRaw) return { created: 0, updated: 0 };
 
-  let metaTickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
-  if (!metaTickets.length) return { created: 0, updated: 0 };
-
   const lines = Array.isArray(order?.lines) ? order.lines : [];
+  let metaTickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
   const orderId = order._id;
   const now = new Date();
   let created = 0;
   let updated = 0;
   let metaChanged = false;
+
+  if (!metaTickets.length && orderId) {
+    const existingDocs = await Ticket.find({ orderId }).sort({ createdAt: 1 }).lean();
+    if (existingDocs.length) {
+      order.meta = order.meta || {};
+      order.meta.tickets = existingDocs
+        .map(doc => {
+          const qrValue = String(doc?.qr?.value || '').trim();
+          if (!qrValue) return null;
+          const tariff = String(doc?.tariffCode || '').toUpperCase() || 'NORMAL';
+          return {
+            ticketId: String(doc._id),
+            seatId: doc.seatId || '',
+            zoneKey: zoneKeyFromSeatId(doc.seatId),
+            tariff,
+            tariffCode: tariff,
+            hex: qrValue,
+            value: qrValue,
+            createdAt: doc?.qr?.createdAt || doc.createdAt || now
+          };
+        })
+        .filter(Boolean);
+      metaTickets = order.meta.tickets;
+      if (metaTickets.length) {
+        metaChanged = true;
+      }
+    }
+  }
+
+  const qrBankModeEnabled = String(process.env.QR_BANK_MODE || '').toLowerCase() === 'true';
+  if (!metaTickets.length && lines.length && !qrBankModeEnabled) {
+    order.meta = order.meta || {};
+    order.meta.tickets = lines.map((line, index) => {
+      const seatId = String(line?.seatId || '').trim();
+      const zoneKey = String(line?.zoneKey || '').trim().toUpperCase();
+      const tariffCode = String(line?.tariffCode || line?.tariff || 'NORMAL').toUpperCase();
+      const hex = generateTicketHex(orderId, index, seatId, zoneKey, tariffCode);
+      return {
+        seatId,
+        zoneKey,
+        tariff: tariffCode,
+        tariffCode,
+        hex,
+        value: hex,
+        createdAt: now,
+      };
+    });
+    metaTickets = order.meta.tickets;
+    metaChanged = true;
+  }
+
+  if (!metaTickets.length) return { created: 0, updated: 0 };
 
   // Normalise tickets so they align 1:1 with lines and provide unique QR codes
   const metaPool = [...metaTickets];

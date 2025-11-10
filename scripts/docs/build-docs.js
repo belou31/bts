@@ -175,7 +175,7 @@ const body3 = `
 <h2>1. Vue d’ensemble</h2>
 <ul>
   <li>API Node.js/Express (routes REST + front statique sous <code>/static</code> et <code>/venues/&lt;slug&gt;/plan.svg</code>).</li>
-  <li>MongoDB : <code>Subscriber</code>, <code>Seat</code>, <code>SeatHold</code>, <code>Season</code>, <code>Tariff</code>, <code>TariffPrice</code>, <code>Counter</code>, <code>Order</code>.</li>
+  <li>MongoDB : <code>Subscriber</code> (Renewer registry), <code>Seat</code>, <code>SeatHold</code>, <code>Season</code>, <code>Tariff</code>, <code>TariffPrice</code>, <code>Counter</code>, <code>Order</code>.</li>
   <li>Paiement HelloAsso (sandbox/prod) ; attestation e-mail après retour.</li>
   <li>Infra : Nginx (TLS) + PM2 (bts-int, bts-prod) sur VPS OVH.</li>
 </ul>
@@ -206,7 +206,7 @@ const body3 = `
 │   │   ├── Seat.js               # Siège (status available/provisioned/held/booked)
 │   │   ├── SeatHold.js           # Blocage temporaire (TTL index)
 │   │   ├── Season.js             # Saison (code, venueSlug, phases)
-│   │   ├── Subscriber.js         # Abonné (groupKey, subscriberNo, ...)
+│   │   ├── Subscriber.js         # Registre « renewers » (groupKey, prefSeatId, subscriberNo)
 │   │   ├── Tariff.js             # Catalogue de tarifs (codes, labels, champs requis)
 │   │   ├── TariffPrice.js        # Prix par zone/saison/venue/tarif
 │   │   └── TariffPriceCatalog.js# Catalogue de prix réutilisable (zone × tarif)
@@ -245,7 +245,7 @@ const body3 = `
 <tr><td>Season</td><td>code, name, active, <strong>venueSlug</strong>, phases[{name,openAt,closeAt,enabled}]</td></tr>
 <tr><td>Seat</td><td>seatId, zoneKey, seasonCode, venueSlug, status, provisionedFor</td></tr>
 <tr><td>SeatHold</td><td>seatId, orderId, expiresAt (TTL index)</td></tr>
-<tr><td>Subscriber</td><td>subscriberNo?, firstName, lastName, email, phone, group, groupKey, previousSeasonSeats, status</td></tr>
+<tr><td>Subscriber (Renewer)</td><td>subscriberNo?, firstName, lastName, email, phone, group, groupKey, previousSeasonSeats, status</td></tr>
 <tr><td>Tariff</td><td>code, label, active, requiresField, fieldLabel, requiresInfo, sortOrder</td></tr>
 <tr><td>TariffPrice</td><td>seasonCode, venueSlug, zoneKey, tariffCode, priceCents</td></tr>
 <tr><td>Counter</td><td>key, seq (numérotation abonné)</td></tr>
