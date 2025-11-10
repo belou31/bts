@@ -53,6 +53,47 @@ export function generateTicketHex(orderId, index, seatId, zoneKey, tariffCode) {
   return Buffer.from(payload, 'utf8').toString('base64').replace(/=+$/,'');
 }
 
+async function hydrateTicketsFromExistingDocs(order) {
+  const orderId = order?._id;
+  if (!orderId) return false;
+  const metaTickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+  const hasQr = metaTickets.some((t) => {
+    const hex = String(t?.hex || t?.value || '').trim();
+    return !!hex;
+  });
+  if (hasQr) return false;
+
+  const docs = await Ticket.find({ orderId }).sort({ createdAt: 1 }).lean();
+  if (!docs.length) return false;
+
+  const hydrated = docs
+    .map((doc) => {
+      const qrValue = String(doc?.qr?.value || '').trim();
+      if (!qrValue) return null;
+      const tariff = String(doc?.tariffCode || '').toUpperCase() || 'NORMAL';
+      return {
+        ticketId: String(doc._id),
+        seatId: doc.seatId || '',
+        zoneKey: zoneKeyFromSeatId(doc.seatId),
+        tariff,
+        tariffCode: tariff,
+        hex: qrValue,
+        value: qrValue,
+        createdAt: doc?.qr?.createdAt || doc.createdAt || new Date()
+      };
+    })
+    .filter(Boolean);
+
+  if (!hydrated.length) return false;
+
+  order.meta = { ...(order.meta || {}), tickets: hydrated };
+  if (typeof order.markModified === 'function') {
+    order.markModified('meta.tickets');
+  }
+  await order.save();
+  return true;
+}
+
 export async function ensureTicketsForEventOrder(order) {
   const eventIdRaw = order?.eventId || order?.meta?.eventId;
   if (!eventIdRaw) return { created: 0, updated: 0 };
@@ -511,12 +552,24 @@ export async function sendOrderAttestationIfNeeded(order, options = {}) {
     const subject = subjectForOrder(order);
     const html = await renderOrderEmail(order);
 
-    // 1) Banque de QR → order.meta.tickets (uniquement si aucune QR existante ou refresh forcé)
-    const tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
-    const hasExistingQr = tickets.some((t) => {
+    // 1) Assure qu'on réutilise d'anciens billets si disponibles
+    let tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+    let hasExistingQr = tickets.some((t) => {
       const hex = String(t?.hex || t?.value || '').trim();
       return !!hex;
     });
+    if (!hasExistingQr) {
+      const hydrated = await hydrateTicketsFromExistingDocs(order);
+      if (hydrated) {
+        tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+        hasExistingQr = tickets.some((t) => {
+          const hex = String(t?.hex || t?.value || '').trim();
+          return !!hex;
+        });
+      }
+    }
+
+    // 2) Banque de QR → order.meta.tickets (uniquement si aucune QR existante ou refresh forcé)
     const shouldAttachQrFromBank = refreshQr || (!hasExistingQr && Array.isArray(order?.lines) && order.lines.length > 0);
     if (shouldAttachQrFromBank) {
       try {
