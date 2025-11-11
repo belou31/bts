@@ -72,7 +72,8 @@ function formatEventDateLabel(startsAt) {
     month: 'long',
     year: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
+    timeZone: 'Europe/Paris'
   });
 }
 
@@ -199,26 +200,11 @@ export default function routes(router) {
         leadPieces.push(`Choisissez vos places pour ce match et suivez le paiement sécurisé ${providerName}.`);
       }
 
-      const infoBlocks = [];
-      if (dateLabel) {
-        infoBlocks.push({
-          title: 'Date & heure',
-          html: `<p>${dateLabel}</p>`
-        });
-      }
-      if (venueLabel) {
-        infoBlocks.push({
-          title: 'Lieu',
-          html: `<p>${venueLabel}</p>`
-        });
-      }
-
       res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
         title: `Billetterie Match — ${ev.name || slug}`,
         documentTitle: `Billetterie — ${ev.name || 'Match BTS'}`,
         heading,
         lead: leadPieces.join(' · '),
-        infoBlocks,
         planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
         scheduleOptions: [],
         paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
