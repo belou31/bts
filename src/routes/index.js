@@ -4,6 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { currentPaymentProviderLabel } from '../services/payments/index.js';
+import { Event } from '../models/Event.js';
+import { Season } from '../models/Season.js';
 
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 import tbh7Router from './tbh7.js';
@@ -47,6 +49,31 @@ function applyPartnerFrameAncestorsHeaders(res) {
     res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   }
+}
+
+const isObjectIdLike = (value) => /^[0-9a-fA-F]{24}$/.test(String(value || '').trim());
+
+async function resolveEventByKey(key) {
+  const raw = String(key || '').trim();
+  if (!raw) return null;
+  const query = isObjectIdLike(raw)
+    ? { $or: [{ _id: raw }, { slug: raw }] }
+    : { slug: raw };
+  return Event.findOne(query).lean();
+}
+
+function formatEventDateLabel(startsAt) {
+  if (!startsAt) return '';
+  const dt = new Date(startsAt);
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleString('fr-FR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
 
@@ -146,47 +173,84 @@ export default function routes(router) {
   });
 
   // NEW: route "slug" (/event/:ev) – recommandée
-  router.get('/event/:ev', (req, res) => {
-    const eventKey = String(req.params.ev || '').trim();
-    if (!eventKey) return res.status(400).send('Missing event slug');
+  router.get('/event/:ev', async (req, res, next) => {
+    try {
+      const eventKey = String(req.params.ev || '').trim();
+      if (!eventKey) return res.status(400).send('Missing event slug');
 
-    const encodedKey = encodeURIComponent(eventKey);
-    const baseForJoin = BASE_PATH || '/';
-    const statusPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'status');
-    const checkoutPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'checkout');
+      const ev = await resolveEventByKey(eventKey);
+      if (!ev) return res.status(404).send('Event not found');
 
-    // ⚠️ Comme on est sous /event/<slug>, utiliser des endpoints RELATIFS remontant d’un cran ("../")
-    // pour viser /api/... (et pas /event/api/...)
-    const providerName = currentPaymentProviderLabel();
+      const slug = ev.slug || eventKey;
+      const encodedKey = encodeURIComponent(slug);
+      const baseForJoin = BASE_PATH || '/';
+      const statusPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'status');
+      const checkoutPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'checkout');
+      const providerName = currentPaymentProviderLabel();
 
-    res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
-      title:   'Billetterie Match — Valence 11/10/2025' ,
-      heading: 'Billetterie Match',
-      lead:    `Choisissez vos places pour ce match et suivez le paiement sécurisé ${providerName}.`,
-      planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
-      scheduleOptions: [],
-      paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
-      assets: ASSET_PREFIX,
-      zoneSelector: {
-        enabled: true,
-        label: 'Choisir sur Plan ou Ajouter Zone:',
-        addLabel: 'Ajouter',
-        options: []
-      },
-      config: {
-        api: {
-          // ✅ endpoints absolus (compat /bts) — pas de préfixe /event/
-          status: statusPath,
-          checkout: checkoutPath
+      const dateLabel = formatEventDateLabel(ev.startsAt);
+      const venueLabel = (ev.venueSlug || '').replace(/[-_]/g, ' ').trim().toUpperCase();
+      const heading = ev.name ? `Billetterie — ${ev.name}` : 'Billetterie Match';
+      const leadPieces = [];
+      if (ev.description) leadPieces.push(ev.description);
+      if (dateLabel) leadPieces.push(`Coup d’envoi : ${dateLabel}`);
+      if (venueLabel) leadPieces.push(`Lieu : ${venueLabel}`);
+      if (!leadPieces.length) {
+        leadPieces.push(`Choisissez vos places pour ce match et suivez le paiement sécurisé ${providerName}.`);
+      }
+
+      const infoBlocks = [];
+      if (dateLabel) {
+        infoBlocks.push({
+          title: 'Date & heure',
+          html: `<p>${dateLabel}</p>`
+        });
+      }
+      if (venueLabel) {
+        infoBlocks.push({
+          title: 'Lieu',
+          html: `<p>${venueLabel}</p>`
+        });
+      }
+
+      res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
+        title: `Billetterie Match — ${ev.name || slug}`,
+        documentTitle: `Billetterie — ${ev.name || 'Match BTS'}`,
+        heading,
+        lead: leadPieces.join(' · '),
+        infoBlocks,
+        planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
+        scheduleOptions: [],
+        paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
+        assets: ASSET_PREFIX,
+        zoneSelector: {
+          enabled: true,
+          label: 'Choisir sur Plan ou Ajouter Zone:',
+          addLabel: 'Ajouter',
+          options: []
         },
-        selection: { type: 'seats' },
-        buildRowsFromData: false,
-        svgSeatClasses: { allowed: 'seat-allowed' }
-      },
-      orderPageConfig: { focusField: 'payerEmail' },
-      // ✅ script spécifique en chemin absolu
-      customJs: [ ASSET_PREFIX + 'js/event.js' ]
-    });
+        config: {
+          api: {
+            status: statusPath,
+            checkout: checkoutPath
+          },
+          selection: { type: 'seats' },
+          buildRowsFromData: false,
+          svgSeatClasses: { allowed: 'seat-allowed' },
+          event: {
+            id: String(ev._id),
+            slug,
+            name: ev.name,
+            startsAt: ev.startsAt,
+            venueSlug: ev.venueSlug
+          }
+        },
+        orderPageConfig: { focusField: 'payerEmail' },
+        customJs: [ASSET_PREFIX + 'js/event.js']
+      });
+    } catch (err) {
+      next(err);
+    }
   });
 
   router.get('/partner/:partnerSlug/event/:eventSlug', (req, res) => {
@@ -339,7 +403,6 @@ export default function routes(router) {
   // ✨ Routes paiement (return, back, error, webhook)
   router.use('/pay', payRoutes);                 // expose /pay/return, /pay/back, /pay/error
 
-  // Page racine -> redirige vers /renew (optionnel)
-  //router.get('/', (_req, res) => res.redirect('./renew'));
+// Page racine -> redirige vers /renew (optionnel)
+//router.get('/', (_req, res) => res.redirect('./renew'));
 }
-import { Season } from '../models/Season.js';
