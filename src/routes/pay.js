@@ -425,6 +425,12 @@ router.get('/return', async (req, res) => {
           meta.lastReturnFinalizeSource = 'return';
           order.paymentProviderMeta = meta;
           order.markModified?.('paymentProviderMeta');
+          try {
+            await sendOrderAttestationIfNeeded(order, { source: 'return' });
+          } catch (err) {
+            console.warn('[pay/return] mail send failed:', err?.message || err);
+            warnings.push('Le courriel de confirmation n’a pas pu être envoyé automatiquement.');
+          }
         }
       } else {
         warnings.push("Le paiement est confirmé, mais la finalisation de vos sièges nécessite une intervention manuelle.");
