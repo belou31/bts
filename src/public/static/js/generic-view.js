@@ -41,7 +41,10 @@ window.BTS_VIEW = {
       updateTotals(); updateInstallmentsPreview(); syncSelectedHighlights();
       emitHook('cartChanged', { ctx: CTX });
     }
-  }
+  },
+  setFeedback: null,
+  collectCheckoutPayload: null,
+  submitPayment: null
 };
 
 
@@ -577,6 +580,7 @@ function setFeedback(kind, title, details=[]) {
   const icon = kind==='error' ? WARN_SVG : (kind==='ok' ? OK_SVG : '');
   el.innerHTML = `<span class="fb-icon">${icon}</span><span class="fb-text"><strong>${escapeHtml(title||'')}</strong>${list}</span>`;
 }
+window.BTS_VIEW.setFeedback = setFeedback;
 
 // ——— Extraction "human-friendly" des erreurs ${currentPaymentProviderLabel()}, même quand elles
 // arrivent sous forme de chaîne contenant du JSON imbriqué.
@@ -624,7 +628,7 @@ function extractHaMessages(from) {
 }
 
 
-async function submitPayment() {
+function collectCheckoutPayload() {
   setFeedback('', ''); // clear
 
   // ── Vérification: pour chaque place, au moins Nom OU Prénom ────────────────
@@ -691,6 +695,14 @@ async function submitPayment() {
   const scheduleEl = $('#paySchedule');
   const schedule = Number(scheduleEl ? (scheduleEl.value || 1) : 1);
   const totalAmount = CTX.currentTotal || 0;
+  return { items, payer, schedule, totalAmount };
+}
+window.BTS_VIEW.collectCheckoutPayload = collectCheckoutPayload;
+
+async function submitPayment() {
+  const payload = collectCheckoutPayload();
+  if (!payload) return;
+  const { items, payer, schedule, totalAmount } = payload;
 
   $('#payBtn').disabled = true;
 
@@ -1008,6 +1020,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('#feedback').textContent = 'Impossible de charger les données. Vérifiez votre lien.';
   }
   $('#payBtn').addEventListener('click', submitPayment);
+  window.BTS_VIEW.submitPayment = submitPayment;
   const scheduleControl = $('#paySchedule');
   if (scheduleControl) scheduleControl.addEventListener('change', updateInstallmentsPreview);
 

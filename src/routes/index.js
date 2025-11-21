@@ -31,10 +31,15 @@ const BASE_PATH = (process.env.BASE_PATH || '').trim();
 const ASSET_PREFIX = path.posix.join(BASE_PATH, '/static/').replace(/\/{2,}/g, '/');
 const PARTNER_FRAME_ANCESTORS = (process.env.PARTNER_FRAME_ANCESTORS || '').trim();
 
-function applyPartnerFrameAncestorsHeaders(res) {
-  if (PARTNER_FRAME_ANCESTORS) {
-    res.setHeader('Content-Security-Policy', `frame-ancestors ${PARTNER_FRAME_ANCESTORS}`);
-    const firstOrigin = PARTNER_FRAME_ANCESTORS.split(/\s+/)[0];
+function applyPartnerFrameAncestorsHeaders(res, overrideList) {
+  const list = (Array.isArray(overrideList) && overrideList.length)
+    ? overrideList
+    : (PARTNER_FRAME_ANCESTORS ? PARTNER_FRAME_ANCESTORS.split(/\s+/).filter(Boolean) : null);
+
+  if (list && list.length) {
+    const value = list.join(' ');
+    res.setHeader('Content-Security-Policy', `frame-ancestors ${value}`);
+    const firstOrigin = list[0];
     if (firstOrigin) {
       const normalized = firstOrigin.toLowerCase();
       if (normalized === "'self'" || normalized === 'self') {
@@ -244,7 +249,16 @@ export default function routes(router) {
     const eventSlug = String(req.params.eventSlug || '').trim();
     if (!partnerSlug || !eventSlug) return res.status(400).send('Missing partner or event slug');
 
-    applyPartnerFrameAncestorsHeaders(res);
+    const partnerCfg = getPartnerConfig(partnerSlug);
+    if (!partnerCfg) {
+      return res.status(404).send('Partner not found');
+    }
+
+    if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
+      return res.status(403).send('Access restricted for this partner.');
+    }
+
+    applyPartnerFrameAncestorsHeaders(res, partnerCfg.frameAncestors);
 
     const providerName = currentPaymentProviderLabel();
     const encodedPartner = encodeURIComponent(partnerSlug);
@@ -252,14 +266,34 @@ export default function routes(router) {
     const baseForJoin = BASE_PATH || '/';
     const statusPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'status');
     const checkoutPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'checkout');
+    const reservePath = partnerCfg.paymentMode !== 'psp'
+      ? path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'reserve')
+      : null;
 
-    res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
-      title: 'Billetterie Partenaire — BTS',
-      heading: 'Accès Partenaire',
-      lead: 'Réservez vos places via la billetterie dédiée partenaire.',
+    const partnerOptions = {
+      slug: partnerCfg.slug,
+      invoiceMode: partnerCfg.paymentMode === 'psp' ? 'psp' : 'invoice',
+      reserveApi: reservePath,
+      payButtonLabel: partnerCfg?.reserve?.payButtonLabel || (partnerCfg.paymentMode === 'psp' ? 'Procéder au paiement' : 'Envoyer la demande'),
+      successMessage: partnerCfg?.reserve?.successMessage || 'Demande envoyée. Vous recevrez une confirmation prochainement.',
+      errorMessage: partnerCfg?.reserve?.errorMessage || 'Impossible d’enregistrer votre demande. Réessayez.'
+    };
+
+    const heading = partnerCfg?.ui?.heading || 'Accès Partenaire';
+    const lead = partnerCfg?.ui?.lead || 'Réservez vos places via la billetterie dédiée partenaire.';
+    const isInvoiceMode = partnerCfg.paymentMode !== 'psp';
+    const paymentHelp = partnerCfg?.ui?.paymentHelp ||
+      (isInvoiceMode
+        ? 'Demande enregistrée puis facturation différée. Aucun paiement en ligne n’est requis.'
+        : `Paiement sécurisé ${providerName}.`);
+
+    res.render(path.resolve(VIEWS_DIR, 'partner', 'index'), {
+      title: `${partnerCfg.name || 'Billetterie Partenaire'} — BTS`,
+      heading,
+      lead,
       planHelp: 'Sélectionnez un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
       scheduleOptions: [],
-      paymentHelp: `Tunnel de paiement sécurisé ${providerName}.`,
+      paymentHelp,
       assets: ASSET_PREFIX,
       zoneSelector: {
         enabled: true,
@@ -270,16 +304,20 @@ export default function routes(router) {
       config: {
         api: {
           status: statusPath,
-          checkout: checkoutPath
+          checkout: checkoutPath,
+          reserve: reservePath
         },
         selection: { type: 'seats' },
         buildRowsFromData: false,
         svgSeatClasses: { allowed: 'seat-allowed' },
         partnerSlug,
-        eventSlug
+        eventSlug,
+        partner: partnerOptions
       },
+      payButtonLabel: partnerOptions.payButtonLabel,
       orderPageConfig: { focusField: 'payerEmail' },
-      customJs: [ASSET_PREFIX + 'js/event.js']
+      customJs: [ASSET_PREFIX + 'js/event.js'],
+      partnerOptions
     });
   });
 
@@ -391,4 +429,26 @@ export default function routes(router) {
 
 // Page racine -> redirige vers /renew (optionnel)
 //router.get('/', (_req, res) => res.redirect('./renew'));
+}
+import { getPartnerConfig } from '../config/partners.js';
+function extractRequestOrigins(req) {
+  const origins = [];
+  const origin = req.get('origin');
+  if (origin) origins.push(origin);
+  const referer = req.get('referer');
+  if (referer) {
+    try {
+      const refererOrigin = new URL(referer).origin;
+      origins.push(refererOrigin);
+    } catch {}
+  }
+  return origins.filter(Boolean);
+}
+
+function isOriginAllowed(req, allowedList) {
+  const list = Array.isArray(allowedList) ? allowedList.filter(Boolean) : [];
+  if (!list.length) return true;
+  const origins = extractRequestOrigins(req).map(o => o.toLowerCase());
+  if (!origins.length) return false;
+  return origins.some(origin => list.some(allowed => origin === allowed.toLowerCase()));
 }

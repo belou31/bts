@@ -1,0 +1,41 @@
+<%
+  const localsObj = (typeof locals === 'object' && locals) ? locals : {};
+  const incomingPartnerOptions =
+    (typeof partnerOptions === 'object' && partnerOptions)
+      ? partnerOptions
+      : (typeof localsObj.partnerOptions === 'object' ? localsObj.partnerOptions : {});
+  const resolvedPartnerOptions = incomingPartnerOptions || {};
+
+  const incomingBodyClass = (typeof localsObj.bodyClass !== 'undefined')
+    ? localsObj.bodyClass
+    : (typeof bodyClass !== 'undefined' ? bodyClass : null);
+  const mergedBodyClass = Array.isArray(incomingBodyClass)
+    ? incomingBodyClass.slice()
+    : (incomingBodyClass ? [incomingBodyClass] : []);
+  if (!mergedBodyClass.includes('partner-order')) mergedBodyClass.push('partner-order');
+
+  const baseConfig = (typeof localsObj.config === 'object' && localsObj.config)
+    ? localsObj.config
+    : (typeof config === 'object' && config ? config : {});
+  const mergedConfig = Object.assign({}, baseConfig);
+  mergedConfig.partner = Object.assign({}, mergedConfig.partner || {}, resolvedPartnerOptions);
+
+  const assetBase =
+    typeof assets === 'string' && assets
+      ? (assets.endsWith('/') ? assets : `${assets}/`)
+      : 'static/';
+  const incomingCustomJs = Array.isArray(localsObj.customJs)
+    ? localsObj.customJs
+    : (Array.isArray(customJs) ? customJs : []);
+  const mergedCustomJs = incomingCustomJs.slice();
+  if (!mergedCustomJs.includes(assetBase + 'js/partner.js')) {
+    mergedCustomJs.push(assetBase + 'js/partner.js');
+  }
+
+  const viewData = Object.assign({}, localsObj, {
+    bodyClass: mergedBodyClass,
+    config: mergedConfig,
+    customJs: mergedCustomJs
+  });
+%>
+<%- include('../order/index', viewData) %>
