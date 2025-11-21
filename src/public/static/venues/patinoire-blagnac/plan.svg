@@ -458,40 +458,16 @@
 	</linearGradient>
 	<radialGradient
    id="rgDark_Green"
-   xlink:href="#graDark_Green"
-   cx="96.638657"
-   cy="44.921867"
-   fx="96.638657"
-   fy="44.921867"
-   r="1"
-   gradientUnits="userSpaceOnUse" />
+   xlink:href="#graDark_Green" />
 	<radialGradient
    id="rgDark_Red"
-   xlink:href="#graDark_Red"
-   cx="96.638657"
-   cy="49.090092"
-   fx="96.638657"
-   fy="49.090092"
-   r="1"
-   gradientUnits="userSpaceOnUse" />
+   xlink:href="#graDark_Red" />
 	<radialGradient
    id="rgDark_Orange"
-   xlink:href="#graDark_Orange"
-   cx="96.638657"
-   cy="53.25832"
-   fx="96.638657"
-   fy="53.25832"
-   r="1"
-   gradientUnits="userSpaceOnUse" />
+   xlink:href="#graDark_Orange" />
 	<radialGradient
    id="rgDark_Blue"
-   xlink:href="#graDark_Blue"
-   cx="96.638657"
-   cy="57.426544"
-   fx="96.638657"
-   fy="57.426544"
-   r="1"
-   gradientUnits="userSpaceOnUse" />
+   xlink:href="#graDark_Blue" />
 
 </defs>
 
