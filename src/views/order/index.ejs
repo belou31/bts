@@ -130,6 +130,10 @@
     const cssFiles = [assetPrefix + 'styles/generic-view.css', assetPrefix + 'styles/order.css'];
     const cssExtras = Array.isArray(localCustomCss) ? localCustomCss : [];
     cssExtras.forEach((href) => cssFiles.push(href));
+
+    const hasEventJs = Array.isArray(localCustomJs)
+      ? localCustomJs.some(src => typeof src === 'string' && src.includes('event.js'))
+      : false;
   %>
   <title><%= htmlTitle %></title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -140,13 +144,18 @@
 </head>
 <body class="order-view <%= bodyClasses %>">
   <header class="site-header">
-    <div class="brand">
-      <% if (brandData.logo) { %>
-        <img src="<%= brandData.logo %>" alt="<%= brandData.alt || 'Logo' %>" class="logo">
-      <% } else if (brandData.text) { %>
-        <span class="brand-text"><%= brandData.text %></span>
+    <div class="header-row">
+      <div class="brand">
+        <% if (brandData.logo) { %>
+          <img src="<%= brandData.logo %>" alt="<%= brandData.alt || 'Logo' %>" class="logo">
+        <% } else if (brandData.text) { %>
+          <span class="brand-text"><%= brandData.text %></span>
+        <% } %>
+        <h1 id="pageTitle"><%= safeHeading %></h1>
+      </div>
+      <% if (hasEventJs) { %>
+        <div id="saleStatus" class="sale-chip" aria-live="polite" aria-atomic="true"></div>
       <% } %>
-      <h1 id="pageTitle"><%= safeHeading %></h1>
     </div>
     <% if (leadHtmlContent) { %>
       <div class="lead"><%- leadHtmlContent %></div>

@@ -719,6 +719,7 @@ function enrichEntryBase(source = {}, context = {}) {
   entry.reason = entry.reason || source.reason || (entry.ticketId ? '' : 'unknown_qr');
   entry.eventId = entry.eventId || source.eventId || context.eventId || '';
   entry.eventSlug = entry.eventSlug || source.eventSlug || context.eventSlug || '';
+  entry.subscription = entry.subscription ?? source.subscription ?? false;
   entry.createdAt = entry.createdAt || source.createdAt || Date.now();
   entry.scanCount = typeof source.scanCount === 'number' ? source.scanCount : (entry.scanCount || 0);
 
@@ -734,6 +735,7 @@ function enrichEntryBase(source = {}, context = {}) {
     entry.order.totalTickets = entry.order.totalTickets ?? 0;
     entry.order.scannedTickets = entry.order.scannedTickets ?? 0;
     entry.order.ticketIndex = entry.order.ticketIndex ?? null;
+    entry.order.subscription = entry.order.subscription ?? entry.subscription ?? false;
     if (Array.isArray(source.order.tickets)) {
       entry.order.tickets = source.order.tickets.map((t) => ({ ...t }));
     }
@@ -884,7 +886,9 @@ function buildTicketCard(match) {
   sectionTariff.className = 'card-section section-tariff';
   const tariffTitle = document.createElement('div');
   tariffTitle.className = 'section-title';
-  tariffTitle.textContent = 'Tarif';
+  const isSubscription = !!match.subscription;
+  tariffTitle.textContent = isSubscription ? 'Abonnement' : 'Tarif';
+  if (isSubscription) tariffTitle.classList.add('subscription');
   sectionTariff.append(tariffTitle);
   const tariffDetails = match.tariff || {};
   const fallbackTariffText = match.ticketId ? '—' : 'QR';

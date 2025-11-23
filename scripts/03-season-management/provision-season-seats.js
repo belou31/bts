@@ -105,10 +105,20 @@ async function main() {
   const specialeFilter = { ...base, zoneKey: { $in: ['S3', 'S4A'] } };
 
   // --- Règle VISITORS: zone S1, rangées F ou G (seatId "S2-F-XXX" / "S2-G-XXX") ---
-  const visitorsFilter = { ...base, seatId: { $regex: /^(?:S2)-(?:F|G)-\d+$/ } };
+  const visitorsFilter = { ...base, seatId: { $regex: /^(?:S2)-(?:F|G)-(?:001|002|003|004|005|006|007|008|009|010|011|012|013|014|015)/ } };
 
-  // --- Règle VISITORS: zone S1, rangées F ou G (seatId "S2-F-XXX" / "S2-G-XXX") ---
+  // --- Règle PARTNERS: zone S1, rangées F ou G (seatId "S2-F-XXX" / "S2-G-XXX") ---
   const partnersFilter = { ...base, seatId: { $regex: /^(?:S2)-(?:D|E)-\d+$/ } };
+
+  // --- Règle PartnersFilter2: sièges unitaires
+  const partners2List = [
+    'S2-F-016', 'S2-F-017', 'S2-F-018', 'S2-F-019', 'S2-F-020', 'S2-F-021'
+  ];
+  const partners2Filter = {
+    ...base,
+    $or: partners2List.map(id => ({ seatId: { $regex: patternForId(id) } }))
+  };
+
 
   // --- Règle FANCLUB (TBH7): zones N5,N6,N7, rangées L,M,N ---
   const fanclubFilter = { ...base, seatId: { $regex: /^(?:N5|N6|N6B)-(?:L|M)-\d+$/ } };
@@ -160,6 +170,7 @@ async function main() {
   await applyCategory('SPECIALE (zones S3,S4A)', specialeFilter);
   await applyCategory('VISITORS (S2 rangées F,G)', visitorsFilter);
   await applyCategory('PARTNERS (S2 rangées D,E)', partnersFilter);
+  await applyCategory('PARTNERS 2 (sièges en S2-F)', partners2Filter);
   await applyCategory('FANCLUB TBH7 (N5/N6/N7 rangées L,M,N)', fanclubFilter);
   await applyCategory('FANCLUB TBH7 2 (sièges en N7)', fanclub2Filter);
   await applyCategory('TISSEO CLUBEO (sièges en N7)', clubeoFilter);
