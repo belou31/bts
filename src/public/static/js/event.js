@@ -208,6 +208,29 @@
     return `Billetterie match — ${ev.name}${suffix}`;
   }
 
+  function updateSaleStatusBadge(raw) {
+    const badge = document.querySelector('#saleStatus');
+    if (!badge) return;
+    const ev = (raw && typeof raw === 'object') ? (raw.event || raw) : null;
+    const onSale  = ev?.isOnSale === true || ev?.onSale === true || String(ev?.status || '').toLowerCase() === 'on_sale';
+    const offSale = ev?.isOnSale === false || ev?.onSale === false || String(ev?.status || '').toLowerCase() === 'off_sale';
+
+    let main = 'STATUT EN COURS';
+    let sub  = 'Chargement du statut…';
+    let stateClass = 'pending';
+
+    if (onSale || offSale) {
+      const open = onSale && !offSale;
+      main = open ? 'BILLETTERIE OUVERTE' : 'BILLETTERIE FERMÉE';
+      sub  = open ? 'Tickets on sale' : 'Ventes actuellement fermées';
+      stateClass = open ? 'open' : 'closed';
+    }
+
+    badge.hidden = false;
+    badge.className = `sale-chip ${stateClass}`;
+    badge.innerHTML = `<span class="sale-main">${main}</span><span class="sale-sub">${sub}</span>`;
+  }
+
   on('afterData', ({ data }) => {
     state.lastData = data || {};
     const seats = Array.isArray(state.lastData?.seats) ? state.lastData.seats : [];
@@ -234,6 +257,8 @@
       if (brandTitle) brandTitle.textContent = evtTitle;
       document.title = `${evtTitle} — BTS`;
     }
+
+    updateSaleStatusBadge(data?.event || data);
   });
 
   on('planReady', ({ svgDoc }) => {
@@ -278,6 +303,8 @@
     const payerEmail = document.querySelector('#payerEmail');
     const payerLast = document.querySelector('#payerLast');
     const payerFirst = document.querySelector('#payerFirst');
+
+    updateSaleStatusBadge({});
 
     buttonsContainer = document.querySelector('#zoneButtons');
 

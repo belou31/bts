@@ -13381,6 +13381,7 @@
    <rect
    class=""
    id="zone-tbh7"
+   data-zone-id="zone-tbh7"
    width="35.652031"
    height="3.1152258"
    x="38.421116"
@@ -13389,7 +13390,7 @@
      
    <rect
    class=""
-   id="Zone TBH7 Tambours"
+   id="zone-tbh7-tambours"
    width="4.2802629"
    height="3.3572295"
    x="33.645481"
@@ -13410,6 +13411,7 @@
    <rect
    class=""
    id="zone-debout"
+   data-zone-id="zone-debout"
    width="5.6535578"
    height="50.882019"
    x="2.6537106"
@@ -13451,13 +13453,15 @@
      sodipodi:role="line"
      id="tspan3"
      x="-86.537537"
-     y="6.7868304">		 DEBOUT (TOUTE TRIBUNE)</tspan></text><rect
+     y="6.7868304">		 DEBOUT (TOUTE TRIBUNE)</tspan></text>
+     <rect
    id="rect204"
    width="23.696815"
    height="10.635883"
    x="83.793739"
    y="110.36694"
-   style="display:inline;visibility:visible;fill:#ffc8c8;fill-opacity:0.8;stroke:none;stroke-width:0.366063;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" /><text
+   style="display:inline;visibility:visible;fill:#ffc8c8;fill-opacity:0.8;stroke:none;stroke-width:0.366063;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" />
+   <text
    id="text205"
    xml:space="preserve"
    x="93.007278"
@@ -13468,7 +13472,8 @@
    x="93.007278"
    y="116.56458"
    style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52778px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ff6464;fill-opacity:1;stroke-width:0.3">VIP</tspan></text><rect
-   id="rect204-5"
+   id="zone-s3"
+   data-zone-id="zone-s3"
    width="20.69697"
    height="9.4820957"
    x="118.47667"
@@ -13488,7 +13493,8 @@
      sodipodi:role="line"
      id="tspan4"
      x="118.74834"
-     y="115.92709">		SPECIALE</tspan></text><path
+     y="115.92709">		SPECIALE</tspan></text>
+     <path
    class=""
    id="path13"
    width="22.367056"
@@ -13648,30 +13654,34 @@
    sodipodi:role="line"
    x="96.979645"
    y="48.532978"
-   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.57734px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.169008">Disponible</tspan></text>
-		<text
+   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.57734px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.169008"
+   >Disponible</tspan></text>
+   <text
    id="text213"
    xml:space="preserve"
    x="93"
    y="57.512115"
    transform="scale(1.055264,0.94763017)"
-   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.57734px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#b8b8ba;stroke-width:0.169008;stroke-linejoin:round">			 <tspan
+   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.57734px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;display:inline;fill:#000000;fill-opacity:1;stroke:#b8b8ba;stroke-width:0.169008;stroke-linejoin:round">
+   <tspan
    id="tspan217"
    sodipodi:role="line"
-   x="93"
+   x="96.979645"
    y="57.512115">Bloqué</tspan></text>
 		<text
    id="text215"
    xml:space="preserve"
-   x="90.979645"
+   x="96.979645"
    y="62.312607"
    transform="scale(1.055264,0.94763017)"
-   style="font-size:5.96221px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';display:inline;fill:#000000;fill-opacity:1;stroke:#b8b8ba;stroke-width:0.169008;stroke-linejoin:round">			 <tspan
+   style="font-size:5.96221px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';display:inline;fill:#000000;fill-opacity:1;stroke:#b8b8ba;stroke-width:0.169008;stroke-linejoin:round">
+   <tspan
    id="tspan215"
    sodipodi:role="line"
-   x="90.979645"
+   x="96.979645"
    y="62.312607"
-   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.57734px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.169008">Sélectionné</tspan></text>
+   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.57734px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.169008"
+   >Sélectionné</tspan></text>
 	</g>
 </g>
 

@@ -27,7 +27,7 @@
   <rect id="logo" x="455" y="40" width="92" height="92" fill="none"/>
 
   <!-- Bloc info billet -->
-  <text x="44" y="200" class="h4 text">Tarif</text>
+  <text x="44" y="200" class="h4 text">{{TARIFF_TITLE}}</text>
   <text x="44" y="230" class="h1 text">{{TARIFF_LABEL}}</text>
 
   <text x="44" y="260" class="h4 text">Place</text>
