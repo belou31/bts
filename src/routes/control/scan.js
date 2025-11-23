@@ -9,6 +9,7 @@ import { Tariff } from '../../models/Tariff.js';
 import { ScanLog } from '../../models/ScanLog.js';
 import { verifySignature, renderQrSvg } from '../../services/qr.js';
 import requireScanner from '../../middlewares/require-scanner.js';
+import { isSubscriptionOrder } from '../../utils/subscription.js';
 
 function basePath() {
   // "" en DEV, "/bts" en INT/PROD (ou ce que tu définis)
@@ -193,6 +194,7 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, options = {}) {
   const stats = statsSource ? statsSource.get(orderId) : null;
   let totalTickets = stats?.total ?? null;
   let scannedTickets = stats?.scanned ?? null;
+  const subscription = isSubscriptionOrder(order);
 
   const eventIdNorm = normalizeId(eventId);
   const eventSlugNorm = String(eventSlug || '').toLowerCase();
@@ -277,7 +279,8 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, options = {}) {
       payerFirstName: order?.payerFirstName || '',
       payerLastName: order?.payerLastName || '',
       payerEmail: order?.payerEmail || '',
-      eventSlug: order?.meta?.eventSlug || eventSlug || ''
+      eventSlug: order?.meta?.eventSlug || eventSlug || '',
+      subscription
     };
   } else if (orderId) {
     orderOut = {
@@ -285,7 +288,8 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, options = {}) {
       payerFirstName: '',
       payerLastName: '',
       payerEmail: '',
-      eventSlug: eventSlug || ''
+      eventSlug: eventSlug || '',
+      subscription: false
     };
   }
 
@@ -385,7 +389,8 @@ function composeMatch(ticketDoc, orderDoc, eventId, eventSlug, options = {}) {
     scanHistory: history,
     order: orderOut,
     conditions: buildConditions(line, metaTicket),
-    isPrimary
+    isPrimary,
+    subscription
   };
 }
 

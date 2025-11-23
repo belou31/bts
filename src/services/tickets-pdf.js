@@ -7,6 +7,7 @@ import { Event } from '../models/Event.js';
 import { Venue } from '../models/Venue.js';
 import { hexToQrSvg } from './qr.js';
 import { Tariff } from '../models/Tariff.js';
+import { isSubscriptionOrder } from '../utils/subscription.js';
 
 // --- Emplacements / chemins par défaut
 const DEFAULT_TEMPLATE = path.resolve(process.cwd(), 'src', 'templates', 'pdf', 'ticket.svg');
@@ -165,6 +166,7 @@ export async function buildTicketsPdfBuffer(order) {
   const ev = evId ? await Event.findById(evId).lean().catch(()=>null) : null;
 
   const tariffLabels = await loadTariffLabelMap(ev);
+  const subscriptionMode = isSubscriptionOrder(order);
 
   // --- Charge le template & le logo (fichiers)
   const tplPath  = process.env.TICKET_SVG_TEMPLATE || DEFAULT_TEMPLATE;
@@ -206,6 +208,8 @@ export async function buildTicketsPdfBuffer(order) {
       const beneficiary = beneficiaryForTicket(t, order);
       const tCode = String(t?.tariff || t?.tariffCode || 'NORMAL');
       const tLabel = tariffLabels[tCode] || tCode;
+      const resolvedTariffLabel = tLabel;
+      const tariffTitle = subscriptionMode ? 'ABONNEMENT' : 'Tarif';
 
       // 1) Remplacement des placeholders texte
       const textSvg = applyVars(rawSvg, {
@@ -216,7 +220,8 @@ export async function buildTicketsPdfBuffer(order) {
         ORDER_ID: String(order?._id || ''),
         SEAT: seatOrZone(t),
         BENEFICIARY: beneficiary,
-        TARIFF_LABEL: tLabel
+        TARIFF_LABEL: resolvedTariffLabel,
+        TARIFF_TITLE: tariffTitle
       });
 
       // 2) On remplace les slots <rect id="qr|logo"> par des <svg x/y/w/h> embarquant le contenu

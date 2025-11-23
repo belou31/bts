@@ -754,6 +754,14 @@ async function submitPayment() {
             title = 'Zone inconnue';
             details = [`La zone demandée n’existe pas ou n’est pas éligible.`];
           }
+          // 🔹 Billetterie fermée (évènement non ouvert)
+          else if (
+            err?.error === 'event_not_on_sale' ||
+            (typeof err?.error === 'string' && err.error.toLowerCase().includes('vente ferm'))
+          ) {
+            title = 'Billetterie fermée';
+            details = ['Les ventes sont closes pour cet événement.'];
+          }
           // 🔹 Panier vide / email manquant / échéancier invalide
           else if (err?.error === 'no_lines') {
             title = 'Veuillez ajouter au moins une ligne.';
@@ -784,16 +792,19 @@ async function submitPayment() {
           }
         } else {
           // Texte brut : tenter extraction messages HA, sinon générique
-          const rawText = await res.text();
-          const msgs = extractHaMessages(rawText);
-          if (msgs.length) {
-            title = 'Veuillez corriger les éléments suivants :';
-            details = msgs;
-          } else {
-            title = (res.status >= 500)
-              ? 'Un problème technique est survenu. Réessayez dans quelques instants.'
-              : 'Impossible de traiter votre demande. Vérifiez vos informations puis réessayez.';
-          }
+        const rawText = await res.text();
+        const msgs = extractHaMessages(rawText);
+        if (msgs.length) {
+          title = 'Veuillez corriger les éléments suivants :';
+          details = msgs;
+        } else if (typeof rawText === 'string' && rawText.toLowerCase().includes('vente ferm')) {
+          title = 'Billetterie fermée';
+          details = ['Les ventes sont closes pour cet événement.'];
+        } else {
+          title = (res.status >= 500)
+            ? 'Un problème technique est survenu. Réessayez dans quelques instants.'
+            : 'Impossible de traiter votre demande. Vérifiez vos informations puis réessayez.';
+        }
         }
       } catch {
         title = 'Un problème technique est survenu. Réessayez dans quelques instants.';
