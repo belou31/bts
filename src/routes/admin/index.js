@@ -137,6 +137,23 @@ async function runAdminScript(script, userArgs = []) {
   });
 }
 
+function normalizeReturnUrl(raw = '') {
+  const val = String(raw || '').trim();
+  if (!val) return null;
+  if (/^https?:\/\//i.test(val)) return val;
+  const base = trimEndSlash(BASE_PATH || '');
+  if (base && val.startsWith(`${base}/`)) return val;
+  if (val.startsWith('/')) return urlFor(val);
+  return null;
+}
+
+function extractReturnUrl(stdout = '') {
+  if (!stdout) return null;
+  const match = stdout.match(/returnUrl\s*[:=]\s*(\S+)/i);
+  if (!match || !match[1]) return null;
+  return normalizeReturnUrl(match[1]);
+}
+
 function sanitizeFilename(name = '') {
   const trimmed = String(name || '').trim();
   const safe = trimmed.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -1036,11 +1053,13 @@ router.post('/scripts/:scriptId/run', async (req, res) => {
 
   try {
     const result = await runAdminScript(found.script, extraArgs);
+    const returnUrl = extractReturnUrl(result.stdout);
     return res.json({
       ok: result.code === 0,
       exitCode: result.code,
       stdout: result.stdout,
-      stderr: result.stderr
+      stderr: result.stderr,
+      ...(returnUrl ? { returnUrl } : {})
     });
   } catch (err) {
     return res.status(500).json({ error: err?.message || String(err) });
