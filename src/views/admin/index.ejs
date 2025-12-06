@@ -1305,6 +1305,12 @@
 
       const escapeSelector = (value) => String(value).replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
 
+      const isReturnUrl = (value) => {
+        if (value == null) return false;
+        const s = String(value);
+        return s.startsWith('/') || s.startsWith('http://') || s.startsWith('https://');
+      };
+
       const sanitizeParams = (input = {}) => {
         const out = {};
         Object.entries(input).forEach(([key, value]) => {
@@ -1396,6 +1402,17 @@
               if (data.stdout) text += data.stdout.trim() + '\n';
               if (data.stderr) text += '\n[stderr]\n' + data.stderr.trim();
               output.textContent = text.trim();
+              if (data.returnUrl && (data.ok !== false) && isReturnUrl(data.returnUrl)) {
+                const linkWrap = document.createElement('div');
+                linkWrap.style.marginTop = '6px';
+                const link = document.createElement('a');
+                link.href = data.returnUrl;
+                link.textContent = 'Télécharger le PDF';
+                link.target = '_blank';
+                link.rel = 'noreferrer';
+                linkWrap.appendChild(link);
+                output.appendChild(linkWrap);
+              }
             }
           } catch (err) {
             output.textContent = `✖ ${err && err.message ? err.message : err}`;

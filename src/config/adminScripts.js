@@ -1523,7 +1523,7 @@ export const adminScriptGroups = [
         label: 'Generate Tickets PDF',
         order: 8,
         path: 'scripts/04-event-management/tickets-pdf.js',
-        command: 'node scripts/04-event-management/tickets-pdf.js <orderId>',
+        command: 'node scripts/04-event-management/tickets-pdf.js --event=<slug> --id=<orderId>',
         run: {
           script: 'scripts/04-event-management/tickets-pdf.js',
           args: []
@@ -1531,6 +1531,13 @@ export const adminScriptGroups = [
         description: 'Builds a PDF of tickets for a given order, reusing QR codes from the bank.',
         form: {
           fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
             {
               name: 'orderId',
               label: 'ID de commande',
@@ -1541,7 +1548,7 @@ export const adminScriptGroups = [
             {
               name: 'out',
               label: 'Fichier de sortie (optionnel)',
-              placeholder: 'tickets.pdf',
+              placeholder: 'data/outputs/tickets-<order>.pdf',
               arg: { type: 'option', template: '--out=${value}' }
             }
           ]
