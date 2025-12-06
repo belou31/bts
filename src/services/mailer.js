@@ -2,11 +2,10 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import PDFDocument from 'pdfkit';
-import svgToPdf from 'svg-to-pdfkit';
 import { Tariff } from '../models/Tariff.js';
 import { hexToQrSvg } from './qr.js';
 import { currentPaymentProviderLabel } from './payments/index.js';
+import { buildTicketsPdfBuffer as buildTicketsPdfBufferFromService } from './tickets-pdf.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -299,55 +298,8 @@ export async function renderOrderEmail(order) {
 
 }
 
-// === NEW: génère un PDF (1 page / billet) à partir de order.meta.tickets ===
-export async function buildTicketsPdfBuffer(order) {
-  const tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
-  if (!tickets.length) return null;
-
-  return await new Promise(async (resolve, reject) => {
-    try {
-      const doc = new PDFDocument({ size: 'A4', margin: 36 });
-      const chunks = [];
-      doc.on('data', (d) => chunks.push(d));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
-
-      const title  = order?.meta?.eventName || order?.meta?.eventSlug || 'Match';
-      const season = order?.seasonCode || '';
-      const venue  = order?.venueSlug  || '';
-
-      for (let i = 0; i < tickets.length; i++) {
-        const t = tickets[i];
-        if (i > 0) doc.addPage();
-
-        // En-tête
-        doc.fontSize(18).text(`Les Bélougas — ${title}`);
-        doc.moveDown(0.2);
-        doc.fontSize(11).fillColor('#666').text(`Saison: ${season} — Lieu: ${venue}`);
-        doc.fillColor('#000').moveDown(1);
-
-        // Détails
-        const seat = t.seatId || t.zoneKey || '';
-        doc.fontSize(14).text(`Place: ${seat}`);
-        doc.moveDown(0.2);
-        doc.fontSize(12).text(`Tarif: ${String(t.tariff||'NORMAL').toUpperCase()}`);
-        doc.moveDown(1);
-
-        // QR (SVG → PDF)
-        const svg = await hexToQrSvg(t.hex, { ecl: 'M', margin: 1 });
-        const svgStr = String(svg); // évite getElementsByTagName is not a function
-        svgToPdf(doc, svgStr, 360, 150, { width: 180, height: 180, preserveAspectRatio: 'xMidYMid meet' });
-
-        // Encadré d’info
-        doc.roundedRect(36, 340, 300, 80, 8).stroke();
-        doc.text('Présentez ce billet à l’entrée.\nConservez-le jusqu’à la fin de l’événement.',
-                 48, 350, { width: 276 });
-      }
-      doc.end();
-    } catch (e) {
-      reject(e);
-    }
-  });
-}  
+// Génère un PDF (délégué à services/tickets-pdf pour rester aligné avec l’email)
+export const buildTicketsPdfBuffer = buildTicketsPdfBufferFromService;
 
 
 

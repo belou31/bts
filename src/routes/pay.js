@@ -10,7 +10,9 @@ import { getCheckoutStatus, currentPaymentProviderId, currentPaymentProviderLabe
 import { normalizePaymentStatus, isPaidLike, isRefundedLike,
          finalizePaidIfNoConflict,
          sendOrderAttestationIfNeeded,
-         sendConflictEmail } from '../services/order-finalization.js';
+         sendConflictEmail,
+         ensureTicketsForEventOrder } from '../services/order-finalization.js';
+import { buildTicketsPdfBuffer } from '../services/tickets-pdf.js';
 
 const router = express.Router();
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
@@ -144,7 +146,8 @@ function renderPaymentReturn({
   providerPaymentId,
   payerEmail,
   contactEmail,
-  homeUrl
+  homeUrl,
+  ticketsUrl
 }) {
   const safeOrderId = escapeHtml(orderId || '—');
   const safeProviderStatus = providerStatus ? escapeHtml(providerStatus) : '';
@@ -158,6 +161,7 @@ function renderPaymentReturn({
   const safeContactEmail = escapeHtml(contactRaw);
   const safeContactHref = `mailto:${escapeHtml(mailTarget)}`;
   const safeHomeUrl = escapeHtml(homeUrl || '/');
+  const safeTicketsUrl = ticketsUrl ? escapeHtml(ticketsUrl) : '';
   const cardClass = state === 'success' ? 'success' : state === 'failure' ? 'failure' : 'pending';
 
   let title;
@@ -169,6 +173,7 @@ function renderPaymentReturn({
     intro = `
       <p>Bravo&nbsp;! Le paiement a été validé et vos places sont désormais <strong>confirmées</strong>.</p>
       <p class="muted">Vous allez recevoir un email de confirmation accompagné de vos billets${safeEmail ? ` à l’adresse <strong>${safeEmail}</strong>` : ''}.</p>
+      ${safeTicketsUrl ? `<p>Vous pouvez télécharger vos billets directement ici&nbsp;: <a href="${safeTicketsUrl}">billets-${safeOrderId}.pdf</a></p>` : ''}
       ${supportLine}
     `;
   } else if (state === 'failure') {
@@ -478,9 +483,45 @@ router.get('/return', async (req, res) => {
     providerPaymentId,
     payerEmail: order?.payerEmail || order?.paymentProviderMeta?.payerEmail || order?.paymentProviderMeta?.lastPayerEmail || '',
     contactEmail,
-    homeUrl
+    homeUrl,
+    ticketsUrl: (state === 'success' && order?.id) ? `/pay/tickets/${encodeURIComponent(String(order.id))}.pdf` : ''
   });
   return res.send(html);
+});
+
+
+// Billets PDF accessibles depuis la page de retour (commande payée uniquement)
+router.get('/tickets/:orderId.pdf', async (req, res) => {
+  const orderId = (req.params.orderId || '').trim();
+  if (!orderId) return res.status(404).send('missing order');
+  let order = null;
+  try {
+    order = await Order.findById(orderId);
+  } catch {
+    return res.status(404).send('order not found');
+  }
+  if (!order) return res.status(404).send('order not found');
+  if (!isPaidLike(order.status)) return res.status(403).send('paiement non confirmé');
+
+  try {
+    await ensureTicketsForEventOrder(order);
+  } catch (err) {
+    console.warn('[pay/tickets] ensureTicketsForEventOrder failed:', err?.message || err);
+  }
+
+  const tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+  if (!tickets.length) return res.status(404).send('tickets indisponibles');
+
+  try {
+    const pdf = await buildTicketsPdfBuffer(order);
+    if (!pdf || !pdf.length) return res.status(404).send('tickets indisponibles');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="billets-${orderId}.pdf"`);
+    return res.send(pdf);
+  } catch (err) {
+    console.error('[pay/tickets] pdf failed:', err?.message || err);
+    return res.status(500).send('pdf error');
+  }
 });
 
 
