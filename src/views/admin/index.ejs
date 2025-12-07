@@ -257,6 +257,18 @@
       font: inherit;
       color: var(--fg);
     }
+    .script-form-grid label select {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+      color: var(--fg);
+      background: #fff;
+    }
+    .script-form-grid label select[multiple] {
+      min-height: 96px;
+    }
     .field-hint {
       display: block;
       margin-top: 4px;
@@ -575,10 +587,26 @@
                   data-default-dry-run="<%= defaultDryRun %>"
                 <% } %>>
                 <% if (script.form && script.form.fields && script.form.fields.length) { %>
+                  <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'upsert-season'; %>
                   <div class="script-form-grid">
                     <% for (const field of script.form.fields) { 
                          const inputRole = script.id + ':' + field.name;
                          const fieldType = field.type || 'text';
+                         const hasInputFiles =
+                           Array.isArray(opt.inputFiles)
+                           && opt.inputFiles.length
+                           && field.placeholder
+                           && field.placeholder.startsWith('data/inputs');
+                         const datalistId = hasInputFiles
+                           ? `inputs-${inputRole.replace(/[^a-zA-Z0-9_-]/g, '')}`
+                           : null;
+                         const hasEventSelect = field.name === 'event' && Array.isArray(opt.events) && opt.events.length;
+                         const hasSeasonSelect = !freeSeasonField && field.name === 'season' && Array.isArray(opt.seasons) && opt.seasons.length;
+                         const hasVenueSelect = field.name === 'venue' && Array.isArray(opt.venues) && opt.venues.length;
+                         const hasCatalogSelect = field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
+                         const defaultValue = (field.placeholder && field.placeholder.startsWith('data/outputs/'))
+                           ? field.placeholder
+                           : '';
                     %>
                       <% if (fieldType === 'checkbox') {
                            const defaultChecked = field.default === true;
@@ -593,7 +621,63 @@
                       <% } else { %>
                         <label>
                           <span><%= field.label %></span>
-                          <input type="text" data-role="<%= inputRole %>" placeholder="<%= field.placeholder || '' %>" />
+                          <% if (hasEventSelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Choisir un événement —</option>
+                              <% for (const ev of opt.events) { const dateLabel = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
+                                <option value="<%= ev.slug %>">
+                                  <%= ev.slug %><%= ev.name ? ' — ' + ev.name : '' %><%= dateLabel ? ' · ' + dateLabel : '' %>
+                                </option>
+                              <% } %>
+                            </select>
+                          <% } else if (hasSeasonSelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Choisir une saison —</option>
+                              <% for (const season of opt.seasons) { %>
+                                <option value="<%= season.code %>">
+                                  <%= season.code %><%= season.name ? ' — ' + season.name : '' %>
+                                </option>
+                              <% } %>
+                            </select>
+                          <% } else if (hasVenueSelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Choisir un lieu —</option>
+                              <% for (const venue of opt.venues) { %>
+                                <option value="<%= venue.slug %>">
+                                  <%= venue.slug %><%= venue.name ? ' — ' + venue.name : '' %>
+                                </option>
+                              <% } %>
+                            </select>
+                          <% } else if (hasCatalogSelect) { %>
+                            <select data-role="<%= inputRole %>" multiple data-join="," <%= field.required ? 'required' : '' %>>
+                              <% for (const cat of opt.tariffCatalogs) { %>
+                                <option value="<%= cat %>"><%= cat %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Sélection multiple permise (Cmd/Ctrl + clic).</small>
+                          <% } else if (hasInputFiles) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Fichier dans data/inputs —</option>
+                              <% for (const file of (opt.inputFiles || [])) { const val = `data/inputs/${file}`; %>
+                                <option value="<%= val %>"><%= val %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Choisissez un fichier existant ou saisissez un chemin personnalisé.</small>
+                          <% } else { %>
+                            <input
+                              type="text"
+                              data-role="<%= inputRole %>"
+                              placeholder="<%= field.placeholder || '' %>"
+                              value="<%= defaultValue %>"
+                              <%= datalistId ? `list=\"${datalistId}\"` : '' %> />
+                            <% if (datalistId) { %>
+                              <datalist id="<%= datalistId %>">
+                                <% for (const file of (opt.inputFiles || [])) { %>
+                                  <option value="data/inputs/<%= file %>"></option>
+                                <% } %>
+                              </datalist>
+                            <% } %>
+                          <% } %>
                           <% if (field.hint) { %><small class="field-hint"><%= field.hint %></small><% } %>
                         </label>
                       <% } %>
@@ -1216,16 +1300,31 @@
           if (!el) return;
           const fieldType = field.type || 'text';
           let value;
+          let hasValue = false;
+
           if (fieldType === 'checkbox') {
             value = !!el.checked;
-            if (value) anyFieldValue = true;
-            if (field.required && !value) missing.push(field.label || field.name);
+            hasValue = value === true;
+          } else if (el.multiple) {
+            const selected = Array.from(el.selectedOptions || [])
+              .map(opt => (opt.value || '').trim())
+              .filter(Boolean);
+            const joiner = el.dataset?.join ?? ',';
+            value = selected.join(joiner || ',');
+            hasValue = selected.length > 0;
           } else {
             value = (el.value || '').trim();
-            if (value) anyFieldValue = true;
-            if (field.required && !value) missing.push(field.label || field.name);
+            hasValue = value !== '';
           }
-          values[field.name] = value;
+
+          if (hasValue) anyFieldValue = true;
+          if (field.required && !hasValue) missing.push(field.label || field.name);
+
+          if (fieldType === 'checkbox') {
+            values[field.name] = value;
+          } else {
+            values[field.name] = Array.isArray(value) ? value.join(',') : value;
+          }
         });
 
         if (!anyFieldValue) {
