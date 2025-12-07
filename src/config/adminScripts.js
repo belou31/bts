@@ -1261,46 +1261,6 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'event-import-invitations',
-        label: 'Import Invitations (QR)',
-        order: 3.55,
-        path: 'scripts/04-event-management/import-invitations-with-qr.js',
-        command: 'node scripts/04-event-management/import-invitations-with-qr.js <path/to/invitations.csv> [--event=<slug|ObjectId>] [--status=paid] [--commit] [--force] [--no-finalize]',
-        run: {
-          script: 'scripts/04-event-management/import-invitations-with-qr.js',
-          args: []
-        },
-        description: 'Imports external invitation tickets (with pre-generated QR codes) as paid event orders so they can be scanned by the gate app. Dry-run by default; add --commit to persist and --no-finalize to skip ticket provisioning.',
-        notes: [
-          'The CSV must include a QR column (qrHex / qrValue / qr / qr_code / qrcode).',
-          'Provide one QR per ticket; use "|" or qr1/qr2 columns when quantity > 1.',
-          'Finalize step is enabled by default to create Ticket documents immediately.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'csv',
-              label: 'CSV invitations',
-              placeholder: 'data/inputs/event-invitations.csv',
-              required: true,
-              arg: { type: 'positional', index: 0 }
-            },
-            {
-              name: 'event',
-              label: 'Slug ou ID de l’événement',
-              placeholder: 'match-2025-09-21-bts-vs-xxx',
-              arg: { type: 'option', template: '--event=${value}' }
-            },
-            {
-              name: 'status',
-              label: 'Statut (optionnel)',
-              placeholder: 'paid',
-              arg: { type: 'option', template: '--status=${value}' }
-            }
-          ]
-        }
-      },
-      {
         id: 'event-export-orders',
         label: 'Export Orders for Event',
         order: 3.6,

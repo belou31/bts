@@ -13,6 +13,7 @@ import { Season } from '../../models/Season.js';
 import { Event } from '../../models/Event.js';
 import { Tariff } from '../../models/Tariff.js';
 import { TariffPrice } from '../../models/TariffPrice.js';
+import { TariffPriceCatalog } from '../../models/TariffPriceCatalog.js';
 import { Subscriber } from '../../models/Subscriber.js';
 import { Ticket } from '../../models/Ticket.js';
 import { ScanLog } from '../../models/ScanLog.js';
@@ -406,6 +407,46 @@ router.get('/operate', async (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
+  let operateOptions = {
+    venues: [],
+    seasons: [],
+    events: [],
+    tariffCatalogs: [],
+    inputFiles: inputsList.map(file => file.name)
+  };
+
+  try {
+    const [
+      venuesRaw,
+      seasonsRaw,
+      eventsRaw,
+      tariffCatalogsAgg
+    ] = await Promise.all([
+      Venue.find({}).sort({ slug: 1 }).lean(),
+      Season.find({}).sort({ code: -1 }).lean(),
+      Event.find({}).sort({ startsAt: -1 }).lean(),
+      TariffPriceCatalog.aggregate([
+        { $group: { _id: '$catalogSlug', count: { $sum: 1 } } },
+        { $sort: { _id: 1 } }
+      ])
+    ]);
+
+    operateOptions = {
+      venues: venuesRaw.map(v => ({ slug: v.slug, name: v.name || '' })),
+      seasons: seasonsRaw.map(s => ({ code: s.code, name: s.name || '' })),
+      events: eventsRaw.map(ev => ({
+        slug: ev.slug,
+        name: ev.name || '',
+        startsAt: ev.startsAt || null
+      })),
+      tariffCatalogs: tariffCatalogsAgg
+        .map(entry => entry?._id)
+        .filter(Boolean),
+      inputFiles: inputsList.map(file => file.name)
+    };
+  } catch (error) {
+    console.error('[admin] operate options fetch error:', error?.message || error);
+  }
   const automationJobs = {};
 
   if (automationScripts.length > 0) {
@@ -444,6 +485,7 @@ router.get('/operate', async (req, res) => {
     activeGroupId,
     outputsList,
     inputsList,
+    operateOptions,
     viewMode: 'operate',
     monitorTab: 'tariffs',
     monitoring: null
