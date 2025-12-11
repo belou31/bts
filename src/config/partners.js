@@ -3,26 +3,16 @@
 import fs from 'fs';
 import path from 'path';
 
-const normalizeList = (value) => {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    return value.map(v => String(v || '').trim()).filter(Boolean);
-  }
-  return String(value)
-    .split(/[,\s]+/)
-    .map(v => v.trim())
-    .filter(Boolean);
-};
-
 const DEFAULT_CONFIGS = [
   {
     slug: 'cseairbus',
     name: 'CSE Airbus',
     paymentMode: 'invoice_auto',
-    frameAncestors: normalizeList(process.env.PARTNER_CSEAIRBUS_FRAME || ''),
-    allowedOrigins: normalizeList(process.env.PARTNER_CSEAIRBUS_ORIGINS || ''),
+    frameAncestors: [],
+    allowedOrigins: [],
+    venueView: null,
     reserve: {
-      status: process.env.PARTNER_CSEAIRBUS_STATUS || 'paid',
+      status: 'paid',
       paymentProvider: 'cseairbus_invoice',
       autoFinalize: true,
       sendTickets: true,
@@ -40,8 +30,9 @@ const DEFAULT_CONFIGS = [
     slug: 'aisc',
     name: 'AISC',
     paymentMode: 'psp',
-    frameAncestors: normalizeList(process.env.PARTNER_AISC_FRAME || 'https://aisc.example.com'),
-    allowedOrigins: normalizeList(process.env.PARTNER_AISC_ORIGINS || 'https://aisc.example.com'),
+    frameAncestors: [],
+    allowedOrigins: [],
+    venueView: null,
     reserve: null,
     ui: {
       heading: 'Billetterie AISC',
@@ -84,25 +75,14 @@ function mergeConfigs() {
 
 const PARTNER_CONFIGS = mergeConfigs();
 
-function enrichWithEnv(cfg) {
-  const prefix = `PARTNER_${cfg.slug?.toUpperCase() || ''}`;
-  const envFrame = process.env[`${prefix}_FRAME`] || process.env[`${prefix}_FRAME_ANCESTORS`];
-  const envOrigins = process.env[`${prefix}_ORIGINS`] || process.env[`${prefix}_ALLOWED_ORIGINS`];
-  return {
-    ...cfg,
-    frameAncestors: normalizeList(envFrame || cfg.frameAncestors),
-    allowedOrigins: normalizeList(envOrigins || cfg.allowedOrigins)
-  };
-}
-
 export function getPartnerConfig(slug) {
   if (!slug) return null;
   const key = String(slug).trim().toLowerCase();
   const base = PARTNER_CONFIGS.find(cfg => cfg.slug === key);
   if (!base) return null;
-  return enrichWithEnv(base);
+  return base;
 }
 
 export function listPartnerConfigs() {
-  return PARTNER_CONFIGS.map(enrichWithEnv);
+  return [...PARTNER_CONFIGS];
 }

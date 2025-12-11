@@ -13,6 +13,7 @@ import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from 
 import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { finalizePaidIfNoConflict, sendOrderAttestationIfNeeded } from '../services/order-finalization.js';
 import { matchesChannel } from '../utils/channel-scopes.js';
+import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
@@ -34,26 +35,20 @@ async function loadTariffsAndPrices(ev, channelCtx) {
   const evTariffs = await Tariff.find({ priceTableKey: ev.priceTableKey, active: true }).lean();
   if (evTariffs.length > 0) {
     const evPrices = await TariffPrice.find({ priceTableKey: ev.priceTableKey }).lean();
-    return {
-      tariffs: evTariffs.filter((doc) => matchesChannel(doc?.channels, channelCtx)),
-      prices: evPrices.filter((doc) => matchesChannel(doc?.channels, channelCtx)),
-      scope: 'event'
-    };
+    const filtered = filterTariffsAndPricesByChannel(evTariffs, evPrices, channelCtx, { fallbackToPublic: channelCtx?.kind === 'partner' });
+    return { ...filtered, scope: 'event' };
   }
   const fbTariffs = await Tariff.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, active: true }).lean();
   const fbPrices = await TariffPrice.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }).lean();
-  return {
-    tariffs: fbTariffs.filter((doc) => matchesChannel(doc?.channels, channelCtx)),
-    prices: fbPrices.filter((doc) => matchesChannel(doc?.channels, channelCtx)),
-    scope: 'fallback'
-  };
+  const filtered = filterTariffsAndPricesByChannel(fbTariffs, fbPrices, channelCtx, { fallbackToPublic: channelCtx?.kind === 'partner' });
+  return { ...filtered, scope: 'fallback' };
 }
 
 function buildAllowedFromPrices(prices) {
   const map = new Map(); // ZONEKEY(UPPER) -> Set(TARIFF UPPER)
   for (const p of (prices || [])) {
-    const z = String(p.zoneKey || '').toUpperCase();
-    const t = String(p.tariffCode || '').toUpperCase();
+    const z = String(p.zoneKey || '').trim().toUpperCase();
+    const t = String(p.tariffCode || '').trim().toUpperCase();
     if (!map.has(z)) map.set(z, new Set());
     map.get(z).add(t);
   }
@@ -210,27 +205,41 @@ export function createEventFlowRouter({
 
       // 1) Zones autorisées à partir des prix (UPPERCASE partout)
       const { allowedZones, allowedTariffsByZone } = buildAllowedFromPrices(prices);
-      let allowedSet = new Set((allowedZones || []).map(z => String(z).toUpperCase()));
+      let allowedSet = new Set(
+        (allowedZones || [])
+          .map(z => String(z || '').trim().toUpperCase())
+          .filter(Boolean)
+      );
 
       // 2) Récupère zones PUBLIC actives + construit zonesMeta { KEY: name }
       let zonesMeta = {};
       let zonesKind = {}; // { KEY: 'seated'|'standing'|'fanclub' }
       let publics = [];
       try {
-        publics = await Zone.find(
+        const zoneDocs = await Zone.find(
           { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, access: 'PUBLIC', isActive: true },
           { key: 1, name: 1, type: 1, capacity: 1, quota: 1, _id: 0 }
         ).lean();
-        if (Array.isArray(publics) && publics.length > 0) {
-          const publicSet = new Set(publics.map(z => String(z.key).toUpperCase()));
-          allowedSet = new Set([...allowedSet].filter(z => publicSet.has(String(z).toUpperCase())));
+        // Dedup + normalise la clé pour éviter d'afficher deux fois une zone si des doublons/espaces existent en base
+        const seenKeys = new Set();
+        publics = [];
+        for (const z of (Array.isArray(zoneDocs) ? zoneDocs : [])) {
+          const K = String(z.key || '').trim().toUpperCase();
+          if (!K || seenKeys.has(K)) continue;
+          seenKeys.add(K);
+          publics.push({ ...z, key: K });
+        }
+
+        if (publics.length > 0) {
+          const publicSet = new Set(publics.map(z => z.key));
+          allowedSet = new Set([...allowedSet].filter(z => publicSet.has(String(z).trim().toUpperCase())));
           zonesMeta = publics.reduce((acc, z) => {
-            const K = String(z.key || '').toUpperCase();
+            const K = z.key || '';
             acc[K] = z.name || K;
             return acc;
           }, {});
           zonesKind = publics.reduce((acc, z) => {
-            const K = String(z.key || '').toUpperCase();
+            const K = z.key || '';
             acc[K] = z.type || 'seated';
             return acc;
           }, {});
@@ -244,14 +253,17 @@ export function createEventFlowRouter({
         ...s,
         allowed:
           (String(s.status || '').toLowerCase() === 'available') &&
-          allowedSet.has(String(s.zoneKey || '').toUpperCase())
+          allowedSet.has(String(s.zoneKey || '').trim().toUpperCase())
       }));
 
       let standingZones = [];
-      const standingDocs = (publics || []).filter(z => String(z.type || '').toLowerCase() === 'standing');
+      const standingDocs = (publics || []).filter(z => {
+        const key = String(z.key || '').trim().toUpperCase();
+        return key && allowedSet.has(key) && String(z.type || '').toLowerCase() === 'standing';
+      });
       if (standingDocs.length) {
         const zoneCapacity = new Map(standingDocs.map(z => {
-          const key = String(z.key || '').toUpperCase();
+          const key = String(z.key || '').trim().toUpperCase();
           const quota = Number(z.quota || 0);
           const capacity = Number(z.capacity || 0);
           const base = quota > 0 ? quota : capacity;
@@ -288,7 +300,7 @@ export function createEventFlowRouter({
           for (const line of ord?.lines || []) {
             const placement = resolveLinePlacement(line);
             if (placement.released) continue;
-            const key = String(placement.zoneKey || '').toUpperCase();
+            const key = String(placement.zoneKey || '').trim().toUpperCase();
             if (!zoneCapacity.has(key)) continue;
             const seatId = typeof placement?.seatId === 'string' ? placement.seatId.trim() : '';
             if (seatId) continue;
@@ -300,7 +312,7 @@ export function createEventFlowRouter({
 
         for (const ord of subscriptionOrders) {
           for (const line of ord?.lines || []) {
-            const key = String(line?.zoneKey || '').toUpperCase();
+            const key = String(line?.zoneKey || '').trim().toUpperCase();
             if (!zoneCapacity.has(key)) continue;
             const seatId = typeof line?.seatId === 'string' ? line.seatId.trim() : '';
             if (seatId) continue;

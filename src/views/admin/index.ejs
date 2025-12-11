@@ -587,7 +587,7 @@
                   data-default-dry-run="<%= defaultDryRun %>"
                 <% } %>>
                 <% if (script.form && script.form.fields && script.form.fields.length) { %>
-                  <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'upsert-season'; %>
+                  <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'upsert-season'; const freeCatalogField = script.id === 'import-tariff-prices'; %>
                   <div class="script-form-grid">
                     <% for (const field of script.form.fields) { 
                          const inputRole = script.id + ':' + field.name;
@@ -603,8 +603,9 @@
                          const hasEventSelect = field.name === 'event' && Array.isArray(opt.events) && opt.events.length;
                          const hasSeasonSelect = !freeSeasonField && field.name === 'season' && Array.isArray(opt.seasons) && opt.seasons.length;
                          const hasVenueSelect = field.name === 'venue' && Array.isArray(opt.venues) && opt.venues.length;
-                         const hasCatalogSelect = field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
-                         const defaultValue = (field.placeholder && field.placeholder.startsWith('data/outputs/'))
+                         const hasPartnerSelect = field.name === 'partner' && Array.isArray(opt.partners) && opt.partners.length;
+                         const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
+                          const defaultValue = (field.placeholder && field.placeholder.startsWith('data/outputs/'))
                            ? field.placeholder
                            : '';
                     %>
@@ -645,6 +646,15 @@
                               <% for (const venue of opt.venues) { %>
                                 <option value="<%= venue.slug %>">
                                   <%= venue.slug %><%= venue.name ? ' — ' + venue.name : '' %>
+                                </option>
+                              <% } %>
+                            </select>
+                          <% } else if (hasPartnerSelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Choisir un partenaire —</option>
+                              <% for (const partner of opt.partners) { %>
+                                <option value="<%= partner.slug %>">
+                                  <%= partner.slug %><%= partner.name ? ' — ' + partner.name : '' %>
                                 </option>
                               <% } %>
                             </select>

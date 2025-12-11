@@ -11,6 +11,7 @@ import { Zone }  from '../../models/Zone.js';
 import { Venue } from '../../models/Venue.js';
 import { Season } from '../../models/Season.js';
 import { Event } from '../../models/Event.js';
+import { listPartnerConfigs } from '../../config/partners.js';
 import { Tariff } from '../../models/Tariff.js';
 import { TariffPrice } from '../../models/TariffPrice.js';
 import { TariffPriceCatalog } from '../../models/TariffPriceCatalog.js';
@@ -411,6 +412,7 @@ router.get('/operate', async (req, res) => {
     venues: [],
     seasons: [],
     events: [],
+    partners: [],
     tariffCatalogs: [],
     inputFiles: inputsList.map(file => file.name)
   };
@@ -420,7 +422,8 @@ router.get('/operate', async (req, res) => {
       venuesRaw,
       seasonsRaw,
       eventsRaw,
-      tariffCatalogsAgg
+      tariffCatalogsAgg,
+      partnersRaw
     ] = await Promise.all([
       Venue.find({}).sort({ slug: 1 }).lean(),
       Season.find({}).sort({ code: -1 }).lean(),
@@ -428,7 +431,8 @@ router.get('/operate', async (req, res) => {
       TariffPriceCatalog.aggregate([
         { $group: { _id: '$catalogSlug', count: { $sum: 1 } } },
         { $sort: { _id: 1 } }
-      ])
+      ]),
+      Promise.resolve(listPartnerConfigs())
     ]);
 
     operateOptions = {
@@ -439,6 +443,7 @@ router.get('/operate', async (req, res) => {
         name: ev.name || '',
         startsAt: ev.startsAt || null
       })),
+      partners: partnersRaw.map(p => ({ slug: p.slug, name: p.name || '' })),
       tariffCatalogs: tariffCatalogsAgg
         .map(entry => entry?._id)
         .filter(Boolean),

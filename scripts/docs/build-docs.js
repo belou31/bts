@@ -190,7 +190,8 @@ const body3 = `
 │   ├── 02-tariff-management/     # import/export catalogue & matrices de tarifs
 │   ├── 03-season-management/     # instanciation siège/zone/tarif, seed, renewal
 │   ├── 04-event-management/      # création events, imports QR, prix, set-onsale
-│   ├── 05-misc/                  # exports/rapports, audits
+│   ├── 05-partner-management/    # scripts partenaire (iframe, paiement)
+│   ├── 06-misc/                  # exports/rapports, audits
 │   └── docs/
 │       └── build-docs.js         # Générateur des pages HTML (ce fichier)
 ├── src/

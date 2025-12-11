@@ -5,6 +5,21 @@ import { getPartnerConfig } from '../config/partners.js';
 
 const router = Router();
 
+function expectedPartnerToken(cfg, eventSlug) {
+  if (!cfg) return null;
+  if (cfg.tokens?.events && eventSlug && cfg.tokens.events[eventSlug]) {
+    return cfg.tokens.events[eventSlug];
+  }
+  return cfg.accessToken || null;
+}
+
+function verifyPartnerToken(req, cfg) {
+  const expected = expectedPartnerToken(cfg, req.params.eventId || req.params.eventSlug);
+  if (!expected) return true;
+  const provided = (req.query?.token || req.get('x-partner-token') || '').trim();
+  return provided && provided === expected;
+}
+
 const partnerEventRouter = createEventFlowRouter({
   flowKey: 'partner',
   uiPath: '/partner',
@@ -43,6 +58,12 @@ router.use('/:partnerSlug/event', (req, res, next) => {
       return res.status(404).json({ ok: false, error: 'partner_not_found' });
     }
     return res.status(404).send('Partner not found');
+  }
+  if (!verifyPartnerToken(req, cfg)) {
+    if (req.accepts('json')) {
+      return res.status(403).json({ ok: false, error: 'partner_token_invalid' });
+    }
+    return res.status(403).send('Access restricted for this partner (token).');
   }
   req.partnerConfig = cfg;
   next();

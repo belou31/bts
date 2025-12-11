@@ -3,7 +3,7 @@
   const { on, api } = window.BTS_VIEW;
 
   const cssEscape = (s) => (window.CSS?.escape ? CSS.escape(String(s)) : String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&'));
-  const normZoneKey = (key) => String(key || '').toUpperCase();
+  const normZoneKey = (key) => String(key || '').trim().toUpperCase(); // trim to avoid duplicates like "DEBOUT "
 
   const state = {
     seatsById: new Map(),
@@ -22,6 +22,11 @@
   const zoneLabels = new Map();
   let buttonsContainer = null;
   let showFeedback = () => {};
+
+  function cssAttrSelector(attr, value) {
+    const escaped = cssEscape(value);
+    return `[${attr}="${escaped}"]`;
+  }
 
   // Ajoute label lorsqu’un siège n’a pas de libellé explicite
   function applyFallbackLabels() {
@@ -58,14 +63,24 @@
     state.zoneRemaining.clear();
     zoneLabels.clear();
 
+    const hasTariffs = (key) => {
+      const list = state.allowedTariffsByZone[key] || [];
+      if (Array.isArray(list) && list.length) return true;
+      const star = state.allowedTariffsByZone['*'] || [];
+      return Array.isArray(star) && star.length > 0;
+    };
+
     const standingInfo = Array.isArray(state.lastData?.standingZones)
       ? state.lastData.standingZones
       : [];
 
     if (standingInfo.length) {
+      const seen = new Set();
       standingInfo.forEach(info => {
         const key = normZoneKey(info.key || info.zoneKey);
-        if (!key) return;
+        if (!key || seen.has(key)) return;
+        if (!hasTariffs(key)) return; // ignore standing zones with no tariff price
+        seen.add(key);
         const label = info.label || state.zonesMeta[key] || key;
         const remaining = Number(info.remaining ?? 0);
         zoneLabels.set(key, label);
@@ -78,8 +93,12 @@
     const standingZones = Array.from(state.allowedZones)
       .filter(z => (state.zonesKind[z] || '').toLowerCase() === 'standing');
 
+    const seen = new Set();
     standingZones.forEach(z => {
       const key = normZoneKey(z);
+      if (!key || seen.has(key)) return;
+      if (!hasTariffs(key)) return; // no available tariff → no button
+      seen.add(key);
       zoneLabels.set(key, state.zonesMeta[key] || key);
       state.zoneBaseCounts.set(key, 0);
       state.zoneRemaining.set(key, 0);
@@ -151,6 +170,34 @@
     }
   }
 
+  function wireZoneHotspots() {
+    if (!state.svgDoc || !state.zoneBaseCounts.size) return;
+    const svgDoc = state.svgDoc;
+    state.zoneBaseCounts.forEach((_remaining, key) => {
+      const selectors = [
+        cssAttrSelector('data-zone-id', key),
+        cssAttrSelector('data-zone-key', key),
+        cssAttrSelector('data-zone', key)
+      ];
+      const nodes = svgDoc.querySelectorAll(selectors.join(','));
+      nodes.forEach(node => {
+        if (node.__btsZoneWired) return;
+        node.__btsZoneWired = true;
+        node.dataset.zoneKey = key;
+        node.classList.add('zone-hotspot');
+        node.style.cursor = 'pointer';
+        node.style.pointerEvents = 'auto';
+        node.addEventListener('click', (ev) => {
+          // évite double-add (le handler global sur svgDoc écoute aussi)
+          ev.stopPropagation();
+          ev.stopImmediatePropagation?.();
+          if (ev.target?.closest?.('[data-seat-id],[data-seat]')) return;
+          handleZoneButton(key);
+        });
+      });
+    });
+  }
+
   function initIfReady() {
     if (!state.svgDoc || !state.lastData) return;
     const svgDoc = state.svgDoc;
@@ -166,10 +213,12 @@
     if (!svgDoc.__btsClickBound) {
       svgDoc.__btsClickBound = true;
       svgDoc.addEventListener('click', (e) => {
-        const el = e.target?.closest?.('[data-zone-key],[data-seat-id],[id]');
+        const el = e.target?.closest?.('[data-zone-key],[data-zone-id],[data-seat-id],[id]');
         if (!el) return;
 
-        const zkey = normZoneKey(el.getAttribute('data-zone-key'));
+        const zkey = normZoneKey(
+          el.getAttribute('data-zone-key') || el.getAttribute('data-zone-id')
+        );
         if (zkey) {
           if (!state.allowedZones.has(zkey)) return;
           if ((state.zonesKind[zkey] || '').toLowerCase() !== 'standing') return;
@@ -249,6 +298,7 @@
     computeZoneBases();
     renderZoneButtons();
     recomputeRemainingFromCart();
+    wireZoneHotspots();
     initIfReady();
 
     const evtTitle = formatEventTitle(data?.event);
@@ -265,6 +315,7 @@
     if (!svgDoc) return;
     state.svgDoc = svgDoc;
     ensureAddRowForZone();
+    wireZoneHotspots();
     initIfReady();
   });
 

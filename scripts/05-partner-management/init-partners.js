@@ -3,7 +3,7 @@
  * Initialize partner customization file with base entries for cseairbus / aisc.
  *
  * Usage:
- *   node scripts/05-misc/init-partners.js [--force]
+ *   node scripts/05-partner-management/init-partners.js [--force]
  *
  * The script writes data/customization/partners.json if it doesn't exist
  * (or when --force is passed). You can edit the JSON afterwards to

@@ -20,6 +20,7 @@ Each entry below references the canonical command, required environment variable
 | `scripts/01-venue-management/import-seats.js` | Parse the persisted SVG plan for a venue and import seats, with optional CSV overrides. | `node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=seats.csv] [--plan=override.svg]` | `data/templates/files/plan.svg`<br>`data/templates/csv/seats.template.csv` |
 | `scripts/01-venue-management/import-zones.js` | Maintain the venue zone catalog from CSV and/or SVG (`data-zone-id`). | `node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=zones.csv] [--plan=override.svg]` | `data/templates/csv/zones.template.csv` |
 | `scripts/01-venue-management/validate-svg.js` | Check that an SVG plan contains expected selectors / seats. | `node scripts/01-venue-management/validate-svg.js --svg=plan.svg --selectors="ZONE:#css"` | — |
+| `scripts/01-venue-management/import-venue-view.js` | Copy a custom SVG view for a venue (no indexing) to `src/public/static/venues/<slug>/views/<view>.svg`. | `node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <view.svg> [--overwrite]` | `data/templates/files/plan.svg` |
 
 ## 02 — Tariff Management
 
@@ -72,16 +73,26 @@ Each entry below references the canonical command, required environment variable
 | `scripts/04-event-management/resend-event-tickets.js` | Resend event tickets for specific order IDs. | `node scripts/04-event-management/resend-event-tickets.js --event=<slug> --order=<orderId[,orderId2]> [--status=paid] [--dry-run]` | — |
 | `scripts/04-event-management/tickets-pdf.js` | Produce a tickets PDF for a given order. | `node scripts/04-event-management/tickets-pdf.js <orderId>` | — |
 
-## 05 — Misc
+## 05 — Partner Management
 
 | Script | Purpose | Command | Templates |
 | --- | --- | --- | --- |
-| `scripts/05-misc/reports/export-orders.js` | Export orders via the shared CSV service. | `node scripts/05-misc/reports/export-orders.js [--season=...] [--venue=...] [--status=paid]` | `data/templates/csv/orders-export.template.csv` |
+| `scripts/05-partner-management/init-partners.js` | Create `data/customization/partners.json` with starter entries (cseairbus, aisc). | `node scripts/05-partner-management/init-partners.js [--force]` | — |
+| `scripts/05-partner-management/upsert-partner.js` | Add or update a partner entry (iframe allowlist, payment mode, UI copy). | `node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Name>" [--payment-mode=psp|invoice_auto] [--allowed-origins=...] [--frame-ancestors=...] [--payment-provider=...]` | — |
+| `scripts/05-partner-management/import-partners.js` | Import partners from CSV into `data/customization/partners.json` (merge or replace). | `node scripts/05-partner-management/import-partners.js partners.csv [--replace]` | `data/templates/csv/partners.template.csv` |
+| `scripts/05-partner-management/export-partners.js` | Export partners to CSV (stdout or file). | `node scripts/05-partner-management/export-partners.js [--out=partners.csv]` | `data/templates/csv/partners.template.csv` |
+| `scripts/05-partner-management/generate-partner-token.js` | Generate or reuse a partner token (default or per-event) and print the URL with `?token=...`. | `node scripts/05-partner-management/generate-partner-token.js --partner=<slug> [--event=<eventSlug> | --season=<code> | --default] [--force]` | — |
+
+## 06 — Misc
+
+| Script | Purpose | Command | Templates |
+| --- | --- | --- | --- |
+| `scripts/06-misc/reports/export-orders.js` | Export orders via the shared CSV service. | `node scripts/06-misc/reports/export-orders.js [--season=...] [--venue=...] [--status=paid]` | `data/templates/csv/orders-export.template.csv` |
 | `scripts/orders-import-csv.js` | Import paid orders in bulk from a CSV (optionally send confirmations). | `node scripts/orders-import-csv.js --file=orders.csv [--send] [--commit]` | `data/templates/csv/orders-import.template.csv` |
 | `scripts/orders-delete-csv.js` | Cancel or hard delete orders listed in a CSV. | `node scripts/orders-delete-csv.js --file=orders.csv [--commit] [--force]` | `data/templates/csv/orders-delete.template.csv` |
-| `scripts/05-misc/reports/export-seats.js` | Export seats with provisioning + booking metadata. | `node scripts/05-misc/reports/export-seats.js [--season=...] [--venue=...] [--zone=...]` | `data/templates/csv/seats-export.template.csv` |
-| `scripts/05-misc/sentinels/pending-orders.js` | Watch pending HelloAsso orders and release holds. | `node scripts/05-misc/sentinels/pending-orders.js [--max-age-minutes=60]` | — |
-| `scripts/05-misc/audit-missing-seats.js` | Audit subscribers referencing seats missing from the season. | `node scripts/05-misc/audit-missing-seats.js <seasonCode> [--venue=<slug>] [--out=...]` | — |
+| `scripts/06-misc/reports/export-seats.js` | Export seats with provisioning + booking metadata. | `node scripts/06-misc/reports/export-seats.js [--season=...] [--venue=...] [--zone=...]` | `data/templates/csv/seats-export.template.csv` |
+| `scripts/sentinels/pending-orders.js` | Watch pending HelloAsso orders and release holds. | `node scripts/sentinels/pending-orders.js [--max-age-minutes=60]` | — |
+| `scripts/06-misc/audit-missing-seats.js` | Audit subscribers referencing seats missing from the season. | `node scripts/06-misc/audit-missing-seats.js <seasonCode> [--venue=<slug>] [--out=...]` | — |
 
 ## Admin Console
 

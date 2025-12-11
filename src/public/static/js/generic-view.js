@@ -943,7 +943,9 @@ if (Array.isArray(CTX.seatSubscribers)) {
   // Plan
   const $planObj = $('#venuePlan');
   let planPath = null;
-  if (typeof CONFIG.venuePlanPath === 'function') {
+  if (typeof CONFIG.venuePlanPath === 'string' && CONFIG.venuePlanPath) {
+    planPath = CONFIG.venuePlanPath;
+  } else if (typeof CONFIG.venuePlanPath === 'function') {
     try {
       planPath = CONFIG.venuePlanPath(CTX.venueSlug, { assetsBase: ASSET_BASE });
     } catch (err) {
@@ -956,7 +958,12 @@ if (Array.isArray(CTX.seatSubscribers)) {
       const safeSlug = encodeURIComponent(slug);
       const base = (CONFIG.venuePlanBase || `${ASSET_BASE}venues/`);
       const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-      planPath = `${normalizedBase}${safeSlug}/plan.svg`;
+      if (CONFIG.venueView) {
+        const viewSlug = encodeURIComponent(CONFIG.venueView);
+        planPath = `${normalizedBase}${safeSlug}/views/${viewSlug}.svg`;
+      } else {
+        planPath = `${normalizedBase}${safeSlug}/plan.svg`;
+      }
     }
   }
   if (planPath) {

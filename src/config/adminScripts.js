@@ -528,6 +528,49 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'import-venue-view',
+        label: 'Import Venue View (SVG)',
+        order: 4,
+        path: 'scripts/01-venue-management/import-venue-view.js',
+        command: 'node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <path/to/view.svg> [--overwrite]',
+        run: {
+          script: 'scripts/01-venue-management/import-venue-view.js',
+          args: []
+        },
+        description: 'Copies a custom SVG view for a venue to src/public/static/venues/<slug>/views/<viewSlug>.svg (no seat indexing).',
+        templates: ['data/templates/files/plan.svg'],
+        form: {
+          fields: [
+            {
+              name: 'venue',
+              label: 'Slug du lieu',
+              placeholder: 'patinoire-blagnac',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'view',
+              label: 'Slug de la vue',
+              placeholder: 'cseairbus-view',
+              required: true,
+              arg: { type: 'positional', index: 1 }
+            },
+            {
+              name: 'svg',
+              label: 'Fichier SVG',
+              placeholder: 'data/inputs/venue-view.svg',
+              required: true,
+              arg: { type: 'positional', index: 2 }
+            },
+            {
+              name: 'overwrite',
+              label: 'Écraser si existe',
+              arg: { type: 'flag', template: '--overwrite' }
+            }
+          ]
+        }
+      },
+      {
         id: 'validate-venue-svg',
         label: 'Validate Venue SVG',
         order: 3,
@@ -1517,19 +1560,259 @@ export const adminScriptGroups = [
     ]
   },
   {
-    id: '05-misc',
-    label: '05 — Misc',
+    id: '05-partner-management',
+    label: '05 — Partner Management',
     order: 5,
+    description: 'Manage partner-specific access, iframe restrictions, and payment modes backed by data/customization/partners.json.',
+    scripts: [
+      {
+        id: 'partners-init-template',
+        label: 'Init Partner Template',
+        order: 0,
+        path: 'scripts/05-partner-management/init-partners.js',
+        command: 'node scripts/05-partner-management/init-partners.js [--force]',
+        run: {
+          script: 'scripts/05-partner-management/init-partners.js',
+          args: []
+        },
+        description: 'Creates data/customization/partners.json with starter entries (cseairbus, aisc).',
+        notes: [
+          'Use --force to overwrite an existing file; otherwise the script exits without modifying it.',
+          'Edit the JSON afterwards for copy, iframe origins, payment behavior.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'force',
+              label: 'Écraser si présent',
+              arg: { type: 'flag', template: '--force' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'partner-upsert',
+        label: 'Create / Update Partner',
+        order: 1,
+        path: 'scripts/05-partner-management/upsert-partner.js',
+        command: 'node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [--payment-mode=psp|invoice_auto] [--allowed-origins=...] [--frame-ancestors=...] [--payment-provider=...]',
+        run: {
+          script: 'scripts/05-partner-management/upsert-partner.js',
+          args: []
+        },
+        description: 'Adds or updates a partner entry in data/customization/partners.json (consumed at runtime via config/partners.js).',
+        notes: [
+          'Frame ancestors and allowed origins accept comma-separated values.',
+          'For invoice_auto mode you can set payment-provider, pay-button, success-message, error-message, auto-finalize, send-tickets.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'slug',
+              label: 'Slug',
+              placeholder: 'cseairbus',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            },
+            {
+              name: 'name',
+              label: 'Nom affiché',
+              placeholder: 'CSE Airbus',
+              required: true,
+              arg: { type: 'option', template: '--name=${value}' }
+            },
+            {
+              name: 'paymentMode',
+              label: 'Mode de paiement',
+              placeholder: 'psp | invoice_auto',
+              arg: { type: 'option', template: '--payment-mode=${value}' }
+            },
+            {
+              name: 'allowedOrigins',
+              label: 'Allowed origins (iframe parent)',
+              placeholder: 'https://partner.example.com,https://intranet.example.com',
+              arg: { type: 'option', template: '--allowed-origins=${value}' }
+            },
+            {
+              name: 'frameAncestors',
+              label: 'Content-Security-Policy frame-ancestors',
+              placeholder: 'https://partner.example.com',
+              arg: { type: 'option', template: '--frame-ancestors=${value}' }
+            },
+            {
+              name: 'venueView',
+              label: 'Venue view slug (optionnel)',
+              placeholder: 'cseairbus-view',
+              arg: { type: 'option', template: '--venue-view=${value}' }
+            },
+            {
+              name: 'paymentProvider',
+              label: 'ID prestataire (invoice_auto)',
+              placeholder: 'cseairbus_invoice',
+              arg: { type: 'option', template: '--payment-provider=${value}' }
+            },
+            {
+              name: 'payButton',
+              label: 'Libellé bouton (invoice_auto)',
+              placeholder: 'Envoyer ma demande',
+              arg: { type: 'option', template: '--pay-button=${value}' }
+            },
+            {
+              name: 'successMessage',
+              label: 'Message succès (invoice_auto)',
+              placeholder: 'Votre demande a été enregistrée...',
+              arg: { type: 'option', template: '--success-message=${value}' }
+            },
+            {
+              name: 'errorMessage',
+              label: 'Message erreur (invoice_auto)',
+              placeholder: 'Impossible d’enregistrer votre demande...',
+              arg: { type: 'option', template: '--error-message=${value}' }
+            },
+            {
+              name: 'autoFinalize',
+              label: 'Auto-finaliser (invoice_auto)',
+              placeholder: 'yes|no',
+              arg: { type: 'option', template: '--auto-finalize=${value}' }
+            },
+            {
+              name: 'sendTickets',
+              label: 'Envoyer billets (invoice_auto)',
+              placeholder: 'yes|no',
+              arg: { type: 'option', template: '--send-tickets=${value}' }
+            },
+            {
+              name: 'uiHeading',
+              label: 'Titre page (UI)',
+              placeholder: 'Billetterie partenaire',
+              arg: { type: 'option', template: '--ui-heading=${value}' }
+            },
+            {
+              name: 'uiLead',
+              label: 'Accroche (UI)',
+              placeholder: 'Offre négociée ...',
+              arg: { type: 'option', template: '--ui-lead=${value}' }
+            },
+            {
+              name: 'uiPaymentHelp',
+              label: 'Texte aide paiement (UI)',
+              placeholder: 'Paiement sécurisé via BTS.',
+              arg: { type: 'option', template: '--ui-payment-help=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'partner-import-csv',
+        label: 'Import Partners (CSV)',
+        order: 2,
+        path: 'scripts/05-partner-management/import-partners.js',
+        command: 'node scripts/05-partner-management/import-partners.js <partners.csv> [--replace]',
+        run: {
+          script: 'scripts/05-partner-management/import-partners.js',
+          args: []
+        },
+        description: 'Import partners from CSV into data/customization/partners.json; merges by default, or replaces when --replace is provided.',
+        templates: ['data/templates/csv/partners.template.csv'],
+        notes: [
+          'Columns: slug,name,paymentMode,allowedOrigins,frameAncestors,paymentProvider,payButtonLabel,successMessage,errorMessage,autoFinalize,sendTickets,uiHeading,uiLead,uiPaymentHelp.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'csv',
+              label: 'CSV partenaires',
+              placeholder: 'data/inputs/partners.csv',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'replace',
+              label: 'Remplacer le fichier',
+              arg: { type: 'flag', template: '--replace' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'partner-export-csv',
+        label: 'Export Partners (CSV)',
+        order: 3,
+        path: 'scripts/05-partner-management/export-partners.js',
+        command: 'node scripts/05-partner-management/export-partners.js [--out=partners.csv]',
+        run: {
+          script: 'scripts/05-partner-management/export-partners.js',
+          args: []
+        },
+        description: 'Export partners.json to CSV (stdout or --out=<file>).',
+        templates: ['data/templates/csv/partners.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'out',
+              label: 'Fichier de sortie (optionnel)',
+              placeholder: 'data/outputs/partners.csv',
+              arg: { type: 'option', template: '--out=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'partner-generate-token',
+        label: 'Generate Partner Token',
+        order: 4,
+        path: 'scripts/05-partner-management/generate-partner-token.js',
+        command: 'node scripts/05-partner-management/generate-partner-token.js --partner=<slug> [--event=<eventSlug> | --season=<code> | --default] [--force]',
+        run: {
+          script: 'scripts/05-partner-management/generate-partner-token.js',
+          args: []
+        },
+        description: 'Generate or reuse a partner token (default or per-event) in partners.json and print the URL with ?token=...',
+        notes: [
+          'Defaults to --default when no target is provided.',
+          'Use --force to regenerate even if a token already exists.',
+          'For event tokens, the URL is printed with the token query param.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'partner',
+              label: 'Partner slug',
+              placeholder: 'partner01',
+              required: true,
+              arg: { type: 'option', template: '--partner=${value}' }
+            },
+            {
+              name: 'event',
+              label: 'Event slug (optionnel)',
+              placeholder: 'event01',
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'season',
+              label: 'Season code (optionnel)',
+              placeholder: '2025-2026',
+              arg: { type: 'option', template: '--season=${value}' }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    id: '06-misc',
+    label: '06 — Misc',
+    order: 6,
     description: 'Miscellaneous operational scripts: exports, audits, order management, and sentinels.',
     scripts: [
       {
         id: 'export-orders',
         label: 'Export Orders (CSV)',
         order: 0,
-        path: 'scripts/05-misc/reports/export-orders.js',
-        command: 'node scripts/05-misc/reports/export-orders.js [--season=<code>] [--venue=<slug>] [--status=paid]',
+        path: 'scripts/06-misc/reports/export-orders.js',
+        command: 'node scripts/06-misc/reports/export-orders.js [--season=<code>] [--venue=<slug>] [--status=paid]',
         run: {
-          script: 'scripts/05-misc/reports/export-orders.js',
+          script: 'scripts/06-misc/reports/export-orders.js',
           args: []
         },
         description: 'Streams orders to CSV using the shared exports service.',
@@ -1618,10 +1901,10 @@ export const adminScriptGroups = [
         id: 'export-seats',
         label: 'Export Seats (CSV)',
         order: 3,
-        path: 'scripts/05-misc/reports/export-seats.js',
-        command: 'node scripts/05-misc/reports/export-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>]',
+        path: 'scripts/06-misc/reports/export-seats.js',
+        command: 'node scripts/06-misc/reports/export-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>]',
         run: {
-          script: 'scripts/05-misc/reports/export-seats.js',
+          script: 'scripts/06-misc/reports/export-seats.js',
           args: []
         },
         description: 'Streams seats with provisioning and booking metadata to CSV.',
@@ -1656,10 +1939,10 @@ export const adminScriptGroups = [
         id: 'pending-orders-sentinel',
         label: 'Sentinel: Pending Orders',
         order: 4,
-        path: 'scripts/05-misc/sentinels/pending-orders.js',
-        command: 'node scripts/05-misc/sentinels/pending-orders.js [--max-age-minutes=60]',
+        path: 'scripts/sentinels/pending-orders.js',
+        command: 'node scripts/sentinels/pending-orders.js [--max-age-minutes=60]',
         run: {
-          script: 'scripts/05-misc/sentinels/pending-orders.js',
+          script: 'scripts/sentinels/pending-orders.js',
           args: []
         },
         description: 'Reports orders stuck in pending state beyond the expected delay.',
@@ -1687,10 +1970,10 @@ export const adminScriptGroups = [
         id: 'audit-missing-seats',
         label: 'Audit Missing Seats',
         order: 5,
-        path: 'scripts/05-misc/audit-missing-seats.js',
-        command: 'node scripts/05-misc/audit-missing-seats.js <seasonCode> --venue=<slug>',
+        path: 'scripts/06-misc/audit-missing-seats.js',
+        command: 'node scripts/06-misc/audit-missing-seats.js <seasonCode> --venue=<slug>',
         run: {
-          script: 'scripts/05-misc/audit-missing-seats.js',
+          script: 'scripts/06-misc/audit-missing-seats.js',
           args: []
         },
         description: 'Checks for discrepancies between seat provisioning and subscriptions.',

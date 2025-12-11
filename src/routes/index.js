@@ -30,6 +30,13 @@ const VIEWS_DIR  = path.resolve(__dirname, '..', 'views');
 const BASE_PATH = (process.env.BASE_PATH || '').trim();
 const ASSET_PREFIX = path.posix.join(BASE_PATH, '/static/').replace(/\/{2,}/g, '/');
 const PARTNER_FRAME_ANCESTORS = (process.env.PARTNER_FRAME_ANCESTORS || '').trim();
+function expectedPartnerToken(cfg, eventSlug) {
+  if (!cfg) return null;
+  if (cfg.tokens?.events && eventSlug && cfg.tokens.events[eventSlug]) {
+    return cfg.tokens.events[eventSlug];
+  }
+  return cfg.accessToken || null;
+}
 
 function applyPartnerFrameAncestorsHeaders(res, overrideList) {
   const list = (Array.isArray(overrideList) && overrideList.length)
@@ -254,6 +261,12 @@ export default function routes(router) {
       return res.status(404).send('Partner not found');
     }
 
+    const expectedToken = expectedPartnerToken(partnerCfg, eventSlug);
+    const providedToken = (req.query?.token || '').trim();
+    if (expectedToken && providedToken !== expectedToken) {
+      return res.status(403).send('Access restricted for this partner.');
+    }
+
     if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
       return res.status(403).send('Access restricted for this partner.');
     }
@@ -264,10 +277,11 @@ export default function routes(router) {
     const encodedPartner = encodeURIComponent(partnerSlug);
     const encodedEvent = encodeURIComponent(eventSlug);
     const baseForJoin = BASE_PATH || '/';
-    const statusPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'status');
-    const checkoutPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'checkout');
+    const tokenSuffix = providedToken ? `?token=${encodeURIComponent(providedToken)}` : '';
+    const statusPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'status') + tokenSuffix;
+    const checkoutPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'checkout') + tokenSuffix;
     const reservePath = partnerCfg.paymentMode !== 'psp'
-      ? path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'reserve')
+      ? path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'reserve') + tokenSuffix
       : null;
 
     const partnerOptions = {
@@ -310,6 +324,7 @@ export default function routes(router) {
         selection: { type: 'seats' },
         buildRowsFromData: false,
         svgSeatClasses: { allowed: 'seat-allowed' },
+        venueView: partnerCfg.venueView || null,
         partnerSlug,
         eventSlug,
         partner: partnerOptions
