@@ -31,16 +31,74 @@ async function loadEvent(eventIdOrSlug) {
 
 // Charge tarifs/prix : priorité à la table "évènement".
 // Si AUCUN tarif d'évènement n'existe, fallback sur saison/lieu (mode legacy).
+function shouldFallbackToPublic(channelCtx) {
+  if (!channelCtx) return false;
+  if (channelCtx.kind === 'partner') {
+    return channelCtx.partnerConfig?.allowPublicTariffs === true;
+  }
+  return false;
+}
+
 async function loadTariffsAndPrices(ev, channelCtx) {
   const evTariffs = await Tariff.find({ priceTableKey: ev.priceTableKey, active: true }).lean();
   if (evTariffs.length > 0) {
     const evPrices = await TariffPrice.find({ priceTableKey: ev.priceTableKey }).lean();
-    const filtered = filterTariffsAndPricesByChannel(evTariffs, evPrices, channelCtx, { fallbackToPublic: channelCtx?.kind === 'partner' });
+    if (shouldFallbackToPublic(channelCtx)) {
+      const partnerFiltered = filterTariffsAndPricesByChannel(evTariffs, evPrices, channelCtx, { fallbackToPublic: false });
+      const publicFiltered = filterTariffsAndPricesByChannel(evTariffs, evPrices, { kind: 'public' }, { fallbackToPublic: false });
+      const tariffsMap = new Map();
+      for (const t of publicFiltered.tariffs || []) {
+        tariffsMap.set(String(t.code || '').toUpperCase(), t);
+      }
+      for (const t of partnerFiltered.tariffs || []) {
+        tariffsMap.set(String(t.code || '').toUpperCase(), t); // partner overrides
+      }
+      const priceMap = new Map();
+      for (const p of publicFiltered.prices || []) {
+        const key = `${String(p.zoneKey || '').toUpperCase()}::${String(p.tariffCode || '').toUpperCase()}`;
+        priceMap.set(key, p);
+      }
+      for (const p of partnerFiltered.prices || []) {
+        const key = `${String(p.zoneKey || '').toUpperCase()}::${String(p.tariffCode || '').toUpperCase()}`;
+        priceMap.set(key, p); // partner overrides
+      }
+      return {
+        tariffs: Array.from(tariffsMap.values()),
+        prices: Array.from(priceMap.values()),
+        scope: 'event'
+      };
+    }
+    const filtered = filterTariffsAndPricesByChannel(evTariffs, evPrices, channelCtx, { fallbackToPublic: false });
     return { ...filtered, scope: 'event' };
   }
   const fbTariffs = await Tariff.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, active: true }).lean();
   const fbPrices = await TariffPrice.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }).lean();
-  const filtered = filterTariffsAndPricesByChannel(fbTariffs, fbPrices, channelCtx, { fallbackToPublic: channelCtx?.kind === 'partner' });
+  if (shouldFallbackToPublic(channelCtx)) {
+    const partnerFiltered = filterTariffsAndPricesByChannel(fbTariffs, fbPrices, channelCtx, { fallbackToPublic: false });
+    const publicFiltered = filterTariffsAndPricesByChannel(fbTariffs, fbPrices, { kind: 'public' }, { fallbackToPublic: false });
+    const tariffsMap = new Map();
+    for (const t of publicFiltered.tariffs || []) {
+      tariffsMap.set(String(t.code || '').toUpperCase(), t);
+    }
+    for (const t of partnerFiltered.tariffs || []) {
+      tariffsMap.set(String(t.code || '').toUpperCase(), t);
+    }
+    const priceMap = new Map();
+    for (const p of publicFiltered.prices || []) {
+      const key = `${String(p.zoneKey || '').toUpperCase()}::${String(p.tariffCode || '').toUpperCase()}`;
+      priceMap.set(key, p);
+    }
+    for (const p of partnerFiltered.prices || []) {
+      const key = `${String(p.zoneKey || '').toUpperCase()}::${String(p.tariffCode || '').toUpperCase()}`;
+      priceMap.set(key, p);
+    }
+    return {
+      tariffs: Array.from(tariffsMap.values()),
+      prices: Array.from(priceMap.values()),
+      scope: 'fallback'
+    };
+  }
+  const filtered = filterTariffsAndPricesByChannel(fbTariffs, fbPrices, channelCtx, { fallbackToPublic: false });
   return { ...filtered, scope: 'fallback' };
 }
 
@@ -118,7 +176,9 @@ export function createEventFlowRouter({
   originResolver = null,
   invoiceReservations = null
 } = {}) {
-  const router = Router();
+  // mergeParams is required so nested routers (e.g., /partner/:partnerSlug/event/:eventId)
+  // can access upstream params like partnerSlug in channelResolver.
+  const router = Router({ mergeParams: true });
   const originBuilder = buildOrigin(flowKey, uiPath, originExtras);
   const resolveInvoiceOptions = (req, channelCtx) => {
     if (!invoiceReservations) return null;
@@ -146,10 +206,14 @@ export function createEventFlowRouter({
     }
 
     const { prices, scope } = await loadTariffsAndPrices(ev, channelCtx);
-    const pmap = new Map(prices.map(p => [
-      `${String(p.zoneKey || '').toUpperCase()}::${String(p.tariffCode || '').toUpperCase()}`,
-      Number(p.priceCents) || 0
-    ]));
+    const pmap = new Map(prices.map(p => {
+      const key = `${String(p.zoneKey || '').toUpperCase()}::${String(p.tariffCode || '').toUpperCase()}`;
+      const display = Number(p.priceCents) || 0;
+      const partner = Number(
+        (p.partnerPriceCents != null ? p.partnerPriceCents : p.priceCents)
+      ) || display;
+      return [key, { display, partner }];
+    }));
 
     const lines = items.map(it => {
       const z = String(it.zoneKey || '').toUpperCase();
@@ -158,20 +222,35 @@ export function createEventFlowRouter({
       const realSeat = sidRaw && statusIdx.has(sidRaw);
       const sid = realSeat ? sidRaw : '';
       const key = `${z}::${t}`;
-      if (!pmap.has(key)) {
+      const priceObj = pmap.get(key);
+      if (!priceObj) {
         throw new Error(`Tarif indisponible pour la zone (${z}/${t})${scope === 'fallback' ? ' [fallback]' : ''}`);
       }
+      const displayPrice = Number(priceObj.display) || 0;
+      const partnerPrice = Number(priceObj.partner) || displayPrice;
       return {
         seatId: sid,
         zoneKey: z,
         tariffCode: t,
-        priceCents: pmap.get(key),
+        priceCents: displayPrice,
+        partnerPriceCents: partnerPrice,
+        partnerDeltaCents: partnerPrice - displayPrice,
         holderFirstName: String(it.firstName || ''),
         holderLastName: String(it.lastName || '')
       };
     });
 
     const totalCents = lines.reduce((s, l) => s + (Number(l.priceCents) || 0), 0);
+    const partnerTotals = channelCtx?.kind === 'partner'
+      ? lines.reduce((acc, l) => {
+          const partnerPrice = Number(l.partnerPriceCents ?? l.priceCents) || 0;
+          const displayPrice = Number(l.priceCents) || 0;
+          acc.partnerTotal += partnerPrice;
+          acc.displayTotal += displayPrice;
+          acc.deltaTotal += (partnerPrice - displayPrice);
+          return acc;
+        }, { partnerTotal: 0, displayTotal: 0, deltaTotal: 0 })
+      : null;
     assert(totalCents > 0, 'Montant total nul (tarifs manquants ?)');
 
     const normalizedPayer = {
@@ -189,7 +268,8 @@ export function createEventFlowRouter({
       lines,
       totalCents,
       statusIdx,
-      holdable
+      holdable,
+      partnerTotals
     };
   }
 
@@ -211,16 +291,20 @@ export function createEventFlowRouter({
           .filter(Boolean)
       );
 
-      // 2) Récupère zones PUBLIC actives + construit zonesMeta { KEY: name }
+      // 2) Récupère meta zones
       let zonesMeta = {};
       let zonesKind = {}; // { KEY: 'seated'|'standing'|'fanclub' }
       let publics = [];
       try {
+        const zoneMatch = (flowKey === 'partner')
+          ? { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, isActive: true, key: { $in: Array.from(allowedSet) } }
+          : { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, access: 'PUBLIC', isActive: true };
+
         const zoneDocs = await Zone.find(
-          { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, access: 'PUBLIC', isActive: true },
+          zoneMatch,
           { key: 1, name: 1, type: 1, capacity: 1, quota: 1, _id: 0 }
         ).lean();
-        // Dedup + normalise la clé pour éviter d'afficher deux fois une zone si des doublons/espaces existent en base
+
         const seenKeys = new Set();
         publics = [];
         for (const z of (Array.isArray(zoneDocs) ? zoneDocs : [])) {
@@ -232,7 +316,10 @@ export function createEventFlowRouter({
 
         if (publics.length > 0) {
           const publicSet = new Set(publics.map(z => z.key));
-          allowedSet = new Set([...allowedSet].filter(z => publicSet.has(String(z).trim().toUpperCase())));
+          // Partner: don't shrink allowedSet; otherwise intersect with PUBLIC zones
+          if (flowKey !== 'partner') {
+            allowedSet = new Set([...allowedSet].filter(z => publicSet.has(String(z).trim().toUpperCase())));
+          }
           zonesMeta = publics.reduce((acc, z) => {
             const K = z.key || '';
             acc[K] = z.name || K;
@@ -336,7 +423,15 @@ export function createEventFlowRouter({
         ok: true,
         seasonCode: ev.seasonCode,
         venueSlug: ev.venueSlug,
-        event: { id: String(ev._id), slug: ev.slug, name: ev.name, startsAt: ev.startsAt, isOnSale: ev.isOnSale },
+        venueView: ev.venueView || null,
+        event: {
+          id: String(ev._id),
+          slug: ev.slug,
+          name: ev.name,
+          startsAt: ev.startsAt,
+          isOnSale: ev.isOnSale,
+          venueView: ev.venueView || null
+        },
         tariffs, prices, scope,
         allowedZones: Array.from(allowedSet),
         allowedTariffsByZone,
@@ -361,6 +456,14 @@ export function createEventFlowRouter({
       const ctxData = await prepareOrderContext(req, ev, channelCtx);
       const payerInfo = ctxData.payer;
       const scheduleValue = ctxData.schedule;
+      const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
+        ? {
+            slug: channelCtx.partnerSlug || null,
+            partnerTotalCents: ctxData.partnerTotals.partnerTotal,
+            displayTotalCents: ctxData.partnerTotals.displayTotal,
+            deltaCents: ctxData.partnerTotals.deltaTotal
+          }
+        : null;
 
       // Crée order "pending" + hold
       const now = new Date();
@@ -398,7 +501,8 @@ export function createEventFlowRouter({
           eventSlug: ev.slug,
           eventName: ev.name,
           eventStartsAt: ev.startsAt,
-          provider: PAYMENT_PROVIDER_ID
+          provider: PAYMENT_PROVIDER_ID,
+          ...(partnerMeta ? { partner: partnerMeta } : {})
         },
 
         origin: resolvedOrigin,
@@ -477,6 +581,14 @@ export function createEventFlowRouter({
         const resolvedOrigin = typeof originResolver === 'function'
           ? originResolver(req, baseOrigin, channelCtx) || baseOrigin
           : baseOrigin;
+        const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
+          ? {
+              slug: channelCtx.partnerSlug || null,
+              partnerTotalCents: ctxData.partnerTotals.partnerTotal,
+              displayTotalCents: ctxData.partnerTotals.displayTotal,
+              deltaCents: ctxData.partnerTotals.deltaTotal
+            }
+          : null;
 
         const ord = await Order.create({
           eventId: ev._id,
@@ -510,7 +622,8 @@ export function createEventFlowRouter({
             eventStartsAt: ev.startsAt,
             provider: invoiceOpts.paymentProvider || 'invoice',
             invoiceMode: invoiceOpts.invoiceMode || 'deferred',
-            partnerSlug: channelCtx?.partnerSlug || null
+            partnerSlug: channelCtx?.partnerSlug || null,
+            ...(partnerMeta ? { partner: partnerMeta } : {})
           },
           origin: resolvedOrigin,
           mailTemplateKind: invoiceOpts.mailTemplateKind || mailTemplateKind,

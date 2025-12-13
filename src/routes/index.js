@@ -11,7 +11,7 @@ import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 import tbh7Router from './tbh7.js';
 import subscriptionRouter from './subscription.js';
 import eventRoutes from './event.js';
-import partnerRoutes from './partner.js';
+import partnerRoutes, { adminRouter as partnerAdminRouter } from './partner.js';
 import adminRoutes from './admin/index.js';
 import supervisionRoutes from './admin/supervision.routes.js';
 import payRoutes from './pay.js';      
@@ -415,6 +415,8 @@ export default function routes(router) {
   router.use('/api/tbh7', tbh7Router);
 
   router.use('/api/partner', partnerRoutes);
+  // Partner admin CSV/JSON
+  router.use('/partner', partnerAdminRouter);
 
   router.use('/api/season/:seasonCode', subscriptionRouter);
   router.use('/api/season', subscriptionRouter);

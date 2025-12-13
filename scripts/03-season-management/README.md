@@ -1,7 +1,7 @@
 # Season Management Scripts
 
 ## Core setup
-- scripts/03-season-management/upsert-season.js — create or update a season and its phases.
+- scripts/03-season-management/create-season.js — create or update a season (code/name/active).
 - scripts/03-season-management/instantiate-venue-for-season.js — clone seat and zone catalogs into season collections (`--skip-seats` / `--skip-zones` available).
 - scripts/03-season-management/instantiate-tariffs.js — apply one or more tariff catalogs to a season/venue (use `--catalog=<slug>`).
 - scripts/03-season-management/import-subscription-orders.js — import subscription orders, book seats, and upsert subscribers.

@@ -3,18 +3,11 @@
  * Upsert a season and its phases.
  *
  * Usage:
- *   node scripts/03-season-management/upsert-season.js <seasonCode> [--name="Saison ..."] [--venue=<slug>] [--active=true]
- *   node scripts/03-season-management/upsert-season.js 2025-2026 --renewal-open="2025-08-01T00:00:00Z" --renewal-close="2025-09-15T22:00:00Z" --enable-renewal
- *
- * Phase options:
- *   --renewal-open=ISO_DATE   --renewal-close=ISO_DATE   --enable-renewal   --disable-renewal
- *   --tbh7-open=ISO_DATE      --tbh7-close=ISO_DATE      --enable-tbh7      --disable-tbh7
- *   --public-open=ISO_DATE    --public-close=ISO_DATE    --enable-public    --disable-public
+ *   node scripts/03-season-management/create-season.js <seasonCode> [--name="Saison ..."] [--active=true]
  *
  * Environment:
  *   - MONGO_URI or MONGODB_URI: Mongo database connection (required)
  *   - SEASON (optional default code)
- *   - VENUE  (optional default venue)
  *
  * Template:
  */
@@ -56,15 +49,6 @@ function parseBoolean(value, fallback = null) {
   return fallback;
 }
 
-function parseDate(value, label) {
-  if (value == null || value === '') return null;
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid date for ${label}: "${value}"`);
-  }
-  return date;
-}
-
 (async () => {
   const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
   if (!uri) { console.error('Missing MONGO_URI/MONGODB_URI'); process.exit(1); }
@@ -74,14 +58,17 @@ function parseDate(value, label) {
 
   const code = positional[0] || process.env.SEASON || '2025-2026';
   if (!code) {
-    console.error('Usage: node scripts/03-season-management/upsert-season.js <seasonCode> [--name="..."] [--venue=<slug>]');
+    console.error('Usage: node scripts/03-season-management/create-season.js <seasonCode> [--name="..."]');
     process.exit(1);
   }
 
   let season = await Season.findOne({ code });
   const isNew = !season;
   if (!season) {
-    season = new Season({ code, phases: [] });
+    season = new Season({
+      code,
+      phases: PHASE_NAMES.map(name => ({ name, enabled: true }))
+    });
   }
 
   if (options.name) {
@@ -97,40 +84,9 @@ function parseDate(value, label) {
     season.active = true;
   }
 
-  const venueOpt = options.venue ?? options.venueSlug ?? process.env.VENUE;
-  if (venueOpt) {
-    season.venueSlug = venueOpt;
-  }
-
-  season.phases = Array.isArray(season.phases) ? season.phases : [];
-
-  const phasesByName = new Map(season.phases.map(p => [p.name, p]));
-  for (const phaseName of PHASE_NAMES) {
-    let phase = phasesByName.get(phaseName);
-    if (!phase) {
-      phase = { name: phaseName, enabled: true };
-      phasesByName.set(phaseName, phase);
-      season.phases.push(phase);
-    }
-
-    const openVal = options[`${phaseName}-open`];
-    const closeVal = options[`${phaseName}-close`];
-    const enableFlag = options[`enable-${phaseName}`];
-    const disableFlag = options[`disable-${phaseName}`];
-
-    if (openVal !== undefined) {
-      const d = parseDate(openVal, `${phaseName} openAt`);
-      phase.openAt = d;
-    }
-    if (closeVal !== undefined) {
-      const d = parseDate(closeVal, `${phaseName} closeAt`);
-      phase.closeAt = d;
-    }
-
-    if (enableFlag !== undefined) phase.enabled = true;
-    if (disableFlag !== undefined) phase.enabled = false;
-    if (phase.enabled == null) phase.enabled = true;
-  }
+  season.phases = Array.isArray(season.phases) && season.phases.length
+    ? season.phases
+    : PHASE_NAMES.map(name => ({ name, enabled: true }));
 
   await season.save();
 
@@ -142,7 +98,6 @@ function parseDate(value, label) {
     code: season.code,
     name: season.name,
     active: season.active,
-    venueSlug: season.venueSlug,
     phases: season.phases
   });
 

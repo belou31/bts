@@ -254,11 +254,12 @@ export const adminScriptGroups = [
         label: 'Send Renewal Invitations',
         order: 2.5,
         path: 'scripts/03-season-management/send-renew-invites.js',
-        command: 'node scripts/03-season-management/send-renew-invites.js <renew-groups.csv> [--dry]',
+        command: 'node scripts/03-season-management/send-renew-invites.js <renew-groups.csv> [--subject="..."] [--season=...] [--deadline=ISO] [--venue=...] [--dry]',
         automation: {
           taskId: 'season.send-renew-invites',
           defaultDryRun: true
         },
+        allowArgs: true,
         description: 'Sends renewal invitation emails using the automation job runner (supports dry-run).',
         notes: [
           'Dry-run activé par défaut depuis l’interface ; décochez pour envoyer réellement.',
@@ -271,28 +272,26 @@ export const adminScriptGroups = [
               name: 'csv',
               label: 'CSV destinataires',
               placeholder: 'renew-groups.csv',
-              required: true
+              required: true,
+              arg: { type: 'positional', index: 0 }
             },
             {
               name: 'subject',
               label: 'Objet (optionnel)',
-              placeholder: 'Renouvellement d’abonnement'
+              placeholder: 'Renouvellement d’abonnement',
+              arg: { type: 'option', template: '--subject=${value}' }
             },
             {
-              name: 'seasonCode',
+              name: 'season',
               label: 'Code saison (optionnel)',
-              placeholder: '2025-2026'
+              placeholder: '2025-2026',
+              arg: { type: 'option', template: '--season=${value}' }
             },
             {
               name: 'deadline',
               label: 'Date limite (optionnel)',
-              placeholder: '31/08/2025'
-            },
-            {
-              name: 'dryRun',
-              label: 'Dry-run (ne pas envoyer)',
-              type: 'checkbox',
-              default: true
+              placeholder: '2025-08-31T23:00:00Z',
+              arg: { type: 'option', template: '--deadline=${value}' }
             }
           ]
         }
@@ -445,7 +444,7 @@ export const adminScriptGroups = [
         label: 'Import Seats from SVG',
         order: 1,
         path: 'scripts/01-venue-management/import-seats.js',
-        command: 'node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=<path/to/seats.csv>] [--plan=<override.svg>]',
+        command: 'node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=<path/to/seats.csv>] [--attr=<seatAttribute>] [--plan=<override.svg>]',
         run: {
           script: 'scripts/01-venue-management/import-seats.js',
           args: []
@@ -474,6 +473,7 @@ export const adminScriptGroups = [
               name: 'attr',
               label: 'Attribut des sièges (optionnel)',
               placeholder: 'data-seat-id',
+              hint: 'Par défaut data-seat-id dans le SVG ; utilisez-le si vos plans encodent les sièges sous un autre attribut.',
               arg: { type: 'option', template: '--attr=${value}' }
             },
             {
@@ -490,7 +490,7 @@ export const adminScriptGroups = [
         label: 'Import Zones',
         order: 2,
         path: 'scripts/01-venue-management/import-zones.js',
-        command: 'node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--plan=<path/to/plan.svg>]',
+        command: 'node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--attr=<zoneAttribute>] [--plan=<path/to/plan.svg>]',
         run: {
           script: 'scripts/01-venue-management/import-zones.js',
           args: []
@@ -513,16 +513,17 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--csv=${value}' }
             },
             {
+              name: 'attr',
+              label: 'Attribut des zones (optionnel)',
+              placeholder: 'data-zone-id',
+              hint: 'Par défaut data-zone-id ; utile si le plan utilise un autre attribut.',
+              arg: { type: 'option', template: '--attr=${value}' }
+            },
+            {
               name: 'plan',
               label: 'Plan SVG override (optionnel)',
               placeholder: 'data/inputs/plan.svg',
               arg: { type: 'option', template: '--plan=${value}' }
-            },
-            {
-              name: 'attr',
-              label: 'Attribut zone (optionnel)',
-              placeholder: 'data-zone-id',
-              arg: { type: 'option', template: '--attr=${value}' }
             }
           ]
         }
@@ -561,11 +562,6 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/venue-view.svg',
               required: true,
               arg: { type: 'positional', index: 2 }
-            },
-            {
-              name: 'overwrite',
-              label: 'Écraser si existe',
-              arg: { type: 'flag', template: '--overwrite' }
             }
           ]
         }
@@ -668,7 +664,7 @@ export const adminScriptGroups = [
         label: 'Import Tariff Prices Catalog',
         order: 2,
         path: 'scripts/02-tariff-management/import-tariff-prices.js',
-        command: 'node scripts/02-tariff-management/import-tariff-prices.js <catalogSlug> <path/to/prices.csv> [--venue=<slug>]',
+        command: 'node scripts/02-tariff-management/import-tariff-prices.js <catalogSlug> <path/to/prices.csv> [--venue=<slug>] [--format=list|matrix]',
         run: {
           script: 'scripts/02-tariff-management/import-tariff-prices.js',
           args: []
@@ -704,8 +700,13 @@ export const adminScriptGroups = [
             {
               name: 'format',
               label: 'Format explicite (optionnel)',
-              placeholder: 'list | matrix',
-              arg: { type: 'option', template: '--format=${value}' }
+              placeholder: 'list',
+              arg: { type: 'option', template: '--format=${value}' },
+              options: [
+                { label: 'Auto (détection)', value: '' },
+                { label: 'Liste', value: 'list' },
+                { label: 'Matrice', value: 'matrix' }
+              ]
             }
           ]
         }
@@ -843,19 +844,16 @@ export const adminScriptGroups = [
     description: 'Season setup tasks (data seeding, subscriber imports, seat provisioning).',
     scripts: [
       {
-        id: 'upsert-season',
-        label: 'Upsert Season & Phases',
+        id: 'create-season',
+        label: 'Create Season',
         order: 0,
-        path: 'scripts/03-season-management/upsert-season.js',
-        command: 'node scripts/03-season-management/upsert-season.js <seasonCode> --name="<Display Name>" [--venue=<slug>] [--enable-renewal]',
+        path: 'scripts/03-season-management/create-season.js',
+        command: 'node scripts/03-season-management/create-season.js <seasonCode> --name="<Display Name>" [--active=true]',
         run: {
-          script: 'scripts/03-season-management/upsert-season.js',
+          script: 'scripts/03-season-management/create-season.js',
           args: []
         },
-        description: 'Creates or updates a season document and optionally toggles renewal/public phases.',
-        notes: [
-          'Use --enable-<phase>/--disable-<phase> and --<phase>-open=ISO / --<phase>-close=ISO to manage scheduling.'
-        ],
+        description: 'Creates or updates a season document (code/name/active). Configure phases separately.',
         form: {
           fields: [
             {
@@ -872,16 +870,66 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--name=${value}' }
             },
             {
-              name: 'venue',
-              label: 'Slug du lieu (optionnel)',
-              placeholder: 'patinoire-blagnac',
-              arg: { type: 'option', template: '--venue=${value}' }
-            },
-            {
               name: 'active',
               label: 'Activer la saison (true/false)',
               placeholder: 'true',
               arg: { type: 'option', template: '--active=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-season-phases',
+        label: 'Configure Season Phases',
+        order: 0.2,
+        path: 'scripts/03-season-management/set-season-phases.js',
+        command: 'node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|tbh7|public> [--open=ISO] [--close=ISO] [--enabled=true|false]',
+        run: {
+          script: 'scripts/03-season-management/set-season-phases.js',
+          args: []
+        },
+        description: 'Manages phase scheduling/enabling for a season (renewal, tbh7, public).',
+        notes: [
+          'Open/close dates expect ISO format (e.g., 2025-08-01T00:00:00Z).',
+          'Use enabled=true|false to toggle each phase.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'phase',
+              label: 'Phase',
+              required: true,
+              arg: { type: 'option', template: '--phase=${value}' },
+              options: [
+                { label: 'Renouvellement', value: 'renewal' },
+                { label: 'TBH7', value: 'tbh7' },
+                { label: 'Public', value: 'public' }
+              ]
+            },
+            {
+              name: 'open',
+              label: 'Ouverture (ISO)',
+              placeholder: '2025-08-01T00:00:00Z',
+              arg: { type: 'option', template: '--open=${value}' }
+            },
+            {
+              name: 'close',
+              label: 'Fermeture (ISO)',
+              placeholder: '2025-09-15T22:00:00Z',
+              arg: { type: 'option', template: '--close=${value}' }
+            },
+            {
+              name: 'enabled',
+              label: 'Activer ? (true/false)',
+              placeholder: 'true',
+              arg: { type: 'option', template: '--enabled=${value}' }
             }
           ]
         }
@@ -973,6 +1021,24 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/subscription-orders.csv',
               required: true,
               arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'season',
+              label: 'Code saison (optionnel)',
+              placeholder: '2025-2026',
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu (optionnel)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'status',
+              label: 'Statut (optionnel)',
+              placeholder: 'paid',
+              arg: { type: 'option', template: '--status=${value}' }
             }
           ]
         }
@@ -1004,11 +1070,6 @@ export const adminScriptGroups = [
               placeholder: 'patinoire-blagnac',
               arg: { type: 'option', template: '--venue=${value}' }
             },
-            {
-              name: 'activeOnly',
-              label: 'Active only',
-              arg: { type: 'flag', flag: '--activeOnly' }
-            }
           ]
         }
       },
@@ -1075,12 +1136,12 @@ export const adminScriptGroups = [
         label: 'Create Event',
         order: 0,
         path: 'scripts/04-event-management/create.js',
-        command: 'node scripts/04-event-management/create.js --slug=<eventCode> --name="<Event Name>" --date=YYYY-MM-DDThh:mm:ssZ --season=<code> --venue=<slug>',
+        command: 'node scripts/04-event-management/create.js --slug=<eventCode> --name="<Event Name>" --date=YYYY-MM-DDThh:mm:ssZ --season=<code>',
         run: {
           script: 'scripts/04-event-management/create.js',
           args: []
         },
-        description: 'Creates a new event bound to a season and venue with scheduling metadata.',
+        description: 'Creates a new event bound to a season; attach venue/plan later via Instantiate Venue for Event.',
         notes: [
           'The script auto-generates priceTableKey=ev:<slug>; adjust afterwards if you need an existing table.'
         ],
@@ -1115,17 +1176,49 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--season=${value}' }
             },
             {
-              name: 'venue',
-              label: 'Slug du lieu',
-              placeholder: 'patinoire-blagnac',
-              required: true,
-              arg: { type: 'option', template: '--venue=${value}' }
-            },
-            {
               name: 'desc',
               label: 'Description courte (optionnel)',
               placeholder: 'Match de saison régulière',
               arg: { type: 'option', template: '--desc=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-instantiate-venue',
+        label: 'Instantiate Venue for Event',
+        order: 0.5,
+        path: 'scripts/04-event-management/instantiate-venue-for-event.js',
+        command: 'node scripts/04-event-management/instantiate-venue-for-event.js --event=<slug|ObjectId> [--venue=<slug>] [--skip-seats] [--skip-zones] [--venue-view=<slug>]',
+        run: {
+          script: 'scripts/04-event-management/instantiate-venue-for-event.js',
+          args: []
+        },
+        description: 'Clones seat/zone catalogs for the event season/venue and optionally attaches a custom plan view.',
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu (si différent ou manquant)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'venueView',
+              label: 'Vue plan (optionnel)',
+              placeholder: 'vue-alternative',
+              arg: { type: 'option', template: '--venue-view=${value}' },
+              options: [
+                { label: '— Aucune vue spécifique —', value: '' },
+                { label: 'Vue personnalisée (ex: aisc)', value: 'aisc' }
+              ]
             }
           ]
         }
@@ -1179,6 +1272,18 @@ export const adminScriptGroups = [
               placeholder: 'match-2025-09-21-bts-vs-xxx',
               required: true,
               arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'season',
+              label: 'Code saison (optionnel)',
+              placeholder: '2025-2026',
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu (optionnel)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
             }
           ]
         }
@@ -1188,7 +1293,7 @@ export const adminScriptGroups = [
         label: 'Set Event On-sale',
         order: 3,
         path: 'scripts/04-event-management/set-onsale.js',
-        command: 'node scripts/04-event-management/set-onsale.js --event=<slug|ObjectId> --open',
+        command: 'node scripts/04-event-management/set-onsale.js --event=<slug|ObjectId> [--open|--close]',
         run: {
           script: 'scripts/04-event-management/set-onsale.js',
           args: []
@@ -1205,12 +1310,35 @@ export const adminScriptGroups = [
               placeholder: 'match-2025-09-21-bts-vs-xxx',
               required: true,
               arg: { type: 'option', template: '--event=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-cancel-order',
+        label: 'Cancel Event Order',
+        order: 3.3,
+        path: 'scripts/04-event-management/cancel-order.js',
+        command: 'node scripts/04-event-management/cancel-order.js --order=<orderId> [--event=<slug|ObjectId>] [--commit]',
+        run: {
+          script: 'scripts/04-event-management/cancel-order.js',
+          args: []
+        },
+        description: 'Cancels an event order, releases seats, and marks lines as released. Dry-run by default; add --commit to apply.',
+        form: {
+          fields: [
+            {
+              name: 'order',
+              label: 'Order ID',
+              placeholder: '6652f1…c123',
+              required: true,
+              arg: { type: 'option', template: '--order=${value}' }
             },
             {
-              name: 'state',
-              label: 'Etat (true/false)',
-              placeholder: 'true',
-              arg: { type: 'option', template: '--on=${value}' }
+              name: 'event',
+              label: 'Event slug/ID (optionnel)',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              arg: { type: 'option', template: '--event=${value}' }
             }
           ]
         }
@@ -1234,12 +1362,6 @@ export const adminScriptGroups = [
               placeholder: 'match-2025-09-21-bts-vs-xxx',
               required: true,
               arg: { type: 'option', template: '--event=${value}' }
-            },
-            {
-              name: 'commit',
-              label: 'Appliquer (--commit)',
-              type: 'checkbox',
-              arg: { type: 'flag', flag: '--commit' }
             }
           ]
         }
@@ -1400,12 +1522,6 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/qr-bank.csv',
               required: true,
               arg: { type: 'option', template: '--csv=${value}' }
-            },
-            {
-              name: 'append',
-              label: 'Mode ajout (true|false)',
-              placeholder: 'true',
-              arg: { type: 'option', template: '--append=${value}' }
             }
           ]
         }
@@ -1449,7 +1565,7 @@ export const adminScriptGroups = [
         label: 'Send All Season Tickets for Event',
         order: 6,
         path: 'scripts/04-event-management/send-all-season-tickets-for-event.js',
-        command: 'node scripts/04-event-management/send-all-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run]',
+        command: 'node scripts/04-event-management/send-all-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run] [--force]',
         run: {
           script: 'scripts/04-event-management/send-all-season-tickets-for-event.js',
           args: []
@@ -1469,18 +1585,6 @@ export const adminScriptGroups = [
               label: 'Limite d’envois (optionnel)',
               placeholder: '200',
               arg: { type: 'option', template: '--limit=${value}' }
-            },
-            {
-              name: 'dryRun',
-              label: 'Mode test (dry-run)',
-              type: 'checkbox',
-              arg: { type: 'flag', flag: '--dry-run' }
-            },
-            {
-              name: 'force',
-              label: 'Réexpédier même si déjà envoyé',
-              type: 'checkbox',
-              arg: { type: 'flag', flag: '--force' }
             }
           ]
         }
@@ -1490,12 +1594,12 @@ export const adminScriptGroups = [
         label: 'Resend Tickets for Event',
         order: 7.2,
         path: 'scripts/04-event-management/resend-event-tickets.js',
-        command: 'node scripts/04-event-management/resend-event-tickets.js --event=<slug> --order=<orderId[,orderId2]> [--status=paid] [--dry-run]',
+        command: 'node scripts/04-event-management/resend-event-tickets.js --event=<slug> --order=<orderId[,orderId2]> [--status=paid] [--commit]',
         run: {
           script: 'scripts/04-event-management/resend-event-tickets.js',
           args: []
         },
-        description: 'Resends event ticket emails for specific order IDs. Use --status=paid to override and --dry-run to preview.',
+        description: 'Resends event ticket emails for specific order IDs. Dry-run by default; add --commit to send.',
         form: {
           fields: [
             {
@@ -1580,29 +1684,20 @@ export const adminScriptGroups = [
           'Use --force to overwrite an existing file; otherwise the script exits without modifying it.',
           'Edit the JSON afterwards for copy, iframe origins, payment behavior.'
         ],
-        form: {
-          fields: [
-            {
-              name: 'force',
-              label: 'Écraser si présent',
-              arg: { type: 'flag', template: '--force' }
-            }
-          ]
-        }
+        form: { fields: [] }
       },
       {
         id: 'partner-upsert',
         label: 'Create / Update Partner',
         order: 1,
         path: 'scripts/05-partner-management/upsert-partner.js',
-        command: 'node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [--payment-mode=psp|invoice_auto] [--allowed-origins=...] [--frame-ancestors=...] [--payment-provider=...]',
+        command: 'node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [--payment-mode=psp|invoice_auto] [--allow-public-tariffs=yes|no] [--payment-provider=...]',
         run: {
           script: 'scripts/05-partner-management/upsert-partner.js',
           args: []
         },
         description: 'Adds or updates a partner entry in data/customization/partners.json (consumed at runtime via config/partners.js).',
         notes: [
-          'Frame ancestors and allowed origins accept comma-separated values.',
           'For invoice_auto mode you can set payment-provider, pay-button, success-message, error-message, auto-finalize, send-tickets.'
         ],
         form: {
@@ -1628,22 +1723,10 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--payment-mode=${value}' }
             },
             {
-              name: 'allowedOrigins',
-              label: 'Allowed origins (iframe parent)',
-              placeholder: 'https://partner.example.com,https://intranet.example.com',
-              arg: { type: 'option', template: '--allowed-origins=${value}' }
-            },
-            {
-              name: 'frameAncestors',
-              label: 'Content-Security-Policy frame-ancestors',
-              placeholder: 'https://partner.example.com',
-              arg: { type: 'option', template: '--frame-ancestors=${value}' }
-            },
-            {
-              name: 'venueView',
-              label: 'Venue view slug (optionnel)',
-              placeholder: 'cseairbus-view',
-              arg: { type: 'option', template: '--venue-view=${value}' }
+              name: 'allowPublicTariffs',
+              label: 'Autoriser les tarifs publics',
+              hint: 'yes|no (par défaut: no). Si yes, les tarifs publics seront accessibles en fallback.',
+              arg: { type: 'option', template: '--allow-public-tariffs=${value}' }
             },
             {
               name: 'paymentProvider',
@@ -1680,6 +1763,68 @@ export const adminScriptGroups = [
               label: 'Envoyer billets (invoice_auto)',
               placeholder: 'yes|no',
               arg: { type: 'option', template: '--send-tickets=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'partner-set-security',
+        label: 'Partner Security (origins)',
+        order: 1.2,
+        path: 'scripts/05-partner-management/set-partner-security.js',
+        command: 'node scripts/05-partner-management/set-partner-security.js --slug=<slug> [--allowed-origins=CSV] [--frame-ancestors=CSV]',
+        run: { script: 'scripts/05-partner-management/set-partner-security.js', args: [] },
+        description: 'Updates iframe/embed security for a partner (allowed origins, frame-ancestors).',
+        form: {
+          fields: [
+            {
+              name: 'partner',
+              label: 'Slug',
+              placeholder: 'cseairbus',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            },
+            {
+              name: 'allowedOrigins',
+              label: 'Allowed origins (iframe parent)',
+              placeholder: 'https://partner.example.com,https://intranet.example.com',
+              arg: { type: 'option', template: '--allowed-origins=${value}' }
+            },
+            {
+              name: 'frameAncestors',
+              label: 'CSP frame-ancestors',
+              placeholder: 'https://partner.example.com',
+              arg: { type: 'option', template: '--frame-ancestors=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'partner-set-view',
+        label: 'Partner View & UI',
+        order: 1.4,
+        path: 'scripts/05-partner-management/set-partner-view.js',
+        command: 'node scripts/05-partner-management/set-partner-view.js --slug=<slug> [--venue-view=<slug>] [--ui-heading=\"...\"] [--ui-lead=\"...\"] [--ui-payment-help=\"...\"]',
+        run: { script: 'scripts/05-partner-management/set-partner-view.js', args: [] },
+        description: 'Customizes the partner plan view and UI copy.',
+        form: {
+          fields: [
+            {
+              name: 'partner',
+              label: 'Slug',
+              placeholder: 'cseairbus',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            },
+            {
+              name: 'venueView',
+              label: 'Vue plan (optionnel)',
+              placeholder: 'cseairbus-view',
+              arg: { type: 'option', template: '--venue-view=${value}' },
+              options: [
+                { label: '— Aucune vue spécifique —', value: '' },
+                { label: 'Exemple : aisc', value: 'aisc' }
+              ]
             },
             {
               name: 'uiHeading',
@@ -1725,11 +1870,6 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/partners.csv',
               required: true,
               arg: { type: 'positional', index: 0 }
-            },
-            {
-              name: 'replace',
-              label: 'Remplacer le fichier',
-              arg: { type: 'flag', template: '--replace' }
             }
           ]
         }
@@ -1793,6 +1933,43 @@ export const adminScriptGroups = [
               label: 'Season code (optionnel)',
               placeholder: '2025-2026',
               arg: { type: 'option', template: '--season=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'partner-set-admin',
+        label: 'Set Partner Admin Credentials',
+        order: 5,
+        path: 'scripts/05-partner-management/set-partner-admin.js',
+        command: 'node scripts/05-partner-management/set-partner-admin.js --partner=<slug> --user=<login> --pass=<password>',
+        run: {
+          script: 'scripts/05-partner-management/set-partner-admin.js',
+          args: []
+        },
+        description: 'Set or update Basic Auth credentials for the partner admin page (/partner/<slug>/admin).',
+        form: {
+          fields: [
+            {
+              name: 'partner',
+              label: 'Partner slug',
+              placeholder: 'partner01',
+              required: true,
+              arg: { type: 'option', template: '--partner=${value}' }
+            },
+            {
+              name: 'user',
+              label: 'Login',
+              placeholder: 'admin',
+              required: true,
+              arg: { type: 'option', template: '--user=${value}' }
+            },
+            {
+              name: 'pass',
+              label: 'Mot de passe',
+              placeholder: '********',
+              required: true,
+              arg: { type: 'option', template: '--pass=${value}' }
             }
           ]
         }

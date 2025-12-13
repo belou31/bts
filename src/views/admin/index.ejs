@@ -542,12 +542,6 @@
               <div class="script-desc"><%= script.description %></div>
               <div class="script-meta">
                 <div><strong>Commande</strong> : <code><%= script.command %></code></div>
-                <% if (isAutomation) { %>
-                  <div>
-                    <span class="pill">Automation</span>
-                    Tâche : <code><%= script.automation.taskId %></code>
-                  </div>
-                <% } %>
                 <% if (script.templates && script.templates.length) { %>
                   <div>Templates :</div>
                   <ul class="templates">
@@ -587,7 +581,7 @@
                   data-default-dry-run="<%= defaultDryRun %>"
                 <% } %>>
                 <% if (script.form && script.form.fields && script.form.fields.length) { %>
-                  <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'upsert-season'; const freeCatalogField = script.id === 'import-tariff-prices'; %>
+                  <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'create-season'; const freeCatalogField = script.id === 'import-tariff-prices'; %>
                   <div class="script-form-grid">
                     <% for (const field of script.form.fields) { 
                          const inputRole = script.id + ':' + field.name;
@@ -622,7 +616,14 @@
                       <% } else { %>
                         <label>
                           <span><%= field.label %></span>
-                          <% if (hasEventSelect) { %>
+                          <% if (Array.isArray(field.options) && field.options.length) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <% if (!field.required) { %><option value="">—</option><% } %>
+                              <% for (const optItem of field.options) { const val = optItem.value ?? ''; const lbl = optItem.label ?? val; %>
+                                <option value="<%= val %>"><%= lbl %></option>
+                              <% } %>
+                            </select>
+                          <% } else if (hasEventSelect) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Choisir un événement —</option>
                               <% for (const ev of opt.events) { const dateLabel = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
@@ -695,7 +696,7 @@
                   </div>
                 <% } %>
 
-                <% if (!isAutomation) { %>
+                <% if (!isAutomation || script.allowArgs) { %>
                   <label>
                     Arguments additionnels
                     <input type="text" name="argLine" placeholder="ex : --apply --dry-run --extra=value" />
@@ -711,48 +712,6 @@
                 <div class="script-output" data-output></div>
               </form>
 
-              <% if (isAutomation) { %>
-                <div
-                  class="automation-jobs"
-                  data-automation-jobs="<%= script.id %>"
-                  data-jobs-url="<%= jobsUrl %>"
-                  data-job-detail-base="<%= jobDetailBase %>"
-                  data-token-suffix="<%= tokenSuffix || '' %>">
-                  <div class="automation-jobs-header">
-                    <h3>Historique des jobs</h3>
-                    <button type="button" class="btn btn-small" data-refresh-jobs="<%= script.id %>">Rafraîchir</button>
-                  </div>
-                  <% if (automationJobList.length) { %>
-                    <table data-jobs-table>
-                      <thead>
-                        <tr>
-                          <th>ID</th>
-                          <th>Statut</th>
-                          <th>Mode</th>
-                          <th>Résumé</th>
-                          <th>Créé</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <% for (const job of automationJobList) {
-                             const jobSummary = job?.result?.summary || job?.error?.message || '';
-                             const createdLabel = job?.createdAt ? new Date(job.createdAt).toLocaleString() : '—';
-                        %>
-                          <tr data-job-id="<%= job.id %>">
-                            <td class="mono"><%= job.id.slice(-6) %></td>
-                            <td class="automation-job-status"><%= job.status %></td>
-                            <td><%= job.dryRun ? 'dry-run' : 'envoi' %></td>
-                            <td><%= jobSummary || '—' %></td>
-                            <td><%= createdLabel %></td>
-                          </tr>
-                        <% } %>
-                      </tbody>
-                    </table>
-                  <% } else { %>
-                    <div class="automation-jobs-empty">Aucun job récent.</div>
-                  <% } %>
-                </div>
-              <% } %>
             </article>
           <% } %>
         </div>
@@ -833,6 +792,7 @@
       <button type="button" class="script-tab <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-button="tariffs">Tarifs</button>
       <button type="button" class="script-tab <%= monitorTab === 'subscription' ? 'active' : '' %>" data-monitor-button="subscription">Abonnements</button>
       <button type="button" class="script-tab <%= monitorTab === 'event' ? 'active' : '' %>" data-monitor-button="event">Événements</button>
+      <button type="button" class="script-tab <%= monitorTab === 'jobs' ? 'active' : '' %>" data-monitor-button="jobs">Jobs</button>
     </div>
 
     <div class="monitoring-panel <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-panel="tariffs">
@@ -1233,6 +1193,55 @@
         </div>
       <% } else { %>
         <div class="empty-state">Sélectionnez un événement pour afficher les détails.</div>
+      <% } %>
+    </div>
+
+    <div class="monitoring-panel <%= monitorTab === 'jobs' ? 'active' : '' %>" data-monitor-panel="jobs">
+      <h3>Historique des jobs automatisés</h3>
+      <% 
+        const jobRows = [];
+        for (const [scriptId, list] of Object.entries(automationJobs || {})) {
+          (list || []).forEach(job => jobRows.push({ scriptId, job }));
+        }
+        jobRows.sort((a, b) => {
+          const da = a.job.createdAt ? new Date(a.job.createdAt).getTime() : 0;
+          const db = b.job.createdAt ? new Date(b.job.createdAt).getTime() : 0;
+          return db - da;
+        });
+      %>
+      <% if (jobRows.length) { %>
+        <div class="scroll-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Script</th>
+                <th>ID</th>
+                <th>Statut</th>
+                <th>Mode</th>
+                <th>Résumé</th>
+                <th>Créé</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% for (const row of jobRows) {
+                   const job = row.job;
+                   const summary = job?.result?.summary || job?.error?.message || '';
+                   const createdLabel = job?.createdAt ? new Date(job.createdAt).toLocaleString() : '—';
+              %>
+                <tr>
+                  <td><%= row.scriptId %></td>
+                  <td class="mono"><%= job.id ? job.id.slice(-6) : '—' %></td>
+                  <td><%= job.status || '—' %></td>
+                  <td><%= job.dryRun ? 'dry-run' : 'envoi' %></td>
+                  <td><%= summary || '—' %></td>
+                  <td><%= createdLabel %></td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun job récent.</div>
       <% } %>
     </div>
   </div>

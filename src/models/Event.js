@@ -5,7 +5,7 @@ const EventSchema = new mongoose.Schema({
   name:       { type: String, required: true },
   startsAt:   { type: Date, required: true },
   seasonCode: { type: String, index: true, required: true },
-  venueSlug:  { type: String, index: true, required: true },
+  venueSlug:  { type: String, index: true, default: null },
   priceTableKey: { type: String, default: null },              // table tarifs dédiée
   isOnSale:   { type: Boolean, default: false },
   // Banque de QR pré-générés (phase 1) : { provider:"bank", codes:[hex...] }
@@ -14,6 +14,8 @@ const EventSchema = new mongoose.Schema({
     buckets:  { type: mongoose.Schema.Types.Mixed, default: undefined },
     codes:    { type: [String], default: [] }
   },
+  // Vue spécifique du plan (ex: variante partenaire)
+  venueView: { type: String, default: null },
   // Optionnel : description courte affichable côté front
   description: { type: String, default: '' }
 }, { timestamps: true });

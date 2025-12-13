@@ -39,7 +39,7 @@ Each entry below references the canonical command, required environment variable
 
 | Script | Purpose | Command | Templates |
 | --- | --- | --- | --- |
-| `scripts/03-season-management/upsert-season.js` | Create or update a season and its phases. | `node scripts/03-season-management/upsert-season.js <season> --name="..." [--venue=<slug>] [--enable-renewal]` | — |
+| `scripts/03-season-management/create-season.js` | Create or update a season (code/name/active). | `node scripts/03-season-management/create-season.js <season> --name="..." [--active=true]` | — |
 | `scripts/03-season-management/instantiate-venue-for-season.js` | Clone seat and zone catalogs into season-specific collections. | `node scripts/03-season-management/instantiate-venue-for-season.js <season> <slug> [--skip-seats] [--skip-zones]` | — |
 | `scripts/03-season-management/instantiate-tariffs.js` | Apply one or more tariff matrix catalogs to a season/venue. | `node scripts/03-season-management/instantiate-tariffs.js <season> <slug> --catalog=<slug[,slug2]> [--clear]` | — |
 | `scripts/03-season-management/import-subscription-orders.js` | Import subscription orders, book seats, and upsert subscribers. | `node scripts/03-season-management/import-subscription-orders.js orders.csv [--season=...] [--venue=...] [--status=paid] [--commit] [--sendEmails]` | `data/templates/csv/subscribers-import.template.csv` |

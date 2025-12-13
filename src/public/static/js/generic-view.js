@@ -854,6 +854,10 @@ dlog('payload sample:', {
   CTX.seats      = Array.isArray(data.seats)   ? data.seats   : [];
   CTX.tokenSeats = Array.isArray(data.tokenSeats) ? data.tokenSeats.map(normSeatId) : [];
   CTX.zones      = Array.isArray(data.zones) ? data.zones : [];
+  const resolvedVenueView = data.venueView || data.event?.venueView || null;
+  if (!CONFIG.venueView && resolvedVenueView) {
+    CONFIG.venueView = resolvedVenueView;
+  }
   // a) seatSubscribers -> index normalisé
   CTX.seatSubscribers = data.seatSubscribers || {};
   CTX.seatSubById = new Map();

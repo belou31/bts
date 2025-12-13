@@ -498,6 +498,7 @@ router.get('/operate', async (req, res) => {
 });
 
 router.get('/monitor', async (req, res) => {
+  const { automationScripts } = prepareScriptCatalog();
   const mongoState = mongoose.connection?.readyState;
   const mongoStateLabel = ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoState || 0];
 
@@ -899,6 +900,26 @@ router.get('/monitor', async (req, res) => {
     }
   };
 
+  const automationJobs = {};
+  if (automationScripts.length > 0) {
+    try {
+      const jobTuples = await Promise.all(
+        automationScripts.map(async (entry) => {
+          const jobs = await listAutomationJobs({
+            scriptId: entry.taskId,
+            limit: 10
+          });
+          return [entry.scriptId, jobs.map(job => serializeAutomationJob(job))];
+        })
+      );
+      for (const [scriptId, jobs] of jobTuples) {
+        automationJobs[scriptId] = jobs;
+      }
+    } catch (error) {
+      console.error('[admin][monitor] automation jobs fetch error:', error?.message || error);
+    }
+  }
+
   return res.render('admin/index', {
     basePath: BASE_PATH || '',
     token,
@@ -907,8 +928,8 @@ router.get('/monitor', async (req, res) => {
     urlFor,
     scriptGroups: [],
     scriptForms: {},
-    automationScripts: [],
-    automationJobs: {},
+    automationScripts,
+    automationJobs,
     activeGroupId: null,
     outputsList: [],
     inputsList: [],

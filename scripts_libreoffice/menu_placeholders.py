@@ -83,7 +83,7 @@ _COMMAND_SPECS = [
     ("tariff_export_zone_matrix", "Export tariff × zone matrix", "node scripts/02-tariff-management/export-zone-tariffs-matrix.js <season> <venueSlug> [out.csv]"),
     ("tariff_clone_zone_tariffs", "Clone tariffs between zones", "node scripts/02-tariff-management/clone-zone-tariffs.mjs --season=<code> --venue=<slug> --from-zone=<A1> --to-zones=<B1,B2>"),
     # 03 — Season Management (core setup)
-    ("season_upsert", "Upsert season definition", "node scripts/03-season-management/upsert-season.js <season> --name=\"...\" [--venue=<slug>] [--enable-renewal]"),
+    ("season_upsert", "Create season definition", "node scripts/03-season-management/create-season.js <season> --name=\"...\" [--active=true]"),
     ("season_instantiate_venue", "Instantiate venue data for season", "node scripts/03-season-management/instantiate-venue-for-season.js <season> <slug> [--skip-seats] [--skip-zones]"),
     ("season_instantiate_tariffs", "Instantiate tariffs for season", "node scripts/03-season-management/instantiate-tariffs.js <season> <slug> --catalog=<slug[,slug2]> [--clear]"),
     ("season_import_subscription_orders", "Import subscription orders (CSV)", "node scripts/03-season-management/import-subscription-orders.js orders.csv [--season=...] [--venue=...] [--status=paid] [--commit] [--sendEmails]"),

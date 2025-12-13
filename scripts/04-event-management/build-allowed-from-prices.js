@@ -30,14 +30,16 @@ async function main(){
 
   const [prices, publicZones] = await Promise.all([
     TariffPrice.find({ priceTableKey: ev.priceTableKey }, { zoneKey:1, tariffCode:1, _id:0 }).lean(),
-    Zone.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, access: 'PUBLIC' }, { zoneKey:1, _id:0 }).lean().catch(()=>[])
+    Zone.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, access: 'PUBLIC' }, { key:1, _id:0 }).lean().catch(()=>[])
   ]);
 
-  const pricedZones = uniq(prices.map(p => String(p.zoneKey)));
+  const pricedZones = uniq(prices.map(p => String(p.zoneKey || '').toUpperCase()).filter(Boolean));
   let allowedZones = pricedZones;
   if (Array.isArray(publicZones) && publicZones.length > 0) {
-    const publicSet = new Set(publicZones.map(z => String(z.zoneKey)));
-    allowedZones = pricedZones.filter(z => publicSet.has(z));
+    const publicSet = new Set(
+      publicZones.map(z => String(z.key || '').toUpperCase()).filter(Boolean)
+    );
+    allowedZones = pricedZones.filter(z => publicSet.has(String(z).toUpperCase()));
   }
 
   // Compte des sièges "sélectionnables" (status available + zone autorisée)

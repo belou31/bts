@@ -7,18 +7,13 @@
  *
  * Options:
  *   --payment-mode=psp|invoice_auto    (default: psp)
- *   --allowed-origins=https://a.com,https://b.com
- *   --frame-ancestors=https://a.com,https://b.com
+ *   --allow-public-tariffs=yes|no    (default: no)
  *   --payment-provider=<id>            (for invoice_auto mode)
  *   --pay-button="<Label>"             (invoice_auto)
  *   --success-message="<Text>"         (invoice_auto)
  *   --error-message="<Text>"           (invoice_auto)
  *   --auto-finalize=yes|no             (invoice_auto, default: yes)
  *   --send-tickets=yes|no              (invoice_auto, default: yes)
- *   --venue-view=<slug>                (optional custom plan view)
- *   --ui-heading="<Title>"
- *   --ui-lead="<Lead text>"
- *   --ui-payment-help="<Help text>"
  *
  * The script is additive/idempotent: an existing entry with the same slug
  * will be merged with the provided options and rewritten to disk.
@@ -62,9 +57,7 @@ if (!slug || !name) {
 }
 
 const paymentMode = getOption('payment-mode', 'psp');
-const allowedOrigins = parseList(getOption('allowed-origins', ''));
-const frameAncestors = parseList(getOption('frame-ancestors', ''));
-const venueView = getOption('venue-view');
+const allowPublicTariffs = boolOption('allow-public-tariffs', false);
 
 const reserve =
   paymentMode === 'invoice_auto'
@@ -83,15 +76,8 @@ const partner = {
   slug: slug.toLowerCase(),
   name,
   paymentMode,
-  allowedOrigins,
-  frameAncestors,
-  venueView,
-  reserve,
-  ui: {
-    heading: getOption('ui-heading', name),
-    lead: getOption('ui-lead', ''),
-    paymentHelp: getOption('ui-payment-help', paymentMode === 'invoice_auto' ? 'Facturation différée via le partenaire.' : 'Paiement sécurisé via BTS.')
-  }
+  allowPublicTariffs,
+  reserve
 };
 
 const targetDir = path.resolve(process.cwd(), 'data', 'customization');

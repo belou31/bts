@@ -8,9 +8,11 @@ const DEFAULT_CONFIGS = [
     slug: 'cseairbus',
     name: 'CSE Airbus',
     paymentMode: 'invoice_auto',
+    allowPublicTariffs: false,
     frameAncestors: [],
     allowedOrigins: [],
     venueView: null,
+    admin: { user: null, pass: null },
     reserve: {
       status: 'paid',
       paymentProvider: 'cseairbus_invoice',
@@ -30,9 +32,11 @@ const DEFAULT_CONFIGS = [
     slug: 'aisc',
     name: 'AISC',
     paymentMode: 'psp',
+    allowPublicTariffs: false,
     frameAncestors: [],
     allowedOrigins: [],
     venueView: null,
+    admin: { user: null, pass: null },
     reserve: null,
     ui: {
       heading: 'Billetterie AISC',

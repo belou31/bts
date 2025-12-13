@@ -6,7 +6,7 @@
  *   node scripts/05-partner-management/import-partners.js partners.csv [--replace]
  *
  * - Columns (header required):
- *   slug,name,paymentMode,allowedOrigins,frameAncestors,accessToken,venueView,paymentProvider,payButtonLabel,successMessage,errorMessage,autoFinalize,sendTickets,uiHeading,uiLead,uiPaymentHelp
+ *   slug,name,paymentMode,allowedOrigins,frameAncestors,accessToken,allowPublicTariffs,venueView,paymentProvider,payButtonLabel,successMessage,errorMessage,autoFinalize,sendTickets,uiHeading,uiLead,uiPaymentHelp
  * - allowedOrigins / frameAncestors: comma or space separated list.
  * - paymentMode: psp | invoice_auto.
  * - autoFinalize / sendTickets: yes/no/true/false (invoice_auto only).
@@ -86,6 +86,7 @@ const imported = rows
     const paymentMode = (r.paymentMode || 'psp').trim() || 'psp';
     const allowedOrigins = parseList(r.allowedOrigins || r.allowedOrigin);
     const frameAncestors = parseList(r.frameAncestors || r.frameAncestor);
+    const allowPublicTariffs = toBool(r.allowPublicTariffs, false);
     const venueView = (r.venueView || '').trim() || undefined;
     const isInvoice = paymentMode === 'invoice_auto';
     const reserve = isInvoice
@@ -106,6 +107,7 @@ const imported = rows
       paymentMode,
       allowedOrigins,
       frameAncestors,
+      allowPublicTariffs,
       venueView,
       reserve,
       accessToken: (r.accessToken || r.token || '').trim(),

@@ -1,10 +1,10 @@
-# zoneKey,tariffCode,priceEuro,channels
-S1,NORMAL,180,public
-S1,REDUCED,140,public
-S1,CHILD,90,public
-S2,NORMAL,150,public
-S2,REDUCED,120,public
-S2,CHILD,75,public
-DEBOUT,NORMAL,80,public
-DEBOUT,REDUCED,60,public
-ZONE_S3,CS_PARTNER,110,"partner:csebla"
+# zoneKey,tariffCode,priceCents,partnerPriceCents,currency,channels
+S1,NORMAL,18000,,EUR,public
+S1,REDUCED,14000,,EUR,public
+S1,CHILD,9000,,EUR,public
+S2,NORMAL,15000,,EUR,public
+S2,REDUCED,12000,,EUR,public
+S2,CHILD,7500,,EUR,public
+DEBOUT,NORMAL,8000,,EUR,public
+DEBOUT,REDUCED,6000,,EUR,public
+ZONE_S3,CS_PARTNER,11000,9500,EUR,"partner:csebla"
