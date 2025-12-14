@@ -20,6 +20,13 @@ const PAYMENT_PROVIDER_LABEL = currentPaymentProviderLabel();
 const ORG_SLUG = process.env.HELLOASSO_ORG_SLUG || '';
 const REPOST_URL = process.env.HELLOASSO_REPOST_URL || '';
 const REPOST_TIMEOUT_MS = Number(process.env.HELLOASSO_REPOST_TIMEOUT_MS || 1000);
+const BASE_PATH = (process.env.BASE_PATH || '').trim().replace(/\/+$/, '');
+
+const urlFor = (p = '') => {
+  const normalized = p.startsWith('/') ? p : `/${p}`;
+  if (!BASE_PATH) return normalized;
+  return `${BASE_PATH}${normalized}`.replace(/\/{2,}/g, '/');
+};
 
 
 // ----- REPOST RAW (forward tel quel, avec fallback http/https) -----
@@ -129,7 +136,8 @@ function buildRefreshHref({ orderId, intentId, providerOrderId }) {
   if (intentId) params.set('ci', intentId);
   if (providerOrderId) params.set('orderId', providerOrderId);
   const query = params.toString();
-  return query ? `/pay/return?${query}` : '/pay/return';
+  const suffix = query ? `/pay/return?${query}` : '/pay/return';
+  return urlFor(suffix);
 }
 
 function renderPaymentReturn({
@@ -484,7 +492,7 @@ router.get('/return', async (req, res) => {
     payerEmail: order?.payerEmail || order?.paymentProviderMeta?.payerEmail || order?.paymentProviderMeta?.lastPayerEmail || '',
     contactEmail,
     homeUrl,
-    ticketsUrl: (state === 'success' && order?.id) ? `/pay/tickets/${encodeURIComponent(String(order.id))}.pdf` : ''
+    ticketsUrl: (state === 'success' && order?.id) ? urlFor(`/pay/tickets/${encodeURIComponent(String(order.id))}.pdf`) : ''
   });
   return res.send(html);
 });
