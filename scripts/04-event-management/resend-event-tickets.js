@@ -4,7 +4,7 @@
  *
  * Usage:
  *   node scripts/04-event-management/resend-event-tickets.js \
- *     --event=<slug|ObjectId> --order=<id[,id2]> [--status=paid] [--dry-run]
+ *     --event=<slug|ObjectId> --order=<id[,id2]> [--status=paid] [--commit]
  */
 
 import mongoose from 'mongoose';
@@ -31,16 +31,17 @@ const argv = yargs(hideBin(process.argv))
     type: 'string',
     desc: 'Force order status before sending (e.g. paid)'
   })
-  .option('dry-run', {
+  .option('commit', {
     type: 'boolean',
     default: false,
-    desc: 'Preview without sending e-mails'
+    desc: 'Actually send emails (otherwise dry-run)'
   })
   .help()
   .argv;
 
 const EVENT_KEY = String(argv.event || '').trim();
-const DRY_RUN = argv['dry-run'] === true;
+const COMMIT = argv.commit === true;
+const DRY_RUN = !COMMIT;
 const STATUS_OVERRIDE = argv.status ? String(argv.status).trim().toLowerCase() : null;
 
 function collectOrderIds() {
@@ -95,7 +96,7 @@ async function main() {
   const evId = String(event._id);
   const evSlug = String(event.slug || '');
 
-  console.log(DRY_RUN ? '🧪 Dry-run — aucun email ne sera envoyé.' : '⚠️  Envoi des emails activé.');
+  console.log(DRY_RUN ? '🧪 Dry-run — aucun email ne sera envoyé.' : '⚠️  Envoi des emails activé (--commit).');
   console.log(`→ Event: ${formatEventRef(event)}`);
   console.log(`→ Orders ciblés: ${ids.size}`);
 

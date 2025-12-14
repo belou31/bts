@@ -53,5 +53,6 @@ scripts/
   02-tariff-management/  # import/export tariff catalogs & matrices
   03-season-management/  # instantiate venue/tariffs, seed data, renewal helpers
   04-event-management/   # création d’événements, imports QR/prix, set-onsale
-  05-misc/   # exports/reports, audits
+  05-partner-management/   # partner setup scripts (iframe, payment options)
+  06-misc/   # exports/reports, audits
   00-initialization/     # reset-db, check-env, customize-app

@@ -10,7 +10,8 @@ const CONFIG = (window.BTS_VIEW_CONFIG || {
   api: { status: 's/renew'+(location.search||''), checkout: 's/renew'+(location.search||'') },
   selection: { type: 'seats' } // seats | zones
 });
-document.title = (CONFIG.pageTitle || CONFIG.title || 'Billetterie') + ' — BTS';
+const PAGE_TITLE = CONFIG.pageTitle || CONFIG.title || 'Billetterie';
+document.title = PAGE_TITLE + ' — BTS';
 
 /* ========= Hooks & API ========= */
 const HOOKS = { afterData: [], planReady: [], cartChanged: [] };
@@ -854,6 +855,10 @@ dlog('payload sample:', {
   CTX.seats      = Array.isArray(data.seats)   ? data.seats   : [];
   CTX.tokenSeats = Array.isArray(data.tokenSeats) ? data.tokenSeats.map(normSeatId) : [];
   CTX.zones      = Array.isArray(data.zones) ? data.zones : [];
+  const resolvedVenueView = data.venueView || data.event?.venueView || null;
+  if (!CONFIG.venueView && resolvedVenueView) {
+    CONFIG.venueView = resolvedVenueView;
+  }
   // a) seatSubscribers -> index normalisé
   CTX.seatSubscribers = data.seatSubscribers || {};
   CTX.seatSubById = new Map();
@@ -943,7 +948,9 @@ if (Array.isArray(CTX.seatSubscribers)) {
   // Plan
   const $planObj = $('#venuePlan');
   let planPath = null;
-  if (typeof CONFIG.venuePlanPath === 'function') {
+  if (typeof CONFIG.venuePlanPath === 'string' && CONFIG.venuePlanPath) {
+    planPath = CONFIG.venuePlanPath;
+  } else if (typeof CONFIG.venuePlanPath === 'function') {
     try {
       planPath = CONFIG.venuePlanPath(CTX.venueSlug, { assetsBase: ASSET_BASE });
     } catch (err) {
@@ -956,7 +963,12 @@ if (Array.isArray(CTX.seatSubscribers)) {
       const safeSlug = encodeURIComponent(slug);
       const base = (CONFIG.venuePlanBase || `${ASSET_BASE}venues/`);
       const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-      planPath = `${normalizedBase}${safeSlug}/plan.svg`;
+      if (CONFIG.venueView) {
+        const viewSlug = encodeURIComponent(CONFIG.venueView);
+        planPath = `${normalizedBase}${safeSlug}/views/${viewSlug}.svg`;
+      } else {
+        planPath = `${normalizedBase}${safeSlug}/plan.svg`;
+      }
     }
   }
   if (planPath) {
@@ -1000,7 +1012,7 @@ dlog('payer inputs after set:', {
 document.addEventListener('DOMContentLoaded', async () => {
   dlog('boot generic-view.js v2025-09-04', { href: location.href, ts: Date.now() });
 
-  const h1 = $('#pageTitle'); if (h1) h1.textContent = CONFIG.title || 'Billetterie';
+  const h1 = $('#pageTitle'); if (h1) h1.textContent = PAGE_TITLE;
 
   const pageEl = $('#page') || $('.page');
   // ——— gestion du layout (auto par défaut, verrou si clic utilisateur)

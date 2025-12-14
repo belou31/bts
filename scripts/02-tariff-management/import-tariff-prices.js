@@ -163,7 +163,7 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
     console.error('[import-tariff-prices] CSV stream error:', err?.message || err);
   });
 
-  const headerInfo = { header: null, headerLC: null, mode: null, hasChannels: false };
+  const headerInfo = { header: null, headerLC: null, mode: null, hasChannels: false, hasPartnerPrice: false, hasCurrency: false };
   const entries = [];
   let rowCount = 0;
   let skips = 0;
@@ -179,6 +179,10 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
       headerInfo.hasChannels = headerInfo.headerLC.some((name) =>
         ['channels', 'channel', 'scopes'].includes(name)
       );
+      headerInfo.hasPartnerPrice = headerInfo.headerLC.some((name) =>
+        ['partnerpricecents', 'partnerprice', 'partnerpriceeuro'].includes(name)
+      );
+      headerInfo.hasCurrency = headerInfo.headerLC.includes('currency');
       if (!headerInfo.mode) {
         throw new Error(`Impossible de détecter le format CSV. En-têtes: ${headerInfo.header.join(' | ')}`);
       }
@@ -196,6 +200,11 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
       const tariffCode = String(map.tariffcode || map.code || '').trim().toUpperCase();
       const rawPriceCents = map.pricecents;
       const rawPrice = rawPriceCents ?? map.priceeuro ?? map.prix ?? map.prix_euro ?? map.price;
+      const rawPartnerPriceCents = map.partnerpricecents;
+      const rawPartnerPrice = rawPartnerPriceCents ?? map.partnerpriceeuro ?? null;
+      const currency = headerInfo.hasCurrency
+        ? (String(map.currency || '').trim().toUpperCase() || 'EUR')
+        : 'EUR';
       const priceCents = rawPriceCents !== undefined && rawPriceCents !== null && rawPriceCents !== ''
         ? parseExplicitCents(rawPriceCents)
         : parsePriceCell(rawPrice);
@@ -212,6 +221,10 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
         zoneKey,
         tariffCode,
         priceCents,
+        partnerPriceCents: headerInfo.hasPartnerPrice
+          ? (parseExplicitCents(rawPartnerPriceCents) ?? parsePriceCell(rawPartnerPrice) ?? null)
+          : null,
+        currency,
         channels: parsedChannels,
         channelsDefined: headerInfo.hasChannels
       });
@@ -228,7 +241,7 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
         if (!zoneKey) continue;
         const priceCents = parsePriceCell(cells[idx]);
         if (!Number.isFinite(priceCents)) continue;
-        entries.push({ zoneKey, tariffCode, priceCents, channelsDefined: false });
+        entries.push({ zoneKey, tariffCode, priceCents, partnerPriceCents: null, currency: 'EUR', channelsDefined: false });
       }
     }
   }
@@ -335,7 +348,8 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
         zoneKey: entry.zoneKey,
         tariffCode: entry.tariffCode,
         priceCents: entry.priceCents,
-        currency: 'EUR'
+        currency: entry.currency || 'EUR',
+        ...(entry.partnerPriceCents != null ? { partnerPriceCents: entry.partnerPriceCents } : {})
       };
       const updateDoc = { $set: updateSet };
       if (entry.channelsDefined) {
@@ -366,7 +380,8 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
         zoneKey: entry.zoneKey,
         tariffCode: entry.tariffCode,
         priceCents: entry.priceCents,
-        currency: 'EUR'
+        currency: entry.currency || 'EUR',
+        ...(entry.partnerPriceCents != null ? { partnerPriceCents: entry.partnerPriceCents } : {})
       };
       const updateDoc = { $set: updateSet };
       if (entry.channelsDefined) {

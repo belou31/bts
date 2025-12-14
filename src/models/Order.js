@@ -38,7 +38,7 @@ const LineSchema = new mongoose.Schema({
 
 /* ----- Optional sub-schema for origin ----- */
 const OriginSchema = new mongoose.Schema({
-  flow:   { type: String, enum: ['renew','tbh7','vip','subscription','vip'], default: null },
+  flow:   { type: String, enum: ['renew','tbh7','vip','subscription','vip','partner','public','event'], default: null },
   uiPath: { type: String, default: null },
   apiPath:{ type: String, default: null }
 }, { _id:false });
@@ -79,7 +79,7 @@ const OrderSchema = new mongoose.Schema({
   // Email/template routing
    origin: {
     // ajout de "event" pour distinguer le flux billetterie évènement
-    flow:   { type:String, enum:['renew','subscription','public','event'], default:'subscription', index:true },
+    flow:   { type:String, enum:['renew','subscription','public','event','partner','vip','tbh7'], default:'subscription', index:true },
      uiPath: { type:String },
      apiPath:{ type:String }
    },

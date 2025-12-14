@@ -4,7 +4,7 @@
   const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
   const cssEscape = (s) =>
     (window.CSS?.escape ? window.CSS.escape(String(s)) : String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&'));
-  const normZoneKey = (key) => String(key || '').toUpperCase();
+  const normZoneKey = (key) => String(key || '').trim().toUpperCase();
 
   function start() {
 
@@ -181,9 +181,24 @@
       seats    = Array.isArray(data?.seats) ? data.seats : [];
       bySeatId = new Map(seats.map(s => [String(s.seatId), s]));
 
+      // Prices (from generic view context) to filter zones with effective tariffs
+      const priceZones = new Set();
+      const prices = Array.isArray(CTX?.prices) ? CTX.prices : Array.isArray(data?.prices) ? data.prices : [];
+      prices.forEach(p => {
+        const z = normZoneKey(p.zoneKey || p.zone || '*');
+        if (z) priceZones.add(z);
+      });
+      const hasTariffForZone = (key) => {
+        if (!key) return false;
+        if (priceZones.has('*')) return true;
+        return priceZones.has(key);
+      };
+
       // data.zones must be provided by /api/season/:seasonCode/status
       zones = Array.isArray(data?.zones)
-        ? data.zones.map(z => ({ ...z, key: normZoneKey(z.key) }))
+        ? data.zones
+            .map(z => ({ ...z, key: normZoneKey(z.key) }))
+            .filter(z => z.key && hasTariffForZone(z.key))
         : [];
       remaining = new Map(zones.map(z => [z.key, Number(z.remaining || 0)]));
 

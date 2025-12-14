@@ -37,7 +37,7 @@ export function matchesChannel(list, context = { kind: 'public' }) {
   const kind = context?.kind || 'public';
   if (kind === 'partner') {
     const slug = normalizeChannelToken(context.partnerSlug || '');
-    if (slug && (scoped.includes(`partner:${slug}`) || scoped.includes('partner'))) {
+    if (slug && (scoped.includes(`partner:${slug}`) || scoped.includes('partner') || scoped.includes(slug))) {
       return true;
     }
     if (!slug) {
@@ -71,4 +71,3 @@ function serializeSlug(value) {
   if (!value) return '';
   return String(value).trim().toLowerCase();
 }
-
