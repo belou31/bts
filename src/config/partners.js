@@ -59,11 +59,9 @@ function loadCustomConfigs() {
   }
 }
 
-const CUSTOM_CONFIGS = loadCustomConfigs();
-
-function mergeConfigs() {
+function mergeConfigs(customList) {
   const map = new Map();
-  const all = [...DEFAULT_CONFIGS, ...CUSTOM_CONFIGS];
+  const all = [...DEFAULT_CONFIGS, ...customList];
   all.forEach(cfg => {
     if (!cfg?.slug) return;
     const key = String(cfg.slug).trim().toLowerCase();
@@ -77,16 +75,20 @@ function mergeConfigs() {
   return Array.from(map.values());
 }
 
-const PARTNER_CONFIGS = mergeConfigs();
+function getMergedConfigs() {
+  const custom = loadCustomConfigs();
+  return mergeConfigs(custom);
+}
 
 export function getPartnerConfig(slug) {
   if (!slug) return null;
   const key = String(slug).trim().toLowerCase();
-  const base = PARTNER_CONFIGS.find(cfg => cfg.slug === key);
+  const configs = getMergedConfigs();
+  const base = configs.find(cfg => cfg.slug === key);
   if (!base) return null;
   return base;
 }
 
 export function listPartnerConfigs() {
-  return [...PARTNER_CONFIGS];
+  return getMergedConfigs();
 }

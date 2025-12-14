@@ -429,12 +429,62 @@ function prepareScriptCatalog() {
 
 /* ===================== Page HTML ===================== */
 router.get('/', (req, res) => {
-  const qs = new URLSearchParams(req.query).toString();
-  const target = urlFor('/admin/operate');
-  return res.redirect(302, `${target}${qs ? `?${qs}` : ''}`);
+  const qs = new URLSearchParams(req.query);
+  const view = (req.query.view || '').toString();
+  qs.delete('view');
+  const suffix = qs.toString();
+  let target = urlFor('/admin/operate');
+  if (view === 'monitor') target = urlFor('/admin/monitor');
+  if (view === 'io') target = urlFor('/admin/io');
+  return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
+});
+
+router.get('/io', (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const outputsList = listFiles(OUTPUTS_ROOT);
+  const inputsList = listFiles(INPUTS_ROOT);
+  const venueViews = listVenueViews();
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: [],
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList,
+    inputsList,
+    operateOptions: {
+      venues: [],
+      seasons: [],
+      events: [],
+      partners: [],
+      tariffCatalogs: [],
+      inputFiles: inputsList.map(file => file.name),
+      venueViews
+    },
+    viewMode: 'io',
+    monitorTab: 'tariffs',
+    monitoring: null
+  });
 });
 
 router.get('/operate', async (req, res) => {
+  if (req.query.view === 'io') {
+    const qs = new URLSearchParams(req.query);
+    qs.delete('view');
+    const suffix = qs.toString();
+    const target = urlFor('/admin/io');
+    return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
+  }
+
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
@@ -540,6 +590,21 @@ router.get('/operate', async (req, res) => {
 });
 
 router.get('/monitor', async (req, res) => {
+  if (req.query.view === 'io') {
+    const qs = new URLSearchParams(req.query);
+    qs.delete('view');
+    const suffix = qs.toString();
+    const target = urlFor('/admin/io');
+    return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
+  }
+  if (req.query.view === 'operate') {
+    const qs = new URLSearchParams(req.query);
+    qs.delete('view');
+    const suffix = qs.toString();
+    const target = urlFor('/admin/operate');
+    return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
+  }
+
   const { automationScripts } = prepareScriptCatalog();
   const mongoState = mongoose.connection?.readyState;
   const mongoStateLabel = ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoState || 0];
@@ -558,6 +623,24 @@ router.get('/monitor', async (req, res) => {
     }));
   } catch { /* ignore */ }
 
+  let diskUsage = null;
+  try {
+    const out = childProcess.execSync('df -k .', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const lines = out.trim().split(/\n+/);
+    if (lines.length >= 2) {
+      const parts = lines[1].trim().split(/\s+/);
+      if (parts.length >= 5) {
+        const filesystem = parts[0];
+        const sizeKB = Number(parts[1]) || 0;
+        const usedKB = Number(parts[2]) || 0;
+        const availKB = Number(parts[3]) || 0;
+        const pctRaw = parts[4] || '';
+        const usedPct = pctRaw.endsWith('%') ? Number(pctRaw.replace('%', '')) : (sizeKB ? Math.round((usedKB / sizeKB) * 100) : null);
+        diskUsage = { filesystem, sizeKB, usedKB, availKB, usedPct };
+      }
+    }
+  } catch { /* ignore */ }
+
   const seatStatusAgg = await Seat.aggregate([
     { $group: { _id: '$status', c: { $sum: 1 } } }
   ]);
@@ -573,8 +656,8 @@ router.get('/monitor', async (req, res) => {
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
-  const monitorTabOptions = new Set(['tariffs', 'subscription', 'event']);
-  const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : 'tariffs';
+  const monitorTabOptions = new Set(['system', 'tariffs', 'seasons', 'events', 'partners']);
+  const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : 'system';
 
   const [
     venuesRaw,
@@ -583,7 +666,8 @@ router.get('/monitor', async (req, res) => {
     tariffsRaw,
     tariffPriceCountsAgg,
     venueZoneCountsAgg,
-    seatCatalogCountsAgg
+    seatCatalogCountsAgg,
+    partnersRaw
   ] = await Promise.all([
     Venue.find({}).sort({ slug: 1 }).lean(),
     Season.find({}).sort({ code: -1 }).lean(),
@@ -597,7 +681,8 @@ router.get('/monitor', async (req, res) => {
     ]),
     SeatCatalog.aggregate([
       { $group: { _id: '$venueSlug', count: { $sum: 1 } } }
-    ])
+    ]),
+    Promise.resolve(listPartnerConfigs())
   ]);
 
   const priceEntriesMap = new Map(tariffPriceCountsAgg.map(item => [(item._id ?? 'global'), item.count]));
@@ -648,6 +733,14 @@ router.get('/monitor', async (req, res) => {
     seasonCode: e.seasonCode,
     venueSlug: e.venueSlug,
     isOnSale: e.isOnSale
+  }));
+
+  const partnersList = (partnersRaw || []).map(p => ({
+    slug: p.slug,
+    name: p.name || '',
+    paymentMode: p.paymentMode || '',
+    allowPublicTariffs: Boolean(p.allowPublicTariffs),
+    venueView: p.venueView || null
   }));
 
   const tariffsSample = tariffsRaw.slice(0, 50).map(t => ({
@@ -901,14 +994,16 @@ router.get('/monitor', async (req, res) => {
       mongoState: mongoStateLabel,
       seatCounts,
       recentOrders,
-      pm2
+      pm2,
+      diskUsage
     },
     lists: {
       venues: venuesList,
       seasons: seasonsList,
       events: eventsList,
       tariffs: tariffsSample,
-      tariffSummary
+      tariffSummary,
+      partners: partnersList
     },
     subscription: {
       selectedSeasonCode,

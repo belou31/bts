@@ -10,7 +10,8 @@ const CONFIG = (window.BTS_VIEW_CONFIG || {
   api: { status: 's/renew'+(location.search||''), checkout: 's/renew'+(location.search||'') },
   selection: { type: 'seats' } // seats | zones
 });
-document.title = (CONFIG.pageTitle || CONFIG.title || 'Billetterie') + ' — BTS';
+const PAGE_TITLE = CONFIG.pageTitle || CONFIG.title || 'Billetterie';
+document.title = PAGE_TITLE + ' — BTS';
 
 /* ========= Hooks & API ========= */
 const HOOKS = { afterData: [], planReady: [], cartChanged: [] };
@@ -1011,7 +1012,7 @@ dlog('payer inputs after set:', {
 document.addEventListener('DOMContentLoaded', async () => {
   dlog('boot generic-view.js v2025-09-04', { href: location.href, ts: Date.now() });
 
-  const h1 = $('#pageTitle'); if (h1) h1.textContent = CONFIG.title || 'Billetterie';
+  const h1 = $('#pageTitle'); if (h1) h1.textContent = PAGE_TITLE;
 
   const pageEl = $('#page') || $('.page');
   // ——— gestion du layout (auto par défaut, verrou si clic utilisateur)

@@ -1,6 +1,8 @@
 // static/js/event.js — commande "match"
 (() => {
   const { on, api } = window.BTS_VIEW;
+  const VIEW_CONFIG = window.BTS_VIEW_CONFIG || {};
+  const IS_PARTNER_VIEW = !!VIEW_CONFIG.partner;
 
   const cssEscape = (s) => (window.CSS?.escape ? CSS.escape(String(s)) : String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&'));
   const normZoneKey = (key) => String(key || '').trim().toUpperCase(); // trim to avoid duplicates like "DEBOUT "
@@ -304,8 +306,8 @@
     const evtTitle = formatEventTitle(data?.event);
     if (evtTitle) {
       const brandTitle = document.querySelector('#pageTitle');
-      if (brandTitle) brandTitle.textContent = evtTitle;
-      document.title = `${evtTitle} — BTS`;
+      if (brandTitle && !IS_PARTNER_VIEW) brandTitle.textContent = evtTitle;
+      if (!IS_PARTNER_VIEW) document.title = `${evtTitle} — BTS`;
     }
 
     updateSaleStatusBadge(data?.event || data);
