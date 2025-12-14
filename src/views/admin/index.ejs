@@ -597,8 +597,9 @@
                          const hasEventSelect = field.name === 'event' && Array.isArray(opt.events) && opt.events.length;
                          const hasSeasonSelect = !freeSeasonField && field.name === 'season' && Array.isArray(opt.seasons) && opt.seasons.length;
                          const hasVenueSelect = field.name === 'venue' && Array.isArray(opt.venues) && opt.venues.length;
+                         const hasVenueViewSelect = field.name === 'venueView' && Array.isArray(opt.venueViews) && opt.venueViews.length;
                          const hasPartnerSelect = field.name === 'partner' && Array.isArray(opt.partners) && opt.partners.length;
-                         const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
+                          const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
                           const defaultValue = (field.placeholder && field.placeholder.startsWith('data/outputs/'))
                            ? field.placeholder
                            : '';
@@ -616,7 +617,14 @@
                       <% } else { %>
                         <label>
                           <span><%= field.label %></span>
-                          <% if (Array.isArray(field.options) && field.options.length) { %>
+                          <% if (hasVenueViewSelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Aucune vue spécifique —</option>
+                              <% for (const view of opt.venueViews) { const lbl = view.label || (view.venueSlug ? `${view.venueSlug} — ${view.slug}` : (view.slug || '')); %>
+                                <option value="<%= view.slug %>"><%= lbl %></option>
+                              <% } %>
+                            </select>
+                          <% } else if (Array.isArray(field.options) && field.options.length) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <% if (!field.required) { %><option value="">—</option><% } %>
                               <% for (const optItem of field.options) { const val = optItem.value ?? ''; const lbl = optItem.label ?? val; %>

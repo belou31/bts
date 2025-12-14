@@ -38,13 +38,12 @@ async function main() {
   if (dbName) connectOpts.dbName = dbName;
   await mongoose.connect(uri, connectOpts);
 
-  const venueSlug = argv.venue ? String(argv.venue).trim() : null;
+  const venueSlug = null;
   const customPriceTable = argv.priceTable ? String(argv.priceTable).trim() : '';
   const priceTableKey = customPriceTable || `ev:${argv.slug}`;
   const startsAt = new Date(argv.date);
   if (isNaN(startsAt)) throw new Error('Date invalide');
 
-  const venueSlug = null;
   const doc = await Event.create({
     slug: argv.slug,
     name: argv.name,

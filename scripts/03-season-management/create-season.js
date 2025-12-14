@@ -3,7 +3,7 @@
  * Upsert a season and its phases.
  *
  * Usage:
- *   node scripts/03-season-management/create-season.js <seasonCode> [--name="Saison ..."] [--active=true]
+ *   node scripts/03-season-management/create-season.js <seasonCode> [--name="Saison ..."] [--active=true] [--venue=<slug>]
  *
  * Environment:
  *   - MONGO_URI or MONGODB_URI: Mongo database connection (required)
@@ -61,6 +61,7 @@ function parseBoolean(value, fallback = null) {
     console.error('Usage: node scripts/03-season-management/create-season.js <seasonCode> [--name="..."]');
     process.exit(1);
   }
+  const venueSlug = options.venue || process.env.VENUE || '';
 
   let season = await Season.findOne({ code });
   const isNew = !season;
@@ -90,6 +91,10 @@ function parseBoolean(value, fallback = null) {
 
   await season.save();
 
+  if (venueSlug) {
+    season.venueSlug = venueSlug;
+  }
+
   if (season.active) {
     await Season.updateMany({ _id: { $ne: season._id } }, { $set: { active: false } });
   }
@@ -98,6 +103,7 @@ function parseBoolean(value, fallback = null) {
     code: season.code,
     name: season.name,
     active: season.active,
+    venueSlug: season.venueSlug,
     phases: season.phases
   });
 

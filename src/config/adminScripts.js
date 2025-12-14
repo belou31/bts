@@ -1109,19 +1109,43 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'season-provision',
-        label: 'Provision Seats (season rules)',
+        id: 'block-free-seats-for-season',
+        label: 'Block/Free Seats for Season',
         order: 7,
-        path: 'scripts/03-season-management/provision-season-seats.js',
-        command: 'node scripts/03-season-management/provision-season-seats.js [--apply]',
+        path: 'scripts/03-season-management/block-free-seats-for-season.js',
+        command: 'node scripts/03-season-management/block-free-seats-for-season.js --file=<holds.csv> [--season=...] [--venue=...] [--commit] [--force]',
         run: {
-          script: 'scripts/03-season-management/provision-season-seats.js',
+          script: 'scripts/03-season-management/block-free-seats-for-season.js',
           args: []
         },
-        description: 'Applies business rules (VIP, visitors, unavailable…) to mark seats as busy.',
+        description: 'Blocks or frees season seats (status busy) based on a CSV; accepts seatId, seatPattern (regex), or zoneKey.',
         notes: [
-          'Dry-run by default; add --apply to persist updates in MongoDB.'
-        ]
+          'Runs in dry-run by default; add --commit to persist and --force to override non-held seats.'
+        ],
+        templates: ['data/templates/csv/seats-hold-release.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'file',
+              label: 'CSV seats',
+              placeholder: 'data/inputs/season-blocks.csv',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
+              name: 'season',
+              label: 'Code saison (optionnel)',
+              placeholder: '2025-2026',
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu (optionnel)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
       },
     ]
   },
@@ -1527,16 +1551,16 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'event-seats-hold-release',
-        label: 'Seat Holds (block/free)',
+        id: 'block-free-seats-for-event',
+        label: 'Block/Free Seats for Event',
         order: 5,
-        path: 'scripts/04-event-management/seats-hold-release.js',
-        command: 'node scripts/04-event-management/seats-hold-release.js --event=<slug> --file=<holds.csv> [--commit] [--force]',
+        path: 'scripts/04-event-management/block-free-seats-for-event.js',
+        command: 'node scripts/04-event-management/block-free-seats-for-event.js --event=<slug> --file=<holds.csv> [--commit] [--force]',
         run: {
-          script: 'scripts/04-event-management/seats-hold-release.js',
+          script: 'scripts/04-event-management/block-free-seats-for-event.js',
           args: []
         },
-        description: 'Blocks or frees event seat holds based on a CSV describing action, seatId/zoneKey, reason, and expiry.',
+        description: 'Blocks or frees event seat holds based on a CSV describing action, seatId/seatPattern/zoneKey, reason, and expiry.',
         notes: [
           'Without --commit the script runs in dry-run mode; add --force to overwrite existing holds.'
         ],

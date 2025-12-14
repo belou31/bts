@@ -45,7 +45,7 @@ Each entry below references the canonical command, required environment variable
 | `scripts/03-season-management/import-subscription-orders.js` | Import subscription orders, book seats, and upsert subscribers. | `node scripts/03-season-management/import-subscription-orders.js orders.csv [--season=...] [--venue=...] [--status=paid] [--commit] [--sendEmails]` | `data/templates/csv/subscribers-import.template.csv` |
 | `scripts/03-season-management/export-subscribers.js` | Export subscribers for a season/venue. | `node scripts/03-season-management/export-subscribers.js [--season=...] [--venue=...] [--activeOnly]` | `data/templates/csv/subscribers-export.template.csv` |
 | `scripts/03-season-management/export-subscription-orders.js` | Export orders with phase `subscription` for audit. | `node scripts/03-season-management/export-subscription-orders.js [--season=...] [--venue=...] [--status=paid]` | `data/templates/csv/orders-export.template.csv` |
-| `scripts/03-season-management/provision-season-seats.js` | Apply business rules (VIP, visitors, unavailable…) to seats. | `node scripts/03-season-management/provision-season-seats.js [--apply]` | — |
+| `scripts/03-season-management/block-free-seats-for-season.js` | Block or free season seats from a CSV (seatId/regex/zone). | `node scripts/03-season-management/block-free-seats-for-season.js --file=<holds.csv> [--season=...] [--venue=...] [--commit] [--force]` | `data/templates/csv/seats-hold-release.template.csv` |
 
 ### Renewal workflow
 
@@ -61,12 +61,12 @@ Each entry below references the canonical command, required environment variable
 
 | Script | Purpose | Command | Templates |
 | --- | --- | --- | --- |
-| `scripts/04-event-management/create.js` | Create an event bound to a season/venue (price table auto-generated). | `node scripts/04-event-management/create.js --slug=... --name="..." --date=ISO --season=<code> --venue=<slug> [--price-table=<key>]` | — |
+| `scripts/04-event-management/create.js` | Create an event bound to a season (attach venue later). | `node scripts/04-event-management/create.js --slug=... --name="..." --date=ISO --season=<code> [--price-table=<key>]` | — |
 | `scripts/04-event-management/instantiate-tariffs.js` | Instantiate event tariffs from catalog(s). | `node scripts/04-event-management/instantiate-tariffs.js --event=<slug> --catalog=<slug[,slug2]> [--clear] [--dry-run]` | — |
 | `scripts/04-event-management/build-allowed-from-prices.js` | Recompute "allowed from" pricing based on zone tariffs. | `node scripts/04-event-management/build-allowed-from-prices.js --event=<slug>` | — |
 | `scripts/04-event-management/set-onsale.js` | Toggle ticket sales for an event. | `node scripts/04-event-management/set-onsale.js --event=<slug|ObjectId> --open` | — |
 | `scripts/04-event-management/import-qr-bank.js` | Import QR codes into a shared pool for the event. | `node scripts/04-event-management/import-qr-bank.js --event=<slug> --csv=<codes.csv>` | — |
-| `scripts/04-event-management/seats-hold-release.js` | Block or free seat holds for an event from a CSV. | `node scripts/04-event-management/seats-hold-release.js --file=holds.csv [--commit] [--force]` | `data/templates/csv/seats-hold-release.template.csv` |
+| `scripts/04-event-management/block-free-seats-for-event.js` | Block or free seat holds for an event from a CSV (seatId/regex/zone). | `node scripts/04-event-management/block-free-seats-for-event.js --event=<slug> --file=holds.csv [--commit] [--force]` | `data/templates/csv/seats-hold-release.template.csv` |
 | `scripts/04-event-management/send-all-season-tickets-for-event.js` | Generate/send season tickets (PDF) for an event based on the season subscriber base. | `node scripts/04-event-management/send-all-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run]` | — |
 | `scripts/04-event-management/import-orders.js` | Import or replay event orders from a CSV export. | `node scripts/04-event-management/import-orders.js <orders.csv> [--status=paid] [--commit] [--force] [--sendEmail]` | `data/templates/csv/event-orders.template.csv` |
 | `scripts/04-event-management/export-orders.js` | Export event orders (one row per ticket) using the import-compatible layout. | `node scripts/04-event-management/export-orders.js --event=<slug> [--status=paid] [--out=orders.csv]` | `data/templates/csv/event-orders.template.csv` |

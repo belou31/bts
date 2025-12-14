@@ -7,7 +7,7 @@
 - scripts/03-season-management/import-subscription-orders.js — import subscription orders, book seats, and upsert subscribers.
 - scripts/03-season-management/export-subscribers.js — export subscribers for a season/venue.
 - scripts/03-season-management/export-subscription-orders.js — export all subscription (phase) orders for review.
-- scripts/03-season-management/provision-season-seats.js — apply season provisioning rules to seats.
+- scripts/03-season-management/block-free-seats-for-season.js — block or free season seats from a CSV (seatId, regex, or zoneKey).
 
 ## Renewal workflow
 - scripts/03-season-management/import-renewers-flat.js — load renewal subscribers from a flat CSV (1 seat per line).

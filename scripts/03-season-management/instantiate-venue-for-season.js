@@ -16,6 +16,7 @@ import dotenv from 'dotenv';
 
 import { Seat } from '../../src/models/Seat.js';
 import { Zone } from '../../src/models/Zone.js';
+import { Season } from '../../src/models/Season.js';
 import { SeatCatalog } from '../../src/models/SeatCatalog.js';
 import { ZoneCatalog } from '../../src/models/ZoneCatalog.js';
 
@@ -132,6 +133,12 @@ function zoneFromSeatId(seatId) {
         console.log(`[instantiate-venue-for-season] Zones → upserts=${upserts} skipped=${skipped} (templates=${zones.length})`);
       }
     }
+
+    // Ensure the season document carries the venue slug for downstream routes
+    await Season.updateOne(
+      { $or: [{ code: seasonCode }, { seasonCode }] },
+      { $set: { venueSlug } }
+    );
 
     await mongoose.disconnect();
     process.exit(0);

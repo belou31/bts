@@ -89,7 +89,7 @@ _COMMAND_SPECS = [
     ("season_import_subscription_orders", "Import subscription orders (CSV)", "node scripts/03-season-management/import-subscription-orders.js orders.csv [--season=...] [--venue=...] [--status=paid] [--commit] [--sendEmails]"),
     ("season_export_subscribers", "Export subscribers (CSV)", "node scripts/03-season-management/export-subscribers.js [--season=...] [--venue=...] [--activeOnly]"),
     ("season_export_subscription_orders", "Export subscription orders (CSV)", "node scripts/03-season-management/export-subscription-orders.js [--season=...] [--venue=...] [--status=paid]"),
-    ("season_provision_seats", "Provision season seats", "node scripts/03-season-management/provision-season-seats.js [--apply]"),
+    ("block_free_seats_for_season", "Block/free season seats", "node scripts/03-season-management/block-free-seats-for-season.js --file=<holds.csv> [--season=...] [--venue=...] [--commit] [--force]"),
     # 03 — Season Management (renewal workflow)
     ("renew_import_flat", "Import renewal subscribers (flat CSV)", "node scripts/03-season-management/import-renewers-flat.js subscribers.csv <season> --venue=<slug>"),
     ("renew_provision_seats", "Provision seats for renewal", "node scripts/03-season-management/renewal-provision-seats.js <season> --venue=<slug> [--apply]"),
@@ -102,7 +102,7 @@ _COMMAND_SPECS = [
     ("event_build_allowed_from_prices", "Recompute allowed-from prices", "node scripts/04-event-management/build-allowed-from-prices.js --event=<slug>"),
     ("event_set_onsale", "Toggle event on sale", "node scripts/04-event-management/set-onsale.js --event=<slug|ObjectId> --open"),
     ("event_import_qr_bank", "Import QR bank (CSV)", "node scripts/04-event-management/import-qr-bank.js --event=<slug> --csv=<codes.csv>"),
-    ("event_seats_hold_release", "Manage event seat holds", "node scripts/04-event-management/seats-hold-release.js --file=holds.csv [--commit] [--force]"),
+    ("block_free_seats_for_event", "Manage event seat holds", "node scripts/04-event-management/block-free-seats-for-event.js --event=<slug> --file=holds.csv [--commit] [--force]"),
     ("event_send_all_season_tickets", "Send all season tickets for event", "node scripts/04-event-management/send-all-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run]"),
     ("event_import_orders", "Import event orders (CSV)", "node scripts/04-event-management/import-orders.js <orders.csv> [--status=paid] [--commit] [--force] [--sendEmail]"),
     ("event_export_orders", "Export event orders (CSV)", "node scripts/04-event-management/export-orders.js --event=<slug> [--status=paid] [--out=orders.csv]"),

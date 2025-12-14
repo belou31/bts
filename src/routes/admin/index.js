@@ -40,6 +40,7 @@ const ROOT_DIR = process.cwd();
 const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
 const OUTPUTS_ROOT = path.resolve(ROOT_DIR, 'data/outputs');
 const INPUTS_ROOT = path.resolve(ROOT_DIR, 'data/inputs');
+const STATIC_VENUES_ROOT = path.resolve(ROOT_DIR, 'src/public/static/venues');
 for (const dir of [OUTPUTS_ROOT, INPUTS_ROOT]) {
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
 }
@@ -186,6 +187,44 @@ function listFiles(root, limit = 50) {
       .sort((a, b) => b.mtime - a.mtime)
       .slice(0, limit);
   } catch {
+    return [];
+  }
+}
+
+function listVenueViews(rootDir = STATIC_VENUES_ROOT) {
+  try {
+    const venueDirs = fs.readdirSync(rootDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name);
+
+    const views = [];
+    for (const venueSlug of venueDirs) {
+      const viewsDir = path.join(rootDir, venueSlug, 'views');
+      let entries = [];
+      try {
+        entries = fs.readdirSync(viewsDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (!entry.name.toLowerCase().endsWith('.svg')) continue;
+        const slug = entry.name.replace(/\.svg$/i, '');
+        views.push({
+          slug,
+          venueSlug,
+          label: `${venueSlug} — ${slug}`
+        });
+      }
+    }
+
+    return views.sort((a, b) => {
+      const venueCmp = String(a.venueSlug || '').localeCompare(String(b.venueSlug || ''));
+      if (venueCmp !== 0) return venueCmp;
+      return String(a.slug || '').localeCompare(String(b.slug || ''));
+    });
+  } catch (error) {
+    console.error('[admin] unable to list venue views:', error?.message || error);
     return [];
   }
 }
@@ -408,13 +447,15 @@ router.get('/operate', async (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
+  const venueViews = listVenueViews();
   let operateOptions = {
     venues: [],
     seasons: [],
     events: [],
     partners: [],
     tariffCatalogs: [],
-    inputFiles: inputsList.map(file => file.name)
+    inputFiles: inputsList.map(file => file.name),
+    venueViews
   };
 
   try {
@@ -447,7 +488,8 @@ router.get('/operate', async (req, res) => {
       tariffCatalogs: tariffCatalogsAgg
         .map(entry => entry?._id)
         .filter(Boolean),
-      inputFiles: inputsList.map(file => file.name)
+      inputFiles: inputsList.map(file => file.name),
+      venueViews
     };
   } catch (error) {
     console.error('[admin] operate options fetch error:', error?.message || error);
