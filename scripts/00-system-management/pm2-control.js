@@ -5,8 +5,8 @@
  * Usage:
  *   node scripts/00-system-management/pm2-control.js --name=bts [--action=restart|start]
  *
- * - If action is "restart", a missing process will trigger a fallback "start" (when a script is known).
- * - Allowed names: bts, bts-sentinel, bts-logrotate.
+ * - If action is "restart", a missing process will trigger a fallback "start" (when a script or command is known).
+ * - Allowed names: bts, bts-sentinel, bts-logrotate, pm2-logrotate.
  */
 import { execSync } from 'child_process';
 
@@ -24,9 +24,10 @@ const name = getOpt('name');
 const actionRaw = getOpt('action') || 'restart';
 const action = ['restart', 'start'].includes(actionRaw) ? actionRaw : 'restart';
 const START_TARGETS = {
-  bts: 'src/server.js',
-  'bts-sentinel': 'scripts/sentinels/pending-orders.js',
-  'bts-logrotate': null // no known script path; requires pm2 ecosystem/config
+  bts: { script: 'src/server.js', name: 'bts' },
+  'bts-sentinel': { script: 'scripts/sentinels/pending-orders.js', name: 'bts-sentinel' },
+  'bts-logrotate': { cmd: 'pm2 start pm2-logrotate' },
+  'pm2-logrotate': { cmd: 'pm2 start pm2-logrotate' }
 };
 const allowed = new Set(Object.keys(START_TARGETS));
 
@@ -42,8 +43,15 @@ const startProcess = () => {
   if (!target) {
     throw new Error(`No start command mapped for "${name}" (define it in pm2-control.js).`);
   }
-  const out = run(`pm2 start ${target} --name ${name}`);
-  console.log(out || `Started ${name} (${target})`);
+  if (target.cmd) {
+    const out = run(target.cmd);
+    console.log(out || `Started via: ${target.cmd}`);
+    return;
+  }
+  const scriptPath = target.script;
+  const procName = target.name || name;
+  const out = run(`pm2 start ${scriptPath} --name ${procName}`);
+  console.log(out || `Started ${procName} (${scriptPath})`);
 };
 
 try {
