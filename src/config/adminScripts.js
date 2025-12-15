@@ -177,15 +177,15 @@ export const adminScriptGroups = [
       },
       {
         id: 'pm2-restart-logrotate',
-        label: 'Start/Restart bts-logrotate (pm2)',
+        label: 'Start/Restart pm2-logrotate',
         order: 6,
         path: 'scripts/00-system-management/pm2-control.js',
-        command: 'node scripts/00-system-management/pm2-control.js --name=bts-logrotate --action=restart',
+        command: 'node scripts/00-system-management/pm2-control.js --name=pm2-logrotate --action=restart',
         run: {
           script: 'scripts/00-system-management/pm2-control.js',
-          args: ['--name=bts-logrotate', '--action=restart']
+          args: ['--name=pm2-logrotate', '--action=restart']
         },
-        description: 'Démarre ou redémarre le service de rotation des logs (pm2: bts-logrotate).',
+        description: 'Démarre ou redémarre le service de rotation des logs (pm2: pm2-logrotate).',
         danger: true,
         notes: [
           'Nécessite pm2 installé et la config du process bts-logrotate disponible.',
