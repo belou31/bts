@@ -9,6 +9,8 @@
  * - Allowed names: bts, bts-sentinel, bts-logrotate, pm2-logrotate.
  */
 import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 const args = process.argv.slice(2);
 const getOpt = (key) => {
@@ -26,8 +28,8 @@ const action = ['restart', 'start'].includes(actionRaw) ? actionRaw : 'restart';
 const START_TARGETS = {
   bts: { script: 'src/server.js', name: 'bts' },
   'bts-sentinel': { script: 'scripts/sentinels/pending-orders.js', name: 'bts-sentinel' },
-  'bts-logrotate': { cmd: 'pm2 start pm2-logrotate' },
-  'pm2-logrotate': { cmd: 'pm2 start pm2-logrotate' }
+  'bts-logrotate': { module: 'pm2-logrotate' },
+  'pm2-logrotate': { module: 'pm2-logrotate' }
 };
 const allowed = new Set(Object.keys(START_TARGETS));
 
@@ -38,6 +40,13 @@ if (!name || !allowed.has(name)) {
 
 const run = (cmd) => execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
+const resolveModuleScript = (moduleName) => {
+  const pm2Home = process.env.PM2_HOME || path.join(process.env.HOME || '', '.pm2');
+  const candidate = path.join(pm2Home, 'modules', moduleName, 'node_modules', moduleName, 'app.js');
+  if (candidate && fs.existsSync(candidate)) return candidate;
+  return null;
+};
+
 const startProcess = () => {
   const target = START_TARGETS[name];
   if (!target) {
@@ -46,6 +55,17 @@ const startProcess = () => {
   if (target.cmd) {
     const out = run(target.cmd);
     console.log(out || `Started via: ${target.cmd}`);
+    return;
+  }
+  if (target.module) {
+    const scriptPath = resolveModuleScript(target.module);
+    if (scriptPath) {
+      const out = run(`pm2 start ${scriptPath} --name ${target.module}`);
+      console.log(out || `Started ${target.module} (${scriptPath})`);
+      return;
+    }
+    const out = run(`pm2 start ${target.module}`);
+    console.log(out || `Started ${target.module}`);
     return;
   }
   const scriptPath = target.script;

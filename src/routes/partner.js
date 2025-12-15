@@ -98,6 +98,8 @@ function orderToCsvRow(ord) {
     const partnerPrice = ln.partnerPriceCents ?? meta.partnerPriceCents ?? ln.priceCents;
     const displayPrice = ln.priceCents || 0;
     const partnerTotal = ln.partnerTotalCents ?? (displayPrice + partnerPrice);
+    const holderFirst = ln.holderFirstName || meta.holderFirstName || '';
+    const holderLast = ln.holderLastName || meta.holderLastName || '';
     return [
       ord._id,
       ord.createdAt ? new Date(ord.createdAt).toISOString() : '',
@@ -109,6 +111,8 @@ function orderToCsvRow(ord) {
       displayPrice,
       partnerPrice,
       partnerTotal,
+      holderFirst,
+      holderLast,
       ord.payerEmail || '',
       ord.payerFirstName || '',
       ord.payerLastName || ''
@@ -127,7 +131,7 @@ adminRouter.get('/:partnerSlug/admin', (req, res, next) => {
     const orders = await Order.find({ 'meta.partner.slug': slug }).lean();
     const format = (req.query.format || '').toLowerCase();
     if (format === 'csv') {
-      const header = ['orderId','createdAt','eventSlug','eventName','seatId','zoneKey','tariffCode','displayPriceCents','partnerPriceCents','partnerTotalCents','payerEmail','payerFirstName','payerLastName'].join(',');
+      const header = ['orderId','createdAt','eventSlug','eventName','seatId','zoneKey','tariffCode','displayPriceCents','partnerPriceCents','partnerTotalCents','holderFirstName','holderLastName','payerEmail','payerFirstName','payerLastName'].join(',');
       const rows = orders.map(orderToCsvRow).filter(Boolean).join('\n');
       res.setHeader('Content-Type', 'text/csv');
       res.send([header, rows].filter(Boolean).join('\n'));
@@ -137,10 +141,59 @@ adminRouter.get('/:partnerSlug/admin', (req, res, next) => {
       const meta = o?.meta?.partner || {};
       acc.displayTotal += meta.displayTotalCents || 0;
       acc.partnerTotal += meta.partnerTotalCents || 0;
-      acc.deltaTotal += meta.deltaCents || 0;
+      acc.partnerContribution += meta.partnerContributionCents || 0;
       acc.count += 1;
       return acc;
-    }, { displayTotal: 0, partnerTotal: 0, deltaTotal: 0, count: 0 });
+    }, { displayTotal: 0, partnerTotal: 0, partnerContribution: 0, count: 0 });
+
+    if (format === 'html') {
+      const rows = orders.map(o => {
+        const meta = o?.meta?.partner || {};
+        const lines = Array.isArray(o.lines) ? o.lines : [];
+        const lineRows = lines.map(ln => {
+          const partnerPrice = ln.partnerPriceCents ?? ln.priceCents;
+          const partnerTotal = ln.partnerTotalCents ?? (ln.priceCents + partnerPrice);
+          const eventSlug = o.eventSlug || o?.meta?.eventSlug || '';
+          const eventName = o.eventName || o?.meta?.eventName || '';
+          return `<tr>
+            <td>${o._id}</td>
+            <td>${o.createdAt ? new Date(o.createdAt).toISOString() : ''}</td>
+            <td>${eventSlug}</td>
+            <td>${eventName}</td>
+            <td>${ln.seatId || ''}</td>
+            <td>${ln.zoneKey || ''}</td>
+            <td>${ln.tariffCode || ''}</td>
+            <td>${ln.priceCents || 0}</td>
+            <td>${partnerPrice || 0}</td>
+            <td>${partnerTotal || 0}</td>
+            <td>${ln.holderFirstName || ''}</td>
+            <td>${ln.holderLastName || ''}</td>
+            <td>${o.payerFirstName || ''}</td>
+            <td>${o.payerLastName || ''}</td>
+            <td>${o.payerEmail || ''}</td>
+          </tr>`;
+        }).join('');
+        return lineRows;
+      }).join('');
+
+      res.setHeader('Content-Type', 'text/html');
+      res.send(`
+        <html><body>
+          <h1>Commandes partenaire ${slug}</h1>
+          <p>Commandes: ${summary.count} · Total affiché: ${summary.displayTotal} · Contribution partenaire: ${summary.partnerContribution} · Total partenaire: ${summary.partnerTotal}</p>
+          <table border="1" cellspacing="0" cellpadding="4">
+            <thead>
+              <tr>
+                <th>orderId</th><th>createdAt</th><th>eventSlug</th><th>eventName</th><th>seatId</th><th>zoneKey</th><th>tariffCode</th><th>displayPriceCents</th><th>partnerPriceCents</th><th>partnerTotalCents</th><th>holderFirstName</th><th>holderLastName</th><th>payerFirstName</th><th>payerLastName</th><th>payerEmail</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </body></html>
+      `);
+      return;
+    }
+
     res.json({ ok: true, summary, orders });
   } catch (err) {
     console.error('[partner/admin] error:', err);
