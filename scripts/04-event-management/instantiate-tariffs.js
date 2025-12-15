@@ -96,6 +96,8 @@ try {
       if (!zoneKey || !tariffCode) continue;
       entryMap.set(`${zoneKey}::${tariffCode}`, {
         priceCents: Number(doc.priceCents) || 0,
+        partnerPriceCents: doc.partnerPriceCents != null ? Number(doc.partnerPriceCents) : null,
+        currency: doc.currency || 'EUR',
         catalogSlug,
         channels: doc.channels
       });
@@ -154,6 +156,8 @@ try {
       zoneKey,
       tariffCode,
       priceCents: value.priceCents,
+      partnerPriceCents: value.partnerPriceCents,
+      currency: value.currency || 'EUR',
       channels: value.channels
     };
   });
@@ -185,12 +189,18 @@ try {
       priceTableKey: eventPriceTableKey,
       zoneKey: doc.zoneKey,
       tariffCode: doc.tariffCode,
-      priceCents: doc.priceCents
+      priceCents: doc.priceCents,
+      currency: doc.currency || 'EUR'
     };
     const updateDoc = {
       $set: setDoc,
       $unset: { seasonCode: '', venueSlug: '' }
     };
+    if (doc.partnerPriceCents != null) {
+      setDoc.partnerPriceCents = doc.partnerPriceCents;
+    } else {
+      updateDoc.$unset.partnerPriceCents = '';
+    }
     if (doc.channels && doc.channels.length) {
       setDoc.channels = doc.channels;
     } else {

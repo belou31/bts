@@ -55,4 +55,4 @@ scripts/
   04-event-management/   # création d’événements, imports QR/prix, set-onsale
   05-partner-management/   # partner setup scripts (iframe, payment options)
   06-misc/   # exports/reports, audits
-  00-initialization/     # reset-db, check-env, customize-app
+  00-system-management/  # reset-db, check-env, customize-app, purge-logs

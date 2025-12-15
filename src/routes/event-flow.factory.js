@@ -228,13 +228,14 @@ export function createEventFlowRouter({
       }
       const displayPrice = Number(priceObj.display) || 0;
       const partnerPrice = Number(priceObj.partner) || displayPrice;
+      const partnerTotal = displayPrice + partnerPrice;
       return {
         seatId: sid,
         zoneKey: z,
         tariffCode: t,
         priceCents: displayPrice,
         partnerPriceCents: partnerPrice,
-        partnerDeltaCents: partnerPrice - displayPrice,
+        partnerTotalCents: partnerTotal,
         holderFirstName: String(it.firstName || ''),
         holderLastName: String(it.lastName || '')
       };
@@ -245,11 +246,12 @@ export function createEventFlowRouter({
       ? lines.reduce((acc, l) => {
           const partnerPrice = Number(l.partnerPriceCents ?? l.priceCents) || 0;
           const displayPrice = Number(l.priceCents) || 0;
-          acc.partnerTotal += partnerPrice;
+          const partnerTotal = Number(l.partnerTotalCents ?? displayPrice + partnerPrice) || (displayPrice + partnerPrice);
+          acc.partnerContribution += partnerPrice;
           acc.displayTotal += displayPrice;
-          acc.deltaTotal += (partnerPrice - displayPrice);
+          acc.partnerTotal += partnerTotal;
           return acc;
-        }, { partnerTotal: 0, displayTotal: 0, deltaTotal: 0 })
+        }, { partnerContribution: 0, displayTotal: 0, partnerTotal: 0 })
       : null;
     assert(totalCents > 0, 'Montant total nul (tarifs manquants ?)');
 
@@ -459,9 +461,9 @@ export function createEventFlowRouter({
       const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
         ? {
             slug: channelCtx.partnerSlug || null,
-            partnerTotalCents: ctxData.partnerTotals.partnerTotal,
             displayTotalCents: ctxData.partnerTotals.displayTotal,
-            deltaCents: ctxData.partnerTotals.deltaTotal
+            partnerContributionCents: ctxData.partnerTotals.partnerContribution,
+            partnerTotalCents: ctxData.partnerTotals.partnerTotal
           }
         : null;
 
@@ -584,9 +586,9 @@ export function createEventFlowRouter({
         const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
           ? {
               slug: channelCtx.partnerSlug || null,
-              partnerTotalCents: ctxData.partnerTotals.partnerTotal,
               displayTotalCents: ctxData.partnerTotals.displayTotal,
-              deltaCents: ctxData.partnerTotals.deltaTotal
+              partnerContributionCents: ctxData.partnerTotals.partnerContribution,
+              partnerTotalCents: ctxData.partnerTotals.partnerTotal
             }
           : null;
 

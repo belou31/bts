@@ -11,8 +11,8 @@
 
 export const adminScriptGroups = [
   {
-    id: '00-baseline',
-    label: '00 — Initialization',
+    id: '00-system-management',
+    label: '00 — System Management',
     order: 0,
     description: 'Initialization tasks that prepare the environment, validate configuration, and stage tenant-specific assets.',
     scripts: [
@@ -20,10 +20,10 @@ export const adminScriptGroups = [
         id: 'reset-db',
         label: 'Reset MongoDB Database',
         order: 0,
-        path: 'scripts/00-initialization/reset-db.js',
-        command: 'node scripts/00-initialization/reset-db.js --force',
+        path: 'scripts/00-system-management/reset-db.js',
+        command: 'node scripts/00-system-management/reset-db.js --force',
         run: {
-          script: 'scripts/00-initialization/reset-db.js',
+          script: 'scripts/00-system-management/reset-db.js',
           args: ['--force']
         },
         description: 'Drops the MongoDB database defined in .env. Requires the --force flag to avoid accidental wipes.',
@@ -38,10 +38,10 @@ export const adminScriptGroups = [
         id: 'check-env',
         label: 'Validate Environment (.env)',
         order: 1,
-        path: 'scripts/00-initialization/check-env.js',
-        command: 'node scripts/00-initialization/check-env.js',
+        path: 'scripts/00-system-management/check-env.js',
+        command: 'node scripts/00-system-management/check-env.js',
         run: {
-          script: 'scripts/00-initialization/check-env.js',
+          script: 'scripts/00-system-management/check-env.js',
           args: []
         },
         description: 'Verifies the consistency of APP_URL/BASE_PATH and payment provider configuration for the current APP_ENV.'
@@ -50,10 +50,10 @@ export const adminScriptGroups = [
         id: 'customize-app',
         label: 'Customize Application',
         order: 2,
-        path: 'scripts/00-initialization/customize-app.js',
-        command: 'node scripts/00-initialization/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--email-template=template.json]',
+        path: 'scripts/00-system-management/customize-app.js',
+        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--email-template=template.json]',
         run: {
-          script: 'scripts/00-initialization/customize-app.js',
+          script: 'scripts/00-system-management/customize-app.js',
           args: []
         },
         description: 'Copies organization assets (favicon, logos, app icons) to public/static/img and stores optional metadata/templates under data/customization.',
@@ -122,6 +122,75 @@ export const adminScriptGroups = [
             }
           ]
         }
+      }
+      ,
+      {
+        id: 'purge-logs',
+        label: 'Purge Logs (Mongo)',
+        order: 3,
+        path: 'scripts/00-system-management/purge-logs.js',
+        command: 'node scripts/00-system-management/purge-logs.js --apply',
+        run: {
+          script: 'scripts/00-system-management/purge-logs.js',
+          args: ['--apply']
+        },
+        description: 'Supprime les logs opérationnels : collections ScanLog et journaux intégrés aux jobs automation.',
+        danger: true,
+        notes: [
+          'Exécution immédiate (pas de dry-run).',
+          'Assurez-vous de viser l’environnement correct avant de purger.'
+        ]
+      },
+      {
+        id: 'pm2-restart-bts',
+        label: 'Restart BTS (pm2)',
+        order: 4,
+        path: 'scripts/00-system-management/pm2-control.js',
+        command: 'node scripts/00-system-management/pm2-control.js --name=bts --action=restart',
+        run: {
+          script: 'scripts/00-system-management/pm2-control.js',
+          args: ['--name=bts', '--action=restart']
+        },
+        description: 'Redémarre le processus principal BTS via pm2 (démarre si absent).',
+        danger: true,
+        notes: [
+          'Nécessite pm2 installé et configuré sur l’hôte.',
+          'Utilise pm2 restart, puis start en fallback si le process est absent.'
+        ]
+      },
+      {
+        id: 'pm2-restart-sentinel',
+        label: 'Start/Restart bts-sentinel (pm2)',
+        order: 5,
+        path: 'scripts/00-system-management/pm2-control.js',
+        command: 'node scripts/00-system-management/pm2-control.js --name=bts-sentinel --action=restart',
+        run: {
+          script: 'scripts/00-system-management/pm2-control.js',
+          args: ['--name=bts-sentinel', '--action=restart']
+        },
+        description: 'Démarre ou redémarre le sentinel pm2 (bts-sentinel).',
+        danger: true,
+        notes: [
+          'Nécessite pm2 installé et la config du process bts-sentinel disponible.',
+          'Fait un restart, puis start en fallback.'
+        ]
+      },
+      {
+        id: 'pm2-restart-logrotate',
+        label: 'Start/Restart bts-logrotate (pm2)',
+        order: 6,
+        path: 'scripts/00-system-management/pm2-control.js',
+        command: 'node scripts/00-system-management/pm2-control.js --name=bts-logrotate --action=restart',
+        run: {
+          script: 'scripts/00-system-management/pm2-control.js',
+          args: ['--name=bts-logrotate', '--action=restart']
+        },
+        description: 'Démarre ou redémarre le service de rotation des logs (pm2: bts-logrotate).',
+        danger: true,
+        notes: [
+          'Nécessite pm2 installé et la config du process bts-logrotate disponible.',
+          'Fait un restart, puis start en fallback.'
+        ]
       }
     ]
   },
