@@ -8,9 +8,9 @@ Each entry below references the canonical command, required environment variable
 
 | Script | Purpose | Command | Templates |
 | --- | --- | --- | --- |
-| `scripts/00-initialization/reset-db.js` | Drop the MongoDB database defined in `.env`. Requires `--force`. | `node scripts/00-initialization/reset-db.js --force` | `data/templates/env/.env.template` |
-| `scripts/00-initialization/check-env.js` | Validate the core `.env` configuration (APP_URL, HelloAsso, etc.). | `node scripts/00-initialization/check-env.js` | — |
-| `scripts/00-initialization/customize-app.js` | Copy organization assets to `public/static/img` and persist names/templates under `data/customization`. | `node scripts/00-initialization/customize-app.js --name="Club" [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]` | `data/templates/customization/app.json` |
+| `scripts/00-system-management/reset-db.js` | Drop the MongoDB database defined in `.env`. Requires `--force`. | `node scripts/00-system-management/reset-db.js --force` | `data/templates/env/.env.template` |
+| `scripts/00-system-management/check-env.js` | Validate the core `.env` configuration (APP_URL, HelloAsso, etc.). | `node scripts/00-system-management/check-env.js` | — |
+| `scripts/00-system-management/customize-app.js` | Copy organization assets to `public/static/img` and persist names/templates under `data/customization`. | `node scripts/00-system-management/customize-app.js --name="Club" [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]` | `data/templates/customization/app.json` |
 
 ## 01 — Venue Management
 

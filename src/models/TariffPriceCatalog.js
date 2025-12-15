@@ -8,6 +8,7 @@ const TariffPriceCatalogSchema = new mongoose.Schema({
   zoneKey:     { type: String, required: true, trim: true, uppercase: true },
   tariffCode:  { type: String, required: true, trim: true, uppercase: true },
   priceCents:  { type: Number, required: true },
+  partnerPriceCents: { type: Number, default: null },
   currency:    { type: String, default: 'EUR' },
   channels: {
     type: [String],

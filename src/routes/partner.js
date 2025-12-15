@@ -97,7 +97,7 @@ function orderToCsvRow(ord) {
     const meta = ln?.meta || {};
     const partnerPrice = ln.partnerPriceCents ?? meta.partnerPriceCents ?? ln.priceCents;
     const displayPrice = ln.priceCents || 0;
-    const delta = partnerPrice - displayPrice;
+    const partnerTotal = ln.partnerTotalCents ?? (displayPrice + partnerPrice);
     return [
       ord._id,
       ord.createdAt ? new Date(ord.createdAt).toISOString() : '',
@@ -108,7 +108,7 @@ function orderToCsvRow(ord) {
       ln.tariffCode || '',
       displayPrice,
       partnerPrice,
-      delta,
+      partnerTotal,
       ord.payerEmail || '',
       ord.payerFirstName || '',
       ord.payerLastName || ''
@@ -127,7 +127,7 @@ adminRouter.get('/:partnerSlug/admin', (req, res, next) => {
     const orders = await Order.find({ 'meta.partner.slug': slug }).lean();
     const format = (req.query.format || '').toLowerCase();
     if (format === 'csv') {
-      const header = ['orderId','createdAt','eventSlug','eventName','seatId','zoneKey','tariffCode','displayPriceCents','partnerPriceCents','deltaCents','payerEmail','payerFirstName','payerLastName'].join(',');
+      const header = ['orderId','createdAt','eventSlug','eventName','seatId','zoneKey','tariffCode','displayPriceCents','partnerPriceCents','partnerTotalCents','payerEmail','payerFirstName','payerLastName'].join(',');
       const rows = orders.map(orderToCsvRow).filter(Boolean).join('\n');
       res.setHeader('Content-Type', 'text/csv');
       res.send([header, rows].filter(Boolean).join('\n'));

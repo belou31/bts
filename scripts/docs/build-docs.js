@@ -185,7 +185,7 @@ const body3 = `
 ├── data/                         # CSV d'import/export (tarifs, prix, abonnés, liens)
 ├── docs/                         # Pages HTML de documentation (GitHub Pages)
 ├── scripts/
-│   ├── 00-initialization/        # reset-db, check-env, customize-app
+│   ├── 00-system-management/     # reset-db, check-env, customize-app, purge-logs
 │   ├── 01-venue-management/      # register-venue, import seats/zones, validate SVG
 │   ├── 02-tariff-management/     # import/export catalogue & matrices de tarifs
 │   ├── 03-season-management/     # instanciation siège/zone/tarif, seed, renewal

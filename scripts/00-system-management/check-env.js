@@ -4,7 +4,7 @@
  * Checks core .env variables for internal consistency (APP_URL, BASE_PATH, HelloAsso).
  *
  * Usage:
- *   node scripts/00-initialization/check-env.js
+ *   node scripts/00-system-management/check-env.js
  *
  * Environment:
  *   - APP_ENV, APP_URL, BASE_PATH, HELLOASSO_* variables

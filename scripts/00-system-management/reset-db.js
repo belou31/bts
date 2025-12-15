@@ -6,7 +6,7 @@
  * to avoid mistakes.
  *
  * Usage:
- *   node scripts/00-initialization/reset-db.js --force
+ *   node scripts/00-system-management/reset-db.js --force
  *
  * Environment:
  *   - MONGO_URI: full MongoDB connection string (required)

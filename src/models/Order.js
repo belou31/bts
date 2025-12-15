@@ -22,8 +22,8 @@ const LineSchema = new mongoose.Schema({
   priceCents:      { type: Number, default: 0 },
   // Partner billing override (what the partner pays/subsidizes)
   partnerPriceCents: { type: Number, default: null },
-  // partnerPriceCents - priceCents
-  partnerDeltaCents: { type: Number, default: null },
+  // Total cost line (display + partner portion)
+  partnerTotalCents: { type: Number, default: null },
 
   // Saison -> évènement : permet d'identifier la ligne d'origine
   sourceLineId:    { type: String, default: '' },
