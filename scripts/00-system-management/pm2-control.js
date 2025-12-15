@@ -5,7 +5,7 @@
  * Usage:
  *   node scripts/00-system-management/pm2-control.js --name=bts [--action=restart|start]
  *
- * - If action is "restart", a missing process will trigger a fallback "start".
+ * - If action is "restart", a missing process will trigger a fallback "start" (when a script is known).
  * - Allowed names: bts, bts-sentinel, bts-logrotate.
  */
 import { execSync } from 'child_process';
@@ -23,7 +23,12 @@ const getOpt = (key) => {
 const name = getOpt('name');
 const actionRaw = getOpt('action') || 'restart';
 const action = ['restart', 'start'].includes(actionRaw) ? actionRaw : 'restart';
-const allowed = new Set(['bts', 'bts-sentinel', 'bts-logrotate']);
+const START_TARGETS = {
+  bts: 'src/server.js',
+  'bts-sentinel': 'scripts/sentinels/pending-orders.js',
+  'bts-logrotate': null // no known script path; requires pm2 ecosystem/config
+};
+const allowed = new Set(Object.keys(START_TARGETS));
 
 if (!name || !allowed.has(name)) {
   console.error(`Usage: node pm2-control.js --name=<${Array.from(allowed).join('|')}> [--action=restart|start]`);
@@ -31,6 +36,15 @@ if (!name || !allowed.has(name)) {
 }
 
 const run = (cmd) => execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+
+const startProcess = () => {
+  const target = START_TARGETS[name];
+  if (!target) {
+    throw new Error(`No start command mapped for "${name}" (define it in pm2-control.js).`);
+  }
+  const out = run(`pm2 start ${target} --name ${name}`);
+  console.log(out || `Started ${name} (${target})`);
+};
 
 try {
   if (action === 'restart') {
@@ -40,12 +54,10 @@ try {
       process.exit(0);
     } catch (err) {
       console.warn(`[pm2-control] restart failed, attempting start for ${name}: ${err.message}`);
-      const out = run(`pm2 start ${name}`);
-      console.log(out || `Started ${name}`);
+      startProcess();
     }
   } else {
-    const out = run(`pm2 start ${name}`);
-    console.log(out || `Started ${name}`);
+    startProcess();
   }
 } catch (err) {
   console.error(`[pm2-control] ${action} ${name} failed:`, err.message || err);
