@@ -1110,7 +1110,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const fsBtn = $('#fsToggle');
   const planWrap = $('.plan-wrap');
   if (fsBtn && planWrap) {
-    const supportsNativeFs = !!(planWrap.requestFullscreen || planWrap.webkitRequestFullscreen);
+    const isMobileUA = /Android|iP(ad|hone|od)/i.test(navigator.userAgent || '');
+    // Sur mobile/tablette, on force le mode simulé pour conserver le pinch-zoom.
+    const supportsNativeFs = !isMobileUA && !!(planWrap.requestFullscreen || planWrap.webkitRequestFullscreen);
     const host = planWrap || $('#plan'); // cible sûre : le conteneur du plan
     let simFullscreen = false;
 
