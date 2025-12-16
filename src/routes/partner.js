@@ -128,7 +128,9 @@ adminRouter.get('/:partnerSlug/admin', (req, res, next) => {
 }, (req, res) => requirePartnerAdmin(req.partnerConfig)(req, res, async () => {
   try {
     const slug = req.partnerConfig.slug;
-    const orders = await Order.find({ 'meta.partner.slug': slug }).lean();
+    const onlyPaid = (req.query.status || '').toLowerCase() === 'paid' || !req.query.status;
+    const matchStatus = onlyPaid ? { status: 'paid' } : {};
+    const orders = await Order.find({ 'meta.partner.slug': slug, ...matchStatus }).lean();
     const format = (req.query.format || '').toLowerCase();
     if (format === 'csv') {
       const header = ['orderId','createdAt','eventSlug','eventName','seatId','zoneKey','tariffCode','displayPriceCents','partnerPriceCents','partnerTotalCents','holderFirstName','holderLastName','payerEmail','payerFirstName','payerLastName'].join(',');
