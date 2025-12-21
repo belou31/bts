@@ -112,6 +112,9 @@ body{ margin:0; font-family:var(--font); background:var(--bg); color:var(--fg); 
   height:100%;
 }
 body.fs-lock{ overflow:hidden; }
+.plan-wrap{
+  touch-action: none; /* permet de gérer le pinch-zoom custom sur mobile sans zoomer toute la page */
+}
 
 
 /* ORDER */

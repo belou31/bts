@@ -1512,7 +1512,15 @@ async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, stat
     : { status: { $nin: ['canceled', 'failed'] } };
 
   const rows = await Order.aggregate([
-    { $match: { seasonCode, venueSlug, ...statusMatch, 'lines.zoneKey': { $in: zoneKeys } } },
+    {
+      $match: {
+        seasonCode,
+        venueSlug,
+        phase: 'subscription', // vue stats zones: ne compte que les abonnements
+        ...statusMatch,
+        'lines.zoneKey': { $in: zoneKeys }
+      }
+    },
     { $unwind: '$lines' },
     { $match: { 'lines.zoneKey': { $in: zoneKeys } } },
     { $group: { _id: '$lines.zoneKey', count: { $sum: 1 } } }

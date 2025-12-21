@@ -1167,6 +1167,71 @@ document.addEventListener('DOMContentLoaded', async () => {
     
   }
 
+  // Pinch-zoom custom sur le plan (évite le zoom global de la page)
+  const planObj = $('#venuePlan');
+  if (planWrap && planObj) {
+    let baseScale = 1;
+    let startDistance = null;
+    const active = new Map();
+    const minScale = 1;
+    const maxScale = 3;
+
+    const distance = () => {
+      if (active.size < 2) return null;
+      const pts = Array.from(active.values());
+      const dx = pts[0].x - pts[1].x;
+      const dy = pts[0].y - pts[1].y;
+      return Math.hypot(dx, dy);
+    };
+
+    const applyScale = (scale) => {
+      const clamped = Math.max(minScale, Math.min(maxScale, scale));
+      planObj.style.transformOrigin = 'center center';
+      planObj.style.transform = `scale(${clamped})`;
+      planObj.dataset.zoom = String(clamped);
+      return clamped;
+    };
+
+    const resetPointers = () => {
+      startDistance = null;
+      active.clear();
+    };
+
+    planWrap.addEventListener('pointerdown', (ev) => {
+      if (ev.pointerType === 'touch') {
+        planWrap.setPointerCapture?.(ev.pointerId);
+        active.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+        if (active.size === 2) startDistance = distance();
+      }
+    });
+
+    planWrap.addEventListener('pointermove', (ev) => {
+      if (!active.has(ev.pointerId)) return;
+      active.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (active.size >= 2 && startDistance) {
+        const dist = distance();
+        if (dist) {
+          const newScale = applyScale(baseScale * (dist / startDistance));
+          planWrap.classList.toggle('zoomed', newScale > 1.02);
+          ev.preventDefault();
+        }
+      }
+    }, { passive: false });
+
+    const endPointer = (ev) => {
+      if (active.has(ev.pointerId)) active.delete(ev.pointerId);
+      if (active.size < 2 && startDistance) {
+        const current = Number(planObj.dataset.zoom || baseScale || 1);
+        baseScale = current;
+        startDistance = null;
+      }
+    };
+    planWrap.addEventListener('pointerup', endPointer);
+    planWrap.addEventListener('pointercancel', endPointer);
+    planWrap.addEventListener('pointerout', endPointer);
+    planWrap.addEventListener('pointerleave', endPointer);
+  }
+
   // layout initial (icône = cible)
   applyLayout();
 });
