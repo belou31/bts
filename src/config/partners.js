@@ -3,26 +3,18 @@
 import fs from 'fs';
 import path from 'path';
 
-const normalizeList = (value) => {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    return value.map(v => String(v || '').trim()).filter(Boolean);
-  }
-  return String(value)
-    .split(/[,\s]+/)
-    .map(v => v.trim())
-    .filter(Boolean);
-};
-
 const DEFAULT_CONFIGS = [
   {
     slug: 'cseairbus',
     name: 'CSE Airbus',
     paymentMode: 'invoice_auto',
-    frameAncestors: normalizeList(process.env.PARTNER_CSEAIRBUS_FRAME || ''),
-    allowedOrigins: normalizeList(process.env.PARTNER_CSEAIRBUS_ORIGINS || ''),
+    allowPublicTariffs: false,
+    frameAncestors: [],
+    allowedOrigins: [],
+    venueView: null,
+    admin: { user: null, pass: null },
     reserve: {
-      status: process.env.PARTNER_CSEAIRBUS_STATUS || 'paid',
+      status: 'paid',
       paymentProvider: 'cseairbus_invoice',
       autoFinalize: true,
       sendTickets: true,
@@ -40,8 +32,11 @@ const DEFAULT_CONFIGS = [
     slug: 'aisc',
     name: 'AISC',
     paymentMode: 'psp',
-    frameAncestors: normalizeList(process.env.PARTNER_AISC_FRAME || 'https://aisc.example.com'),
-    allowedOrigins: normalizeList(process.env.PARTNER_AISC_ORIGINS || 'https://aisc.example.com'),
+    allowPublicTariffs: false,
+    frameAncestors: [],
+    allowedOrigins: [],
+    venueView: null,
+    admin: { user: null, pass: null },
     reserve: null,
     ui: {
       heading: 'Billetterie AISC',
@@ -64,11 +59,9 @@ function loadCustomConfigs() {
   }
 }
 
-const CUSTOM_CONFIGS = loadCustomConfigs();
-
-function mergeConfigs() {
+function mergeConfigs(customList) {
   const map = new Map();
-  const all = [...DEFAULT_CONFIGS, ...CUSTOM_CONFIGS];
+  const all = [...DEFAULT_CONFIGS, ...customList];
   all.forEach(cfg => {
     if (!cfg?.slug) return;
     const key = String(cfg.slug).trim().toLowerCase();
@@ -82,27 +75,20 @@ function mergeConfigs() {
   return Array.from(map.values());
 }
 
-const PARTNER_CONFIGS = mergeConfigs();
-
-function enrichWithEnv(cfg) {
-  const prefix = `PARTNER_${cfg.slug?.toUpperCase() || ''}`;
-  const envFrame = process.env[`${prefix}_FRAME`] || process.env[`${prefix}_FRAME_ANCESTORS`];
-  const envOrigins = process.env[`${prefix}_ORIGINS`] || process.env[`${prefix}_ALLOWED_ORIGINS`];
-  return {
-    ...cfg,
-    frameAncestors: normalizeList(envFrame || cfg.frameAncestors),
-    allowedOrigins: normalizeList(envOrigins || cfg.allowedOrigins)
-  };
+function getMergedConfigs() {
+  const custom = loadCustomConfigs();
+  return mergeConfigs(custom);
 }
 
 export function getPartnerConfig(slug) {
   if (!slug) return null;
   const key = String(slug).trim().toLowerCase();
-  const base = PARTNER_CONFIGS.find(cfg => cfg.slug === key);
+  const configs = getMergedConfigs();
+  const base = configs.find(cfg => cfg.slug === key);
   if (!base) return null;
-  return enrichWithEnv(base);
+  return base;
 }
 
 export function listPartnerConfigs() {
-  return PARTNER_CONFIGS.map(enrichWithEnv);
+  return getMergedConfigs();
 }

@@ -11,6 +11,7 @@ import { Zone }  from '../../models/Zone.js';
 import { Venue } from '../../models/Venue.js';
 import { Season } from '../../models/Season.js';
 import { Event } from '../../models/Event.js';
+import { listPartnerConfigs } from '../../config/partners.js';
 import { Tariff } from '../../models/Tariff.js';
 import { TariffPrice } from '../../models/TariffPrice.js';
 import { TariffPriceCatalog } from '../../models/TariffPriceCatalog.js';
@@ -39,6 +40,7 @@ const ROOT_DIR = process.cwd();
 const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
 const OUTPUTS_ROOT = path.resolve(ROOT_DIR, 'data/outputs');
 const INPUTS_ROOT = path.resolve(ROOT_DIR, 'data/inputs');
+const STATIC_VENUES_ROOT = path.resolve(ROOT_DIR, 'src/public/static/venues');
 for (const dir of [OUTPUTS_ROOT, INPUTS_ROOT]) {
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
 }
@@ -185,6 +187,44 @@ function listFiles(root, limit = 50) {
       .sort((a, b) => b.mtime - a.mtime)
       .slice(0, limit);
   } catch {
+    return [];
+  }
+}
+
+function listVenueViews(rootDir = STATIC_VENUES_ROOT) {
+  try {
+    const venueDirs = fs.readdirSync(rootDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name);
+
+    const views = [];
+    for (const venueSlug of venueDirs) {
+      const viewsDir = path.join(rootDir, venueSlug, 'views');
+      let entries = [];
+      try {
+        entries = fs.readdirSync(viewsDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (!entry.name.toLowerCase().endsWith('.svg')) continue;
+        const slug = entry.name.replace(/\.svg$/i, '');
+        views.push({
+          slug,
+          venueSlug,
+          label: `${venueSlug} — ${slug}`
+        });
+      }
+    }
+
+    return views.sort((a, b) => {
+      const venueCmp = String(a.venueSlug || '').localeCompare(String(b.venueSlug || ''));
+      if (venueCmp !== 0) return venueCmp;
+      return String(a.slug || '').localeCompare(String(b.slug || ''));
+    });
+  } catch (error) {
+    console.error('[admin] unable to list venue views:', error?.message || error);
     return [];
   }
 }
@@ -389,12 +429,62 @@ function prepareScriptCatalog() {
 
 /* ===================== Page HTML ===================== */
 router.get('/', (req, res) => {
-  const qs = new URLSearchParams(req.query).toString();
-  const target = urlFor('/admin/operate');
-  return res.redirect(302, `${target}${qs ? `?${qs}` : ''}`);
+  const qs = new URLSearchParams(req.query);
+  const view = (req.query.view || '').toString();
+  qs.delete('view');
+  const suffix = qs.toString();
+  let target = urlFor('/admin/operate');
+  if (view === 'monitor') target = urlFor('/admin/monitor');
+  if (view === 'io') target = urlFor('/admin/io');
+  return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
+});
+
+router.get('/io', (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const outputsList = listFiles(OUTPUTS_ROOT);
+  const inputsList = listFiles(INPUTS_ROOT);
+  const venueViews = listVenueViews();
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: [],
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList,
+    inputsList,
+    operateOptions: {
+      venues: [],
+      seasons: [],
+      events: [],
+      partners: [],
+      tariffCatalogs: [],
+      inputFiles: inputsList.map(file => file.name),
+      venueViews
+    },
+    viewMode: 'io',
+    monitorTab: 'tariffs',
+    monitoring: null
+  });
 });
 
 router.get('/operate', async (req, res) => {
+  if (req.query.view === 'io') {
+    const qs = new URLSearchParams(req.query);
+    qs.delete('view');
+    const suffix = qs.toString();
+    const target = urlFor('/admin/io');
+    return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
+  }
+
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
@@ -407,12 +497,15 @@ router.get('/operate', async (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
+  const venueViews = listVenueViews();
   let operateOptions = {
     venues: [],
     seasons: [],
     events: [],
+    partners: [],
     tariffCatalogs: [],
-    inputFiles: inputsList.map(file => file.name)
+    inputFiles: inputsList.map(file => file.name),
+    venueViews
   };
 
   try {
@@ -420,7 +513,8 @@ router.get('/operate', async (req, res) => {
       venuesRaw,
       seasonsRaw,
       eventsRaw,
-      tariffCatalogsAgg
+      tariffCatalogsAgg,
+      partnersRaw
     ] = await Promise.all([
       Venue.find({}).sort({ slug: 1 }).lean(),
       Season.find({}).sort({ code: -1 }).lean(),
@@ -428,7 +522,8 @@ router.get('/operate', async (req, res) => {
       TariffPriceCatalog.aggregate([
         { $group: { _id: '$catalogSlug', count: { $sum: 1 } } },
         { $sort: { _id: 1 } }
-      ])
+      ]),
+      Promise.resolve(listPartnerConfigs())
     ]);
 
     operateOptions = {
@@ -439,10 +534,12 @@ router.get('/operate', async (req, res) => {
         name: ev.name || '',
         startsAt: ev.startsAt || null
       })),
+      partners: partnersRaw.map(p => ({ slug: p.slug, name: p.name || '' })),
       tariffCatalogs: tariffCatalogsAgg
         .map(entry => entry?._id)
         .filter(Boolean),
-      inputFiles: inputsList.map(file => file.name)
+      inputFiles: inputsList.map(file => file.name),
+      venueViews
     };
   } catch (error) {
     console.error('[admin] operate options fetch error:', error?.message || error);
@@ -493,6 +590,22 @@ router.get('/operate', async (req, res) => {
 });
 
 router.get('/monitor', async (req, res) => {
+  if (req.query.view === 'io') {
+    const qs = new URLSearchParams(req.query);
+    qs.delete('view');
+    const suffix = qs.toString();
+    const target = urlFor('/admin/io');
+    return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
+  }
+  if (req.query.view === 'operate') {
+    const qs = new URLSearchParams(req.query);
+    qs.delete('view');
+    const suffix = qs.toString();
+    const target = urlFor('/admin/operate');
+    return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
+  }
+
+  const { automationScripts } = prepareScriptCatalog();
   const mongoState = mongoose.connection?.readyState;
   const mongoStateLabel = ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoState || 0];
 
@@ -510,6 +623,24 @@ router.get('/monitor', async (req, res) => {
     }));
   } catch { /* ignore */ }
 
+  let diskUsage = null;
+  try {
+    const out = childProcess.execSync('df -k .', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const lines = out.trim().split(/\n+/);
+    if (lines.length >= 2) {
+      const parts = lines[1].trim().split(/\s+/);
+      if (parts.length >= 5) {
+        const filesystem = parts[0];
+        const sizeKB = Number(parts[1]) || 0;
+        const usedKB = Number(parts[2]) || 0;
+        const availKB = Number(parts[3]) || 0;
+        const pctRaw = parts[4] || '';
+        const usedPct = pctRaw.endsWith('%') ? Number(pctRaw.replace('%', '')) : (sizeKB ? Math.round((usedKB / sizeKB) * 100) : null);
+        diskUsage = { filesystem, sizeKB, usedKB, availKB, usedPct };
+      }
+    }
+  } catch { /* ignore */ }
+
   const seatStatusAgg = await Seat.aggregate([
     { $group: { _id: '$status', c: { $sum: 1 } } }
   ]);
@@ -525,8 +656,8 @@ router.get('/monitor', async (req, res) => {
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
-  const monitorTabOptions = new Set(['tariffs', 'subscription', 'event']);
-  const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : 'tariffs';
+  const monitorTabOptions = new Set(['system', 'tariffs', 'seasons', 'events', 'partners']);
+  const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : 'system';
 
   const [
     venuesRaw,
@@ -535,7 +666,8 @@ router.get('/monitor', async (req, res) => {
     tariffsRaw,
     tariffPriceCountsAgg,
     venueZoneCountsAgg,
-    seatCatalogCountsAgg
+    seatCatalogCountsAgg,
+    partnersRaw
   ] = await Promise.all([
     Venue.find({}).sort({ slug: 1 }).lean(),
     Season.find({}).sort({ code: -1 }).lean(),
@@ -549,7 +681,8 @@ router.get('/monitor', async (req, res) => {
     ]),
     SeatCatalog.aggregate([
       { $group: { _id: '$venueSlug', count: { $sum: 1 } } }
-    ])
+    ]),
+    Promise.resolve(listPartnerConfigs())
   ]);
 
   const priceEntriesMap = new Map(tariffPriceCountsAgg.map(item => [(item._id ?? 'global'), item.count]));
@@ -600,6 +733,14 @@ router.get('/monitor', async (req, res) => {
     seasonCode: e.seasonCode,
     venueSlug: e.venueSlug,
     isOnSale: e.isOnSale
+  }));
+
+  const partnersList = (partnersRaw || []).map(p => ({
+    slug: p.slug,
+    name: p.name || '',
+    paymentMode: p.paymentMode || '',
+    allowPublicTariffs: Boolean(p.allowPublicTariffs),
+    venueView: p.venueView || null
   }));
 
   const tariffsSample = tariffsRaw.slice(0, 50).map(t => ({
@@ -853,14 +994,16 @@ router.get('/monitor', async (req, res) => {
       mongoState: mongoStateLabel,
       seatCounts,
       recentOrders,
-      pm2
+      pm2,
+      diskUsage
     },
     lists: {
       venues: venuesList,
       seasons: seasonsList,
       events: eventsList,
       tariffs: tariffsSample,
-      tariffSummary
+      tariffSummary,
+      partners: partnersList
     },
     subscription: {
       selectedSeasonCode,
@@ -894,6 +1037,26 @@ router.get('/monitor', async (req, res) => {
     }
   };
 
+  const automationJobs = {};
+  if (automationScripts.length > 0) {
+    try {
+      const jobTuples = await Promise.all(
+        automationScripts.map(async (entry) => {
+          const jobs = await listAutomationJobs({
+            scriptId: entry.taskId,
+            limit: 10
+          });
+          return [entry.scriptId, jobs.map(job => serializeAutomationJob(job))];
+        })
+      );
+      for (const [scriptId, jobs] of jobTuples) {
+        automationJobs[scriptId] = jobs;
+      }
+    } catch (error) {
+      console.error('[admin][monitor] automation jobs fetch error:', error?.message || error);
+    }
+  }
+
   return res.render('admin/index', {
     basePath: BASE_PATH || '',
     token,
@@ -902,8 +1065,8 @@ router.get('/monitor', async (req, res) => {
     urlFor,
     scriptGroups: [],
     scriptForms: {},
-    automationScripts: [],
-    automationJobs: {},
+    automationScripts,
+    automationJobs,
     activeGroupId: null,
     outputsList: [],
     inputsList: [],

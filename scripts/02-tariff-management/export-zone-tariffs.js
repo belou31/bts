@@ -46,8 +46,20 @@ function euro(cents) {
   const docs = await TariffPrice.find({ seasonCode, venueSlug }).lean();
   docs.sort((a,b) => (a.zoneKey||'').localeCompare(b.zoneKey||'') || (a.tariffCode||'').localeCompare(b.tariffCode||''));
 
-  const header = 'zoneKey,tariffCode,priceCents,priceEuro\n';
-  const body = docs.map(d => `${d.zoneKey},${d.tariffCode},${d.priceCents},${euro(d.priceCents)}`).join('\n') + '\n';
+  const header = 'zoneKey,tariffCode,priceCents,priceEuro,partnerPriceCents,partnerPriceEuro,currency\n';
+  const body = docs.map(d => {
+    const ppc = Number(d.partnerPriceCents);
+    const currency = d.currency || 'EUR';
+    return [
+      d.zoneKey,
+      d.tariffCode,
+      d.priceCents,
+      euro(d.priceCents),
+      Number.isFinite(ppc) ? ppc : '',
+      Number.isFinite(ppc) ? euro(ppc) : '',
+      currency
+    ].join(',');
+  }).join('\n') + '\n';
 
   fs.writeFileSync(outPath, header + body, 'utf8');
   console.log(`Exported ${docs.length} rows -> ${outPath}`);

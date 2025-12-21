@@ -10,6 +10,9 @@ const TariffPriceSchema = new mongoose.Schema({
   zoneKey:    { type: String, index: true, required: true },   // ex: "N1", "S1", "DEBOUT"
   tariffCode: { type: String, required: true },                 // ex: "NORMAL", "ETUDIANT"
   priceCents: { type: Number, required: true },                 // ex: 18000
+  // Optional partner billing price (what the partner pays/subsidizes)
+  partnerPriceCents: { type: Number, default: null },
+  currency: { type: String, default: 'EUR' },
   // Événement : clé de table dédiée
   priceTableKey: { type: String, index: true, default: null },
   channels: {

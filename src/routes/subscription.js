@@ -12,6 +12,7 @@ import { Order }       from '../models/Order.js';
 import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
 import { makeTokenHash }        from '../utils/ha-token.js';
 import { findSingleGaps }       from '../utils/no-single-gap.js';
+import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 
 const router = express.Router({ mergeParams: true });
 
@@ -129,12 +130,17 @@ router.get('/status', async (req, res, next) => {
     }).lean();
 
     // --- Tarifs & Prix applicables (TOUS les prix / tarifs actifs pour la salle)
-    const prices = await TariffPrice.find({
+    const allPrices = await TariffPrice.find({
       seasonCode, venueSlug, isActive: true
     }).lean();
-    const tariffs = await Tariff.find({
+    const allTariffs = await Tariff.find({
       seasonCode, venueSlug, isActive: true
     }).lean();
+    const { tariffs, prices } = filterTariffsAndPricesByChannel(
+      allTariffs,
+      allPrices,
+      { kind: 'subscription' }
+    );
 
     // --- Calcul “remaining” zone = plafond - USAGE(only paid)
     const usage = await computeZoneUsageAllOrders({

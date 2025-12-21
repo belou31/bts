@@ -5,7 +5,7 @@ This directory gathers ready-to-copy templates for CSV, ENV, and asset files use
 - `env/.env.template` — baseline environment variables required by CLI scripts.
 - `csv/…` — sample structures for CSV imports/exports. Update headers if your business rules change.
 - `files/plan.svg` — minimalist seating plan to help start a new venue mapping.
-- `csv/seats-hold-release.template.csv` — sample for blocking/freeing seats via `seats-hold-release.js`.
+- `csv/seats-hold-release.template.csv` — shared template for `block-free-seats-for-event` and `block-free-seats-for-season` (supports `seatPattern` regexes and zero-padded seatIds).
 
 Copy the relevant template next to your data, rename it, then fill it with real values before running the script.
 

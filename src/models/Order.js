@@ -20,6 +20,10 @@ const LineSchema = new mongoose.Schema({
   zoneKey:         { type: String, default: '' },   // ← needed for TBH7 / standing zones
   tariffCode:      { type: String, index: true },
   priceCents:      { type: Number, default: 0 },
+  // Partner billing override (what the partner pays/subsidizes)
+  partnerPriceCents: { type: Number, default: null },
+  // Total cost line (display + partner portion)
+  partnerTotalCents: { type: Number, default: null },
 
   // Saison -> évènement : permet d'identifier la ligne d'origine
   sourceLineId:    { type: String, default: '' },
@@ -38,7 +42,7 @@ const LineSchema = new mongoose.Schema({
 
 /* ----- Optional sub-schema for origin ----- */
 const OriginSchema = new mongoose.Schema({
-  flow:   { type: String, enum: ['renew','tbh7','vip','subscription','vip'], default: null },
+  flow:   { type: String, enum: ['renew','tbh7','vip','subscription','vip','partner','public','event'], default: null },
   uiPath: { type: String, default: null },
   apiPath:{ type: String, default: null }
 }, { _id:false });
@@ -79,7 +83,7 @@ const OrderSchema = new mongoose.Schema({
   // Email/template routing
    origin: {
     // ajout de "event" pour distinguer le flux billetterie évènement
-    flow:   { type:String, enum:['renew','subscription','public','event'], default:'subscription', index:true },
+    flow:   { type:String, enum:['renew','subscription','public','event','partner','vip','tbh7'], default:'subscription', index:true },
      uiPath: { type:String },
      apiPath:{ type:String }
    },

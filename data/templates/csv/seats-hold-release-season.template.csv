@@ -1,0 +1,42 @@
+action,seatId,seatPattern,zoneKey,reason,expiresAt
+# VIP — zone S4
+block,,,S4,VIP blocks,
+# SPECIALE — zones S3 & S4A
+block,,,S3,Tribune spéciale,
+block,,,S4A,Tribune spéciale,
+# VISITORS — S2 rows F/G seats 001-015
+block,,^S2-(F|G)-0*(00[1-9]|0?[1-9]|1[0-5])$,,"Visitors allocation",
+# PARTNERS — S2 rows D/E
+block,,^S2-(D|E)-\\d+$,,"Partners allocation",
+# PARTNERS 2 — individual seats
+block,S2-F-016,,,Special partner seats,
+block,S2-F-017,,,Special partner seats,
+block,S2-F-018,,,Special partner seats,
+block,S2-F-019,,,Special partner seats,
+block,S2-F-020,,,Special partner seats,
+block,S2-F-021,,,Special partner seats,
+# FANCLUB (TBH7) — zones N5/N6/N6B rows L/M
+block,,^(N5|N6|N6B)-(L|M)-\\d+$,,"Fanclub allocation",
+# FANCLUB 2 — individual seats
+block,N7-L-084,,,Fanclub extras,
+block,N7-L-085,,,Fanclub extras,
+block,N7-L-086,,,Fanclub extras,
+block,N7-M-101,,,Fanclub extras,
+block,N7-M-102,,,Fanclub extras,
+block,N7-M-103,,,Fanclub extras,
+# CLUBEO — zones N2/N7 row N
+block,,^(N2|N7)-N-\\d+$,,"Clubeo allocation",
+# UNAVAILABLE — specific seats (visibility/missing)
+block,S2-F-013,,,Unavailable,
+block,S5-E-042,,,Unavailable,
+block,S5-E-043,,,Unavailable,
+block,S5-E-044,,,Unavailable,
+block,S5-E-045,,,Unavailable,
+block,S5-F-048,,,Unavailable,
+block,S5-F-049,,,Unavailable,
+block,S5-F-050,,,Unavailable,
+block,S6-E-046,,,Unavailable,
+block,S6-E-047,,,Unavailable,
+block,S6-F-051,,,Unavailable,
+block,S6-F-052,,,Unavailable,
+block,S6-F-053,,,Unavailable

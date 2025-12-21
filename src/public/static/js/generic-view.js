@@ -10,7 +10,8 @@ const CONFIG = (window.BTS_VIEW_CONFIG || {
   api: { status: 's/renew'+(location.search||''), checkout: 's/renew'+(location.search||'') },
   selection: { type: 'seats' } // seats | zones
 });
-document.title = (CONFIG.pageTitle || CONFIG.title || 'Billetterie') + ' — BTS';
+const PAGE_TITLE = CONFIG.pageTitle || CONFIG.title || 'Billetterie';
+document.title = PAGE_TITLE + ' — BTS';
 
 /* ========= Hooks & API ========= */
 const HOOKS = { afterData: [], planReady: [], cartChanged: [] };
@@ -565,6 +566,51 @@ dlog('syncPayerMaybe after:', { pf: pf.value, pl: pl.value, pe: pe.value });
   }
 }
 
+function autoFillNames(kind) {
+  const selector = kind === 'first' ? '.holder-first' : '.holder-last';
+  const inputs = Array.from(document.querySelectorAll(`#cartRows ${selector}`));
+  if (!inputs.length) return;
+
+  let sourceValue = '';
+  const firstFilled = inputs.find(inp => String(inp.value || '').trim());
+  if (firstFilled) {
+    sourceValue = String(firstFilled.value || '').trim();
+  } else {
+    const payer = document.querySelector(kind === 'first' ? '#payerFirst' : '#payerLast');
+    sourceValue = String(payer?.value || '').trim();
+  }
+  if (!sourceValue) return;
+
+  inputs.forEach(inp => {
+    if (!String(inp.value || '').trim()) {
+      inp.value = sourceValue;
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  });
+}
+
+function attachNameAutofillButtons() {
+  const head = document.querySelector('.lines-head');
+  if (!head) return;
+  const makeBtn = (kind) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'auto-fill-btn';
+    btn.textContent = '↳';
+    btn.title = kind === 'first'
+      ? 'Copier ce prénom sur toutes les lignes vides'
+      : 'Copier ce nom sur toutes les lignes vides';
+    btn.addEventListener('click', () => autoFillNames(kind));
+    return btn;
+  };
+
+  Array.from(head.children).forEach(div => {
+    const label = String(div.textContent || '').trim().toLowerCase();
+    if (label === 'nom') div.appendChild(makeBtn('last'));
+    if (label === 'prénom') div.appendChild(makeBtn('first'));
+  });
+}
+
 /* ========= Soumission paiement ========= */
 // ————— Helpers feedback (humain lisible) —————
 function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
@@ -854,6 +900,10 @@ dlog('payload sample:', {
   CTX.seats      = Array.isArray(data.seats)   ? data.seats   : [];
   CTX.tokenSeats = Array.isArray(data.tokenSeats) ? data.tokenSeats.map(normSeatId) : [];
   CTX.zones      = Array.isArray(data.zones) ? data.zones : [];
+  const resolvedVenueView = data.venueView || data.event?.venueView || null;
+  if (!CONFIG.venueView && resolvedVenueView) {
+    CONFIG.venueView = resolvedVenueView;
+  }
   // a) seatSubscribers -> index normalisé
   CTX.seatSubscribers = data.seatSubscribers || {};
   CTX.seatSubById = new Map();
@@ -943,7 +993,9 @@ if (Array.isArray(CTX.seatSubscribers)) {
   // Plan
   const $planObj = $('#venuePlan');
   let planPath = null;
-  if (typeof CONFIG.venuePlanPath === 'function') {
+  if (typeof CONFIG.venuePlanPath === 'string' && CONFIG.venuePlanPath) {
+    planPath = CONFIG.venuePlanPath;
+  } else if (typeof CONFIG.venuePlanPath === 'function') {
     try {
       planPath = CONFIG.venuePlanPath(CTX.venueSlug, { assetsBase: ASSET_BASE });
     } catch (err) {
@@ -956,7 +1008,12 @@ if (Array.isArray(CTX.seatSubscribers)) {
       const safeSlug = encodeURIComponent(slug);
       const base = (CONFIG.venuePlanBase || `${ASSET_BASE}venues/`);
       const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-      planPath = `${normalizedBase}${safeSlug}/plan.svg`;
+      if (CONFIG.venueView) {
+        const viewSlug = encodeURIComponent(CONFIG.venueView);
+        planPath = `${normalizedBase}${safeSlug}/views/${viewSlug}.svg`;
+      } else {
+        planPath = `${normalizedBase}${safeSlug}/plan.svg`;
+      }
     }
   }
   if (planPath) {
@@ -1000,7 +1057,7 @@ dlog('payer inputs after set:', {
 document.addEventListener('DOMContentLoaded', async () => {
   dlog('boot generic-view.js v2025-09-04', { href: location.href, ts: Date.now() });
 
-  const h1 = $('#pageTitle'); if (h1) h1.textContent = CONFIG.title || 'Billetterie';
+  const h1 = $('#pageTitle'); if (h1) h1.textContent = PAGE_TITLE;
 
   const pageEl = $('#page') || $('.page');
   // ——— gestion du layout (auto par défaut, verrou si clic utilisateur)
@@ -1030,6 +1087,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('#feedback').classList.add('err');
     $('#feedback').textContent = 'Impossible de charger les données. Vérifiez votre lien.';
   }
+  attachNameAutofillButtons();
   $('#payBtn').addEventListener('click', submitPayment);
   window.BTS_VIEW.submitPayment = submitPayment;
   const scheduleControl = $('#paySchedule');
@@ -1052,37 +1110,57 @@ document.addEventListener('DOMContentLoaded', async () => {
   const fsBtn = $('#fsToggle');
   const planWrap = $('.plan-wrap');
   if (fsBtn && planWrap) {
+    const isMobileUA = /Android|iP(ad|hone|od)/i.test(navigator.userAgent || '');
+    // Sur mobile/tablette, on force le mode simulé pour conserver le pinch-zoom.
+    const supportsNativeFs = !isMobileUA && !!(planWrap.requestFullscreen || planWrap.webkitRequestFullscreen);
+    const host = planWrap || $('#plan'); // cible sûre : le conteneur du plan
+    let simFullscreen = false;
 
-    // plein écran sur le panneau plan
+    const updateIcons = (isFull) => {
+      $('.icon-big',   fsBtn)?.toggleAttribute('hidden',  isFull);
+      $('.icon-small', fsBtn)?.toggleAttribute('hidden', !isFull);
+    };
+
+    // plein écran sur le panneau plan (native si possible, sinon fallback)
     fsBtn.addEventListener('click', async () => {
-      const host = planWrap || $('#plan'); // cible sûre : le conteneur du plan
-      const entering = !document.fullscreenElement;
+      const entering = !(document.fullscreenElement || simFullscreen);
       try {
         if (entering) {
-          // bascule immédiate côté UI (un seul carré affiché)
-          $('.icon-big',   fsBtn)?.setAttribute('hidden', 'true');
-          $('.icon-small', fsBtn)?.removeAttribute('hidden');
-          if (host.requestFullscreen)        { await host.requestFullscreen(); }
-          else if (host.webkitRequestFullscreen) { await host.webkitRequestFullscreen(); } // Safari
+          if (supportsNativeFs) {
+            await (host.requestFullscreen?.() || host.webkitRequestFullscreen?.());
+            updateIcons(true);
+          } else {
+            simFullscreen = true;
+            host.classList.add('fs-simulated');
+            document.body.classList.add('fs-lock');
+            updateIcons(true);
+          }
         } else {
-          $('.icon-big',   fsBtn)?.removeAttribute('hidden');
-          $('.icon-small', fsBtn)?.setAttribute('hidden', 'true');
-          if (document.exitFullscreen)       { await document.exitFullscreen(); }
-          else if (document.webkitExitFullscreen) { await document.webkitExitFullscreen(); } // Safari
+          if (document.fullscreenElement && (document.exitFullscreen || document.webkitExitFullscreen)) {
+            await (document.exitFullscreen?.() || document.webkitExitFullscreen?.());
+          }
+          if (simFullscreen) {
+            simFullscreen = false;
+            host.classList.remove('fs-simulated');
+            document.body.classList.remove('fs-lock');
+          }
+          updateIcons(false);
         }
       } catch {
-        // en cas d’échec, on rétablit l’état cohérent avec le mode réel
-        const isFS = !!document.fullscreenElement;
-        $('.icon-big',   fsBtn)?.toggleAttribute('hidden',  isFS);
-        $('.icon-small', fsBtn)?.toggleAttribute('hidden', !isFS);
+        const isFS = !!(document.fullscreenElement || simFullscreen);
+        updateIcons(isFS);
       }
     });
 
-    // garde-fou : un seul carré à la fois (tous moteurs)
+    // garde-fou : synchro icônes même si l’API native change l’état
     const onFsChange = () => {
-      const isFS = !!document.fullscreenElement;
-      $('.icon-big',   fsBtn)?.toggleAttribute('hidden',  isFS);
-      $('.icon-small', fsBtn)?.toggleAttribute('hidden', !isFS);
+      const isFS = !!(document.fullscreenElement || simFullscreen);
+      updateIcons(isFS);
+      if (!document.fullscreenElement && simFullscreen) {
+        simFullscreen = false;
+        host.classList.remove('fs-simulated');
+        document.body.classList.remove('fs-lock');
+      }
     };
     document.addEventListener('fullscreenchange', onFsChange);
     document.addEventListener('webkitfullscreenchange', onFsChange);

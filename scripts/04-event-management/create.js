@@ -3,7 +3,7 @@
  *
  * Usage:
  *   node scripts/03-event-management/events/create.js --slug=match-2025-09-21-bts-vs-xxx --name="BTS vs XXX" \
- *     --date=2025-09-21T16:00:00+02:00 --season=2025-2026 --venue=patinoire-blagnac [--price-table=season-game] [--desc="..."] [--onsale]
+ *     --date=2025-09-21T16:00:00+02:00 --season=2025-2026 [--price-table=season-game] [--desc="..."] [--onsale]
  *
  * Environment:
  *   - MONGO_URI or MONGODB_URI (required)
@@ -25,7 +25,6 @@ async function main() {
     .option('name', { type:'string', demandOption:true, desc:'Titre affiché (ex: BTS vs XXX)' })
     .option('date', { type:'string', demandOption:true, desc:'Date ISO (ex: 2025-09-21T16:00:00+02:00)' })
     .option('season', { type:'string', demandOption:true, desc:'Code saison (ex: 2025-2026)' })
-    .option('venue', { type:'string', demandOption:true, desc:'Slug du lieu (ex: patinoire-blagnac)' })
     .option('price-table', { alias: 'priceTable', type:'string', desc:'Clé de table de prix existante (ex: season-game)' })
     .option('desc', { type:'string', default:'', desc:'Description courte' })
     .option('onsale', { type:'boolean', default:false, desc:'Ouvrir la vente directement ?' })
@@ -39,6 +38,7 @@ async function main() {
   if (dbName) connectOpts.dbName = dbName;
   await mongoose.connect(uri, connectOpts);
 
+  const venueSlug = null;
   const customPriceTable = argv.priceTable ? String(argv.priceTable).trim() : '';
   const priceTableKey = customPriceTable || `ev:${argv.slug}`;
   const startsAt = new Date(argv.date);
@@ -49,7 +49,8 @@ async function main() {
     name: argv.name,
     startsAt,
     seasonCode: argv.season,
-    venueSlug: argv.venue,
+    venueSlug,
+    venueView: null,
     priceTableKey,
     isOnSale: argv.onsale,
     description: argv.desc,

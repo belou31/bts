@@ -185,12 +185,13 @@ const body3 = `
 ├── data/                         # CSV d'import/export (tarifs, prix, abonnés, liens)
 ├── docs/                         # Pages HTML de documentation (GitHub Pages)
 ├── scripts/
-│   ├── 00-initialization/        # reset-db, check-env, customize-app
+│   ├── 00-system-management/     # reset-db, check-env, customize-app, purge-logs
 │   ├── 01-venue-management/      # register-venue, import seats/zones, validate SVG
 │   ├── 02-tariff-management/     # import/export catalogue & matrices de tarifs
 │   ├── 03-season-management/     # instanciation siège/zone/tarif, seed, renewal
 │   ├── 04-event-management/      # création events, imports QR, prix, set-onsale
-│   ├── 05-misc/                  # exports/rapports, audits
+│   ├── 05-partner-management/    # scripts partenaire (iframe, paiement)
+│   ├── 06-misc/                  # exports/rapports, audits
 │   └── docs/
 │       └── build-docs.js         # Générateur des pages HTML (ce fichier)
 ├── src/
@@ -464,8 +465,8 @@ node -r dotenv/config scripts/orders-delete-csv.js --file=orders.csv \\
 </code></pre>
 
 <h3>3.11 Holds événementiels</h3>
-<pre><code>node -r dotenv/config scripts/04-event-management/seats-hold-release.js \\
-  --file=holds.csv --commit --force dotenv_config_path=.env.int
+<pre><code>node -r dotenv/config scripts/04-event-management/block-free-seats-for-event.js \\
+  --event=my-season-opener --file=holds.csv --commit --force dotenv_config_path=.env.int
 </code></pre>
 
 <h2>4. Formats CSV (en-têtes & exemples)</h2>
@@ -495,12 +496,13 @@ S1,12_17,84
 S1,U12,60
 </code></pre>
 
-<h3>4.2 Holds événementiels – <code>data/seats-hold-release.template.csv</code></h3>
-<p><strong>En-têtes :</strong> <code>action,eventSlug,eventId,seatId,zoneKey,reason,expiresAt</code></p>
-<pre><code>action,eventSlug,eventId,seatId,zoneKey,reason,expiresAt
-block,my-season-opener,,S1-A-101,,Media filming,2025-09-01T18:00:00Z
-block,,6652f1f8a5d14b6f1c123456,,S1,Partner allocation,
-free,my-season-opener,,S1-A-101,,,
+<h3>4.2 Blocage/libération de sièges – <code>data/templates/csv/seats-hold-release.template.csv</code></h3>
+<p>Utilisé par <code>block-free-seats-for-event</code> et <code>block-free-seats-for-season</code>. <strong>En-têtes :</strong> <code>action,seatId,seatPattern,zoneKey,reason,expiresAt</code></p>
+<pre><code>action,seatId,seatPattern,zoneKey,reason,expiresAt
+block,S1-A-101,,,"Media filming",2025-09-01T18:00:00Z
+block,,^S1-(A|B)-0*(00[1-9]|0[1-2][0-9]),,Partner allocation,
+free,,/^(S1|S2)-A-0*(98|99)$/i,,Campaign cleanup,
+free,S1-A-101,,,,
 </code></pre>
 
 <h3>4.3 Abonnés (flat) – <code>data/subscribers_flat.csv</code></h3>

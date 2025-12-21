@@ -55,14 +55,14 @@ function die(msg){ console.error(msg); process.exit(1); }
   const zones = Array.from(zoneSet).sort();
   const tariffs = Array.from(tariffSet).sort();
 
-  // pivot : tariffCode -> { zoneKey: priceCents }
+  // pivot : tariffCode -> { zoneKey: { display, partner } }
   const pivot = new Map();
   for (const d of docs) {
     const t = d.tariffCode;
     const z = d.zoneKey;
     if (!t || !z) continue;
     const row = pivot.get(t) || {};
-    row[z] = d.priceCents;
+    row[z] = { display: d.priceCents, partner: d.partnerPriceCents };
     pivot.set(t, row);
   }
 
@@ -81,7 +81,10 @@ function die(msg){ console.error(msg); process.exit(1); }
     const rowObj = pivot.get(tCode) || {};
     const cells = [tCode];
     for (const z of zones) {
-      cells.push(centsToEuroString(rowObj[z]));
+      // Export partner price if present, else display price
+      const cell = rowObj[z] || {};
+      const val = Number.isFinite(cell.partner) ? cell.partner : cell.display;
+      cells.push(centsToEuroString(val));
     }
     lines.push(cells.join(','));
   }
