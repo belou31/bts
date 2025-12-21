@@ -91,6 +91,7 @@ async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, stat
   const baseMatch = {
     seasonCode,
     venueSlug,
+    phase: 'subscription', // ne pas compter les ventes “event” dans le quota saison
     'lines.zoneKey': { $in: zoneKeys }
   };
   const statusMatch = (Array.isArray(statusIn) && statusIn.length)
