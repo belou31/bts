@@ -135,7 +135,7 @@ function parseDate(value) {
       const holdReason = reason || (argv.force ? 'Admin hold (force)' : 'Admin hold');
       const seatUpdate = {
         $set: {
-          status: 'held',
+          status: 'busy',
           'meta.hold.reason': holdReason
         }
       };
@@ -147,7 +147,7 @@ function parseDate(value) {
 
       const blockFilter = { ...seatFilter };
       if (!argv.force) {
-        blockFilter.status = { $in: ['available', 'held'] };
+        blockFilter.status = { $in: ['available', 'busy'] };
       }
       const res = await Seat.updateMany(blockFilter, seatUpdate);
       const modified = Number(res.modifiedCount || 0);
@@ -185,7 +185,7 @@ function parseDate(value) {
       };
       const freeFilter = { ...seatFilter };
       if (!argv.force) {
-        freeFilter.status = 'held';
+        freeFilter.status = { $in: ['busy', 'held'] };
       }
 
       const res = await Seat.updateMany(freeFilter, seatUpdate);
@@ -202,7 +202,7 @@ function parseDate(value) {
   console.log(`✅ Blocked: ${blocked} | Freed: ${freed}`);
   if (argv.commit) {
     console.log(`ℹ️ SeatHold upserts=${holdUpserts} deletes=${holdDeletes}`);
-    console.log(`ℹ️ Seats mis à jour → held: ${seatsHeld}, freed: ${seatsFreedCount}`);
+    console.log(`ℹ️ Seats mis à jour → busy: ${seatsHeld}, freed: ${seatsFreedCount}`);
   }
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });
