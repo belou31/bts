@@ -1,0 +1,21 @@
+Key,Value,Description
+base.url,https://billetterie-test.belougas.fr/bts,Default BTS API base URL
+automation.secret,<jwt-secret>,Shared JWT secret
+jwt.iss,libreoffice,Default issuer for LibreOffice
+jwt.aud,bts-automation,Automation audience
+jwt.scopes,automation:jobs:write automation:jobs:run,Default scopes
+jwt.iss.TariffCatalog,,Per-sheet override example (sheet TariffCatalog)
+jwt.iss.TariffPrices,,Per-sheet override example (sheet TariffPrices)
+sheet.invites,Invitations,Renew invites sheet
+sheet.eventOrders,EventOrders,Event orders sheet
+sheet.tariffCatalog,TariffCatalog,Tariff catalog sheet
+sheet.tariffPrices,TariffPrices,Tariff prices sheet
+renew.dryRun,false,Season renewals dry-run
+event.import.dryRun,true,Event import dry-run
+event.import.force,false,Allow overwrite on import
+event.import.sendEmail,false,Send emails during import
+tariff.catalog.dryRun,false,Tariff catalog dry-run
+tariff.prices.dryRun,true,Tariff prices dry-run
+tariff.prices.append,false,Append prices instead of replacing
+tariff.prices.slug,,Default catalog slug
+tariff.prices.venue,,Default venue slug

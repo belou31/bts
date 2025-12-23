@@ -1,15 +1,22 @@
-*.log
-*.csv
-*.zip
+# ENV files (security => no git sync)
 .env
+*.env
 .env.*
-.ha-token.json
-.~lock.*
-.outbox
-.vscode
-node_modules
-data/*
+.env_*
+.env-*
+# Dependencies
+node_modules/
+# Data specific
+data/
 !data/templates/
 !data/templates/**
-tests
+src/public/static/
+!src/public/static/js/
+!src/public/static/styles/
+# Local only
+archives/
+tests/
+.~lock.*
+.eslint*
 grep_*
+*.log
