@@ -1197,15 +1197,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       active.clear();
     };
 
-    planWrap.addEventListener('pointerdown', (ev) => {
+    const onPointerDown = (ev) => {
       if (ev.pointerType === 'touch') {
-        planWrap.setPointerCapture?.(ev.pointerId);
         active.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
         if (active.size === 2) startDistance = distance();
       }
-    });
+    };
 
-    planWrap.addEventListener('pointermove', (ev) => {
+    const onPointerMove = (ev) => {
       if (!active.has(ev.pointerId)) return;
       active.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
       if (active.size >= 2 && startDistance) {
@@ -1216,7 +1215,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           ev.preventDefault();
         }
       }
-    }, { passive: false });
+    };
 
     const endPointer = (ev) => {
       if (active.has(ev.pointerId)) active.delete(ev.pointerId);
@@ -1226,10 +1225,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         startDistance = null;
       }
     };
-    planWrap.addEventListener('pointerup', endPointer);
-    planWrap.addEventListener('pointercancel', endPointer);
-    planWrap.addEventListener('pointerout', endPointer);
-    planWrap.addEventListener('pointerleave', endPointer);
+    planWrap.addEventListener('pointerdown', onPointerDown, { passive: false, capture: true });
+    planWrap.addEventListener('pointermove', onPointerMove, { passive: false, capture: true });
+    planWrap.addEventListener('pointerup', endPointer, { capture: true });
+    planWrap.addEventListener('pointercancel', endPointer, { capture: true });
+    planWrap.addEventListener('pointerout', endPointer, { capture: true });
+    planWrap.addEventListener('pointerleave', endPointer, { capture: true });
   }
 
   // layout initial (icône = cible)
