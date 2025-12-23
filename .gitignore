@@ -10,6 +10,7 @@ node_modules/
 data/
 !data/templates/
 !data/templates/**
+!data/examples/
 src/public/static/
 !src/public/static/js/
 !src/public/static/styles/
