@@ -10,7 +10,9 @@ import { buildTicketsPdfBuffer as buildTicketsPdfBufferFromService } from './tic
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-const EMAIL_DIR = path.resolve(process.cwd(), 'src', 'templates', 'email');
+const EMAIL_DIR_LEGACY = path.resolve(process.cwd(), 'src', 'templates', 'email');
+const EMAIL_DIR_DATA   = path.resolve(process.cwd(), 'data', 'templates', 'email');      // models
+const EMAIL_DIR_CUSTOM = path.resolve(process.cwd(), 'data', 'customization', 'email');  // instances/overrides
 
 function fmtEuroWithSymbol(cents) {
   return (Number(cents || 0) / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
@@ -53,8 +55,19 @@ const SUBJECT_BY_KIND = {
 
 async function loadTemplateHtml(name) {
   const fname = `${name}.html`;
-  const p = path.join(EMAIL_DIR, fname);
-  return fs.readFile(p, 'utf8');
+  const paths = [
+    path.join(EMAIL_DIR_CUSTOM, fname),
+    path.join(EMAIL_DIR_DATA, fname),
+    path.join(EMAIL_DIR_LEGACY, fname)
+  ];
+  for (const p of paths) {
+    try {
+      return await fs.readFile(p, 'utf8');
+    } catch (err) {
+      // continue
+    }
+  }
+  throw new Error(`Email template not found: ${name} (searched in data/templates/email and src/templates/email)`);
 }
 
 async function buildTariffsMap(seasonCode, venueSlug) {

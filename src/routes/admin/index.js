@@ -38,6 +38,8 @@ const router = express.Router();
 
 const ROOT_DIR = process.cwd();
 const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
+const CUSTOM_ROOT = path.resolve(ROOT_DIR, 'data/customization');
+const CUSTOM_ASSETS_ROOT = path.resolve(CUSTOM_ROOT, 'assets');
 const OUTPUTS_ROOT = path.resolve(ROOT_DIR, 'data/outputs');
 const INPUTS_ROOT = path.resolve(ROOT_DIR, 'data/inputs');
 const STATIC_VENUES_ROOT = path.resolve(ROOT_DIR, 'src/public/static/venues');
@@ -189,6 +191,30 @@ function listFiles(root, limit = 50) {
   } catch {
     return [];
   }
+}
+
+function listTemplatesRecursive(root, prefix = '') {
+  const out = [];
+  try {
+    const entries = fs.readdirSync(root, { withFileTypes: true });
+    for (const entry of entries) {
+      const rel = prefix ? path.join(prefix, entry.name) : entry.name;
+      const full = path.join(root, entry.name);
+      if (entry.isDirectory()) {
+        out.push(...listTemplatesRecursive(full, rel));
+      } else if (entry.isFile()) {
+        const stats = fs.statSync(full);
+        out.push({ name: entry.name, rel, size: stats.size, mtime: stats.mtime });
+      }
+    }
+  } catch {
+    return out;
+  }
+  return out.sort((a, b) => b.mtime - a.mtime);
+}
+
+function listCustomizationRecursive(root, prefix = '') {
+  return listTemplatesRecursive(root, prefix);
 }
 
 function listVenueViews(rootDir = STATIC_VENUES_ROOT) {
@@ -436,6 +462,7 @@ router.get('/', (req, res) => {
   let target = urlFor('/admin/operate');
   if (view === 'monitor') target = urlFor('/admin/monitor');
   if (view === 'io') target = urlFor('/admin/io');
+  if (view === 'templates') target = urlFor('/admin/templates');
   return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
 });
 
@@ -446,6 +473,8 @@ router.get('/io', (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
+  const assetsList = listFiles(CUSTOM_ASSETS_ROOT);
+  const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
   const venueViews = listVenueViews();
 
   return res.render('admin/index', {
@@ -461,6 +490,7 @@ router.get('/io', (req, res) => {
     activeGroupId: null,
     outputsList,
     inputsList,
+    customizationList,
     operateOptions: {
       venues: [],
       seasons: [],
@@ -468,9 +498,58 @@ router.get('/io', (req, res) => {
       partners: [],
       tariffCatalogs: [],
       inputFiles: inputsList.map(file => file.name),
+      assetFiles: assetsList.map(file => file.name),
+      customizationFiles: customizationList.map(file => file.rel),
       venueViews
     },
     viewMode: 'io',
+    monitorTab: 'tariffs',
+    monitoring: null
+  });
+});
+
+router.get('/templates', (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const emailTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'email'));
+  const pdfTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'pdf'));
+  const csvTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'csv'));
+  const envTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'env'));
+  const svgTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'svg'));
+  const customization  = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'customization'));
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: [],
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    templatesEmail: emailTemplates,
+    templatesPdf: pdfTemplates,
+    templatesCsv: csvTemplates,
+    templatesEnv: envTemplates,
+    templatesSvg: svgTemplates,
+    customizationList: customization,
+    operateOptions: {
+      venues: [],
+      seasons: [],
+      events: [],
+      partners: [],
+      tariffCatalogs: [],
+      inputFiles: [],
+      assetFiles: [],
+      venueViews: []
+    },
+    viewMode: 'templates',
     monitorTab: 'tariffs',
     monitoring: null
   });
@@ -497,6 +576,8 @@ router.get('/operate', async (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
+  const assetsList = listFiles(CUSTOM_ASSETS_ROOT);
+  const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
   const venueViews = listVenueViews();
   let operateOptions = {
     venues: [],
@@ -505,6 +586,8 @@ router.get('/operate', async (req, res) => {
     partners: [],
     tariffCatalogs: [],
     inputFiles: inputsList.map(file => file.name),
+    assetFiles: assetsList.map(file => file.name),
+    customizationFiles: customizationList.map(file => file.rel),
     venueViews
   };
 
@@ -539,6 +622,8 @@ router.get('/operate', async (req, res) => {
         .map(entry => entry?._id)
         .filter(Boolean),
       inputFiles: inputsList.map(file => file.name),
+      assetFiles: assetsList.map(file => file.name),
+      customizationFiles: customizationList.map(file => file.rel),
       venueViews
     };
   } catch (error) {
@@ -1397,8 +1482,12 @@ router.get('/templates/download', (req, res) => {
   const rawPath = (req.query.path || '').toString();
   if (!rawPath) return res.status(400).send('Missing template path');
   try {
-    const relative = rawPath.replace(/^(?:scripts|data)\/templates\/?/, '');
-    const abs = resolveInside(TEMPLATES_ROOT, relative);
+    const isCustomization = rawPath.startsWith('data/customization');
+    const baseRoot = isCustomization ? CUSTOM_ROOT : TEMPLATES_ROOT;
+    const relative = isCustomization
+      ? rawPath.replace(/^data\/customization\/?/, '')
+      : rawPath.replace(/^(?:scripts|data)\/templates\/?/, '');
+    const abs = resolveInside(baseRoot, relative);
     const filename = path.basename(abs);
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
       return res.status(404).send('Template not found');
@@ -1467,6 +1556,73 @@ router.post('/uploads', (req, res) => {
     return res.json({ ok: true, filename: safeName, path: `data/inputs/${relPath}`, size: buffer.length });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err?.message || 'Unable to store file' });
+  }
+});
+
+router.post('/templates/upload', (req, res) => {
+  const { filename, contentBase64, subdir } = req.body || {};
+  const safeName = sanitizeFilename(filename || '');
+  if (!safeName) return res.status(400).json({ ok: false, error: 'Invalid target file name' });
+  if (!contentBase64 || typeof contentBase64 !== 'string') {
+    return res.status(400).json({ ok: false, error: 'Missing contentBase64' });
+  }
+  let buffer;
+  try {
+    buffer = Buffer.from(contentBase64, 'base64');
+  } catch {
+    return res.status(400).json({ ok: false, error: 'Invalid base64 payload' });
+  }
+  let destDir = TEMPLATES_ROOT;
+  if (subdir) {
+    try {
+      const cleaned = String(subdir).replace(/^\/+/, '');
+      destDir = resolveInside(TEMPLATES_ROOT, cleaned);
+      fs.mkdirSync(destDir, { recursive: true });
+    } catch {
+      return res.status(400).json({ ok: false, error: 'Invalid subdir' });
+    }
+  }
+  const dest = path.join(destDir, safeName);
+  try {
+    fs.writeFileSync(dest, buffer);
+    return res.json({ ok: true, filename: safeName, path: path.relative(TEMPLATES_ROOT, dest) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || 'Write failed' });
+  }
+});
+
+router.post('/customization/upload', (req, res) => {
+  const { filename, contentBase64, subdir } = req.body || {};
+  const safeName = sanitizeFilename(filename || '');
+  if (!safeName) return res.status(400).json({ ok: false, error: 'Invalid target file name' });
+  if (!contentBase64 || typeof contentBase64 !== 'string') {
+    return res.status(400).json({ ok: false, error: 'Missing contentBase64' });
+  }
+  let buffer;
+  try {
+    buffer = Buffer.from(contentBase64, 'base64');
+  } catch {
+    return res.status(400).json({ ok: false, error: 'Invalid base64 payload' });
+  }
+  const defaultUploadDir = path.join(CUSTOM_ROOT, 'uploaded');
+  let destDir = subdir ? CUSTOM_ROOT : defaultUploadDir;
+  if (subdir) {
+    try {
+      const cleaned = String(subdir).replace(/^\/+/, '');
+      destDir = resolveInside(CUSTOM_ROOT, cleaned);
+      fs.mkdirSync(destDir, { recursive: true });
+    } catch {
+      return res.status(400).json({ ok: false, error: 'Invalid subdir' });
+    }
+  } else {
+    fs.mkdirSync(destDir, { recursive: true });
+  }
+  const dest = path.join(destDir, safeName);
+  try {
+    fs.writeFileSync(dest, buffer);
+    return res.json({ ok: true, filename: safeName, path: path.relative(CUSTOM_ROOT, dest) });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || 'Write failed' });
   }
 });
 

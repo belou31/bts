@@ -51,12 +51,12 @@ export const adminScriptGroups = [
         label: 'Customize Application',
         order: 2,
         path: 'scripts/00-system-management/customize-app.js',
-        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--email-template=template.json]',
+        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]',
         run: {
           script: 'scripts/00-system-management/customize-app.js',
           args: []
         },
-        description: 'Copies organization assets (favicon, logos, app icons) to public/static/img and stores optional metadata/templates under data/customization.',
+        description: 'Stores organization assets (favicon, logos, app icons) under data/customization/assets, mirrors them to public/static/img, and saves metadata under data/customization.',
         templates: ['data/templates/customization/app.json'],
         notes: [
           'Input files can be referenced by absolute path or relative to data/inputs.',
@@ -80,54 +80,64 @@ export const adminScriptGroups = [
             {
               name: 'favicon',
               label: 'Favicon (.ico)',
-              placeholder: 'data/inputs/favicon.ico',
+              placeholder: 'data/customization/assets/favicon.ico',
               arg: { type: 'option', template: '--favicon=${value}' }
             },
             {
               name: 'logoSvg',
               label: 'Logo vectoriel (.svg)',
-              placeholder: 'data/inputs/logo.svg',
+              placeholder: 'data/customization/assets/logo.svg',
               arg: { type: 'option', template: '--logo-svg=${value}' }
             },
             {
               name: 'logoPng',
               label: 'Logo bitmap (.png)',
-              placeholder: 'data/inputs/logo.png',
+              placeholder: 'data/customization/assets/logo.png',
               arg: { type: 'option', template: '--logo-png=${value}' }
             },
             {
               name: 'icon192',
               label: 'Icône 192×192 (.png)',
-              placeholder: 'data/inputs/icon-192.png',
+              placeholder: 'data/customization/assets/icon-192.png',
               arg: { type: 'option', template: '--icon-192=${value}' }
             },
             {
               name: 'icon512',
               label: 'Icône 512×512 (.png)',
-              placeholder: 'data/inputs/icon-512.png',
+              placeholder: 'data/customization/assets/icon-512.png',
               arg: { type: 'option', template: '--icon-512=${value}' }
-            },
-            {
-              name: 'emailTemplate',
-              label: 'Email template (JSON)',
-              placeholder: 'data/inputs/order-confirmation.json',
-              hint: 'Vous pouvez répéter l’option en la saisissant via le champ Arguments additionnels.',
-              arg: { type: 'option', template: '--email-template=${value}' }
-            },
-            {
-              name: 'emailTemplatesDir',
-              label: 'Répertoire de templates e-mail',
-              placeholder: 'data/inputs/email-templates',
-              arg: { type: 'option', template: '--email-templates=${value}' }
             }
           ]
         }
-      }
-      ,
+      },
+      {
+        id: 'set-default-custo',
+        label: 'Set Default Customization',
+        order: 3,
+        path: 'scripts/00-system-management/set-default-custo.js',
+        command: 'node scripts/00-system-management/set-default-custo.js --file=<customization.json>',
+        run: {
+          script: 'scripts/00-system-management/set-default-custo.js',
+          args: []
+        },
+        description: 'Writes default UI/email copy customizations to data/customization/default.json.',
+        templates: ['data/customization/default.json'],
+        form: {
+          fields: [
+            {
+              name: 'file',
+              label: 'JSON customization',
+              placeholder: 'data/customization/default.json',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            }
+          ]
+        }
+      },
       {
         id: 'purge-logs',
         label: 'Purge Logs (Mongo)',
-        order: 3,
+        order: 4,
         path: 'scripts/00-system-management/purge-logs.js',
         command: 'node scripts/00-system-management/purge-logs.js --apply',
         run: {
@@ -510,17 +520,16 @@ export const adminScriptGroups = [
       },
       {
         id: 'import-seats',
-        label: 'Import Seats from SVG',
-        order: 1,
+        label: 'Import Seats',
+        order: 2,
         path: 'scripts/01-venue-management/import-seats.js',
-        command: 'node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=<path/to/seats.csv>] [--attr=<seatAttribute>] [--plan=<override.svg>]',
+        command: 'node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=<path/to/seats.csv>] [--view=<viewSlug>]',
         run: {
           script: 'scripts/01-venue-management/import-seats.js',
           args: []
         },
-        description: 'Parses the persisted venue plan SVG (copied via register-venue) and stores seats in the catalog. Optionally merge overrides from a CSV mapping (seatId, zoneKey, row, number).',
+        description: 'Parses the venue plan SVG (under src/public/static/venues/<slug>/plan.svg) and stores seats in the catalog. Optionally merge overrides from a CSV mapping (seatId, zoneKey, row, number). When --view is provided, the matching view is also enriched with seat attributes.',
         templates: [
-          'data/templates/files/plan.svg',
           'data/templates/csv/seats.template.csv'
         ],
         form: {
@@ -539,17 +548,11 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--csv=${value}' }
             },
             {
-              name: 'attr',
-              label: 'Attribut des sièges (optionnel)',
-              placeholder: 'data-seat-id',
-              hint: 'Par défaut data-seat-id dans le SVG ; utilisez-le si vos plans encodent les sièges sous un autre attribut.',
-              arg: { type: 'option', template: '--attr=${value}' }
-            },
-            {
-              name: 'plan',
-              label: 'Plan SVG override (optionnel)',
-              placeholder: 'data/inputs/plan.svg',
-              arg: { type: 'option', template: '--plan=${value}' }
+              name: 'view',
+              label: 'Vue à enrichir (optionnel)',
+              placeholder: 'main',
+              hint: 'Slug de la vue présente dans src/public/static/venues/<slug>/views/<vue>.svg.',
+              arg: { type: 'option', template: '--view=${value}' }
             }
           ]
         }
@@ -557,14 +560,14 @@ export const adminScriptGroups = [
       {
         id: 'import-zones',
         label: 'Import Zones',
-        order: 2,
+        order: 3,
         path: 'scripts/01-venue-management/import-zones.js',
-        command: 'node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--attr=<zoneAttribute>] [--plan=<path/to/plan.svg>]',
+        command: 'node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--view=<viewSlug>]',
         run: {
           script: 'scripts/01-venue-management/import-zones.js',
           args: []
         },
-        description: 'Maintains the ZoneCatalog for a venue from CSV and/or the persisted SVG plan (data-zone-id by default). Instantiate zones per season afterwards.',
+        description: 'Maintains the ZoneCatalog for a venue from CSV and/or the persisted SVG plan (data-zone-id by default) under src/public/static/venues/<slug>/plan.svg. Instantiate zones per season afterwards. When --view is provided, the matching view is also enriched with zone attributes.',
         templates: ['data/templates/csv/zones.template.csv'],
         form: {
           fields: [
@@ -582,32 +585,26 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--csv=${value}' }
             },
             {
-              name: 'attr',
-              label: 'Attribut des zones (optionnel)',
-              placeholder: 'data-zone-id',
-              hint: 'Par défaut data-zone-id ; utile si le plan utilise un autre attribut.',
-              arg: { type: 'option', template: '--attr=${value}' }
-            },
-            {
-              name: 'plan',
-              label: 'Plan SVG override (optionnel)',
-              placeholder: 'data/inputs/plan.svg',
-              arg: { type: 'option', template: '--plan=${value}' }
+              name: 'view',
+              label: 'Vue à enrichir (optionnel)',
+              placeholder: 'main',
+              hint: 'Slug de la vue présente dans src/public/static/venues/<slug>/views/<vue>.svg.',
+              arg: { type: 'option', template: '--view=${value}' }
             }
           ]
         }
       },
       {
         id: 'import-venue-view',
-        label: 'Import Venue View (SVG)',
-        order: 4,
+        label: 'Add View for Venue',
+        order: 1,
         path: 'scripts/01-venue-management/import-venue-view.js',
         command: 'node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <path/to/view.svg> [--overwrite]',
         run: {
           script: 'scripts/01-venue-management/import-venue-view.js',
           args: []
         },
-        description: 'Copies a custom SVG view for a venue to src/public/static/venues/<slug>/views/<viewSlug>.svg (no seat indexing).',
+        description: 'Copies a custom view to src/public/static/venues/<slug>/views/<viewSlug>.svg (no enrichment).',
         templates: ['data/templates/files/plan.svg'],
         form: {
           fields: [
@@ -631,42 +628,6 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/venue-view.svg',
               required: true,
               arg: { type: 'positional', index: 2 }
-            }
-          ]
-        }
-      },
-      {
-        id: 'validate-venue-svg',
-        label: 'Validate Venue SVG',
-        order: 3,
-        path: 'scripts/01-venue-management/validate-svg.js',
-        command: 'node scripts/01-venue-management/validate-svg.js --svg=<path/to/plan.svg> --selectors="ZONE:#selector" [--min-seats=500] [--fail-on-missing]',
-        run: {
-          script: 'scripts/01-venue-management/validate-svg.js',
-          args: []
-        },
-        description: 'Checks that the SVG seating plan contains the expected selectors and seat count.',
-        form: {
-          fields: [
-            {
-              name: 'svg',
-              label: 'Plan SVG',
-              placeholder: 'src/public/static/venues/patinoire-blagnac/plan.svg',
-              required: true,
-              arg: { type: 'option', template: '--svg=${value}' }
-            },
-            {
-              name: 'selectors',
-              label: 'Sélecteurs zones',
-              placeholder: 'TBH7:#zone-tbh7,DEBOUT:#zone-debout',
-              hint: 'Format: ZONE:#css,ZONE2:#css2',
-              arg: { type: 'option', template: '--selectors=${value}' }
-            },
-            {
-              name: 'minSeats',
-              label: 'Nombre de sièges minimum',
-              placeholder: '500',
-              arg: { type: 'option', template: '--min-seats=${value}' }
             }
           ]
         }
@@ -1004,6 +965,37 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'set-season-custo',
+        label: 'Set Season Customization',
+        order: 0.3,
+        path: 'scripts/03-season-management/set-season-custo.js',
+        command: 'node scripts/03-season-management/set-season-custo.js --season=<code> --file=<customization.json>',
+        run: {
+          script: 'scripts/03-season-management/set-season-custo.js',
+          args: []
+        },
+        description: 'Stores season-level UI/email customization keys under data/customization/seasons/<code>.json.',
+        templates: ['data/customization/seasons/<code>.json'],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'JSON customization',
+              placeholder: 'data/customization/seasons/<code>.json',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'instantiate-venue-for-season',
         label: 'Instantiate Venue for Season',
         order: 1,
@@ -1273,6 +1265,37 @@ export const adminScriptGroups = [
               label: 'Description courte (optionnel)',
               placeholder: 'Match de saison régulière',
               arg: { type: 'option', template: '--desc=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-event-custo',
+        label: 'Set Event Customization',
+        order: 0.3,
+        path: 'scripts/04-event-management/set-event-custo.js',
+        command: 'node scripts/04-event-management/set-event-custo.js --event=<slug> --file=<customization.json>',
+        run: {
+          script: 'scripts/04-event-management/set-event-custo.js',
+          args: []
+        },
+        description: 'Stores event-level UI/email customization keys under data/customization/events/<slug>.json.',
+        templates: ['data/customization/events/<slug>.json'],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'JSON customization',
+              placeholder: 'data/customization/events/<slug>.json',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
             }
           ]
         }
@@ -1765,7 +1788,7 @@ export const adminScriptGroups = [
       {
         id: 'partners-init-template',
         label: 'Init Partner Template',
-        order: 0,
+        order: 5,
         path: 'scripts/05-partner-management/init-partners.js',
         command: 'node scripts/05-partner-management/init-partners.js [--force]',
         run: {
@@ -1780,9 +1803,56 @@ export const adminScriptGroups = [
         form: { fields: [] }
       },
       {
+        id: 'set-partner-custo',
+        label: 'Set Partner Customization',
+        order: 1,
+        path: 'scripts/05-partner-management/set-partner-custo.js',
+        command: 'node scripts/05-partner-management/set-partner-custo.js --partner=<slug> --file=<customization.json> [--season=<code>] [--event=<slug>]',
+        run: {
+          script: 'scripts/05-partner-management/set-partner-custo.js',
+          args: []
+        },
+        description: 'Stores partner-level UI/email customization keys under data/customization/partners/<slug>.json (or scoped files under partners/<slug>/seasons/ or partners/<slug>/events/ when provided).',
+        templates: [
+          'data/customization/partners/<slug>.json',
+          'data/customization/partners/<slug>/seasons/<code>.json',
+          'data/customization/partners/<slug>/events/<event>.json'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'partner',
+              label: 'Slug du partenaire',
+              placeholder: 'cseairbus',
+              required: true,
+              arg: { type: 'option', template: '--partner=${value}' }
+            },
+            {
+              name: 'season',
+              label: 'Code saison (optionnel)',
+              placeholder: '2025-2026',
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'event',
+              label: 'Slug événement (optionnel)',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'JSON customization',
+              placeholder: 'data/customization/partners/<slug>.json',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'partner-upsert',
         label: 'Create / Update Partner',
-        order: 1,
+        order: 0,
         path: 'scripts/05-partner-management/upsert-partner.js',
         command: 'node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [--payment-mode=psp|invoice_auto] [--allow-public-tariffs=yes|no] [--payment-provider=...]',
         run: {
@@ -1795,75 +1865,23 @@ export const adminScriptGroups = [
         ],
         form: {
           fields: [
-            {
-              name: 'slug',
-              label: 'Slug',
-              placeholder: 'cseairbus',
-              required: true,
-              arg: { type: 'option', template: '--slug=${value}' }
-            },
-            {
-              name: 'name',
-              label: 'Nom affiché',
-              placeholder: 'CSE Airbus',
-              required: true,
-              arg: { type: 'option', template: '--name=${value}' }
-            },
-            {
-              name: 'paymentMode',
-              label: 'Mode de paiement',
-              placeholder: 'psp | invoice_auto',
-              arg: { type: 'option', template: '--payment-mode=${value}' }
-            },
-            {
-              name: 'allowPublicTariffs',
-              label: 'Autoriser les tarifs publics',
-              hint: 'yes|no (par défaut: no). Si yes, les tarifs publics seront accessibles en fallback.',
-              arg: { type: 'option', template: '--allow-public-tariffs=${value}' }
-            },
-            {
-              name: 'paymentProvider',
-              label: 'ID prestataire (invoice_auto)',
-              placeholder: 'cseairbus_invoice',
-              arg: { type: 'option', template: '--payment-provider=${value}' }
-            },
-            {
-              name: 'payButton',
-              label: 'Libellé bouton (invoice_auto)',
-              placeholder: 'Envoyer ma demande',
-              arg: { type: 'option', template: '--pay-button=${value}' }
-            },
-            {
-              name: 'successMessage',
-              label: 'Message succès (invoice_auto)',
-              placeholder: 'Votre demande a été enregistrée...',
-              arg: { type: 'option', template: '--success-message=${value}' }
-            },
-            {
-              name: 'errorMessage',
-              label: 'Message erreur (invoice_auto)',
-              placeholder: 'Impossible d’enregistrer votre demande...',
-              arg: { type: 'option', template: '--error-message=${value}' }
-            },
-            {
-              name: 'autoFinalize',
-              label: 'Auto-finaliser (invoice_auto)',
-              placeholder: 'yes|no',
-              arg: { type: 'option', template: '--auto-finalize=${value}' }
-            },
-            {
-              name: 'sendTickets',
-              label: 'Envoyer billets (invoice_auto)',
-              placeholder: 'yes|no',
-              arg: { type: 'option', template: '--send-tickets=${value}' }
-            }
+            { name: 'slug', label: 'Slug', placeholder: 'cseairbus', required: true, arg: { type: 'option', template: '--slug=${value}' } },
+            { name: 'name', label: 'Nom affiché', placeholder: 'CSE Airbus', required: true, arg: { type: 'option', template: '--name=${value}' } },
+            { name: 'paymentMode', label: 'Mode de paiement', placeholder: 'psp | invoice_auto', arg: { type: 'option', template: '--payment-mode=${value}' } },
+            { name: 'allowPublicTariffs', label: 'Autoriser les tarifs publics', hint: 'yes|no (par défaut: no). Si yes, les tarifs publics seront accessibles en fallback.', arg: { type: 'option', template: '--allow-public-tariffs=${value}' } },
+            { name: 'paymentProvider', label: 'ID prestataire (invoice_auto)', placeholder: 'cseairbus_invoice', arg: { type: 'option', template: '--payment-provider=${value}' } },
+            { name: 'payButton', label: 'Libellé bouton (invoice_auto)', placeholder: 'Envoyer ma demande', arg: { type: 'option', template: '--pay-button=${value}' } },
+            { name: 'successMessage', label: 'Message succès (invoice_auto)', placeholder: 'Votre demande a été enregistrée...', arg: { type: 'option', template: '--success-message=${value}' } },
+            { name: 'errorMessage', label: 'Message erreur (invoice_auto)', placeholder: 'Impossible d’enregistrer votre demande...', arg: { type: 'option', template: '--error-message=${value}' } },
+            { name: 'autoFinalize', label: 'Auto-finaliser (invoice_auto)', placeholder: 'yes|no', arg: { type: 'option', template: '--auto-finalize=${value}' } },
+            { name: 'sendTickets', label: 'Envoyer billets (invoice_auto)', placeholder: 'yes|no', arg: { type: 'option', template: '--send-tickets=${value}' } }
           ]
         }
       },
       {
         id: 'partner-set-security',
         label: 'Partner Security (origins)',
-        order: 1.2,
+        order: 3,
         path: 'scripts/05-partner-management/set-partner-security.js',
         command: 'node scripts/05-partner-management/set-partner-security.js --slug=<slug> [--allowed-origins=CSV] [--frame-ancestors=CSV]',
         run: { script: 'scripts/05-partner-management/set-partner-security.js', args: [] },
@@ -1894,49 +1912,18 @@ export const adminScriptGroups = [
       },
       {
         id: 'partner-set-view',
-        label: 'Partner View & UI',
-        order: 1.4,
+        label: 'Partner View',
+        order: 1,
         path: 'scripts/05-partner-management/set-partner-view.js',
-        command: 'node scripts/05-partner-management/set-partner-view.js --slug=<slug> [--venue-view=<slug>] [--ui-heading=\"...\"] [--ui-lead=\"...\"] [--ui-payment-help=\"...\"]',
+        command: 'node scripts/05-partner-management/set-partner-view.js --slug=<slug> --venue-view=<slug> [--event=<eventSlug>] [--season=<code>]',
         run: { script: 'scripts/05-partner-management/set-partner-view.js', args: [] },
-        description: 'Customizes the partner plan view and UI copy.',
+        description: 'Sets a partner venue view override (optionally scoped to an event or season).',
         form: {
           fields: [
-            {
-              name: 'partner',
-              label: 'Slug',
-              placeholder: 'cseairbus',
-              required: true,
-              arg: { type: 'option', template: '--slug=${value}' }
-            },
-            {
-              name: 'venueView',
-              label: 'Vue plan (optionnel)',
-              placeholder: 'cseairbus-view',
-              arg: { type: 'option', template: '--venue-view=${value}' },
-              options: [
-                { label: '— Aucune vue spécifique —', value: '' },
-                { label: 'Exemple : aisc', value: 'aisc' }
-              ]
-            },
-            {
-              name: 'uiHeading',
-              label: 'Titre page (UI)',
-              placeholder: 'Billetterie partenaire',
-              arg: { type: 'option', template: '--ui-heading=${value}' }
-            },
-            {
-              name: 'uiLead',
-              label: 'Accroche (UI)',
-              placeholder: 'Offre négociée ...',
-              arg: { type: 'option', template: '--ui-lead=${value}' }
-            },
-            {
-              name: 'uiPaymentHelp',
-              label: 'Texte aide paiement (UI)',
-              placeholder: 'Paiement sécurisé via BTS.',
-              arg: { type: 'option', template: '--ui-payment-help=${value}' }
-            }
+            { name: 'partner', label: 'Slug', placeholder: 'cseairbus', required: true, arg: { type: 'option', template: '--slug=${value}' } },
+            { name: 'venueView', label: 'Vue plan', placeholder: 'cseairbus-view', required: true, arg: { type: 'option', template: '--venue-view=${value}' } },
+            { name: 'season', label: 'Code saison (optionnel)', placeholder: '2025-2026', arg: { type: 'option', template: '--season=${value}' } },
+            { name: 'event', label: 'Slug événement (optionnel)', placeholder: 'match-2025-09-21-bts-vs-xxx', arg: { type: 'option', template: '--event=${value}' } }
           ]
         }
       },

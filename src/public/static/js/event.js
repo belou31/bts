@@ -215,7 +215,7 @@
     if (!svgDoc.__btsClickBound) {
       svgDoc.__btsClickBound = true;
       svgDoc.addEventListener('click', (e) => {
-        const el = e.target?.closest?.('[data-zone-key],[data-zone-id],[data-seat-id],[id]');
+        const el = e.target?.closest?.('[data-zone-key],[data-zone-id],[data-seat-id]');
         if (!el) return;
 
         const zkey = normZoneKey(
@@ -228,7 +228,7 @@
           return;
         }
 
-        const sid = (el.getAttribute('data-seat-id') || el.id || '').trim();
+        const sid = (el.getAttribute('data-seat-id') || el.getAttribute('data-seat') || '').trim();
         if (!sid || !state.seatIds.has(sid)) return;
         const rec = state.seatsById.get(sid) || {};
         if (!rec.allowed) return;
@@ -237,7 +237,7 @@
 
         const existing = document.querySelector(`#cartRows [data-seat-id="${cssEscape(sid)}"]`);
         if (existing) existing.remove();
-        else api.addRowForSeat({ seatId: sid, zoneKey: rec.zoneKey || sid.split('-')[0] });
+        else api.addRowForSeat({ seatId: sid, zoneKey: rec.zoneKey });
         api.recomputeTotals();
         recomputeRemainingFromCart();
         applyFallbackLabels();
@@ -304,7 +304,7 @@
     initIfReady();
 
     const evtTitle = formatEventTitle(data?.event);
-    if (evtTitle) {
+    if (evtTitle && !VIEW_CONFIG.headingCustom) {
       const brandTitle = document.querySelector('#pageTitle');
       if (brandTitle && !IS_PARTNER_VIEW) brandTitle.textContent = evtTitle;
       if (!IS_PARTNER_VIEW) document.title = `${evtTitle} — BTS`;

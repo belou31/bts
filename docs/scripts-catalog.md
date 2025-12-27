@@ -10,17 +10,16 @@ Each entry below references the canonical command, required environment variable
 | --- | --- | --- | --- |
 | `scripts/00-system-management/reset-db.js` | Drop the MongoDB database defined in `.env`. Requires `--force`. | `node scripts/00-system-management/reset-db.js --force` | `data/templates/env/.env.template` |
 | `scripts/00-system-management/check-env.js` | Validate the core `.env` configuration (APP_URL, HelloAsso, etc.). | `node scripts/00-system-management/check-env.js` | — |
-| `scripts/00-system-management/customize-app.js` | Copy organization assets to `public/static/img` and persist names/templates under `data/customization`. | `node scripts/00-system-management/customize-app.js --name="Club" [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]` | `data/templates/customization/app.json` |
+| `scripts/00-system-management/customize-app.js` | Copy organization assets into `data/customization/assets` (mirrored to `public/static/img`) and persist names under `data/customization`. | `node scripts/00-system-management/customize-app.js --name="Club" [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]` | `data/templates/customization/app.json` |
 
 ## 01 — Venue Management
 
 | Script | Purpose | Command | Templates |
 | --- | --- | --- | --- |
 | `scripts/01-venue-management/register-venue.js` | Register or update a venue record (slug, display name, optional plan copy). | `node scripts/01-venue-management/register-venue.js <slug> "<Venue>" [plan.svg] [--overwrite]` | `data/templates/files/plan.svg` |
-| `scripts/01-venue-management/import-seats.js` | Parse the persisted SVG plan for a venue and import seats, with optional CSV overrides. | `node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=seats.csv] [--plan=override.svg]` | `data/templates/files/plan.svg`<br>`data/templates/csv/seats.template.csv` |
-| `scripts/01-venue-management/import-zones.js` | Maintain the venue zone catalog from CSV and/or SVG (`data-zone-id`). | `node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=zones.csv] [--plan=override.svg]` | `data/templates/csv/zones.template.csv` |
-| `scripts/01-venue-management/validate-svg.js` | Check that an SVG plan contains expected selectors / seats. | `node scripts/01-venue-management/validate-svg.js --svg=plan.svg --selectors="ZONE:#css"` | — |
-| `scripts/01-venue-management/import-venue-view.js` | Copy a custom SVG view for a venue (no indexing) to `src/public/static/venues/<slug>/views/<view>.svg`. | `node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <view.svg> [--overwrite]` | `data/templates/files/plan.svg` |
+| `scripts/01-venue-management/import-seats.js` | Parse the persisted SVG plan for a venue and import seats, with optional CSV overrides. Can also enrich a specific view with seat attributes. | `node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=seats.csv] [--view=<viewSlug>]` | `data/templates/csv/seats.template.csv` |
+| `scripts/01-venue-management/import-zones.js` | Maintain the venue zone catalog from CSV and/or SVG (`data-zone-id`). Can also enrich a specific view with zone attributes. | `node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=zones.csv] [--view=<viewSlug>]` | `data/templates/csv/zones.template.csv` |
+| `scripts/01-venue-management/import-venue-view.js` | Copy a custom view for a venue to `src/public/static/venues/<slug>/views/<view>.svg` (no enrichment). | `node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <view.svg> [--overwrite]` | `data/templates/files/plan.svg` |
 
 ## 02 — Tariff Management
 

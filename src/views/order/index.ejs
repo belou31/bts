@@ -35,6 +35,7 @@
     const localTerms = (typeof terms === 'undefined') ? null : terms;
     const localBodyClass = (typeof bodyClass === 'undefined') ? null : bodyClass;
     const localCustomCss = (typeof customCss === 'undefined') ? null : customCss;
+    const localHeadingCustom = (typeof headingCustom === 'undefined') ? false : Boolean(headingCustom);
     const localCustomJs = (typeof customJs === 'undefined') ? null : customJs;
 
     const assetPrefix = typeof localAssets === 'string'
@@ -302,7 +303,8 @@
       scheduleOptions: orderPageDefaults.scheduleOptions,
       assetsBase: <%- JSON.stringify(assetPrefix) %>,
       api: { status: 'api/order/status', checkout: 'api/order/checkout' },
-      selection: { type: 'seats' }
+      selection: { type: 'seats' },
+      headingCustom: <%- JSON.stringify(localHeadingCustom) %>
     };
     window.BTS_VIEW_CONFIG = Object.assign({}, baseConfig, <%- JSON.stringify(config || {}) %>);
   </script>

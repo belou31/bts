@@ -467,6 +467,7 @@
       <% const tokenQueryString = tokenQuery ? ('?' + tokenQuery) : ''; %>
       <a href="<%= urlFor('/admin/operate') %><%= tokenQueryString %>" class="<%= viewMode === 'operate' ? 'active' : '' %>">Exploitation</a>
       <a href="<%= urlFor('/admin/io') %><%= tokenQueryString %>" class="<%= viewMode === 'io' ? 'active' : '' %>">Data I/O</a>
+      <a href="<%= urlFor('/admin/templates') %><%= tokenQueryString %>" class="<%= viewMode === 'templates' ? 'active' : '' %>">Templates</a>
       <a href="<%= urlFor('/admin/monitor') %><%= tokenQueryString %>" class="<%= viewMode === 'monitor' ? 'active' : '' %>">Monitoring</a>
     </nav>
   </header>
@@ -513,6 +514,156 @@
             %>
               <li>
                 <code><%= file.name %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+
+      <section class="card io-card">
+        <div class="inputs-header">
+          <h2>Personnalisation (data/customization)</h2>
+          <% const uploadCustoAction = urlFor('/admin/customization/upload') + (tokenSuffix || ''); %>
+          <form class="inline-form" data-upload-form data-upload-dir="" action="<%= uploadCustoAction %>" method="post">
+            <input type="file" name="file" data-upload-input hidden />
+            <input type="hidden" name="targetName" data-upload-target />
+            <button type="button" class="btn-upload" data-upload-trigger>Uploader</button>
+            <span class="upload-status" data-upload-status></span>
+          </form>
+        </div>
+        <% if (!customizationList || !customizationList.length) { %>
+          <div class="muted">Aucune personnalisation détectée.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of customizationList || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'templates') { %>
+    <div class="operations-grid io-layout">
+      <section class="card io-card">
+        <h2>.env & Customization</h2>
+        <h3>.env (data/templates/env)</h3>
+        <% if (!templatesEnv || !templatesEnv.length) { %>
+          <div class="muted">Aucun fichier détecté dans data/templates/env.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesEnv || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/env/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+
+        <h3>Customizations (data/templates/customization)</h3>
+        <% if (!customizationList || !customizationList.length) { %>
+          <div class="muted">Aucune customization détectée.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of customizationList || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+
+      <section class="card io-card">
+        <h2>Templates e-mail & PDF</h2>
+        <h3>E-mail (data/templates/email)</h3>
+        <% if (!templatesEmail || !templatesEmail.length) { %>
+          <div class="muted">Aucun template détecté dans data/templates/email.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesEmail || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/email/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+
+        <h3>PDF (data/templates/pdf)</h3>
+        <% if (!templatesPdf || !templatesPdf.length) { %>
+          <div class="muted">Aucun template détecté dans data/templates/pdf.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesPdf || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/pdf/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+
+      <section class="card io-card">
+        <h2>Templates CSV & SVG</h2>
+        <h3>CSV (data/templates/csv)</h3>
+        <% if (!templatesCsv || !templatesCsv.length) { %>
+          <div class="muted">Aucun template détecté dans data/templates/csv.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesCsv || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/csv/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+
+        <h3>SVG (data/templates/svg)</h3>
+        <% if (!templatesSvg || !templatesSvg.length) { %>
+          <div class="muted">Aucun template détecté dans data/templates/svg.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesSvg || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/svg/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
                 <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
                 <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
                 <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
@@ -622,7 +773,7 @@
                 <% if (script.form && script.form.fields && script.form.fields.length) { %>
                   <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'create-season'; const freeCatalogField = script.id === 'import-tariff-prices'; %>
                   <div class="script-form-grid">
-                    <% for (const field of script.form.fields) { 
+                  <% for (const field of script.form.fields) { 
                          const inputRole = script.id + ':' + field.name;
                          const fieldType = field.type || 'text';
                          const hasInputFiles =
@@ -630,6 +781,16 @@
                            && opt.inputFiles.length
                            && field.placeholder
                            && field.placeholder.startsWith('data/inputs');
+                         const hasAssetFiles =
+                           Array.isArray(opt.assetFiles)
+                           && opt.assetFiles.length
+                           && field.placeholder
+                           && field.placeholder.startsWith('data/customization/assets');
+                         const hasCustomizationFiles =
+                           Array.isArray(opt.customizationFiles)
+                           && opt.customizationFiles.length
+                           && field.placeholder
+                           && field.placeholder.startsWith('data/customization/');
                          const datalistId = hasInputFiles
                            ? `inputs-${inputRole.replace(/[^a-zA-Z0-9_-]/g, '')}`
                            : null;
@@ -713,6 +874,22 @@
                               <% } %>
                             </select>
                             <small class="field-hint">Sélection multiple permise (Cmd/Ctrl + clic).</small>
+                          <% } else if (hasAssetFiles) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Fichier dans data/customization/assets —</option>
+                              <% for (const file of (opt.assetFiles || [])) { const val = `data/customization/assets/${file}`; %>
+                                <option value="<%= val %>"><%= val %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Choisissez un asset existant ou saisissez un chemin personnalisé.</small>
+                          <% } else if (hasCustomizationFiles) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Fichier dans data/customization —</option>
+                              <% for (const file of (opt.customizationFiles || [])) { const val = `data/customization/${file}`; %>
+                                <option value="<%= val %>"><%= val %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Choisissez une customization existante ou saisissez un chemin personnalisé.</small>
                           <% } else if (hasInputFiles) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Fichier dans data/inputs —</option>

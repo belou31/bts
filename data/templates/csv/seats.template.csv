@@ -1,5 +1,5 @@
-seatId,zoneKey,row,number,svgSelector
-A1-001,A1,A,001,"[data-seat-id=""A1-001""]"
-A1-002,A1,A,002,"[data-seat-id=""A1-002""]"
-B2-105,B2,B,105,
-VIP-01,VIP,VIP,01,"[data-seat-id=""VIP-01""]"
+seatId,zoneKey,row,number,svgSelector,meta
+A1-001,A1,A,001,"[data-seat-id=""A1-001""]",
+A1-002,A1,A,002,"[data-seat-id=""A1-002""]","gate:North;entrance:Main"
+B2-105,B2,B,105,,
+VIP-01,VIP,VIP,01,"[data-seat-id=""VIP-01""]","area:VIP Lounge"

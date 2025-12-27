@@ -218,10 +218,9 @@
 
       // Clic SIÈGE : seulement si statut BD = 'available' et non busy/booked visuellement
       svgDoc.addEventListener('click', (e) => {
-        const node = e.target?.closest?.('[data-seat-id],[data-seat],[id]');
+        const node = e.target?.closest?.('[data-seat-id],[data-seat]');
         if (!node) return;
-        let sid = node.getAttribute('data-seat-id') || node.getAttribute('data-seat') || node.id || '';
-        sid = String(sid).trim();
+        const sid = String(node.getAttribute('data-seat-id') || node.getAttribute('data-seat') || '').trim();
         if (!sid) return;
         const rec = bySeatId.get(sid);
         if (!rec) return; // pas un siège -> géré côté zone
@@ -295,3 +294,19 @@
     });
   }
 })();
+      if (data?.customization) {
+        applyCustomization(data.customization);
+      }
+    function applyCustomization(custo = {}) {
+      const nodes = document.querySelectorAll('[data-custo-key]');
+      nodes.forEach(n => {
+        const key = n.dataset.custoKey || '';
+        if (!key) return;
+        const val = custo[key];
+        if (val && typeof val === 'string') {
+          n.textContent = val;
+        } else if (n.dataset.custoDefault) {
+          n.textContent = n.dataset.custoDefault;
+        }
+      });
+    }

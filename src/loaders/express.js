@@ -1,5 +1,6 @@
 // src/loaders/express.js
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import compression from 'compression';
 import cors from 'cors';
@@ -30,6 +31,14 @@ export async function buildApp() {
   // Statiques (toujours sous /static, préfixés par BASE_PATH côté frontal)
   const STATIC_DIR = path.resolve(__dirname, '..', 'public', 'static');
   //const STATIC_DIR = path.resolve(process.cwd(), 'public', 'static');
+
+  // Custom assets (favicon, logos…) stored under data/customization/assets override defaults
+  const CUSTOM_ASSETS_DIR = path.resolve(process.cwd(), 'data', 'customization', 'assets');
+  app.use(path.posix.join(BASE_PATH, '/static/img'), express.static(CUSTOM_ASSETS_DIR, {
+    fallthrough: true,
+    maxAge: '1h',
+    extensions: ['png', 'svg', 'ico']
+  }));
   
   app.use(path.posix.join(BASE_PATH, '/static'), express.static(STATIC_DIR, {
     fallthrough: false,
@@ -39,7 +48,9 @@ export async function buildApp() {
 
   // Favicon direct (facultatif)
   app.get(path.posix.join(BASE_PATH, '/favicon.ico'), (req, res) => {
-    res.sendFile(path.join(STATIC_DIR, 'img', 'favicon.ico'));
+    const customFav = path.join(CUSTOM_ASSETS_DIR, 'favicon.ico');
+    const target = fs.existsSync(customFav) ? customFav : path.join(STATIC_DIR, 'img', 'favicon.ico');
+    res.sendFile(target);
   });
 
   // Router applicatif monté **sous BASE_PATH**

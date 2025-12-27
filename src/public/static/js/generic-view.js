@@ -368,13 +368,8 @@ function findSeatElement(sid) {
   const doc = CTX.svgDoc;
   if (!doc) return null;
   const queries = [
-    `#${CSS.escape(sid)}`,
-    `[id="${sid}"]`,
     `[data-seat-id="${sid}"]`,
-    `[data-seat="${sid}"]`,
-    `[data-id="${sid}"]`,
-    `[data-seatid="${sid}"]`,
-    `[id$="${sid}"]`
+    `[data-seat="${sid}"]`
   ];
   for (const sel of queries) {
     const el = doc.querySelector(sel);

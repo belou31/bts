@@ -10,8 +10,8 @@ import { Tariff } from '../models/Tariff.js';
 import { isSubscriptionOrder } from '../utils/subscription.js';
 
 // --- Emplacements / chemins par défaut
-const DEFAULT_TEMPLATE = path.resolve(process.cwd(), 'src', 'templates', 'pdf', 'ticket.svg');
-const DEFAULT_LOGO     = path.resolve(process.cwd(), 'data', 'logo.svg');
+const DEFAULT_TEMPLATE = path.resolve(process.cwd(), 'data', 'templates', 'pdf', 'ticket.svg');
+const DEFAULT_LOGO     = path.resolve(process.cwd(), 'data', 'customization', 'assets', 'logo.svg');
 
 // util pour récupérer le label depuis l'évènement (fallback saison/lieu)
 async function loadTariffLabelMap(ev) {

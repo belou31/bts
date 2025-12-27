@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Import a venue-specific SVG view (no indexing) under public/static/venues/<slug>/views/<viewSlug>.svg
+ * Import a venue-specific view under public/static/venues/<slug>/views/<viewSlug>.svg
+ * (pure copy, no enrichment).
  *
  * Usage:
  *   node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <path/to/view.svg> [--overwrite]

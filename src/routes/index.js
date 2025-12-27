@@ -6,6 +6,8 @@ import { fileURLToPath } from 'url';
 import { currentPaymentProviderLabel } from '../services/payments/index.js';
 import { Event } from '../models/Event.js';
 import { Season } from '../models/Season.js';
+import { Venue } from '../models/Venue.js';
+import { loadCustomization } from '../services/customization.js';
 
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 import tbh7Router from './tbh7.js';
@@ -23,6 +25,14 @@ import automationRoutes from './automation/index.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const VIEWS_DIR  = path.resolve(__dirname, '..', 'views');
+
+const tmpl = (s, vars = {}) => {
+  if (!s) return '';
+  return String(s).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, k) => {
+    const v = vars[k];
+    return v === undefined || v === null ? '' : String(v);
+  });
+};
 
 
 // Préfixes d'URL (utilisés par la vue EJS "order")
@@ -131,17 +141,43 @@ export default function routes(router) {
       const seasonCode = seasonDoc.code || seasonDoc.seasonCode || rawSeason;
       const seasonName = seasonDoc.name || `Saison ${seasonCode}`;
       const providerName = currentPaymentProviderLabel();
+      const venueSlug = seasonDoc.venueSlug || seasonDoc.venue || '';
+      const venueDoc = venueSlug ? await Venue.findOne({ slug: venueSlug }).lean().catch(() => null) : null;
+      const customization = loadCustomization({ seasonCode });
+      const tmplVars = {
+        seasonCode,
+        seasonName,
+        venueSlug,
+        venueName: venueDoc?.name || venueSlug || ''
+      };
 
       const encodedSeason = encodeURIComponent(seasonCode);
       const baseForJoin = BASE_PATH || '/';
       const statusPath = path.posix.join(baseForJoin, 'api/season', encodedSeason, 'status');
       const checkoutPath = path.posix.join(baseForJoin, 'api/season', encodedSeason, 'checkout');
 
+      const headingCustom = Boolean(customization['subscription.title']);
+      const heading = headingCustom
+        ? tmpl(customization['subscription.title'], tmplVars)
+        : `Abonnements ${seasonCode}`;
+      const lead = customization['subscription.lead']
+        ? tmpl(customization['subscription.lead'], tmplVars)
+        : "L'abonnement donne accès à tous les matchs à domicile des Bélougas D2, D3 et Féminin Elite, pour la saison régulière, les playoffs et les matchs amicaux.";
+      const planHelp = customization['subscription.help']
+        ? tmpl(customization['subscription.help'], tmplVars)
+        : 'Cliquez sur un siège ou utilisez le sélecteur de zone TBH7 / Debout pour ajouter des places.';
+      const payButtonLabel = customization['subscription.payButton']
+        ? tmpl(customization['subscription.payButton'], tmplVars)
+        : undefined;
+      const pageTitle = headingCustom ? heading : `Abonnements ${seasonCode}`;
+      const documentTitle = `Billetterie — ${pageTitle}`;
+
       res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
         title: `Abonnements — ${seasonName}`,
-        heading: `Abonnements ${seasonCode}`,
-        lead: "L'abonnement donne accès à tous les matchs à domicile des Bélougas D2, D3 et Féminin Elite, pour la saison régulière, les playoffs et les matchs amicaux.",
-        planHelp: 'Cliquez sur un siège ou utilisez le sélecteur de zone TBH7 / Debout pour ajouter des places.',
+        documentTitle,
+        heading,
+        lead,
+        planHelp,
         scheduleOptions: [1, 2, 3],
         zoneSelector: {
           enabled: true,
@@ -161,8 +197,11 @@ export default function routes(router) {
           },
           selection: { type: 'seats' },
           buildRowsFromData: false,
-          svgSeatClasses: { allowed: 'seat-allowed' }
+          svgSeatClasses: { allowed: 'seat-allowed' },
+          headingCustom
         },
+        headingCustom,
+        payButtonLabel,
         orderPageConfig: {
           focusField: 'payerEmail'
         },
@@ -200,10 +239,24 @@ export default function routes(router) {
       const statusPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'status');
       const checkoutPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'checkout');
       const providerName = currentPaymentProviderLabel();
+      const customization = loadCustomization({ eventSlug: slug, seasonCode: ev.seasonCode });
+      const venueDoc = ev.venueSlug ? await Venue.findOne({ slug: ev.venueSlug }).lean().catch(() => null) : null;
+      const tmplVars = {
+        eventName: ev.name || slug,
+        eventSlug: slug,
+        seasonCode: ev.seasonCode || '',
+        venueSlug: ev.venueSlug || '',
+        venueName: venueDoc?.name || ev.venueSlug || '',
+        eventStartsAt: ev.startsAt || '',
+        eventStartsAtFormatted: formatEventDateLabel(ev.startsAt) || ''
+      };
 
       const dateLabel = formatEventDateLabel(ev.startsAt);
-      const venueLabel = (ev.venueSlug || '').replace(/[-_]/g, ' ').trim().toUpperCase();
-      const heading = ev.name ? `Billetterie — ${ev.name}` : 'Billetterie Match';
+      const venueLabel = venueDoc?.name || (ev.venueSlug || '').replace(/[-_]/g, ' ').trim();
+      const headingCustom = Boolean(customization['event.title']);
+      const heading = headingCustom
+        ? tmpl(customization['event.title'], tmplVars)
+        : (ev.name ? `Billetterie — ${ev.name}` : 'Billetterie Match');
       const leadPieces = [];
       if (ev.description) leadPieces.push(ev.description);
       if (dateLabel) leadPieces.push(`Coup d’envoi : ${dateLabel}`);
@@ -211,13 +264,22 @@ export default function routes(router) {
       if (!leadPieces.length) {
         leadPieces.push(`Choisissez vos places pour ce match et suivez le paiement sécurisé ${providerName}.`);
       }
+      const leadText = customization['event.lead']
+        ? tmpl(customization['event.lead'], tmplVars)
+        : leadPieces.join(' · ');
+      const planHelpText = customization['event.help']
+        ? tmpl(customization['event.help'], tmplVars)
+        : 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.';
+      const payButtonLabel = customization['event.payButton']
+        ? tmpl(customization['event.payButton'], tmplVars)
+        : undefined;
 
       res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
         title: `Billetterie Match — ${ev.name || slug}`,
         documentTitle: `Billetterie — ${ev.name || 'Match BTS'}`,
         heading,
-        lead: leadPieces.join(' · '),
-        planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
+        lead: leadText,
+        planHelp: planHelpText,
         scheduleOptions: [],
         paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
         assets: ASSET_PREFIX,
@@ -241,17 +303,20 @@ export default function routes(router) {
             name: ev.name,
             startsAt: ev.startsAt,
             venueSlug: ev.venueSlug
-          }
+          },
+          headingCustom
         },
+        headingCustom,
         orderPageConfig: { focusField: 'payerEmail' },
-        customJs: [ASSET_PREFIX + 'js/event.js']
+        customJs: [ASSET_PREFIX + 'js/event.js'],
+        payButtonLabel
       });
     } catch (err) {
       next(err);
     }
   });
 
-  router.get('/partner/:partnerSlug/event/:eventSlug', (req, res) => {
+  router.get('/partner/:partnerSlug/event/:eventSlug', async (req, res) => {
     const partnerSlug = String(req.params.partnerSlug || '').trim();
     const eventSlug = String(req.params.eventSlug || '').trim();
     if (!partnerSlug || !eventSlug) return res.status(400).send('Missing partner or event slug');
@@ -274,6 +339,20 @@ export default function routes(router) {
     applyPartnerFrameAncestorsHeaders(res, partnerCfg.frameAncestors);
 
     const providerName = currentPaymentProviderLabel();
+    const ev = await resolveEventByKey(eventSlug).catch(() => null);
+    const venueDoc = ev?.venueSlug ? await Venue.findOne({ slug: ev.venueSlug }).lean().catch(() => null) : null;
+    const customization = loadCustomization({ eventSlug, seasonCode: ev?.seasonCode, partnerSlug });
+    const tmplVars = {
+      eventName: ev?.name || eventSlug,
+      eventSlug,
+      seasonCode: ev?.seasonCode || '',
+      venueSlug: ev?.venueSlug || '',
+      venueName: venueDoc?.name || ev?.venueSlug || '',
+      eventStartsAt: ev?.startsAt || '',
+      eventStartsAtFormatted: formatEventDateLabel(ev?.startsAt) || '',
+      partnerSlug,
+      partnerName: partnerCfg.name || partnerSlug
+    };
     const encodedPartner = encodeURIComponent(partnerSlug);
     const encodedEvent = encodeURIComponent(eventSlug);
     const baseForJoin = BASE_PATH || '/';
@@ -284,17 +363,27 @@ export default function routes(router) {
       ? path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'reserve') + tokenSuffix
       : null;
 
+    const resolveCusto = (key) => customization[`partner.${key}`] || customization[key];
+
     const partnerOptions = {
       slug: partnerCfg.slug,
       invoiceMode: partnerCfg.paymentMode === 'psp' ? 'psp' : 'invoice',
       reserveApi: reservePath,
-      payButtonLabel: partnerCfg?.reserve?.payButtonLabel || (partnerCfg.paymentMode === 'psp' ? 'Procéder au paiement' : 'Envoyer la demande'),
+      payButtonLabel: resolveCusto('event.payButton') || partnerCfg?.reserve?.payButtonLabel || (partnerCfg.paymentMode === 'psp' ? 'Procéder au paiement' : 'Envoyer la demande'),
       successMessage: partnerCfg?.reserve?.successMessage || 'Demande envoyée. Vous recevrez une confirmation prochainement.',
       errorMessage: partnerCfg?.reserve?.errorMessage || 'Impossible d’enregistrer votre demande. Réessayez.'
     };
 
-    const heading = partnerCfg?.ui?.heading || 'Accès Partenaire';
-    const lead = partnerCfg?.ui?.lead || 'Réservez vos places via la billetterie dédiée partenaire.';
+    const heading = resolveCusto('event.title')
+      ? tmpl(resolveCusto('event.title'), tmplVars)
+      : (partnerCfg?.ui?.heading || 'Accès Partenaire');
+    const lead = resolveCusto('event.lead')
+      ? tmpl(resolveCusto('event.lead'), tmplVars)
+      : (partnerCfg?.ui?.lead || 'Réservez vos places via la billetterie dédiée partenaire.');
+    const planHelp = resolveCusto('event.help')
+      ? tmpl(resolveCusto('event.help'), tmplVars)
+      : 'Sélectionnez un siège disponible ou ajoutez des places en zone Debout lorsque proposé.';
+    const headingCustom = Boolean(resolveCusto('event.title'));
     const isInvoiceMode = partnerCfg.paymentMode !== 'psp';
     const paymentHelp = partnerCfg?.ui?.paymentHelp ||
       (isInvoiceMode
@@ -305,7 +394,7 @@ export default function routes(router) {
       title: `${partnerCfg.name || 'Billetterie Partenaire'} — BTS`,
       heading,
       lead,
-      planHelp: 'Sélectionnez un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
+      planHelp,
       scheduleOptions: [],
       paymentHelp,
       assets: ASSET_PREFIX,
@@ -327,7 +416,8 @@ export default function routes(router) {
         venueView: partnerCfg.venueView || null,
         partnerSlug,
         eventSlug,
-        partner: partnerOptions
+        partner: partnerOptions,
+        headingCustom
       },
       payButtonLabel: partnerOptions.payButtonLabel,
       orderPageConfig: { focusField: 'payerEmail' },
