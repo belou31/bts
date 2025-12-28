@@ -1,0 +1,3 @@
+key,name,type,access,capacity,quota,svgSelector,isActive
+FAN_ZONE,"Fan Zone","standing","PUBLIC",20,20,"#fan-zone",true
+VIP,"VIP Space","seated","VIP",8,8,"#zone_North",true

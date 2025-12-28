@@ -16,7 +16,7 @@
  *   - MONGO_URI or MONGODB_URI: Mongo database connection (required)
  *
  * Templates:
- *   - data/templates/csv/renew-subscribers.template.csv
+ *   - data_templates/csv/renew-subscribers.template.csv
  */
 
 import fs from 'fs';

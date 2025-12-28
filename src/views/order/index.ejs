@@ -38,9 +38,35 @@
     const localHeadingCustom = (typeof headingCustom === 'undefined') ? false : Boolean(headingCustom);
     const localCustomJs = (typeof customJs === 'undefined') ? null : customJs;
 
-    const assetPrefix = typeof localAssets === 'string'
-      ? (localAssets.endsWith('/') ? localAssets : `${localAssets}/`)
-      : 'static/';
+    const normalizeBase = (value, fallback) => {
+      if (!value) return fallback;
+      const val = String(value);
+      return val.endsWith('/') ? val : `${val}/`;
+    };
+    const staticBase = normalizeBase(
+      (localAssets && typeof localAssets === 'object' && localAssets.static)
+        ? localAssets.static
+        : (typeof localAssets === 'string' ? localAssets : null),
+      'static/'
+    );
+    const dynamicBase = normalizeBase(
+      (localAssets && typeof localAssets === 'object' && localAssets.base)
+        ? localAssets.base
+        : null,
+      'dynamic/'
+    );
+    const mediaBase = normalizeBase(
+      (localAssets && typeof localAssets === 'object' && localAssets.media)
+        ? localAssets.media
+        : null,
+      `${dynamicBase}assets/`
+    );
+    const venuesBase = normalizeBase(
+      (localAssets && typeof localAssets === 'object' && localAssets.venues)
+        ? localAssets.venues
+        : null,
+      `${dynamicBase}venues/`
+    );
 
     const safeHeading = localHeading || localPageTitle || 'Billetterie BTS';
     const defaultTitle = localTitle || safeHeading;
@@ -110,7 +136,7 @@
 
     const brandData = (localBrand && (localBrand.logo || localBrand.text))
       ? localBrand
-      : { logo: assetPrefix + 'img/logo.png', alt: 'BTS' };
+      : { logo: mediaBase + 'logo.png', alt: 'BTS' };
 
     const leadHtmlContent = (localLeadHtml !== null && localLeadHtml !== undefined && localLeadHtml !== '')
       ? localLeadHtml
@@ -128,7 +154,7 @@
       ? localBodyClass.join(' ')
       : (localBodyClass || '');
 
-    const cssFiles = [assetPrefix + 'styles/generic-view.css', assetPrefix + 'styles/order.css'];
+    const cssFiles = [staticBase + 'styles/generic-view.css', staticBase + 'styles/order.css'];
     const cssExtras = Array.isArray(localCustomCss) ? localCustomCss : [];
     cssExtras.forEach((href) => cssFiles.push(href));
 
@@ -138,7 +164,7 @@
   %>
   <title><%= htmlTitle %></title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="<%= assetPrefix %>img/favicon.ico">
+  <link rel="icon" href="<%= mediaBase %>favicon.ico">
   <% cssFiles.forEach((href) => { %>
     <link rel="stylesheet" href="<%= href %>">
   <% }); %>
@@ -301,14 +327,15 @@
       title: <%- JSON.stringify(defaultTitle) %>,
       pageTitle: <%- JSON.stringify(safeHeading) %>,
       scheduleOptions: orderPageDefaults.scheduleOptions,
-      assetsBase: <%- JSON.stringify(assetPrefix) %>,
+      assetsBase: <%- JSON.stringify(dynamicBase) %>,
+      venuePlanBase: <%- JSON.stringify(venuesBase) %>,
       api: { status: 'api/order/status', checkout: 'api/order/checkout' },
       selection: { type: 'seats' },
       headingCustom: <%- JSON.stringify(localHeadingCustom) %>
     };
     window.BTS_VIEW_CONFIG = Object.assign({}, baseConfig, <%- JSON.stringify(config || {}) %>);
   </script>
-  <% const jsFiles = [assetPrefix + 'js/generic-view.js', assetPrefix + 'js/order.js']; %>
+  <% const jsFiles = [staticBase + 'js/generic-view.js', staticBase + 'js/order.js']; %>
   <% (Array.isArray(localCustomJs) ? localCustomJs : []).forEach((src) => jsFiles.push(src)); %>
   <% jsFiles.forEach((src) => { %>
     <script defer src="<%= src %>"></script>

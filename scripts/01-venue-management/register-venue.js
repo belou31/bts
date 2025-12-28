@@ -6,7 +6,7 @@
  *   node scripts/01-venue-management/register-venue.js <slug> "<Venue Name>" [plan.svg] [--overwrite]
  *
  * Behaviour:
- *   - When a plan file is provided, it is copied to src/public/static/venues/<slug>/plan.svg
+ *   - When a plan file is provided, it is copied to public/dynamic/venues/<slug>/plan.svg
  *   - If no plan is provided, the existing plan is kept. On first registration a plan is required.
  */
 
@@ -19,7 +19,7 @@ import { Venue } from '../../src/models/Venue.js';
 dotenv.config();
 
 const INPUT_DIR = path.resolve(process.cwd(), 'data/inputs');
-const DEST_ROOT = path.resolve('src/public/static/venues');
+const DEST_ROOT = path.resolve('public/dynamic/venues');
 
 function usage() {
   console.error('Usage: node scripts/01-venue-management/register-venue.js <slug> "<Venue Name>" [plan.svg] [--overwrite]');
@@ -48,7 +48,7 @@ if (!slug || !name) usage();
 
 const destDir = path.join(DEST_ROOT, slug);
 const destSvg = path.join(destDir, 'plan.svg');
-const webSvgPath = `/static/venues/${slug}/plan.svg`;
+const webSvgPath = `/dynamic/venues/${slug}/plan.svg`;
 
 let planToCopy = null;
 if (planArg) {

@@ -13,7 +13,7 @@
  *   - MONGODB_DB (optional database name)
  *
  * Template:
- *   - data/templates/csv/subscribers-export.template.csv
+ *   - data_templates/csv/subscribers-export.template.csv
  */
 
 import mongoose from 'mongoose';

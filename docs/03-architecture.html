@@ -46,7 +46,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 
 <h2>1. Vue d’ensemble</h2>
 <ul>
-  <li>API Node.js/Express (routes REST + front statique sous <code>/static</code> et <code>/venues/&lt;slug&gt;/plan.svg</code>).</li>
+  <li>API Node.js/Express (routes REST + front statique sous <code>/static</code> et <code>/dynamic/venues/&lt;slug&gt;/plan.svg</code>).</li>
   <li>MongoDB : <code>Subscriber</code>, <code>Seat</code>, <code>SeatHold</code>, <code>Season</code>, <code>Tariff</code>, <code>TariffPrice</code>, <code>Counter</code>, <code>Order</code>.</li>
   <li>Paiement HelloAsso (sandbox/prod) ; attestation e-mail après retour.</li>
   <li>Infra : Nginx (TLS) + PM2 (bts-int, bts-prod) sur VPS OVH.</li>
@@ -70,7 +70,7 @@ hr{border:none;border-top:1px solid var(--border);margin:16px 0}
 │   ├── config/
 │   │   └── env.js                # Sélection des variables selon APP_ENV (dev/int/prod)
 │   ├── loaders/
-│   │   ├── express.js            # Création app Express, static (/static, /venues, basePath)
+│   │   ├── express.js            # Création app Express, static (/static) + dynamic (/dynamic/assets, /dynamic/venues, basePath)
 │   │   ├── mongo.js              # Connexion Mongo (MONGO_URI_DEV/INT/PROD)
 │   │   └── mailer.js             # Nodemailer (Gmail), bascule MAIL_ENABLED
 │   ├── models/

@@ -6,13 +6,13 @@
   <title>Abonnement — BTS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- IMPORTANT : chemins relatifs à /bts/ -->
-  <link rel="icon" href="static/img/favicon.ico">
+  <link rel="icon" href="dynamic/assets/favicon.ico">
   <link rel="stylesheet" href="static/styles/generic-view.css">
 </head>
 <body>
   <header class="site-header">
     <div class="brand">
-      <img src="static/img/logo.png" alt="Logo" class="logo">
+      <img src="dynamic/assets/logo.png" alt="Logo" class="logo">
       <h1 id="pageTitle">Renouvellement d’abonnement</h1>
     </div>
     <p data-custo-key="subscription.lead" data-custo-default="L'abonnement donne accès à tous les matchs à domicile des Bélougas D2, D3 et Féminin Elite, pour la saison régulière, les playoffs et les matchs amicaux.">
@@ -134,6 +134,7 @@ window.BTS_VIEW_CONFIG = {
     checkout:'api/season/2025-2026/checkout'
   },
   selection: { type: 'seats' },
+  venuePlanBase: 'dynamic/venues/',
   buildRowsFromData: false,          // ⬅️ empêche le pré-remplissage
   svgSeatClasses: { allowed: 'seat-allowed' } // ⬅️ décorrèle "allowed" de "available"
 

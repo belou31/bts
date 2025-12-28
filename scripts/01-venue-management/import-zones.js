@@ -24,7 +24,7 @@ dotenv.config();
 const INPUT_DIR = path.resolve(process.cwd(), 'data/inputs');
 const DEFAULT_ZONE_ATTR = 'data-zone-id';
 const FALLBACK_ZONE_ATTRS = ['data-zone-id', 'data-zone-key', 'data-zone'];
-const PLAN_ROOT = path.resolve(process.cwd(), 'src/public/static/venues');
+const PLAN_ROOT = path.resolve(process.cwd(), 'public/dynamic/venues');
 
 function usage() {
   console.error('Usage: node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--view=<viewSlug>]');

@@ -67,7 +67,7 @@ async function loadTemplateHtml(name) {
       // continue
     }
   }
-  throw new Error(`Email template not found: ${name} (searched in data/templates/email and src/templates/email)`);
+  throw new Error(`Email template not found: ${name} (searched in data_templates/email and src/templates/email)`);
 }
 
 async function buildTariffsMap(seasonCode, venueSlug) {

@@ -7,13 +7,13 @@ Local development server that mimics a minimal subset of the HelloAsso Checkout 
 ```bash
 npm run helloasso:stub
 # or
-node helloasso-stub/server.js
+node stub_helloasso/server.js
 ```
 
 The stub listens on `http://127.0.0.1:3005` by default. You can override the host and port:
 
 ```bash
-HELLOASSO_STUB_HOST=0.0.0.0 HELLOASSO_STUB_PORT=4000 node helloasso-stub/server.js
+HELLOASSO_STUB_HOST=0.0.0.0 HELLOASSO_STUB_PORT=4000 node stub_helloasso/server.js
 ```
 
 ## Wiring BTS to the stub

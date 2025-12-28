@@ -558,13 +558,13 @@
     <div class="operations-grid io-layout">
       <section class="card io-card">
         <h2>.env & Customization</h2>
-        <h3>.env (data/templates/env)</h3>
+        <h3>.env (data_templates/env)</h3>
         <% if (!templatesEnv || !templatesEnv.length) { %>
-          <div class="muted">Aucun fichier détecté dans data/templates/env.</div>
+          <div class="muted">Aucun fichier détecté dans data_templates/env.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of templatesEnv || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/env/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/env/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -576,13 +576,13 @@
           </ul>
         <% } %>
 
-        <h3>Customizations (data/templates/customization)</h3>
+        <h3>Customizations (data_templates/customization)</h3>
         <% if (!customizationList || !customizationList.length) { %>
           <div class="muted">Aucune customization détectée.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of customizationList || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -597,13 +597,13 @@
 
       <section class="card io-card">
         <h2>Templates e-mail & PDF</h2>
-        <h3>E-mail (data/templates/email)</h3>
+        <h3>E-mail (data_templates/email)</h3>
         <% if (!templatesEmail || !templatesEmail.length) { %>
-          <div class="muted">Aucun template détecté dans data/templates/email.</div>
+          <div class="muted">Aucun template détecté dans data_templates/email.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of templatesEmail || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/email/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/email/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -615,13 +615,13 @@
           </ul>
         <% } %>
 
-        <h3>PDF (data/templates/pdf)</h3>
+        <h3>PDF (data_templates/pdf)</h3>
         <% if (!templatesPdf || !templatesPdf.length) { %>
-          <div class="muted">Aucun template détecté dans data/templates/pdf.</div>
+          <div class="muted">Aucun template détecté dans data_templates/pdf.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of templatesPdf || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/pdf/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/pdf/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -636,13 +636,13 @@
 
       <section class="card io-card">
         <h2>Templates CSV & SVG</h2>
-        <h3>CSV (data/templates/csv)</h3>
+        <h3>CSV (data_templates/csv)</h3>
         <% if (!templatesCsv || !templatesCsv.length) { %>
-          <div class="muted">Aucun template détecté dans data/templates/csv.</div>
+          <div class="muted">Aucun template détecté dans data_templates/csv.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of templatesCsv || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/csv/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/csv/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -654,13 +654,13 @@
           </ul>
         <% } %>
 
-        <h3>SVG (data/templates/svg)</h3>
+        <h3>SVG (data_templates/svg)</h3>
         <% if (!templatesSvg || !templatesSvg.length) { %>
-          <div class="muted">Aucun template détecté dans data/templates/svg.</div>
+          <div class="muted">Aucun template détecté dans data_templates/svg.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of templatesSvg || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/svg/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/svg/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>

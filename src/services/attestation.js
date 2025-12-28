@@ -2,7 +2,7 @@
 import { fmtEuros } from '../utils/money.js';
 
 function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById }) {
-  const logoPath = (process.env.APP_URL || '').replace(/https?:\/\/[^/]+/, '') + '/static/img/logo.png';
+  const logoPath = (process.env.APP_URL || '').replace(/https?:\/\/[^/]+/, '') + '/dynamic/assets/logo.png';
   const lines = Array.isArray(order?.lines) ? order.lines : [];
 
   // Groupe par subscriberId pour afficher le numéro d’abonné

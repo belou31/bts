@@ -10,7 +10,7 @@
  *
  * Behaviour:
  *   - Reads/writes data/customization/app.json to store display names and public asset paths.
- *   - Copies favicon, logos, and app icons into data/customization/assets and mirrors them to src/public/static/img/.
+ *   - Copies favicon, logos, and app icons into data/customization/assets and mirrors them to public/dynamic/assets/.
  *   - All command paths can be absolute or relative; relative paths resolve from repo root or data/inputs.
  *
  * Notes:
@@ -26,8 +26,8 @@ const INPUT_ROOT = path.resolve(ROOT, 'data/inputs');
 const CUSTOMIZATION_ROOT = path.resolve(ROOT, 'data/customization');
 const CUSTOM_ASSETS_DIR = path.join(CUSTOMIZATION_ROOT, 'assets');
 const METADATA_PATH = path.join(CUSTOMIZATION_ROOT, 'app.json');
-const PUBLIC_IMG_DIR = path.resolve(ROOT, 'src/public/static/img');
-const PUBLIC_ROOT = path.resolve(ROOT, 'src/public');
+const PUBLIC_IMG_DIR = path.resolve(ROOT, 'public/dynamic/assets');
+const PUBLIC_ROOT = path.resolve(ROOT, 'public');
 
 function parseArgs(argv) {
   const options = {};
@@ -150,7 +150,7 @@ function stagePublicAsset(options, metadata, optionKey, propKey, destFilename, a
 
   ensureDir(CUSTOM_ASSETS_DIR, dryRun);
   const customDestination = path.join(CUSTOM_ASSETS_DIR, destFilename);
-  console.log(`• ${destFilename} ← ${resolved} (→ data/customization/assets + static/img)`);
+  console.log(`• ${destFilename} ← ${resolved} (→ data/customization/assets + dynamic/assets)`);
   copyFile(resolved, customDestination, dryRun);
   metadata.assets = metadata.assets || {};
   metadata.assets[propKey] = toRel(customDestination);

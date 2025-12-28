@@ -24,7 +24,7 @@ dotenv.config();
 
 const INPUT_DIR = path.resolve(process.cwd(), 'data/inputs');
 const DEFAULT_SEAT_ATTR = 'data-seat-id';
-const PLAN_ROOT = path.resolve(process.cwd(), 'src/public/static/venues');
+const PLAN_ROOT = path.resolve(process.cwd(), 'public/dynamic/venues');
 
 function usage() {
   console.error('Usage: node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=<path/to/seats.csv>] [--view=<viewSlug>]');
@@ -47,7 +47,7 @@ function defaultPlanPath(slug) {
 function resolvePlanPath(slug) {
   const canonical = defaultPlanPath(slug);
   if (fs.existsSync(canonical)) return canonical;
-  throw new Error(`[import-seats] Aucun plan trouvé pour "${slug}". Assurez-vous que src/public/static/venues/${slug}/plan.svg existe (via register-venue ou copie manuelle).`);
+  throw new Error(`[import-seats] Aucun plan trouvé pour "${slug}". Assurez-vous que public/dynamic/venues/${slug}/plan.svg existe (via register-venue ou copie manuelle).`);
 }
 
 function parseArgv(argv) {

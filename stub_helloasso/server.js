@@ -1,4 +1,4 @@
-// helloasso-stub/server.js
+// stub_helloasso/server.js
 // Standalone HelloAsso checkout stub for local development.
 
 import express from 'express';
@@ -123,7 +123,7 @@ async function postWebhookForIntent(intent, payload, trigger) {
   } catch (err) {
     entry.ok = false;
     entry.error = err?.message || String(err);
-    console.warn('[helloasso-stub] webhook failed:', entry.error);
+    console.warn('[stub_helloasso] webhook failed:', entry.error);
   } finally {
     if (!Array.isArray(intent.webhookHistory)) intent.webhookHistory = [];
     intent.webhookHistory.push(entry);
@@ -873,12 +873,12 @@ app.get('/intents.json', (_req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`[helloasso-stub] listening on ${BASE_URL}`);
-  console.log('[helloasso-stub] OAuth token endpoint: POST /oauth2/token');
-  console.log('[helloasso-stub] Checkout intent endpoint: POST /v5/organizations/:slug/checkout-intents');
+  console.log(`[stub_helloasso] listening on ${BASE_URL}`);
+  console.log('[stub_helloasso] OAuth token endpoint: POST /oauth2/token');
+  console.log('[stub_helloasso] Checkout intent endpoint: POST /v5/organizations/:slug/checkout-intents');
   if (WEBHOOK_TARGET) {
-    console.log(`[helloasso-stub] Webhook target: ${WEBHOOK_TARGET}`);
+    console.log(`[stub_helloasso] Webhook target: ${WEBHOOK_TARGET}`);
   } else {
-    console.log('[helloasso-stub] Webhook relay disabled (set HELLOASSO_WEBHOOK_URL or HELLOASSO_WEBHOOK).');
+    console.log('[stub_helloasso] Webhook relay disabled (set HELLOASSO_WEBHOOK_URL or HELLOASSO_WEBHOOK).');
   }
 });

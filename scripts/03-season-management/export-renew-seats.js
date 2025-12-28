@@ -10,7 +10,7 @@
  *   - JWT_SECRET (required)
  *
  * Templates:
- *   - data/templates/csv/renew-seats.template.csv
+ *   - data_templates/csv/renew-seats.template.csv
  */
 
 import fs from 'fs';

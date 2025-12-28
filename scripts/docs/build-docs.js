@@ -174,7 +174,7 @@ const body3 = `
 
 <h2>1. Vue d’ensemble</h2>
 <ul>
-  <li>API Node.js/Express (routes REST + front statique sous <code>/static</code> et <code>/venues/&lt;slug&gt;/plan.svg</code>).</li>
+  <li>API Node.js/Express (routes REST + front statique sous <code>/static</code> et <code>/dynamic/venues/&lt;slug&gt;/plan.svg</code>).</li>
   <li>MongoDB : <code>Subscriber</code> (Renewer registry), <code>Seat</code>, <code>SeatHold</code>, <code>Season</code>, <code>Tariff</code>, <code>TariffPrice</code>, <code>Counter</code>, <code>Order</code>.</li>
   <li>Paiement HelloAsso (sandbox/prod) ; attestation e-mail après retour.</li>
   <li>Infra : Nginx (TLS) + PM2 (bts-int, bts-prod) sur VPS OVH.</li>
@@ -198,7 +198,7 @@ const body3 = `
 │   ├── config/
 │   │   └── env.js                # Sélection des variables selon APP_ENV (dev/int/prod)
 │   ├── loaders/
-│   │   ├── express.js            # Création app Express, static (/static, /venues, basePath)
+│   │   ├── express.js            # Création app Express, static (/static) + dynamic (/dynamic/assets, /dynamic/venues, basePath)
 │   │   ├── mongo.js              # Connexion Mongo (MONGO_URI_DEV/INT/PROD)
 │   │   └── mailer.js             # Nodemailer (Gmail), bascule MAIL_ENABLED
 │   ├── models/
@@ -349,7 +349,7 @@ curl -I http://billetterie-dev.belougas.fr/.well-known/acme-challenge/test.txt
 <h2>8. Tests fonctionnels</h2>
 <pre><code># Front statique (CSS/plan)
 curl -I https://billetterie-dev.belougas.fr/bts/static/styles/renew.css     # → 200
-curl -I https://billetterie-dev.belougas.fr/bts/venues/patinoire-blagnac/plan.svg  # → 200
+curl -I https://billetterie-dev.belougas.fr/bts/dynamic/venues/patinoire-blagnac/plan.svg  # → 200
 
 # Santé API
 curl -s https://billetterie-dev.belougas.fr/bts/health | jq .
@@ -496,7 +496,7 @@ S1,12_17,84
 S1,U12,60
 </code></pre>
 
-<h3>4.2 Blocage/libération de sièges – <code>data/templates/csv/seats-hold-release.template.csv</code></h3>
+<h3>4.2 Blocage/libération de sièges – <code>data_templates/csv/seats-hold-release.template.csv</code></h3>
 <p>Utilisé par <code>block-free-seats-for-event</code> et <code>block-free-seats-for-season</code>. <strong>En-têtes :</strong> <code>action,seatId,seatPattern,zoneKey,reason,expiresAt</code></p>
 <pre><code>action,seatId,seatPattern,zoneKey,reason,expiresAt
 block,S1-A-101,,,"Media filming",2025-09-01T18:00:00Z
@@ -569,7 +569,7 @@ const index = `
 writeHtml('index.html', 'BTS – Documentation Phase 1', index);
 
 // Logo : copie si présent, sinon placeholder
-const srcLogo = path.resolve(process.cwd(), 'src/public/static/img/logo.png');
+const srcLogo = path.resolve(process.cwd(), 'public/dynamic/assets/logo.png');
 const outLogo = path.join(OUT_DIR, 'logo.png');
 if (fs.existsSync(srcLogo)) {
   fs.copyFileSync(srcLogo, outLogo);

@@ -7,13 +7,13 @@ Local simulator for the SumUp Checkout API (`/v0.1/checkouts`).
 ```bash
 npm run sumup:stub
 # or
-node sumup-stub/server.js
+node stub_sumup/server.js
 ```
 
 The stub listens on `http://127.0.0.1:3015` by default. Override host/port if needed:
 
 ```bash
-SUMUP_STUB_HOST=0.0.0.0 SUMUP_STUB_PORT=4001 node sumup-stub/server.js
+SUMUP_STUB_HOST=0.0.0.0 SUMUP_STUB_PORT=4001 node stub_sumup/server.js
 ```
 
 ## Wiring BTS

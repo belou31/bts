@@ -9,7 +9,7 @@
  *   - MONGODB_DB (optional database name)
  *
  * Templates:
- *   - data/templates/csv/tariff-catalog.template.csv
+ *   - data_templates/csv/tariff-catalog.template.csv
  */
 
 import fs from 'fs';

@@ -5,7 +5,7 @@ theme: just-the-docs
 url: "https://belou00.github.io"
 baseurl: "/bts"
 
-logo: "/bts/assets/logo.png"
+logo: "/bts/dynamic/assets/logo.png"
 aux_links:
   "Voir sur GitHub":
     - "https://github.com/belou00/bts"

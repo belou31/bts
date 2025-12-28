@@ -36,9 +36,13 @@ const tmpl = (s, vars = {}) => {
 
 
 // Préfixes d'URL (utilisés par la vue EJS "order")
-// IMPORTANT : en DEV BASE_PATH == '' -> assets doit commencer par /static (absolu)
+// IMPORTANT : en DEV BASE_PATH == '' -> les assets statiques restent sous /static, les médias mutables sous /dynamic
 const BASE_PATH = (process.env.BASE_PATH || '').trim();
-const ASSET_PREFIX = path.posix.join(BASE_PATH, '/static/').replace(/\/{2,}/g, '/');
+const STATIC_PREFIX = path.posix.join(BASE_PATH, '/static/').replace(/\/{2,}/g, '/');
+const DYNAMIC_PREFIX = path.posix.join(BASE_PATH, '/dynamic/').replace(/\/{2,}/g, '/');
+const MEDIA_PREFIX = path.posix.join(DYNAMIC_PREFIX, 'assets/').replace(/\/{2,}/g, '/');
+const VENUES_PREFIX = path.posix.join(DYNAMIC_PREFIX, 'venues/').replace(/\/{2,}/g, '/');
+const ASSETS_BASE = { static: STATIC_PREFIX, media: MEDIA_PREFIX, venues: VENUES_PREFIX, base: DYNAMIC_PREFIX };
 const PARTNER_FRAME_ANCESTORS = (process.env.PARTNER_FRAME_ANCESTORS || '').trim();
 function expectedPartnerToken(cfg, eventSlug) {
   if (!cfg) return null;
@@ -114,7 +118,7 @@ export default function routes(router) {
       planHelp: 'Cliquez sur votre siège pour le renouveler. Les zones TBH7 et Debout restent accessibles via le plan.',
       scheduleOptions: null,
       paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
-      assets: ASSET_PREFIX,
+      assets: ASSETS_BASE,
       config: {
         api: {
           status: `s/renew${suffix}`,
@@ -186,7 +190,7 @@ export default function routes(router) {
           options: []
         },
         paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
-        assets: ASSET_PREFIX,
+        assets: ASSETS_BASE,
         config: {
           title: `Les Bélougas - Abonnements ${seasonCode}`,
           seasonCode,
@@ -205,7 +209,7 @@ export default function routes(router) {
         orderPageConfig: {
           focusField: 'payerEmail'
         },
-        customJs: [ASSET_PREFIX + 'js/subscription.js']
+        customJs: [STATIC_PREFIX + 'js/subscription.js']
       });
     } catch (err) {
       next(err);
@@ -282,7 +286,7 @@ export default function routes(router) {
         planHelp: planHelpText,
         scheduleOptions: [],
         paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
-        assets: ASSET_PREFIX,
+        assets: ASSETS_BASE,
         zoneSelector: {
           enabled: true,
           label: 'Choisir sur Plan ou Ajouter Zone:',
@@ -308,7 +312,7 @@ export default function routes(router) {
         },
         headingCustom,
         orderPageConfig: { focusField: 'payerEmail' },
-        customJs: [ASSET_PREFIX + 'js/event.js'],
+        customJs: [STATIC_PREFIX + 'js/event.js'],
         payButtonLabel
       });
     } catch (err) {
@@ -397,7 +401,7 @@ export default function routes(router) {
       planHelp,
       scheduleOptions: [],
       paymentHelp,
-      assets: ASSET_PREFIX,
+      assets: ASSETS_BASE,
       zoneSelector: {
         enabled: true,
         label: 'Choisir sur Plan ou Ajouter Zone:',
@@ -421,7 +425,7 @@ export default function routes(router) {
       },
       payButtonLabel: partnerOptions.payButtonLabel,
       orderPageConfig: { focusField: 'payerEmail' },
-      customJs: [ASSET_PREFIX + 'js/event.js'],
+      customJs: [STATIC_PREFIX + 'js/event.js'],
       partnerOptions
     });
   });
@@ -447,7 +451,7 @@ export default function routes(router) {
       planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
       scheduleOptions: [1],
       paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
-      assets: ASSET_PREFIX,
+      assets: ASSETS_BASE,
       config: {
         api: {
           // La version legacy reste au niveau /event (pas de sous-dossier), on peut rester en relatif simple
@@ -465,7 +469,7 @@ export default function routes(router) {
         enabled: true,
         label: 'Zones debout disponibles :'
       },
-      customJs: ['static/js/event.js']
+      customJs: [STATIC_PREFIX + 'js/event.js']
     });
   });
 
@@ -479,7 +483,7 @@ export default function routes(router) {
       planHelp: 'Sélectionnez votre zone TBH7 directement sur le plan ou via les boutons dédiés.',
       scheduleOptions: [1, 2, 3],
       paymentHelp: 'Un email de confirmation vous sera envoyé dès validation du paiement.',
-      assets: ASSET_PREFIX,
+      assets: ASSETS_BASE,
       config: {
         title: 'TBH7 — Fan Club',
         api: {

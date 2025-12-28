@@ -37,12 +37,12 @@ import { adminScriptGroups, getAdminScript } from '../../config/adminScripts.js'
 const router = express.Router();
 
 const ROOT_DIR = process.cwd();
-const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
+const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data_templates');
 const CUSTOM_ROOT = path.resolve(ROOT_DIR, 'data/customization');
 const CUSTOM_ASSETS_ROOT = path.resolve(CUSTOM_ROOT, 'assets');
 const OUTPUTS_ROOT = path.resolve(ROOT_DIR, 'data/outputs');
 const INPUTS_ROOT = path.resolve(ROOT_DIR, 'data/inputs');
-const STATIC_VENUES_ROOT = path.resolve(ROOT_DIR, 'src/public/static/venues');
+const STATIC_VENUES_ROOT = path.resolve(ROOT_DIR, 'public/dynamic/venues');
 for (const dir of [OUTPUTS_ROOT, INPUTS_ROOT]) {
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
 }

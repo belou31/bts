@@ -1,4 +1,4 @@
-// sumup-stub/server.js
+// stub_sumup/server.js
 // Standalone SumUp checkout stub for local development.
 
 import express from 'express';
@@ -125,7 +125,7 @@ async function postWebhookForCheckout(checkout, payload, trigger = 'manual') {
   } catch (err) {
     record.ok = false;
     record.error = err?.message || String(err);
-    console.warn('[sumup-stub] webhook failed:', record.error);
+    console.warn('[stub_sumup] webhook failed:', record.error);
   } finally {
     checkout.webhookHistory.push(record);
     checkout.webhookHistory = checkout.webhookHistory.slice(-10);
@@ -769,12 +769,12 @@ app.get('/checkouts.json', (_req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`[sumup-stub] listening on ${BASE_URL}`);
-  console.log('[sumup-stub] OAuth token endpoint: POST /token');
-  console.log('[sumup-stub] Checkout endpoint: POST /v0.1/checkouts');
+  console.log(`[stub_sumup] listening on ${BASE_URL}`);
+  console.log('[stub_sumup] OAuth token endpoint: POST /token');
+  console.log('[stub_sumup] Checkout endpoint: POST /v0.1/checkouts');
   if (WEBHOOK_TARGET) {
-    console.log(`[sumup-stub] Webhook target: ${WEBHOOK_TARGET}`);
+    console.log(`[stub_sumup] Webhook target: ${WEBHOOK_TARGET}`);
   } else {
-    console.log('[sumup-stub] Webhook relay disabled (set SUMUP_WEBHOOK_URL).');
+    console.log('[stub_sumup] Webhook relay disabled (set SUMUP_WEBHOOK_URL).');
   }
 });

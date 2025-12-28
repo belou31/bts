@@ -1,0 +1,8 @@
+{
+  "event.title": "Billetterie — {{eventName}}",
+  "event.lead": "Date : {{eventStartsAtFormatted}} · Lieu : {{venueName}}",
+  "event.help": "Sélectionnez votre siège ou votre zone pour cet événement.",
+  "event.payButton": "Valider et payer",
+  "event.emailConfirmation": "Un email de confirmation sera envoyé après paiement.",
+  "event.ticket": "Billets disponibles immédiatement après confirmation."
+}

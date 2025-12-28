@@ -51,8 +51,8 @@ window.BTS_VIEW = {
 
 // Classes SVG utilisées (tu peux les surcharger via window.BTS_VIEW_CONFIG.svgSeatClasses)
 const ASSET_BASE = (() => {
-  const raw = CONFIG.assetsBase || CONFIG.assetBase || CONFIG.assetPrefix || 'static/';
-  if (!raw) return 'static/';
+  const raw = CONFIG.assetsBase || CONFIG.assetBase || CONFIG.assetPrefix || 'dynamic/';
+  if (!raw) return 'dynamic/';
   return raw.endsWith('/') ? raw : `${raw}/`;
 })();
 
