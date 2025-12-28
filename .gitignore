@@ -7,9 +7,7 @@
 # Dependencies
 node_modules/
 # Data specific
-data/inputs/*
-data/outputs/*
-data/customization/*
+data/
 public/dynamic/
 # Local only
 archives/

@@ -10,7 +10,7 @@ import { Venue } from '../models/Venue.js';
 import { loadCustomization } from '../services/customization.js';
 
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
-import tbh7Router from './tbh7.js';
+import fanclubRouter from './fanclub.js';
 import subscriptionRouter from './subscription.js';
 import eventRoutes from './event.js';
 import partnerRoutes, { adminRouter as partnerAdminRouter } from './partner.js';
@@ -474,21 +474,21 @@ export default function routes(router) {
   });
 
 
-  router.get('/tbh7', (_req, res) => {
+  router.get('/fanclub', (_req, res) => {
   
     res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
-      title: 'TBH7 — Abonnements Fan Club',
-      heading: 'Abonnements TBH7',
-      lead: 'Rejoignez le fan club TBH7 : choisissez votre zone dédiée et finalisez votre inscription en quelques clics.',
-      planHelp: 'Sélectionnez votre zone TBH7 directement sur le plan ou via les boutons dédiés.',
+      title: 'Fanclub — Abonnements',
+      heading: 'Abonnements Fanclub',
+      lead: 'Rejoignez le fan club : choisissez votre zone dédiée et finalisez votre inscription en quelques clics.',
+      planHelp: 'Sélectionnez votre zone fanclub directement sur le plan ou via les boutons dédiés.',
       scheduleOptions: [1, 2, 3],
       paymentHelp: 'Un email de confirmation vous sera envoyé dès validation du paiement.',
       assets: ASSETS_BASE,
       config: {
-        title: 'TBH7 — Fan Club',
+        title: 'Fanclub — Abonnements',
         api: {
-          status: 'api/tbh7/status',
-          checkout: 'api/tbh7/checkout'
+          status: 'api/fanclub/status',
+          checkout: 'api/fanclub/checkout'
         },
         selection: { type: 'zones' },
         buildRowsFromData: false,
@@ -506,7 +506,7 @@ export default function routes(router) {
   router.use(`/api`, qrRoutes);
 
   // API JSON
-  router.use('/api/tbh7', tbh7Router);
+  router.use('/api/fanclub', fanclubRouter);
 
   router.use('/api/partner', partnerRoutes);
   // Partner admin CSV/JSON

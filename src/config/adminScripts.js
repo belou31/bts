@@ -913,12 +913,12 @@ export const adminScriptGroups = [
         label: 'Configure Season Phases',
         order: 0.2,
         path: 'scripts/03-season-management/set-season-phases.js',
-        command: 'node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|tbh7|public> [--open=ISO] [--close=ISO] [--enabled=true|false]',
+        command: 'node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|fanclub|public> [--open=ISO] [--close=ISO] [--enabled=true|false]',
         run: {
           script: 'scripts/03-season-management/set-season-phases.js',
           args: []
         },
-        description: 'Manages phase scheduling/enabling for a season (renewal, tbh7, public).',
+        description: 'Manages phase scheduling/enabling for a season (renewal, fanclub, public).',
         notes: [
           'Open/close dates expect ISO format (e.g., 2025-08-01T00:00:00Z).',
           'Use enabled=true|false to toggle each phase.'
@@ -939,7 +939,7 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--phase=${value}' },
               options: [
                 { label: 'Renouvellement', value: 'renewal' },
-                { label: 'TBH7', value: 'tbh7' },
+                { label: 'Fanclub', value: 'fanclub' },
                 { label: 'Public', value: 'public' }
               ]
             },

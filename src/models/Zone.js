@@ -12,7 +12,7 @@ const ZoneSchema = new mongoose.Schema({
   // standing/fanclub : info de capacité "physique" indicative
   capacity: { type: Number, default: 0 },
 
-  // pour mapper l’ID / sélecteur CSS dans le SVG (ex: "#zone-tbh7-nord")
+  // pour mapper l’ID / sélecteur CSS dans le SVG (ex: "#zone-fanclub-nord")
   svgSelector: { type: String },
 
   // plafond d'abonnés pour la saison (anti-survente)

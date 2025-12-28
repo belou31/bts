@@ -1,4 +1,4 @@
-// src/routes/tbh7.js
+// src/routes/fanclub.js
 import express from 'express';
 
 import { Season }      from '../models/Season.js';
@@ -15,8 +15,8 @@ const router = express.Router();
 /* ====== ENV / Const ====== */
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 
-// zones TBH7 ciblées (clés exactes de Zone.key)
-const TBH7_ZONE_KEYS = ['TBH7', 'TBH7-VIRAGE'];
+// zones fanclub ciblées (clés exactes de Zone.key)
+const FANCLUB_ZONE_KEYS = ['TBH7', 'TBH7-VIRAGE'];
 
 /* ====== Helpers ====== */
 const norm = s => String(s || '').trim();
@@ -49,11 +49,11 @@ function buildPricesIndex(list) {
 const getPriceCents = (idx, zoneKey, tariffCode) => idx.get(`${upper(zoneKey)}|${upper(tariffCode)}`) ?? idx.get(`*|${upper(tariffCode)}`) ?? 0;
 
 async function computeZoneUsage({ seasonCode, venueSlug }) {
-  // Regroupe les lignes de commandes TBH7 (non annulées/échouées) par zone
+  // Regroupe les lignes de commandes fanclub (non annulées/échouées) par zone
   const rows = await Order.aggregate([
     { $match: {
       seasonCode, venueSlug,
-      'origin.flow': 'tbh7',
+      'origin.flow': 'fanclub',
       status: { $nin: ['canceled', 'failed'] }
     }},
     { $unwind: '$lines' },
@@ -64,7 +64,7 @@ async function computeZoneUsage({ seasonCode, venueSlug }) {
   return usage;
 }
 
-/* ====== GET /api/tbh7/status ======
+/* ====== GET /api/fanclub/status ======
  * Renvoie: {
  *   season, seasonCode, venue, venueSlug,
  *   tariffs, prices,
@@ -80,16 +80,16 @@ router.get('/status', async (req, res) => {
     // Zones TBH7 actives
     const zones = await Zone.find({
       seasonCode, venueSlug,
-      key: { $in: TBH7_ZONE_KEYS },
+      key: { $in: FANCLUB_ZONE_KEYS },
       isActive: true
     }).lean();
 
-    // Prix / Tarifs : on ne renvoie que ce qui est applicable aux zones TBH7
+    // Prix / Tarifs : on ne renvoie que ce qui est applicable aux zones fanclub
     const prices = await TariffPrice.find({
       seasonCode, venueSlug,
       isActive: true,
       $or: [
-        { zoneKey: { $in: TBH7_ZONE_KEYS } },
+        { zoneKey: { $in: FANCLUB_ZONE_KEYS } },
         { zoneKey: '*' } // générique
       ]
     }).lean();
@@ -101,7 +101,7 @@ router.get('/status', async (req, res) => {
       code: { $in: tariffCodes }
     }).lean();
 
-    // Conso quota par zone (commandes déjà passées TBH7)
+    // Conso quota par zone (commandes déjà passées fanclub)
     const usage = await computeZoneUsage({ seasonCode, venueSlug });
 
     const zonesOut = (zones || []).map(z => {
@@ -121,7 +121,7 @@ router.get('/status', async (req, res) => {
       };
     });
 
-    // Pas de sièges imposés pour TBH7 (sélection par zone côté front)
+    // Pas de sièges imposés pour fanclub (sélection par zone côté front)
     return res.json({
       season: seasonCode, seasonCode,
       venue : venueSlug,  venueSlug,
@@ -133,12 +133,12 @@ router.get('/status', async (req, res) => {
     });
   } catch (e) {
     const code = e.status || 500;
-    console.error('[GET /api/tbh7/status] error:', e);
+    console.error('[GET /api/fanclub/status] error:', e);
     return res.status(code).json({ error: e.message || 'internal_error' });
   }
 });
 
-/* ====== POST /api/tbh7/checkout ======
+/* ====== POST /api/fanclub/checkout ======
  * Body: {
  *   items:[{ zoneKey, seatId?, firstName, lastName, tariffCode, justif?, info? }, ...],
  *   payer:{ firstName, lastName, email },
@@ -158,10 +158,10 @@ router.post('/checkout', async (req, res) => {
     if (!payer?.email)                 return res.status(400).json({ error: 'payer_email_required' });
     if (![1,2,3].includes(schedule))   return res.status(400).json({ error: 'invalid_schedule' });
 
-    // Zones TBH7 actives + plafonds pour contrôle quota
+    // Zones fanclub actives + plafonds pour contrôle quota
     const zones = await Zone.find({
       seasonCode, venueSlug,
-      key: { $in: TBH7_ZONE_KEYS },
+      key: { $in: FANCLUB_ZONE_KEYS },
       isActive: true
     }).lean();
     const zoneMap = new Map((zones || []).map(z => [z.key, z]));
@@ -171,13 +171,13 @@ router.post('/checkout', async (req, res) => {
     const prices = await TariffPrice.find({
       seasonCode, venueSlug, isActive: true,
       $or: [
-        { zoneKey: { $in: TBH7_ZONE_KEYS } },
+        { zoneKey: { $in: FANCLUB_ZONE_KEYS } },
         { zoneKey: '*' }
       ]
     }).lean();
     const pricesIdx = buildPricesIndex(prices);
 
-    // Validation et préparation des lignes (pas de seatId imposé en TBH7)
+    // Validation et préparation des lignes (pas de seatId imposé en fanclub)
     const lines = [];
     for (const it of items) {
       const zoneKey = norm(it.zoneKey || (it.seatId ? String(it.seatId).split('-')[0] : ''));
@@ -191,7 +191,7 @@ router.post('/checkout', async (req, res) => {
 
       const priceCents = getPriceCents(pricesIdx, zoneKey, tariffCode);
       lines.push({
-        seatId: null,             // TBH7: pas de siège à la ligne
+        seatId: null,             // fanclub: pas de siège à la ligne
         zoneKey,
         holderFirstName: norm(it.firstName || ''),
         holderLastName:  norm(it.lastName  || ''),
@@ -228,7 +228,7 @@ router.post('/checkout', async (req, res) => {
       seasonCode,
       venueSlug,
       phase: 'subscription',
-      groupKey: `TBH7-${seasonCode}`,
+      groupKey: `FANCLUB-${seasonCode}`,
       payerFirstName: norm(payer.firstName || ''),
       payerLastName:  norm(payer.lastName  || ''),
       payerEmail:     norm(payer.email     || ''),
@@ -238,9 +238,9 @@ router.post('/checkout', async (req, res) => {
       status: 'pending',
       paymentProvider: PAYMENT_PROVIDER_ID,
       paymentProviderMeta: {},
-origin: { flow: 'tbh7', uiPath: '/tbh7', apiPath: `${req.baseUrl||''}${req.path}` },
-mailTemplateKind: 'tbh7',
-phase: 'tbh7'
+      origin: { flow: 'fanclub', uiPath: '/fanclub', apiPath: `${req.baseUrl||''}${req.path}` },
+      mailTemplateKind: 'fanclub',
+      phase: 'fanclub'
     });
 
     const urls = buildReturnUrls(order);
@@ -252,7 +252,7 @@ phase: 'tbh7'
     });
     const { redirectUrl, raw, error } = intent;
     if (error || !redirectUrl) {
-      console.error('[tbh7] createCheckoutIntent failed:', error);
+      console.error('[fanclub] createCheckoutIntent failed:', error);
       return res.status(502).json({ error: 'payment_unavailable' });
     }
 
@@ -281,7 +281,7 @@ phase: 'tbh7'
     return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
   } catch (e) {
     const code = e.status || 500;
-    console.error('[POST /api/tbh7/checkout] error:', e);
+    console.error('[POST /api/fanclub/checkout] error:', e);
     return res.status(code).json({ error: e.message || 'internal_error' });
   }
 });

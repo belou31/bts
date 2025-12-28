@@ -28,12 +28,18 @@ function humanInstallments(n) {
 }
 
 function resolveOrderKind(order) {
+  const normalize = (val) => {
+    const k = String(val || '').toLowerCase();
+    if (k === 'fanclub') return 'subscription';
+    return k;
+  };
+
   // ➤ Priorité: une commande “match” porte meta.eventId → kind = 'event'
   if (order?.meta?.eventId) return 'event';
   // Compat existant : champs optionnels
-  if (order.mailTemplateKind) return String(order.mailTemplateKind).toLowerCase();
-  if (order.origin?.flow)     return String(order.origin.flow).toLowerCase();
-  const phase = String(order.phase || '').toLowerCase();
+  if (order.mailTemplateKind) return normalize(order.mailTemplateKind);
+  if (order.origin?.flow)     return normalize(order.origin.flow);
+  const phase = normalize(order.phase);
   if (['renew','subscription','event','public'].includes(phase)) return phase;
   return 'renew';
 }
@@ -206,7 +212,7 @@ export function subjectForOrder(order) {
   * Render email HTML for an Order, using the right template and context.
   * Works with your two current templates:
   *  - renew-confirmation.html (expects {{linesRows}}, {{installmentsInfo}}, etc.)
-  *  - tbh7-confirmation.html / subscription-confirmation.html
+ *  - fanclub-confirmation.html / subscription-confirmation.html
   *    (expect {{LINES_HTML}} and nested objects)
   */
 

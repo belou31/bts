@@ -968,20 +968,20 @@
                             <small class="field-hint">Sélection multiple permise (Cmd/Ctrl + clic).</small>
                           <% } else if (hasAssetFiles) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
-                              <option value="">— Fichier dans public/dynamic/assets —</option>
-                              <% for (const file of (opt.assetFiles || [])) { const val = `public/dynamic/assets/${file}`; %>
+                              <option value="">— Fichier dans data/inputs —</option>
+                              <% for (const file of (opt.assetFiles || [])) { const val = `data/inputs/${file}`; %>
                                 <option value="<%= val %>"><%= val %></option>
                               <% } %>
                             </select>
-                            <small class="field-hint">Choisissez un asset dynamique existant ou saisissez un chemin personnalisé.</small>
+                            <small class="field-hint">Choisissez un fichier présent dans data/inputs ou saisissez un chemin personnalisé.</small>
                           <% } else if (hasCustomizationFiles) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
-                              <option value="">— Fichier dans data/customization —</option>
-                              <% for (const file of (opt.customizationFiles || [])) { const val = `data/customization/${file}`; %>
+                              <option value="">— Fichier dans data/inputs —</option>
+                              <% for (const file of (opt.customizationFiles || [])) { const val = `data/inputs/${file}`; %>
                                 <option value="<%= val %>"><%= val %></option>
                               <% } %>
                             </select>
-                            <small class="field-hint">Choisissez une customization existante ou saisissez un chemin personnalisé.</small>
+                            <small class="field-hint">Choisissez un fichier présent dans data/inputs ou saisissez un chemin personnalisé.</small>
                           <% } else if (hasInputFiles) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Fichier dans data/inputs —</option>

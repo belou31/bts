@@ -552,8 +552,8 @@ router.get('/io', (req, res) => {
       partners: [],
       tariffCatalogs: [],
       inputFiles: inputsList.map(file => file.name),
-      assetFiles: dynamicAssetsList.map(file => file.name),
-      customizationFiles: customizationList.map(file => file.rel),
+      assetFiles: inputsList.map(file => file.name),
+      customizationFiles: inputsList.map(file => file.name),
       venueViews
     },
     viewMode: 'io',
@@ -639,13 +639,13 @@ router.get('/operate', async (req, res) => {
     venues: [],
     seasons: [],
     events: [],
-      partners: [],
-      tariffCatalogs: [],
-      inputFiles: inputsList.map(file => file.name),
-      assetFiles: dynamicAssetsList.map(file => file.name),
-      customizationFiles: customizationList.map(file => file.rel),
-      venueViews
-    };
+    partners: [],
+    tariffCatalogs: [],
+    inputFiles: inputsList.map(file => file.name),
+    assetFiles: inputsList.map(file => file.name),
+    customizationFiles: inputsList.map(file => file.name),
+    venueViews
+  };
 
   try {
     const [
@@ -678,8 +678,8 @@ router.get('/operate', async (req, res) => {
         .map(entry => entry?._id)
         .filter(Boolean),
       inputFiles: inputsList.map(file => file.name),
-      assetFiles: dynamicAssetsList.map(file => file.name),
-      customizationFiles: customizationList.map(file => file.rel),
+      assetFiles: inputsList.map(file => file.name),
+      customizationFiles: inputsList.map(file => file.name),
       venueViews
     };
   } catch (error) {
