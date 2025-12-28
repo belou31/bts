@@ -39,11 +39,12 @@ const router = express.Router();
 const ROOT_DIR = process.cwd();
 const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data_templates');
 const CUSTOM_ROOT = path.resolve(ROOT_DIR, 'data/customization');
-const CUSTOM_ASSETS_ROOT = path.resolve(CUSTOM_ROOT, 'assets');
+const DYNAMIC_ROOT = path.resolve(ROOT_DIR, 'public/dynamic');
+const DYNAMIC_ASSETS_ROOT = path.resolve(DYNAMIC_ROOT, 'assets');
+const DYNAMIC_VENUES_ROOT = path.resolve(DYNAMIC_ROOT, 'venues');
 const OUTPUTS_ROOT = path.resolve(ROOT_DIR, 'data/outputs');
 const INPUTS_ROOT = path.resolve(ROOT_DIR, 'data/inputs');
-const STATIC_VENUES_ROOT = path.resolve(ROOT_DIR, 'public/dynamic/venues');
-for (const dir of [OUTPUTS_ROOT, INPUTS_ROOT]) {
+for (const dir of [OUTPUTS_ROOT, INPUTS_ROOT, DYNAMIC_ASSETS_ROOT, DYNAMIC_VENUES_ROOT]) {
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
 }
 
@@ -214,10 +215,11 @@ function listTemplatesRecursive(root, prefix = '') {
 }
 
 function listCustomizationRecursive(root, prefix = '') {
-  return listTemplatesRecursive(root, prefix);
+  return listTemplatesRecursive(root, prefix)
+    .filter(entry => entry.name.toLowerCase().endsWith('.json'));
 }
 
-function listVenueViews(rootDir = STATIC_VENUES_ROOT) {
+function listVenueViews(rootDir = DYNAMIC_VENUES_ROOT) {
   try {
     const venueDirs = fs.readdirSync(rootDir, { withFileTypes: true })
       .filter(entry => entry.isDirectory())
@@ -253,6 +255,57 @@ function listVenueViews(rootDir = STATIC_VENUES_ROOT) {
     console.error('[admin] unable to list venue views:', error?.message || error);
     return [];
   }
+}
+
+function listVenueResources(rootDir = DYNAMIC_VENUES_ROOT) {
+  const venues = [];
+  try {
+    const entries = fs.readdirSync(rootDir, { withFileTypes: true }).filter(e => e.isDirectory());
+    for (const entry of entries) {
+      const venueSlug = entry.name;
+      const venueRoot = path.join(rootDir, venueSlug);
+      const planPath = path.join(venueRoot, 'plan.svg');
+      let plan = null;
+      try {
+        const stats = fs.statSync(planPath);
+        if (stats.isFile()) {
+          plan = {
+            name: 'plan.svg',
+            rel: `dynamic/venues/${venueSlug}/plan.svg`,
+            size: stats.size,
+            mtime: stats.mtime
+          };
+        }
+      } catch {/* plan absent */}
+
+      const views = [];
+      const viewsDir = path.join(venueRoot, 'views');
+      try {
+        const viewEntries = fs.readdirSync(viewsDir, { withFileTypes: true });
+        for (const viewEntry of viewEntries) {
+          if (!viewEntry.isFile() || !viewEntry.name.toLowerCase().endsWith('.svg')) continue;
+          const slug = viewEntry.name.replace(/\.svg$/i, '');
+          const stats = fs.statSync(path.join(viewsDir, viewEntry.name));
+          views.push({
+            slug,
+            rel: `dynamic/venues/${venueSlug}/views/${viewEntry.name}`,
+            size: stats.size,
+            mtime: stats.mtime
+          });
+        }
+      } catch {/* ignore */ }
+
+      venues.push({
+        venueSlug,
+        plan,
+        views: views.sort((a, b) => a.slug.localeCompare(b.slug))
+      });
+    }
+    venues.sort((a, b) => a.venueSlug.localeCompare(b.venueSlug));
+  } catch {
+    return venues;
+  }
+  return venues;
 }
 
 async function findEventByKey(eventKey) {
@@ -473,8 +526,9 @@ router.get('/io', (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
-  const assetsList = listFiles(CUSTOM_ASSETS_ROOT);
+  const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
   const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
+  const venueResources = listVenueResources();
   const venueViews = listVenueViews();
 
   return res.render('admin/index', {
@@ -498,13 +552,15 @@ router.get('/io', (req, res) => {
       partners: [],
       tariffCatalogs: [],
       inputFiles: inputsList.map(file => file.name),
-      assetFiles: assetsList.map(file => file.name),
+      assetFiles: dynamicAssetsList.map(file => file.name),
       customizationFiles: customizationList.map(file => file.rel),
       venueViews
     },
     viewMode: 'io',
     monitorTab: 'tariffs',
-    monitoring: null
+    monitoring: null,
+    dynamicAssetsList,
+    venueResources
   });
 });
 
@@ -576,20 +632,20 @@ router.get('/operate', async (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
-  const assetsList = listFiles(CUSTOM_ASSETS_ROOT);
+  const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
   const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
   const venueViews = listVenueViews();
   let operateOptions = {
     venues: [],
     seasons: [],
     events: [],
-    partners: [],
-    tariffCatalogs: [],
-    inputFiles: inputsList.map(file => file.name),
-    assetFiles: assetsList.map(file => file.name),
-    customizationFiles: customizationList.map(file => file.rel),
-    venueViews
-  };
+      partners: [],
+      tariffCatalogs: [],
+      inputFiles: inputsList.map(file => file.name),
+      assetFiles: dynamicAssetsList.map(file => file.name),
+      customizationFiles: customizationList.map(file => file.rel),
+      venueViews
+    };
 
   try {
     const [
@@ -622,7 +678,7 @@ router.get('/operate', async (req, res) => {
         .map(entry => entry?._id)
         .filter(Boolean),
       inputFiles: inputsList.map(file => file.name),
-      assetFiles: assetsList.map(file => file.name),
+      assetFiles: dynamicAssetsList.map(file => file.name),
       customizationFiles: customizationList.map(file => file.rel),
       venueViews
     };
@@ -1515,6 +1571,21 @@ router.get('/outputs/download', (req, res) => {
   }
 });
 
+router.post('/outputs/delete', (req, res) => {
+  const raw = (req.body?.file || '').toString();
+  if (!raw) return res.status(400).json({ ok: false, error: 'Missing file' });
+  try {
+    const abs = resolveInside(OUTPUTS_ROOT, raw);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
+    fs.unlinkSync(abs);
+    return res.json({ ok: true });
+  } catch {
+    return res.status(400).json({ ok: false, error: 'Invalid output file' });
+  }
+});
+
 router.get('/inputs/download', (req, res) => {
   const raw = (req.query.file || '').toString();
   if (!raw) return res.status(400).send('Missing file');
@@ -1523,6 +1594,21 @@ router.get('/inputs/download', (req, res) => {
     return res.download(abs, path.basename(abs));
   } catch {
     return res.status(400).send('Invalid input file');
+  }
+});
+
+router.post('/inputs/delete', (req, res) => {
+  const raw = (req.body?.file || '').toString();
+  if (!raw) return res.status(400).json({ ok: false, error: 'Missing file' });
+  try {
+    const abs = resolveInside(INPUTS_ROOT, raw);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
+    fs.unlinkSync(abs);
+    return res.json({ ok: true });
+  } catch {
+    return res.status(400).json({ ok: false, error: 'Invalid input file' });
   }
 });
 
@@ -1560,70 +1646,11 @@ router.post('/uploads', (req, res) => {
 });
 
 router.post('/templates/upload', (req, res) => {
-  const { filename, contentBase64, subdir } = req.body || {};
-  const safeName = sanitizeFilename(filename || '');
-  if (!safeName) return res.status(400).json({ ok: false, error: 'Invalid target file name' });
-  if (!contentBase64 || typeof contentBase64 !== 'string') {
-    return res.status(400).json({ ok: false, error: 'Missing contentBase64' });
-  }
-  let buffer;
-  try {
-    buffer = Buffer.from(contentBase64, 'base64');
-  } catch {
-    return res.status(400).json({ ok: false, error: 'Invalid base64 payload' });
-  }
-  let destDir = TEMPLATES_ROOT;
-  if (subdir) {
-    try {
-      const cleaned = String(subdir).replace(/^\/+/, '');
-      destDir = resolveInside(TEMPLATES_ROOT, cleaned);
-      fs.mkdirSync(destDir, { recursive: true });
-    } catch {
-      return res.status(400).json({ ok: false, error: 'Invalid subdir' });
-    }
-  }
-  const dest = path.join(destDir, safeName);
-  try {
-    fs.writeFileSync(dest, buffer);
-    return res.json({ ok: true, filename: safeName, path: path.relative(TEMPLATES_ROOT, dest) });
-  } catch (err) {
-    return res.status(500).json({ ok: false, error: err?.message || 'Write failed' });
-  }
+  return res.status(403).json({ ok: false, error: 'Uploads are restricted to data/inputs.' });
 });
 
 router.post('/customization/upload', (req, res) => {
-  const { filename, contentBase64, subdir } = req.body || {};
-  const safeName = sanitizeFilename(filename || '');
-  if (!safeName) return res.status(400).json({ ok: false, error: 'Invalid target file name' });
-  if (!contentBase64 || typeof contentBase64 !== 'string') {
-    return res.status(400).json({ ok: false, error: 'Missing contentBase64' });
-  }
-  let buffer;
-  try {
-    buffer = Buffer.from(contentBase64, 'base64');
-  } catch {
-    return res.status(400).json({ ok: false, error: 'Invalid base64 payload' });
-  }
-  const defaultUploadDir = path.join(CUSTOM_ROOT, 'uploaded');
-  let destDir = subdir ? CUSTOM_ROOT : defaultUploadDir;
-  if (subdir) {
-    try {
-      const cleaned = String(subdir).replace(/^\/+/, '');
-      destDir = resolveInside(CUSTOM_ROOT, cleaned);
-      fs.mkdirSync(destDir, { recursive: true });
-    } catch {
-      return res.status(400).json({ ok: false, error: 'Invalid subdir' });
-    }
-  } else {
-    fs.mkdirSync(destDir, { recursive: true });
-  }
-  const dest = path.join(destDir, safeName);
-  try {
-    fs.writeFileSync(dest, buffer);
-    return res.json({ ok: true, filename: safeName, path: path.relative(CUSTOM_ROOT, dest) });
-  } catch (err) {
-    return res.status(500).json({ ok: false, error: err?.message || 'Write failed' });
-  }
+  return res.status(403).json({ ok: false, error: 'Uploads are restricted to data/inputs.' });
 });
 
 

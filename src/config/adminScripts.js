@@ -56,7 +56,7 @@ export const adminScriptGroups = [
           script: 'scripts/00-system-management/customize-app.js',
           args: []
         },
-        description: 'Stores organization assets (favicon, logos, app icons) under data/customization/assets, mirrors them to public/dynamic/assets, and saves metadata under data/customization.',
+        description: 'Stages organization assets (favicon, logos, app icons) to public/dynamic/assets (kept in sync with data/customization/assets) and saves metadata under data/customization.',
         templates: ['data_templates/customization/app.json'],
         notes: [
           'Input files can be referenced by absolute path or relative to data/inputs.',
@@ -80,31 +80,31 @@ export const adminScriptGroups = [
             {
               name: 'favicon',
               label: 'Favicon (.ico)',
-              placeholder: 'data/customization/assets/favicon.ico',
+              placeholder: 'public/dynamic/assets/favicon.ico',
               arg: { type: 'option', template: '--favicon=${value}' }
             },
             {
               name: 'logoSvg',
               label: 'Logo vectoriel (.svg)',
-              placeholder: 'data/customization/assets/logo.svg',
+              placeholder: 'public/dynamic/assets/logo.svg',
               arg: { type: 'option', template: '--logo-svg=${value}' }
             },
             {
               name: 'logoPng',
               label: 'Logo bitmap (.png)',
-              placeholder: 'data/customization/assets/logo.png',
+              placeholder: 'public/dynamic/assets/logo.png',
               arg: { type: 'option', template: '--logo-png=${value}' }
             },
             {
               name: 'icon192',
               label: 'Icône 192×192 (.png)',
-              placeholder: 'data/customization/assets/icon-192.png',
+              placeholder: 'public/dynamic/assets/icon-192.png',
               arg: { type: 'option', template: '--icon-192=${value}' }
             },
             {
               name: 'icon512',
               label: 'Icône 512×512 (.png)',
-              placeholder: 'data/customization/assets/icon-512.png',
+              placeholder: 'public/dynamic/assets/icon-512.png',
               arg: { type: 'option', template: '--icon-512=${value}' }
             }
           ]
