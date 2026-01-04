@@ -1,0 +1,18 @@
+{
+  "email": {
+    "templates": {
+      "renew": { "file": "email/renew-confirmation.html", "subject": "Confirmation – Abonnement (Renouvellement)" },
+      "subscription": { "file": "email/subscription-confirmation.html", "subject": "Confirmation – Abonnement" },
+      "public": { "file": "email/public-confirmation.html", "subject": "Confirmation" },
+      "event": { "file": "email/event-confirmation.html", "subject": "Confirmation – Billetterie" }
+    }
+  },
+  "tickets": {
+    "templates": {
+      "default": { "file": "tickets/ticket.svg", "logo": "dynamic/assets/logo.svg" },
+      "subscription": { "file": "tickets/ticket.svg", "logo": "dynamic/assets/logo.svg" },
+      "fanclub": { "file": "tickets/ticket.svg", "logo": "dynamic/assets/logo.svg" },
+      "event": { "file": "tickets/ticket.svg", "logo": "dynamic/assets/logo.svg" }
+    }
+  }
+}

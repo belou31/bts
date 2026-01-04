@@ -10,9 +10,13 @@ import { buildTicketsPdfBuffer as buildTicketsPdfBufferFromService } from './tic
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-const EMAIL_DIR_LEGACY = path.resolve(process.cwd(), 'src', 'templates', 'email');
-const EMAIL_DIR_DATA   = path.resolve(process.cwd(), 'data', 'templates', 'email');      // models
-const EMAIL_DIR_CUSTOM = path.resolve(process.cwd(), 'data', 'customization', 'email');  // instances/overrides
+const EMAIL_ROOT_RUNTIME = path.resolve(process.cwd(), 'data', 'templates');
+const EMAIL_ROOT_REF     = path.resolve(process.cwd(), 'data_references', 'templates');
+const EMAIL_DIR_CUSTOM_CONFIG = path.join(EMAIL_ROOT_RUNTIME, 'email');
+const EMAIL_CONFIG_CUSTOM     = path.resolve(process.cwd(), 'data', 'templates', 'templates.json');
+const EMAIL_CONFIG_TEMPLATE   = path.resolve(process.cwd(), 'data_references', 'templates', 'templates.json');
+const EMAIL_DIR_DATA   = path.join(EMAIL_ROOT_REF, 'email');      // reference
+const EMAIL_DIR_RUNTIME = EMAIL_DIR_CUSTOM_CONFIG; // user-provided HTML files
 
 function fmtEuroWithSymbol(cents) {
   return (Number(cents || 0) / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
@@ -45,26 +49,68 @@ function resolveOrderKind(order) {
 }
 
 
-const TEMPLATE_BY_KIND = {
-  renew:         'renew-confirmation',
-  subscription:  'subscription-confirmation',   // (ex-public-confirmation renommé)
-  event:         'event-confirmation',
-  public:         'public-confirmation'
+const DEFAULT_TEMPLATE_CONFIG = {
+  renew: {
+    file: 'renew-confirmation.html',
+    subject: process.env.EMAIL_SUBJECT_RENEW_CONFIRM || 'Confirmation – Abonnement (Renouvellement)'
+  },
+  subscription: {
+    file: 'subscription-confirmation.html',
+    subject: process.env.EMAIL_SUBJECT_SUBSCRIPTION_CONFIRM || 'Confirmation – Abonnement'
+  },
+  event: {
+    file: 'event-confirmation.html',
+    subject: process.env.EMAIL_SUBJECT_EVENT_CONFIRM || 'Confirmation – Billetterie'
+  }
 };
 
-const SUBJECT_BY_KIND = {
-  renew:         process.env.EMAIL_SUBJECT_RENEW_CONFIRM         || 'Confirmation – Abonnement (Renouvellement)',
-  subscription:  process.env.EMAIL_SUBJECT_SUBSCRIPTION_CONFIRM  || 'Confirmation – Abonnement',
-  event:         process.env.EMAIL_SUBJECT_EVENT_CONFIRM         || 'Confirmation – Billetterie (Match)',
-  public:         process.env.EMAIL_SUBJECT_PUBLIC_CONFIRM         || 'Confirmation'
-};
+let EMAIL_CONFIG_PROMISE = null;
+let EMAIL_TEMPLATE_CACHE = { ...DEFAULT_TEMPLATE_CONFIG };
+async function readJsonIfExists(filePath) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+async function getEmailConfig() {
+  if (EMAIL_CONFIG_PROMISE) return EMAIL_CONFIG_PROMISE;
+  EMAIL_CONFIG_PROMISE = (async () => {
+    const custom = await readJsonIfExists(EMAIL_CONFIG_CUSTOM);
+    const templ  = await readJsonIfExists(EMAIL_CONFIG_TEMPLATE);
+    const base = custom || templ || {};
+    const section =
+      (base.email && base.email.templates)
+      || (base.templates && base.templates.email)
+      || base.templates
+      || base.email
+      || {};
+    const merged = { ...DEFAULT_TEMPLATE_CONFIG };
+    if (section && typeof section === 'object') {
+      for (const [kind, entry] of Object.entries(section)) {
+        if (!entry || typeof entry !== 'object') continue;
+        const file = entry.file || entry.template || entry.name;
+        if (!file) continue;
+        merged[kind] = {
+          file,
+          subject: entry.subject || merged[kind]?.subject || null
+        };
+      }
+    }
+    EMAIL_TEMPLATE_CACHE = merged;
+    return merged;
+  })();
+  return EMAIL_CONFIG_PROMISE;
+}
 
-async function loadTemplateHtml(name) {
-  const fname = `${name}.html`;
+async function loadTemplateHtml(nameOrPath) {
+  const fname = nameOrPath.endsWith('.html') ? nameOrPath : `${nameOrPath}.html`;
   const paths = [
-    path.join(EMAIL_DIR_CUSTOM, fname),
+    path.join(EMAIL_DIR_RUNTIME, fname),
     path.join(EMAIL_DIR_DATA, fname),
-    path.join(EMAIL_DIR_LEGACY, fname)
+    path.resolve(EMAIL_ROOT_RUNTIME, fname),
+    path.resolve(EMAIL_ROOT_REF, fname)
   ];
   for (const p of paths) {
     try {
@@ -73,7 +119,7 @@ async function loadTemplateHtml(name) {
       // continue
     }
   }
-  throw new Error(`Email template not found: ${name} (searched in data_templates/email and src/templates/email)`);
+  throw new Error(`Email template not found: ${nameOrPath} (searched in data/templates and data_references/templates)`);
 }
 
 async function buildTariffsMap(seasonCode, venueSlug) {
@@ -197,15 +243,16 @@ function injectTicketsHtml(html, ticketsHtml) {
 /**
  * Subject builder (keeps env overrides).
  */
-export function subjectForOrder(order) {
+export async function subjectForOrder(order) {
+  await getEmailConfig().catch(() => {}); // best effort to hydrate cache
   const kind = resolveOrderKind(order);
   if (kind === 'event') {
     const ename = order?.meta?.eventName || order?.meta?.eventSlug || 'Match';
-    const base  = process.env.EMAIL_SUBJECT_EVENT_CONFIRM || 'Confirmation – Billetterie';
+    const base  = EMAIL_TEMPLATE_CACHE.event?.subject || DEFAULT_TEMPLATE_CONFIG.event.subject;
     return `${base} — ${ename}`;
   }
 
-  return SUBJECT_BY_KIND[kind] || SUBJECT_BY_KIND.renew;
+  return EMAIL_TEMPLATE_CACHE[kind]?.subject || DEFAULT_TEMPLATE_CONFIG[kind]?.subject || DEFAULT_TEMPLATE_CONFIG.renew.subject;
 }
 
 /**
@@ -218,7 +265,8 @@ export function subjectForOrder(order) {
 
 export async function renderOrderEmail(order) {
   const kind = resolveOrderKind(order);
-  const tplName = TEMPLATE_BY_KIND[kind] || TEMPLATE_BY_KIND.renew;
+  const config = await getEmailConfig();
+  const tplName = config[kind]?.file || config.renew.file;
 
   const tariffsMap = await buildTariffsMap(order.seasonCode, order.venueSlug);
 

@@ -39,6 +39,32 @@ function shouldFallbackToPublic(channelCtx) {
   return false;
 }
 
+function resolveVenueViewForEvent(ev, channelCtx) {
+  if (!channelCtx || channelCtx.kind !== 'partner') {
+    return ev?.venueView || null;
+  }
+  const cfg = channelCtx.partnerConfig || {};
+  const slugKey = (ev?.slug || '').trim();
+  const nameKey = (ev?.name || '').trim();
+  const lowerSlug = slugKey.toLowerCase();
+  const lowerName = nameKey.toLowerCase();
+  const eventsMap = cfg?.venueViews?.events || {};
+  const seasonsMap = cfg?.venueViews?.seasons || {};
+  const seasonKey = (ev?.seasonCode || ev?.season || '').trim();
+  const lowerSeason = seasonKey.toLowerCase();
+  const eventView =
+    eventsMap[slugKey] ||
+    eventsMap[nameKey] ||
+    eventsMap[lowerSlug] ||
+    eventsMap[lowerName] ||
+    null;
+  const seasonView =
+    seasonsMap[seasonKey] ||
+    seasonsMap[lowerSeason] ||
+    null;
+  return eventView || seasonView || cfg.venueView || ev?.venueView || null;
+}
+
 async function loadTariffsAndPrices(ev, channelCtx) {
   const evTariffs = await Tariff.find({ priceTableKey: ev.priceTableKey, active: true }).lean();
   if (evTariffs.length > 0) {
@@ -280,6 +306,7 @@ export function createEventFlowRouter({
     try {
       const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
+      const resolvedVenueView = resolveVenueViewForEvent(ev, channelCtx);
       const [seatsBase, { tariffs, prices, scope }] = await Promise.all([
         computeSeatStates(ev),
         loadTariffsAndPrices(ev, channelCtx)
@@ -425,14 +452,14 @@ export function createEventFlowRouter({
         ok: true,
         seasonCode: ev.seasonCode,
         venueSlug: ev.venueSlug,
-        venueView: ev.venueView || null,
+        venueView: resolvedVenueView,
         event: {
           id: String(ev._id),
           slug: ev.slug,
           name: ev.name,
           startsAt: ev.startsAt,
           isOnSale: ev.isOnSale,
-          venueView: ev.venueView || null
+          venueView: resolvedVenueView
         },
         tariffs, prices, scope,
         allowedZones: Array.from(allowedSet),
@@ -441,7 +468,9 @@ export function createEventFlowRouter({
         zonesKind,
         seats: seatsOut,
         standingZones,
-        channel: channelCtx?.kind || 'public'
+        channel: channelCtx?.kind === 'partner'
+          ? `partner:${channelCtx.partnerSlug || ''}`
+          : (channelCtx?.kind || 'public')
       });
     } catch (e) {
       res.status(404).json({ ok: false, error: e.message || 'Not found' });

@@ -369,6 +369,26 @@ export default function routes(router) {
 
     const resolveCusto = (key) => customization[`partner.${key}`] || customization[key];
 
+    const slugKey = ev?.slug || eventSlug || '';
+    const nameKey = ev?.name || '';
+    const lowerSlug = slugKey.toLowerCase();
+    const lowerName = nameKey.toLowerCase();
+    const eventsMap = partnerCfg?.venueViews?.events || {};
+    const seasonsMap = partnerCfg?.venueViews?.seasons || {};
+    const eventView =
+      eventsMap[slugKey] ||
+      eventsMap[nameKey] ||
+      eventsMap[lowerSlug] ||
+      eventsMap[lowerName] ||
+      null;
+    const seasonKey = ev?.seasonCode || ev?.season || '';
+    const lowerSeason = seasonKey.toLowerCase();
+    const seasonView =
+      seasonsMap[seasonKey] ||
+      seasonsMap[lowerSeason] ||
+      null;
+    const resolvedVenueView = eventView || seasonView || partnerCfg.venueView || null;
+
     const partnerOptions = {
       slug: partnerCfg.slug,
       invoiceMode: partnerCfg.paymentMode === 'psp' ? 'psp' : 'invoice',
@@ -417,7 +437,7 @@ export default function routes(router) {
         selection: { type: 'seats' },
         buildRowsFromData: false,
         svgSeatClasses: { allowed: 'seat-allowed' },
-        venueView: partnerCfg.venueView || null,
+        venueView: resolvedVenueView,
         partnerSlug,
         eventSlug,
         partner: partnerOptions,

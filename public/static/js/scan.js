@@ -127,6 +127,7 @@ const eventSelect = document.getElementById('eventSelect');
 const tokenInput = document.getElementById('token');
 const loginInput = document.getElementById('login');
 const passwordInput = document.getElementById('password');
+const gateInput = document.getElementById('gate');
 const authFields = document.querySelector('.auth-fields');
 const authToggle = document.getElementById('authToggle');
 const scanToggle = document.getElementById('scanToggle');
@@ -314,6 +315,14 @@ if (passwordInput && initialContext.password) {
   passwordInput.value = initialContext.password;
   passwordInput.dataset.prefilled = 'true';
 }
+const defaultGateValue = initialContext.gate || getStoredGate();
+if (gateInput && defaultGateValue) {
+  gateInput.value = defaultGateValue;
+}
+gateInput?.addEventListener('input', () => {
+  const value = String(gateInput.value || '').trim();
+  setStoredGate(value);
+});
 
 if (eventSelect) {
   eventSelect.addEventListener('change', () => {
@@ -634,7 +643,28 @@ function deviceFingerprint() {
   return navigator.userAgent || 'web';
 }
 
+const GATE_STORAGE_KEY = 'bts-scan-gate';
+function getStoredGate() {
+  try {
+    const raw = localStorage.getItem(GATE_STORAGE_KEY);
+    return raw ? String(raw) : '';
+  } catch {
+    return '';
+  }
+}
+
+function setStoredGate(value) {
+  try {
+    if (value) localStorage.setItem(GATE_STORAGE_KEY, value);
+    else localStorage.removeItem(GATE_STORAGE_KEY);
+  } catch {}
+}
+
 function getGateName() {
+  const inputVal = gateInput ? String(gateInput.value || '').trim() : '';
+  if (inputVal) return inputVal;
+  const stored = getStoredGate();
+  if (stored) return stored;
   return initialContext.gate || '';
 }
 

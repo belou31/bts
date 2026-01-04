@@ -9,7 +9,7 @@
  *   - JWT_SECRET (required)
  *
  * Templates:
- *   - data_templates/csv/renew-groups.template.csv
+ *   - data_references/csv/renew-groups.template.csv
  */
 import 'dotenv/config';
 import fs from 'fs';

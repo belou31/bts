@@ -33,14 +33,8 @@ export async function buildApp() {
   const DYNAMIC_DIR = path.resolve(process.cwd(), 'public', 'dynamic');
   const ASSETS_DIR = path.resolve(DYNAMIC_DIR, 'assets');
   const VENUES_DIR = path.resolve(DYNAMIC_DIR, 'venues');
+  const PUBLIC_TEMPLATES_DIR = path.resolve(process.cwd(), 'public', 'templates');
 
-  // Custom assets (favicon, logos…) stored under data/customization/assets override defaults
-  const CUSTOM_ASSETS_DIR = path.resolve(process.cwd(), 'data', 'customization', 'assets');
-  app.use(path.posix.join(BASE_PATH, '/dynamic/assets'), express.static(CUSTOM_ASSETS_DIR, {
-    fallthrough: true,
-    maxAge: '1h',
-    extensions: ['png', 'svg', 'ico']
-  }));
   app.use(path.posix.join(BASE_PATH, '/dynamic/assets'), express.static(ASSETS_DIR, {
     fallthrough: true,
     maxAge: '1h',
@@ -56,12 +50,12 @@ export async function buildApp() {
     fallthrough: true,
     maxAge: '1h'
   }));
-  // Compatibilité : anciens chemins /assets et /venues
-  app.use(path.posix.join(BASE_PATH, '/assets'), express.static(CUSTOM_ASSETS_DIR, {
+  // Templates publics (HTML/SVG) si présents
+  app.use(path.posix.join(BASE_PATH, '/templates'), express.static(PUBLIC_TEMPLATES_DIR, {
     fallthrough: true,
-    maxAge: '1h',
-    extensions: ['png', 'svg', 'ico']
+    maxAge: '1h'
   }));
+  // Compatibilité : anciens chemins /assets et /venues
   app.use(path.posix.join(BASE_PATH, '/assets'), express.static(ASSETS_DIR, {
     fallthrough: true,
     maxAge: '1h',
@@ -87,8 +81,7 @@ export async function buildApp() {
 
   // Favicon direct (facultatif)
   app.get(path.posix.join(BASE_PATH, '/favicon.ico'), (req, res) => {
-    const customFav = path.join(CUSTOM_ASSETS_DIR, 'favicon.ico');
-    const target = fs.existsSync(customFav) ? customFav : path.join(ASSETS_DIR, 'favicon.ico');
+    const target = path.join(ASSETS_DIR, 'favicon.ico');
     res.sendFile(target);
   });
 

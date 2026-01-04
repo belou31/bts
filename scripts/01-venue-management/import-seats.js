@@ -212,7 +212,7 @@ function cssAttrSelector(attr, value) {
   await mongoose.connect(uri);
 
   const svg = fs.readFileSync(planPath, 'utf8');
-  const $ = load(svg);
+  const $ = load(svg, { xmlMode: true });
   const nodes = $(`[${seatAttr}]`);
   if (nodes.length === 0) {
     console.warn(`[import-seats] Aucun élément avec l'attribut ${seatAttr} dans ${planPath}. On tente les sélecteurs CSV le cas échéant.`);
@@ -321,7 +321,44 @@ function cssAttrSelector(attr, value) {
     if (fs.existsSync(viewPath)) {
       try {
         const viewSvg = fs.readFileSync(viewPath, 'utf8');
-        const $view = load(viewSvg);
+        const $view = load(viewSvg, { xmlMode: true });
+        const setIfMissing = (el, attr, value) => {
+          if (!value) return;
+          if ($view(el).attr(attr)) return;
+          $view(el).attr(attr, value);
+        };
+        for (const seatId of seenSeats) {
+          const seatData = seatInfoMap.get(seatId);
+          if (!seatData) continue;
+          const escapedId = seatId.replace(/([\\.])/g, '\\$1');
+          let el = $view(`[${seatAttr}="${seatId}"]`).get(0);
+          if (!el) el = $view(`[data-seat-id="${seatId}"]`).get(0);
+          if (!el) el = $view(`#${escapedId}`).get(0);
+          if (!el) el = $view(`#seat_${escapedId}`).get(0);
+          if (!el) continue;
+          setIfMissing(el, 'data-seat-id', seatId);
+          setIfMissing(el, 'data-seat-zone', seatData.zoneKey || '');
+          setIfMissing(el, 'data-seat-row', seatData.row || '');
+          setIfMissing(el, 'data-seat-number', seatData.number || '');
+          const metaStr = seatData.meta && Object.keys(seatData.meta).length
+            ? Object.entries(seatData.meta).map(([k, v]) => `${k}:${v}`).join(';')
+            : '';
+          setIfMissing(el, 'data-seat-meta', metaStr);
+        }
+        fs.writeFileSync(viewPath, $view.xml(), 'utf8');
+        console.log(`[import-seats] Vue "${viewSlug}" enrichie avec les attributs sièges → ${viewPath}`);
+      } catch (err) {
+        console.warn(`[import-seats] Impossible d'enrichir la vue ${viewSlug}: ${err?.message || err}`);
+      }
+    } else {
+      // try to copy from plan if missing
+      try {
+        fs.mkdirSync(path.dirname(viewPath), { recursive: true });
+        fs.copyFileSync(planPath, viewPath);
+        console.warn(`[import-seats] Vue ${viewSlug} absente. Copie de plan.svg vers views/${viewSlug}.svg avant enrichissement.`);
+        // rerun enrichment on the copied file
+        const viewSvg = fs.readFileSync(viewPath, 'utf8');
+        const $view = load(viewSvg, { xmlMode: true });
         const setIfMissing = (el, attr, value) => {
           if (!value) return;
           if ($view(el).attr(attr)) return;
@@ -346,10 +383,8 @@ function cssAttrSelector(attr, value) {
         fs.writeFileSync(viewPath, $view.xml(), 'utf8');
         console.log(`[import-seats] Vue "${viewSlug}" enrichie avec les attributs sièges → ${viewPath}`);
       } catch (err) {
-        console.warn(`[import-seats] Impossible d'enrichir la vue ${viewSlug}: ${err?.message || err}`);
+        console.warn(`[import-seats] Vue ${viewSlug} introuvable à ${viewPath} et copie depuis plan.svg échouée: ${err?.message || err}`);
       }
-    } else {
-      console.warn(`[import-seats] Vue ${viewSlug} introuvable à ${viewPath}`);
     }
   }
 

@@ -12,7 +12,7 @@
  *   - MONGO_URI: full MongoDB connection string (required)
  *
  * Template:
- *   - data_templates/env/env.template
+ *   - data_references/env/env.template
  */
 import mongoose from 'mongoose';
 

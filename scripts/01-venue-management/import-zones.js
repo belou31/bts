@@ -237,7 +237,7 @@ function parseSvgZones($, attrs) {
     planPath = resolvePlanPath(venueSlug);
     if (planPath) {
       const svg = fs.readFileSync(planPath, 'utf8');
-      svgDocument = load(svg);
+      svgDocument = load(svg, { xmlMode: true });
     }
   } catch (err) {
     console.error(err?.message || err);
@@ -311,20 +311,22 @@ function parseSvgZones($, attrs) {
       }
 
       // Ajoute l'attribut zone sur le plan si demandé
-      if (writePlan && svgDocument && svgSelector) {
+      const applyZoneAttrs = (doc) => {
+        if (!doc || !svgSelector) return;
         const targetAttr = DEFAULT_ZONE_ATTR;
-        const el = svgZone?.element || svgDocument(svgSelector).get(0);
+        const el = svgZone?.element || doc(svgSelector).get(0);
         if (el) {
-          if (!svgDocument(el).attr(targetAttr)) svgDocument(el).attr(targetAttr, key);
-          if (!svgDocument(el).attr('data-zone-name') && name) svgDocument(el).attr('data-zone-name', name);
-          if (!svgDocument(el).attr('data-zone-type') && type) svgDocument(el).attr('data-zone-type', type);
-          if (!svgDocument(el).attr('data-zone-access') && access) svgDocument(el).attr('data-zone-access', access);
-          if (!svgDocument(el).attr('data-zone-meta') && meta) {
+          if (!doc(el).attr(targetAttr)) doc(el).attr(targetAttr, key);
+          if (!doc(el).attr('data-zone-name') && name) doc(el).attr('data-zone-name', name);
+          if (!doc(el).attr('data-zone-type') && type) doc(el).attr('data-zone-type', type);
+          if (!doc(el).attr('data-zone-access') && access) doc(el).attr('data-zone-access', access);
+          if (!doc(el).attr('data-zone-meta') && meta) {
             const metaStr = Object.entries(meta).map(([k,v]) => `${k}:${v}`).join(';');
-            svgDocument(el).attr('data-zone-meta', metaStr);
+            doc(el).attr('data-zone-meta', metaStr);
           }
         }
-      }
+      };
+      if (writePlan && svgDocument) applyZoneAttrs(svgDocument);
 
       await ZoneCatalog.updateOne(
         { venueSlug, key },
@@ -354,20 +356,36 @@ function parseSvgZones($, attrs) {
       }
     }
 
-    // Enrich optional view with zone attributes
+    // Enrich optional view with zone attributes (copy plan if view is missing)
     if (viewPath) {
-      if (fs.existsSync(viewPath)) {
+      const ensureViewExists = () => {
+        if (fs.existsSync(viewPath)) return true;
+        if (!planPath || !fs.existsSync(planPath)) return false;
+        try {
+          fs.mkdirSync(path.dirname(viewPath), { recursive: true });
+          fs.copyFileSync(planPath, viewPath);
+          console.warn(`[import-zones] Vue ${viewSlug} absente. Copie de plan.svg vers views/${viewSlug}.svg avant enrichissement.`);
+          return true;
+        } catch (err) {
+          console.warn(`[import-zones] Vue ${viewSlug} introuvable à ${viewPath} et copie depuis plan.svg échouée: ${err?.message || err}`);
+          return false;
+        }
+      };
+
+      if (ensureViewExists()) {
         try {
           const viewSvg = fs.readFileSync(viewPath, 'utf8');
-          const $view = load(viewSvg);
+          const $view = load(viewSvg, { xmlMode: true });
           const setIfMissing = (el, attrName, value) => {
             if (!value) return;
             if ($view(el).attr(attrName)) return;
             $view(el).attr(attrName, value);
           };
           for (const [key, info] of zoneInfoMap.entries()) {
+            const escaped = key.replace(/([\\.])/g, '\\$1');
             let el = $view(`[data-zone-id="${key}"]`).get(0);
-            if (!el) el = $view(`#${key.replace(/([\\.])/g, '\\$1')}`).get(0);
+            if (!el) el = $view(`#${escaped}`).get(0);
+            if (!el) el = $view(`#zone_${escaped}`).get(0);
             if (!el) continue;
             setIfMissing(el, 'data-zone-id', key);
             setIfMissing(el, 'data-zone-name', info.name || '');
@@ -383,8 +401,6 @@ function parseSvgZones($, attrs) {
         } catch (err) {
           console.warn(`[import-zones] Impossible d'enrichir la vue ${viewSlug}: ${err?.message || err}`);
         }
-      } else {
-        console.warn(`[import-zones] Vue ${viewSlug} introuvable à ${viewPath}`);
       }
     }
 

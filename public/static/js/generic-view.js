@@ -367,9 +367,12 @@ function onPlanReady($obj) {
 function findSeatElement(sid) {
   const doc = CTX.svgDoc;
   if (!doc) return null;
+  const escapedId = sid.replace(/([\\.])/g, '\\$1');
   const queries = [
     `[data-seat-id="${sid}"]`,
-    `[data-seat="${sid}"]`
+    `[data-seat="${sid}"]`,
+    `#${escapedId}`,
+    `#seat_${escapedId}`
   ];
   for (const sel of queries) {
     const el = doc.querySelector(sel);

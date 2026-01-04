@@ -74,6 +74,8 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .event-selector{display:flex;flex-direction:column;gap:8px}
 .event-selector select{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #1f2937;background:#0f1622;color:var(--fg)}
 .event-selector select:focus{outline:1px solid #1d4ed8}
+.gate-group{flex:1 1 180px;min-width:180px;display:flex;flex-direction:column;gap:6px}
+.gate-group input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #1f2937;background:#0f1622;color:var(--fg)}
 .auth-group{flex:2 1 420px;min-width:260px;display:flex;flex-direction:column;gap:10px}
 .auth-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .auth-fields{display:flex;flex-wrap:wrap;gap:12px}

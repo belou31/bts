@@ -10,8 +10,109 @@ import { Tariff } from '../models/Tariff.js';
 import { isSubscriptionOrder } from '../utils/subscription.js';
 
 // --- Emplacements / chemins par défaut
-const DEFAULT_TEMPLATE = path.resolve(process.cwd(), 'data', 'templates', 'pdf', 'ticket.svg');
-const DEFAULT_LOGO     = path.resolve(process.cwd(), 'data', 'customization', 'assets', 'logo.svg');
+const TICKET_ROOT_RUNTIME     = path.resolve(process.cwd(), 'data', 'templates');
+const TICKET_ROOT_REF         = path.resolve(process.cwd(), 'data_references', 'templates');
+const TICKET_CONFIG_RUNTIME   = path.resolve(TICKET_ROOT_RUNTIME, 'templates.json');
+const TICKET_CONFIG_TEMPLATE  = path.resolve(TICKET_ROOT_REF, 'templates.json');
+const TICKET_DIR_RUNTIME      = path.join(TICKET_ROOT_RUNTIME, 'tickets');
+const TICKET_DIR_DATA         = path.join(TICKET_ROOT_REF, 'tickets');
+const DEFAULT_LOGO            = path.resolve(process.cwd(), 'public', 'dynamic', 'assets', 'logo.svg');
+
+const DEFAULT_TICKET_CONFIG = {
+  templates: {
+    default: {
+      file: 'ticket.svg',
+      logo: 'dynamic/assets/logo.svg'
+    },
+    subscription: {
+      file: 'ticket.svg',
+      logo: 'dynamic/assets/logo.svg'
+    },
+    event: {
+      file: 'ticket.svg',
+      logo: 'dynamic/assets/logo.svg'
+    },
+    public: {
+      file: 'ticket.svg',
+      logo: 'dynamic/assets/logo.svg'
+    }
+  }
+};
+
+let TICKET_CONFIG_CACHE = null;
+
+async function readJsonIfExists(filePath) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function loadTicketConfig() {
+  if (TICKET_CONFIG_CACHE) return TICKET_CONFIG_CACHE;
+  const custom = await readJsonIfExists(TICKET_CONFIG_RUNTIME);
+  const templ  = await readJsonIfExists(TICKET_CONFIG_TEMPLATE);
+  const base = custom || templ || {};
+  const section =
+    (base.tickets && base.tickets.templates)
+    || (base.templates && base.templates.tickets)
+    || base.templates
+    || base.tickets
+    || {};
+  const merged = { ...DEFAULT_TICKET_CONFIG.templates };
+
+  if (section && typeof section === 'object') {
+    for (const [key, entry] of Object.entries(section)) {
+      if (!entry || typeof entry !== 'object') continue;
+      const file = entry.file || entry.template || entry.name;
+      if (!file) continue;
+      merged[key] = {
+        file,
+        logo: entry.logo || merged[key]?.logo || null
+      };
+    }
+  }
+
+  TICKET_CONFIG_CACHE = merged;
+  return merged;
+}
+
+async function resolveTicketFile(name) {
+  const fname = name.endsWith('.svg') ? name : `${name}.svg`;
+  const runtimePath = path.resolve(TICKET_DIR_RUNTIME, fname);
+  if (await fs.stat(runtimePath).then(st => st.isFile()).catch(() => false)) return runtimePath;
+  const dataPath = path.resolve(TICKET_DIR_DATA, fname);
+  if (await fs.stat(dataPath).then(st => st.isFile()).catch(() => false)) return dataPath;
+  const rootRuntimePath = path.resolve(TICKET_ROOT_RUNTIME, fname);
+  if (await fs.stat(rootRuntimePath).then(st => st.isFile()).catch(() => false)) return rootRuntimePath;
+  const rootRefPath = path.resolve(TICKET_ROOT_REF, fname);
+  if (await fs.stat(rootRefPath).then(st => st.isFile()).catch(() => false)) return rootRefPath;
+  // Absolute path provided
+  if (path.isAbsolute(name) && await fs.stat(name).then(st => st.isFile()).catch(() => false)) return name;
+  return null;
+}
+
+async function resolveLogoPath(logoRef) {
+  const candidate = logoRef || '';
+  if (path.isAbsolute(candidate)) {
+    if (await fs.stat(candidate).then(st => st.isFile()).catch(() => false)) return candidate;
+  } else if (candidate) {
+    const runtime = path.resolve(TICKET_DIR_RUNTIME, candidate);
+    if (await fs.stat(runtime).then(st => st.isFile()).catch(() => false)) return runtime;
+    const data = path.resolve(TICKET_DIR_DATA, candidate);
+    if (await fs.stat(data).then(st => st.isFile()).catch(() => false)) return data;
+    const runtimeRoot = path.resolve(TICKET_ROOT_RUNTIME, candidate);
+    if (await fs.stat(runtimeRoot).then(st => st.isFile()).catch(() => false)) return runtimeRoot;
+    const refRoot = path.resolve(TICKET_ROOT_REF, candidate);
+    if (await fs.stat(refRoot).then(st => st.isFile()).catch(() => false)) return refRoot;
+    const absoluteFromRoot = path.resolve(process.cwd(), candidate);
+    if (await fs.stat(absoluteFromRoot).then(st => st.isFile()).catch(() => false)) return absoluteFromRoot;
+  }
+  if (await fs.stat(DEFAULT_LOGO).then(st => st.isFile()).catch(() => false)) return DEFAULT_LOGO;
+  return null;
+}
 
 // util pour récupérer le label depuis l'évènement (fallback saison/lieu)
 async function loadTariffLabelMap(ev) {
@@ -168,12 +269,28 @@ export async function buildTicketsPdfBuffer(order) {
   const tariffLabels = await loadTariffLabelMap(ev);
   const subscriptionMode = isSubscriptionOrder(order);
 
+  const kind = ev ? 'event' : (subscriptionMode ? 'subscription' : 'public');
+  const config = await loadTicketConfig();
+  const tplEntry = config[kind] || config.default;
+
   // --- Charge le template & le logo (fichiers)
-  const tplPath  = process.env.TICKET_SVG_TEMPLATE || DEFAULT_TEMPLATE;
-  const logoPath = process.env.CLUB_LOGO_SVG_PATH || DEFAULT_LOGO;
+  const tplPathEnv = process.env.TICKET_SVG_TEMPLATE;
+  let tplPath = null;
+  if (tplPathEnv && await fs.stat(tplPathEnv).then(st => st.isFile()).catch(()=>false)) {
+    tplPath = tplPathEnv;
+  } else {
+    tplPath = await resolveTicketFile(tplEntry?.file || 'ticket.svg');
+  }
+  if (!tplPath) throw new Error('Ticket template not found (see data/templates/templates.json under tickets.templates)');
   const rawSvg   = await fs.readFile(tplPath, 'utf8');
-  let   logoSvg  = '';
-  try { logoSvg = await fs.readFile(logoPath, 'utf8'); } catch {}
+
+  const logoPathEnv = process.env.CLUB_LOGO_SVG_PATH;
+  const logoPath = logoPathEnv || (tplEntry?.logo ?? null);
+  let logoSvg  = '';
+  const resolvedLogo = await resolveLogoPath(logoPath);
+  if (resolvedLogo) {
+    try { logoSvg = await fs.readFile(resolvedLogo, 'utf8'); } catch {/* ignore */}
+  }
 
 
   return await new Promise(async (resolve, reject) => {

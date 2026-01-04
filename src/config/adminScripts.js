@@ -28,7 +28,7 @@ export const adminScriptGroups = [
         },
         description: 'Drops the MongoDB database defined in .env. Requires the --force flag to avoid accidental wipes.',
         danger: true,
-        templates: ['data_templates/env/.env.template'],
+        templates: ['data_references/env/.env.template'],
         notes: [
           'Make sure the MongoDB URI points to the intended environment before running.',
           'Include --force to acknowledge the drop command.'
@@ -56,8 +56,8 @@ export const adminScriptGroups = [
           script: 'scripts/00-system-management/customize-app.js',
           args: []
         },
-        description: 'Stages organization assets (favicon, logos, app icons) to public/dynamic/assets (kept in sync with data/customization/assets) and saves metadata under data/customization.',
-        templates: ['data_templates/customization/app.json'],
+        description: 'Stages organization assets (favicon, logos, app icons) to public/dynamic/assets and saves metadata under data/customization.',
+        templates: ['data_references/customization/app.json'],
         notes: [
           'Input files can be referenced by absolute path or relative to data/inputs.',
           'Use --dry-run to preview the configuration without writing files.',
@@ -221,7 +221,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Loads renewal subscribers from a simple CSV (one seat per row) and marks them as invited.',
-        templates: ['data_templates/csv/renew-subscribers.template.csv'],
+        templates: ['data_references/csv/renew-subscribers.template.csv'],
         form: {
           fields: [
             {
@@ -295,7 +295,7 @@ export const adminScriptGroups = [
           'Requires JWT_SECRET and a public base URL (use --base to override APP_URL).',
           'Résultats déposés par défaut dans data/outputs.'
         ],
-        templates: ['data_templates/csv/renew-groups.template.csv'],
+        templates: ['data_references/csv/renew-groups.template.csv'],
         form: {
           fields: [
             {
@@ -344,7 +344,7 @@ export const adminScriptGroups = [
           'Dry-run activé par défaut depuis l’interface ; décochez pour envoyer réellement.',
           'Le CSV doit contenir les colonnes email, renewUrl, firstName/lastName et optionnellement seats.'
         ],
-        templates: ['data_templates/csv/renew-groups.template.csv'],
+        templates: ['data_references/csv/renew-groups.template.csv'],
         form: {
           fields: [
             {
@@ -390,7 +390,7 @@ export const adminScriptGroups = [
           'Supports filters (--email, --group) and token expiration via --expires (ex: 30d).',
           'Fichier généré dans data/outputs (nom par défaut basé sur la saison).'
         ],
-        templates: ['data_templates/csv/renew-seats.template.csv'],
+        templates: ['data_references/csv/renew-seats.template.csv'],
         form: {
           fields: [
             {
@@ -491,7 +491,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Creates or updates the venue document with the provided slug and display name. Add --overwrite to replace an existing SVG plan.',
-        templates: ['data_templates/files/plan.svg'],
+        templates: ['data_references/files/plan.svg'],
         form: {
           fields: [
             {
@@ -530,7 +530,7 @@ export const adminScriptGroups = [
         },
         description: 'Parses the venue plan SVG (under public/dynamic/venues/<slug>/plan.svg) and stores seats in the catalog. Optionally merge overrides from a CSV mapping (seatId, zoneKey, row, number). When --view is provided, the matching view is also enriched with seat attributes.',
         templates: [
-          'data_templates/csv/seats.template.csv'
+          'data_references/csv/seats.template.csv'
         ],
         form: {
           fields: [
@@ -568,7 +568,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Maintains the ZoneCatalog for a venue from CSV and/or the persisted SVG plan (data-zone-id by default) under public/dynamic/venues/<slug>/plan.svg. Instantiate zones per season afterwards. When --view is provided, the matching view is also enriched with zone attributes.',
-        templates: ['data_templates/csv/zones.template.csv'],
+        templates: ['data_references/csv/zones.template.csv'],
         form: {
           fields: [
             {
@@ -605,7 +605,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Copies a custom view to public/dynamic/venues/<slug>/views/<viewSlug>.svg (no enrichment).',
-        templates: ['data_templates/files/plan.svg'],
+        templates: ['data_references/files/plan.svg'],
         form: {
           fields: [
             {
@@ -651,7 +651,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Imports the master tariff catalog (code, label, justification requirements).',
-        templates: ['data_templates/csv/tariff-catalog.template.csv'],
+        templates: ['data_references/csv/tariff-catalog.template.csv'],
         form: {
           fields: [
             {
@@ -704,7 +704,7 @@ export const adminScriptGroups = [
           'Supports list and matrix CSV formats; override detection with --format=list|matrix.',
           'Use --venue=<slug> to scope prices to a specific arena; omit to keep them global.'
         ],
-        templates: ['data_templates/csv/tariff-prices.template.csv'],
+        templates: ['data_references/csv/tariff-prices.template.csv'],
         form: {
           fields: [
             {
@@ -1073,7 +1073,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Re-import subscription orders exported from the system. Dry-run by default; add --commit to apply changes.',
-        templates: ['data_templates/csv/orders-export.template.csv'],
+        templates: ['data_references/csv/orders-export.template.csv'],
         form: {
           fields: [
             {
@@ -1115,7 +1115,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Exports the renewer registry (formerly Subscribers collection) for the requested season/venue.',
-        templates: ['data_templates/csv/subscribers-export.template.csv'],
+        templates: ['data_references/csv/subscribers-export.template.csv'],
         form: {
           fields: [
             {
@@ -1145,7 +1145,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Exports orders with phase=subscription. Useful to audit new season sales.',
-        templates: ['data_templates/csv/orders-export.template.csv'],
+        templates: ['data_references/csv/orders-export.template.csv'],
         form: {
           fields: [
             {
@@ -1183,7 +1183,7 @@ export const adminScriptGroups = [
         notes: [
           'Runs in dry-run by default; add --commit to persist and --force to override non-held seats.'
         ],
-        templates: ['data_templates/csv/seats-hold-release.template.csv'],
+        templates: ['data_references/csv/seats-hold-release.template.csv'],
         form: {
           fields: [
             {
@@ -1493,7 +1493,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Re-import or create paid event orders from a CSV export. Dry-run by default; add --commit to persist and --sendEmail to trigger confirmations.',
-        templates: ['data_templates/csv/event-orders.template.csv'],
+        templates: ['data_references/csv/event-orders.template.csv'],
         form: {
           fields: [
             {
@@ -1552,7 +1552,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Exports event orders (one row per ticket) matching the same CSV format as the import tool.',
-        templates: ['data_templates/csv/event-orders.template.csv'],
+        templates: ['data_references/csv/event-orders.template.csv'],
         notes: [
           'Streams to stdout by default; provide --out to write directly to a file.'
         ],
@@ -1656,7 +1656,7 @@ export const adminScriptGroups = [
         notes: [
           'Without --commit the script runs in dry-run mode; add --force to overwrite existing holds.'
         ],
-        templates: ['data_templates/csv/seats-hold-release.template.csv'],
+        templates: ['data_references/csv/seats-hold-release.template.csv'],
         form: {
           fields: [
             {
@@ -1865,7 +1865,7 @@ export const adminScriptGroups = [
         ],
         form: {
           fields: [
-            { name: 'slug', label: 'Slug', placeholder: 'cseairbus', required: true, arg: { type: 'option', template: '--slug=${value}' } },
+            { name: 'partner', label: 'Slug', placeholder: 'cseairbus', required: true, arg: { type: 'option', template: '--slug=${value}' } },
             { name: 'name', label: 'Nom affiché', placeholder: 'CSE Airbus', required: true, arg: { type: 'option', template: '--name=${value}' } },
             { name: 'paymentMode', label: 'Mode de paiement', placeholder: 'psp | invoice_auto', arg: { type: 'option', template: '--payment-mode=${value}' } },
             { name: 'allowPublicTariffs', label: 'Autoriser les tarifs publics', hint: 'yes|no (par défaut: no). Si yes, les tarifs publics seront accessibles en fallback.', arg: { type: 'option', template: '--allow-public-tariffs=${value}' } },
@@ -1938,7 +1938,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Import partners from CSV into data/customization/partners.json; merges by default, or replaces when --replace is provided.',
-        templates: ['data_templates/csv/partners.template.csv'],
+        templates: ['data_references/csv/partners.template.csv'],
         notes: [
           'Columns: slug,name,paymentMode,allowedOrigins,frameAncestors,paymentProvider,payButtonLabel,successMessage,errorMessage,autoFinalize,sendTickets,uiHeading,uiLead,uiPaymentHelp.'
         ],
@@ -1965,7 +1965,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Export partners.json to CSV (stdout or --out=<file>).',
-        templates: ['data_templates/csv/partners.template.csv'],
+        templates: ['data_references/csv/partners.template.csv'],
         form: {
           fields: [
             {
@@ -2076,7 +2076,7 @@ export const adminScriptGroups = [
         notes: [
           'Writes to stdout; redirect to a file if you need a persistent export.'
         ],
-        templates: ['data_templates/csv/orders-export.template.csv'],
+        templates: ['data_references/csv/orders-export.template.csv'],
         form: {
           fields: [
             {
@@ -2168,7 +2168,7 @@ export const adminScriptGroups = [
         notes: [
           'Combines seat availability with latest paid order info for each seat.'
         ],
-        templates: ['data_templates/csv/seats-export.template.csv'],
+        templates: ['data_references/csv/seats-export.template.csv'],
         form: {
           fields: [
             {

@@ -589,7 +589,8 @@
         </div>
 
         <div class="io-subsection">
-          <h3>Assets dynamiques (public/dynamic/assets)</h3>
+          <h3>Public (public/dynamic)</h3>
+          <div class="muted">Assets dynamiques (public/dynamic/assets)</div>
           <% if (!dynamicAssetsList || !dynamicAssetsList.length) { %>
             <div class="muted">Aucun asset dynamique pour le moment.</div>
           <% } else { %>
@@ -606,10 +607,7 @@
               <% } %>
             </ul>
           <% } %>
-        </div>
-
-        <div class="io-subsection">
-          <h3>Lieux (public/dynamic/venues)</h3>
+          <div class="muted" style="margin-top:8px;">Lieux (public/dynamic/venues)</div>
           <% if (!venueResources || !venueResources.length) { %>
             <div class="muted">Aucun plan ou vue détecté.</div>
           <% } else { %>
@@ -639,6 +637,26 @@
             </ul>
           <% } %>
         </div>
+
+        <div class="io-subsection">
+          <h3>Templates (data/templates)</h3>
+          <% if (!dataTemplatesList || !dataTemplatesList.length) { %>
+            <div class="muted">Aucun template détecté.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of dataTemplatesList || []) {
+                   const tplUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li>
+                  <code><%= file.rel %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= tplUrl %>" download="<%= file.name %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+        </div>
       </section>
     </div>
   <% } %>
@@ -647,13 +665,13 @@
     <div class="operations-grid io-layout">
       <section class="card io-card">
         <h2>.env & Customization</h2>
-        <h3>.env (data_templates/env)</h3>
+        <h3>.env (data_references/env)</h3>
         <% if (!templatesEnv || !templatesEnv.length) { %>
-          <div class="muted">Aucun fichier détecté dans data_templates/env.</div>
+          <div class="muted">Aucun fichier détecté dans data_references/env.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of templatesEnv || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/env/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/env/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -665,13 +683,13 @@
           </ul>
         <% } %>
 
-        <h3>Customizations (data_templates/customization)</h3>
+        <h3>Customizations (data_references/customization)</h3>
         <% if (!customizationList || !customizationList.length) { %>
           <div class="muted">Aucune customization détectée.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of customizationList || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -685,14 +703,14 @@
       </section>
 
       <section class="card io-card">
-        <h2>Templates e-mail & PDF</h2>
-        <h3>E-mail (data_templates/email)</h3>
+        <h2>Templates e-mail & Tickets</h2>
+        <h3>E-mail (data_references/templates/email)</h3>
         <% if (!templatesEmail || !templatesEmail.length) { %>
-          <div class="muted">Aucun template détecté dans data_templates/email.</div>
+          <div class="muted">Aucun template détecté dans data_references/templates/email.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of templatesEmail || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/email/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/email/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -704,13 +722,13 @@
           </ul>
         <% } %>
 
-        <h3>PDF (data_templates/pdf)</h3>
-        <% if (!templatesPdf || !templatesPdf.length) { %>
-          <div class="muted">Aucun template détecté dans data_templates/pdf.</div>
+        <h3>Tickets (data_references/templates/tickets)</h3>
+        <% if (!templatesTickets || !templatesTickets.length) { %>
+          <div class="muted">Aucun template détecté dans data_references/templates/tickets.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
-            <% for (const file of templatesPdf || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/pdf/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            <% for (const file of templatesTickets || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/tickets/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -725,13 +743,13 @@
 
       <section class="card io-card">
         <h2>Templates CSV & SVG</h2>
-        <h3>CSV (data_templates/csv)</h3>
+        <h3>CSV (data_references/csv)</h3>
         <% if (!templatesCsv || !templatesCsv.length) { %>
-          <div class="muted">Aucun template détecté dans data_templates/csv.</div>
+          <div class="muted">Aucun template détecté dans data_references/csv.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of templatesCsv || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/csv/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/csv/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -743,13 +761,13 @@
           </ul>
         <% } %>
 
-        <h3>SVG (data_templates/svg)</h3>
+        <h3>SVG (data_references/svg)</h3>
         <% if (!templatesSvg || !templatesSvg.length) { %>
-          <div class="muted">Aucun template détecté dans data_templates/svg.</div>
+          <div class="muted">Aucun template détecté dans data_references/svg.</div>
         <% } else { %>
           <ul class="file-list scroll-limited">
             <% for (const file of templatesSvg || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_templates/svg/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/svg/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.rel %></code>
@@ -870,14 +888,11 @@
                            && opt.inputFiles.length
                            && field.placeholder
                            && field.placeholder.startsWith('data/inputs');
-                         const hasAssetFiles =
-                           Array.isArray(opt.assetFiles)
-                           && opt.assetFiles.length
-                           && field.placeholder
-                           && (
-                             field.placeholder.startsWith('public/dynamic/assets')
-                             || field.placeholder.startsWith('data/customization/assets')
-                           );
+                          const hasAssetFiles =
+                            Array.isArray(opt.assetFiles)
+                            && opt.assetFiles.length
+                            && field.placeholder
+                           && field.placeholder.startsWith('public/dynamic/assets');
                          const hasCustomizationFiles =
                            Array.isArray(opt.customizationFiles)
                            && opt.customizationFiles.length
@@ -890,7 +905,8 @@
                          const hasSeasonSelect = !freeSeasonField && field.name === 'season' && Array.isArray(opt.seasons) && opt.seasons.length;
                          const hasVenueSelect = field.name === 'venue' && Array.isArray(opt.venues) && opt.venues.length;
                          const hasVenueViewSelect = field.name === 'venueView' && Array.isArray(opt.venueViews) && opt.venueViews.length;
-                         const hasPartnerSelect = field.name === 'partner' && Array.isArray(opt.partners) && opt.partners.length;
+                         const isPartnerField = (field.name === 'partner' || field.name === 'partnerSlug' || (field.name === 'slug' && group.id === '05-partner-management'));
+                         const hasPartnerSelect = isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
                           const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
                           const defaultValue = (field.placeholder && field.placeholder.startsWith('data/outputs/'))
                            ? field.placeholder

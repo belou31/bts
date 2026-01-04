@@ -37,11 +37,13 @@ import { adminScriptGroups, getAdminScript } from '../../config/adminScripts.js'
 const router = express.Router();
 
 const ROOT_DIR = process.cwd();
-const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data_templates');
+const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data_references');
 const CUSTOM_ROOT = path.resolve(ROOT_DIR, 'data/customization');
+const DATA_TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
 const DYNAMIC_ROOT = path.resolve(ROOT_DIR, 'public/dynamic');
 const DYNAMIC_ASSETS_ROOT = path.resolve(DYNAMIC_ROOT, 'assets');
 const DYNAMIC_VENUES_ROOT = path.resolve(DYNAMIC_ROOT, 'venues');
+const PUBLIC_TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'public/templates');
 const OUTPUTS_ROOT = path.resolve(ROOT_DIR, 'data/outputs');
 const INPUTS_ROOT = path.resolve(ROOT_DIR, 'data/inputs');
 for (const dir of [OUTPUTS_ROOT, INPUTS_ROOT, DYNAMIC_ASSETS_ROOT, DYNAMIC_VENUES_ROOT]) {
@@ -528,6 +530,7 @@ router.get('/io', (req, res) => {
   const inputsList = listFiles(INPUTS_ROOT);
   const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
   const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
+  const dataTemplatesList = listTemplatesRecursive(DATA_TEMPLATES_ROOT);
   const venueResources = listVenueResources();
   const venueViews = listVenueViews();
 
@@ -560,7 +563,8 @@ router.get('/io', (req, res) => {
     monitorTab: 'tariffs',
     monitoring: null,
     dynamicAssetsList,
-    venueResources
+    venueResources,
+    dataTemplatesList
   });
 });
 
@@ -569,8 +573,8 @@ router.get('/templates', (req, res) => {
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
-  const emailTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'email'));
-  const pdfTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'pdf'));
+  const emailTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'email'));
+  const ticketTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'tickets'));
   const csvTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'csv'));
   const envTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'env'));
   const svgTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'svg'));
@@ -590,7 +594,7 @@ router.get('/templates', (req, res) => {
     outputsList: [],
     inputsList: [],
     templatesEmail: emailTemplates,
-    templatesPdf: pdfTemplates,
+    templatesTickets: ticketTemplates,
     templatesCsv: csvTemplates,
     templatesEnv: envTemplates,
     templatesSvg: svgTemplates,
@@ -1539,10 +1543,20 @@ router.get('/templates/download', (req, res) => {
   if (!rawPath) return res.status(400).send('Missing template path');
   try {
     const isCustomization = rawPath.startsWith('data/customization');
-    const baseRoot = isCustomization ? CUSTOM_ROOT : TEMPLATES_ROOT;
+    const isDataTemplates = rawPath.startsWith('data/templates');
+    const baseRoot = isCustomization
+      ? CUSTOM_ROOT
+      : isDataTemplates
+        ? DATA_TEMPLATES_ROOT
+        : TEMPLATES_ROOT;
     const relative = isCustomization
       ? rawPath.replace(/^data\/customization\/?/, '')
-      : rawPath.replace(/^(?:scripts|data)\/templates\/?/, '');
+      : isDataTemplates
+        ? rawPath.replace(/^data\/templates\/?/, '')
+      : rawPath
+          .replace(/^data_references\/?/, '')
+          .replace(/^data_templates\/?/, '')
+          .replace(/^(?:scripts|data)\/templates\/?/, '');
     const abs = resolveInside(baseRoot, relative);
     const filename = path.basename(abs);
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {

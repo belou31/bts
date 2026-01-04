@@ -10,7 +10,7 @@
 
 - All scripts are grouped by lifecycle stage in `src/config/adminScripts.js`.
 - The admin UI mirrors this catalog, offering descriptions, notes, and runnable actions.
-- Boilerplate data lives under `data_templates/`:
+- Boilerplate data lives under `data_references/`:
   - `env/.env.template` — copy to `.env` before running scripts.
   - `csv/*.template.csv` — column layouts for imports/exports.
   - `files/plan.svg` — starter seating plan to customise per venue.

@@ -10,7 +10,7 @@
  *
  * Behaviour:
  *   - Reads/writes data/customization/app.json to store display names and public asset paths.
- *   - Copies favicon, logos, and app icons into data/customization/assets and mirrors them to public/dynamic/assets/.
+ *   - Copies favicon, logos, and app icons into public/dynamic/assets.
  *   - All command paths can be absolute or relative; relative paths resolve from repo root or data/inputs.
  *
  * Notes:
@@ -24,7 +24,6 @@ import path from 'path';
 const ROOT = process.cwd();
 const INPUT_ROOT = path.resolve(ROOT, 'data/inputs');
 const CUSTOMIZATION_ROOT = path.resolve(ROOT, 'data/customization');
-const CUSTOM_ASSETS_DIR = path.join(CUSTOMIZATION_ROOT, 'assets');
 const METADATA_PATH = path.join(CUSTOMIZATION_ROOT, 'app.json');
 const PUBLIC_IMG_DIR = path.resolve(ROOT, 'public/dynamic/assets');
 const PUBLIC_ROOT = path.resolve(ROOT, 'public');
@@ -88,10 +87,6 @@ function ensureDir(dirPath, dryRun) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
-function toRel(p) {
-  return path.relative(CUSTOMIZATION_ROOT, p).split(path.sep).join('/');
-}
-
 function toPublicRel(p) {
   return path.relative(PUBLIC_ROOT, p).split(path.sep).join('/');
 }
@@ -112,7 +107,6 @@ function readExistingMetadata() {
     return {
       organizationName: parsed.organizationName || '',
       shortName: parsed.shortName || '',
-      assets: parsed.assets || {},
       publicAssets: parsed.publicAssets || {},
       notes: parsed.notes || ''
     };
@@ -148,15 +142,9 @@ function stagePublicAsset(options, metadata, optionKey, propKey, destFilename, a
     process.exit(1);
   }
 
-  ensureDir(CUSTOM_ASSETS_DIR, dryRun);
-  const customDestination = path.join(CUSTOM_ASSETS_DIR, destFilename);
-  console.log(`• ${destFilename} ← ${resolved} (→ data/customization/assets + dynamic/assets)`);
-  copyFile(resolved, customDestination, dryRun);
-  metadata.assets = metadata.assets || {};
-  metadata.assets[propKey] = toRel(customDestination);
-
   ensureDir(PUBLIC_IMG_DIR, dryRun);
   const publicDestination = path.join(PUBLIC_IMG_DIR, destFilename);
+  console.log(`• ${destFilename} ← ${resolved} (→ public/dynamic/assets)`);
   copyFile(resolved, publicDestination, dryRun);
   metadata.publicAssets = metadata.publicAssets || {};
   metadata.publicAssets[propKey] = toPublicRel(publicDestination);
