@@ -11,7 +11,7 @@ const VenueZoneSchema = new mongoose.Schema({
 const VenueSchema = new mongoose.Schema({
   slug:   { type: String, unique: true, index: true }, // ex: "patinoire-bdl"
   name:   { type: String, required: true },
-  svgPath:{ type: String, required: true },            // ex: /public/venues/patinoire-bdl/plan.svg
+  svgPath:{ type: String, required: true },            // ex: /dynamic/venues/patinoire-bdl/plan.svg
   zones:  { type: [VenueZoneSchema], default: [] }
 }, { timestamps: true });
 

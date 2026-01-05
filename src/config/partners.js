@@ -3,49 +3,6 @@
 import fs from 'fs';
 import path from 'path';
 
-const DEFAULT_CONFIGS = [
-  {
-    slug: 'cseairbus',
-    name: 'CSE Airbus',
-    paymentMode: 'invoice_auto',
-    allowPublicTariffs: false,
-    frameAncestors: [],
-    allowedOrigins: [],
-    venueView: null,
-    admin: { user: null, pass: null },
-    reserve: {
-      status: 'paid',
-      paymentProvider: 'cseairbus_invoice',
-      autoFinalize: true,
-      sendTickets: true,
-      payButtonLabel: 'Envoyer ma demande',
-      successMessage: 'Votre demande a été enregistrée. Vous recevrez vos billets par email.',
-      errorMessage: 'Impossible d’enregistrer votre demande pour le moment. Réessayez dans quelques instants.'
-    },
-    ui: {
-      heading: 'Billetterie CSE Airbus',
-      lead: 'Sélectionnez vos places, envoyez la demande et recevez les billets.',
-      paymentHelp: 'Le CSE Airbus gère la facturation séparément. Les billets sont envoyés automatiquement après validation.'
-    }
-  },
-  {
-    slug: 'aisc',
-    name: 'AISC',
-    paymentMode: 'psp',
-    allowPublicTariffs: false,
-    frameAncestors: [],
-    allowedOrigins: [],
-    venueView: null,
-    admin: { user: null, pass: null },
-    reserve: null,
-    ui: {
-      heading: 'Billetterie AISC',
-      lead: 'Accédez à la billetterie négociée par AISC.',
-      paymentHelp: 'Paiement sécurisé via BTS.'
-    }
-  }
-];
-
 function loadCustomConfigs() {
   try {
     const file = path.resolve(process.cwd(), 'data', 'customization', 'partners.json');
@@ -61,7 +18,7 @@ function loadCustomConfigs() {
 
 function mergeConfigs(customList) {
   const map = new Map();
-  const all = [...DEFAULT_CONFIGS, ...customList];
+  const all = [...customList];
   all.forEach(cfg => {
     if (!cfg?.slug) return;
     const key = String(cfg.slug).trim().toLowerCase();

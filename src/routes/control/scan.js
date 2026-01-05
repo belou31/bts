@@ -931,7 +931,8 @@ router.post(['/control/api/scan', '/api/scan'], requireScanner, async (req, res)
 function renderScanView(req, res) {
   const bp = basePath();
   const scope = `${bp}/control/scan/`.replace(/\/{2,}/g, '/');
-  const assetBase = `${bp}/static/`.replace(/\/{2,}/g, '/');
+  const staticBase = `${bp}/static/`.replace(/\/{2,}/g, '/');
+  const assetsBase = `${bp}/dynamic/assets/`.replace(/\/{2,}/g, '/');
   const eventSlug = String(req.params?.eventSlug || req.query?.event || req.query?.eventSlug || '').trim();
 
   const forward = new URLSearchParams();
@@ -955,7 +956,8 @@ function renderScanView(req, res) {
     title: 'Contrôle d’accès — BTS',
     basePath: bp,
     scope,
-    assetBase,
+    staticBase,
+    assetsBase,
     forwardedQuery: forward.toString()
   });
 }
@@ -1030,6 +1032,7 @@ router.get(['/scan', '/scan/:eventSlug([\w-]+)'], (req, res) => {
 router.get(['/control/scan/manifest.webmanifest', '/scan/manifest.webmanifest'], (req,res) => {
   const bp = basePath();
   const scope = `${bp}/control/scan/`.replace(/\/{2,}/g, '/');
+  const assetBase = `${bp}/dynamic/assets/`.replace(/\/{2,}/g, '/');
   const manifest = {
     name: 'BTS Contrôle',
     short_name: 'BTS Scan',
@@ -1039,8 +1042,8 @@ router.get(['/control/scan/manifest.webmanifest', '/scan/manifest.webmanifest'],
     background_color: '#0b0f17',
     theme_color: '#0b0f17',
     icons: [
-      { src: 'static/img/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-      { src: 'static/img/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+      { src: `${assetBase}icon-192.png`, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+      { src: `${assetBase}icon-512.png`, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
     ]
   };
   res.type('application/manifest+json').send(JSON.stringify(manifest));

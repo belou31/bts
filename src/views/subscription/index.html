@@ -6,16 +6,18 @@
   <title>Abonnement — BTS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- IMPORTANT : chemins relatifs à /bts/ -->
-  <link rel="icon" href="static/img/favicon.ico">
+  <link rel="icon" href="dynamic/assets/favicon.ico">
   <link rel="stylesheet" href="static/styles/generic-view.css">
 </head>
 <body>
   <header class="site-header">
     <div class="brand">
-      <img src="static/img/logo.png" alt="Logo" class="logo">
+      <img src="dynamic/assets/logo.png" alt="Logo" class="logo">
       <h1 id="pageTitle">Renouvellement d’abonnement</h1>
     </div>
-    <p>L'abonnement donne accès à tous les matchs à domicile des Bélougas D2, D3 et Féminin Elite, pour la saison régulière, les playoffs et les matchs amicaux</p>
+    <p data-custo-key="subscription.lead" data-custo-default="L'abonnement donne accès à tous les matchs à domicile des Bélougas D2, D3 et Féminin Elite, pour la saison régulière, les playoffs et les matchs amicaux.">
+      L'abonnement donne accès à tous les matchs à domicile des Bélougas D2, D3 et Féminin Elite, pour la saison régulière, les playoffs et les matchs amicaux
+    </p>
   </header>
 
 <main class="page" id="page">
@@ -49,7 +51,7 @@
           <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="Plan de la salle"></object>
           <div class="plan-status">Molette pour zoomer, cliquer-glisser pour déplacer.</div>
         </div>
-        <div class="help">Cliquer sur un siège ou une zone (DEBOUT, TBH7, TBH7 VIRAGE).</div>
+        <div class="help">Cliquez sur un siège ou directement sur une zone du plan.</div>
       </div>
     </section>
 
@@ -123,7 +125,6 @@
     </section>
   </main>
 
-  <!-- Config spécifique TBH7 : on garde l’API GET/POST unique "s/tbh7" + query -->
 <script>
 window.BTS_VIEW_CONFIG = {
   title: 'Les Bélougas - Abonnements 2025-2026',
@@ -133,6 +134,7 @@ window.BTS_VIEW_CONFIG = {
     checkout:'api/season/2025-2026/checkout'
   },
   selection: { type: 'seats' },
+  venuePlanBase: 'dynamic/venues/',
   buildRowsFromData: false,          // ⬅️ empêche le pré-remplissage
   svgSeatClasses: { allowed: 'seat-allowed' } // ⬅️ décorrèle "allowed" de "available"
 

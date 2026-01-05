@@ -75,6 +75,14 @@
       transition: background 0.15s;
     }
     .btn:hover { background: #f3f6ff; }
+    .btn-danger {
+      color: var(--danger);
+      border-color: #f4c2c2;
+      background: #fff6f6;
+    }
+    .btn-danger:hover {
+      background: #ffecec;
+    }
     .btn-small { padding: 4px 8px; font-size: 12px; margin-left: 6px; margin-top: 0; }
     .btn-link { border: none; background: transparent; color: var(--accent); padding: 0; margin-left: 8px; cursor: pointer; font-weight: 500; }
     .btn-link:hover { text-decoration: underline; background: transparent; }
@@ -343,10 +351,15 @@
       margin-bottom: 24px;
     }
     .io-layout {
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 20px;
       align-items: stretch;
       min-height: calc(100vh - 160px);
+    }
+    @media (max-width: 1100px) {
+      .io-layout {
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
     }
     .io-card {
       display: flex;
@@ -444,6 +457,17 @@
       flex: 1;
       min-height: 320px;
     }
+    .io-subsection {
+      margin-top: 12px;
+    }
+    .io-subsection h3 {
+      margin-top: 0;
+      margin-bottom: 6px;
+    }
+    .io-subsection .muted {
+      margin-bottom: 8px;
+      display: block;
+    }
     .scroll-table {
       max-height: 240px;
       overflow: auto;
@@ -467,6 +491,7 @@
       <% const tokenQueryString = tokenQuery ? ('?' + tokenQuery) : ''; %>
       <a href="<%= urlFor('/admin/operate') %><%= tokenQueryString %>" class="<%= viewMode === 'operate' ? 'active' : '' %>">Exploitation</a>
       <a href="<%= urlFor('/admin/io') %><%= tokenQueryString %>" class="<%= viewMode === 'io' ? 'active' : '' %>">Data I/O</a>
+      <a href="<%= urlFor('/admin/templates') %><%= tokenQueryString %>" class="<%= viewMode === 'templates' ? 'active' : '' %>">Templates</a>
       <a href="<%= urlFor('/admin/monitor') %><%= tokenQueryString %>" class="<%= viewMode === 'monitor' ? 'active' : '' %>">Monitoring</a>
     </nav>
   </header>
@@ -487,6 +512,7 @@
         <% if (!inputsList || !inputsList.length) { %>
           <div class="muted">Ajoutez vos CSV/SVG grâce au bouton ci-dessus.</div>
         <% } else { %>
+          <% const deleteInputsUrl = urlFor('/admin/inputs/delete') + (tokenSuffix || ''); %>
           <ul class="file-list scroll-limited">
             <% for (const file of inputsList || []) {
                  const dlUrl = urlFor('/admin/inputs/download') + '?file=' + encodeURIComponent(file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
@@ -496,6 +522,13 @@
                 <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
                 <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
                 <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                <button
+                  type="button"
+                  class="btn btn-small btn-danger"
+                  data-delete-button
+                  data-delete-url="<%= deleteInputsUrl %>"
+                  data-file="<%= file.rel %>"
+                  data-label="Supprimer">Supprimer</button>
               </li>
             <% } %>
           </ul>
@@ -507,12 +540,237 @@
         <% if (!outputsList || !outputsList.length) { %>
           <div class="muted">Aucun export enregistré pour le moment.</div>
         <% } else { %>
+          <% const deleteOutputsUrl = urlFor('/admin/outputs/delete') + (tokenSuffix || ''); %>
           <ul class="file-list scroll-limited">
             <% for (const file of outputsList || []) {
                  const dlUrl = urlFor('/admin/outputs/download') + '?file=' + encodeURIComponent(file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
             %>
               <li>
                 <code><%= file.name %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                <button
+                  type="button"
+                  class="btn btn-small btn-danger"
+                  data-delete-button
+                  data-delete-url="<%= deleteOutputsUrl %>"
+                  data-file="<%= file.rel %>"
+                  data-label="Supprimer">Supprimer</button>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+
+      <section class="card io-card">
+        <div class="inputs-header">
+          <h2>Personnalisation (lecture seule)</h2>
+        </div>
+
+        <div class="io-subsection">
+          <h3>JSON (data/customization)</h3>
+          <% if (!customizationList || !customizationList.length) { %>
+            <div class="muted">Aucune personnalisation détectée.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of customizationList || []) {
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li>
+                  <code><%= file.rel %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+        </div>
+
+        <div class="io-subsection">
+          <h3>Public (public/dynamic)</h3>
+          <div class="muted">Assets dynamiques (public/dynamic/assets)</div>
+          <% if (!dynamicAssetsList || !dynamicAssetsList.length) { %>
+            <div class="muted">Aucun asset dynamique pour le moment.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of dynamicAssetsList || []) {
+                   const assetUrl = urlFor('/dynamic/assets/' + encodeURIComponent(file.rel));
+              %>
+                <li>
+                  <code><%= file.name %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= assetUrl %>" download="<%= file.name %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+          <div class="muted" style="margin-top:8px;">Lieux (public/dynamic/venues)</div>
+          <% if (!venueResources || !venueResources.length) { %>
+            <div class="muted">Aucun plan ou vue détecté.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const venue of venueResources) { %>
+                <li>
+                  <div><strong><%= venue.venueSlug %></strong></div>
+                  <% if (venue.plan) { const planUrl = urlFor('/' + venue.plan.rel); %>
+                    <div class="file-meta">Plan (<%= (venue.plan.size/1024).toFixed(1) %> KB)
+                      <a class="btn btn-small" href="<%= planUrl %>" download="plan.svg">Télécharger</a>
+                    </div>
+                  <% } else { %>
+                    <div class="file-meta muted">Plan manquant</div>
+                  <% } %>
+                  <% if (venue.views && venue.views.length) { %>
+                    <div class="file-meta">Vues :</div>
+                    <div class="file-meta" style="display:flex;flex-wrap:wrap;gap:6px;">
+                      <% for (const view of venue.views) { const viewUrl = urlFor('/' + view.rel); %>
+                        <a class="btn btn-small" href="<%= viewUrl %>" download="<%= view.slug %>.svg"><%= view.slug %></a>
+                      <% } %>
+                    </div>
+                  <% } else { %>
+                    <div class="file-meta muted">Aucune vue</div>
+                  <% } %>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+        </div>
+
+        <div class="io-subsection">
+          <h3>Templates (data/templates)</h3>
+          <% if (!dataTemplatesList || !dataTemplatesList.length) { %>
+            <div class="muted">Aucun template détecté.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of dataTemplatesList || []) {
+                   const tplUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li>
+                  <code><%= file.rel %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= tplUrl %>" download="<%= file.name %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+        </div>
+      </section>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'templates') { %>
+    <div class="operations-grid io-layout">
+      <section class="card io-card">
+        <h2>.env & Customization</h2>
+        <h3>.env (data_references/env)</h3>
+        <% if (!templatesEnv || !templatesEnv.length) { %>
+          <div class="muted">Aucun fichier détecté dans data_references/env.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesEnv || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/env/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+
+        <h3>Customizations (data_references/customization)</h3>
+        <% if (!customizationList || !customizationList.length) { %>
+          <div class="muted">Aucune customization détectée.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of customizationList || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+
+      <section class="card io-card">
+        <h2>Templates e-mail & Tickets</h2>
+        <h3>E-mail (data_references/templates/email)</h3>
+        <% if (!templatesEmail || !templatesEmail.length) { %>
+          <div class="muted">Aucun template détecté dans data_references/templates/email.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesEmail || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/email/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+
+        <h3>Tickets (data_references/templates/tickets)</h3>
+        <% if (!templatesTickets || !templatesTickets.length) { %>
+          <div class="muted">Aucun template détecté dans data_references/templates/tickets.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesTickets || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/tickets/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+
+      <section class="card io-card">
+        <h2>Templates CSV & SVG</h2>
+        <h3>CSV (data_references/csv)</h3>
+        <% if (!templatesCsv || !templatesCsv.length) { %>
+          <div class="muted">Aucun template détecté dans data_references/csv.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesCsv || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/csv/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+
+        <h3>SVG (data_references/svg)</h3>
+        <% if (!templatesSvg || !templatesSvg.length) { %>
+          <div class="muted">Aucun template détecté dans data_references/svg.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesSvg || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/svg/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
                 <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
                 <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
                 <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
@@ -622,7 +880,7 @@
                 <% if (script.form && script.form.fields && script.form.fields.length) { %>
                   <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'create-season'; const freeCatalogField = script.id === 'import-tariff-prices'; %>
                   <div class="script-form-grid">
-                    <% for (const field of script.form.fields) { 
+                  <% for (const field of script.form.fields) { 
                          const inputRole = script.id + ':' + field.name;
                          const fieldType = field.type || 'text';
                          const hasInputFiles =
@@ -630,6 +888,16 @@
                            && opt.inputFiles.length
                            && field.placeholder
                            && field.placeholder.startsWith('data/inputs');
+                          const hasAssetFiles =
+                            Array.isArray(opt.assetFiles)
+                            && opt.assetFiles.length
+                            && field.placeholder
+                           && field.placeholder.startsWith('public/dynamic/assets');
+                         const hasCustomizationFiles =
+                           Array.isArray(opt.customizationFiles)
+                           && opt.customizationFiles.length
+                           && field.placeholder
+                           && field.placeholder.startsWith('data/customization/');
                          const datalistId = hasInputFiles
                            ? `inputs-${inputRole.replace(/[^a-zA-Z0-9_-]/g, '')}`
                            : null;
@@ -637,7 +905,8 @@
                          const hasSeasonSelect = !freeSeasonField && field.name === 'season' && Array.isArray(opt.seasons) && opt.seasons.length;
                          const hasVenueSelect = field.name === 'venue' && Array.isArray(opt.venues) && opt.venues.length;
                          const hasVenueViewSelect = field.name === 'venueView' && Array.isArray(opt.venueViews) && opt.venueViews.length;
-                         const hasPartnerSelect = field.name === 'partner' && Array.isArray(opt.partners) && opt.partners.length;
+                         const isPartnerField = (field.name === 'partner' || field.name === 'partnerSlug' || (field.name === 'slug' && group.id === '05-partner-management'));
+                         const hasPartnerSelect = isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
                           const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
                           const defaultValue = (field.placeholder && field.placeholder.startsWith('data/outputs/'))
                            ? field.placeholder
@@ -713,6 +982,22 @@
                               <% } %>
                             </select>
                             <small class="field-hint">Sélection multiple permise (Cmd/Ctrl + clic).</small>
+                          <% } else if (hasAssetFiles) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Fichier dans data/inputs —</option>
+                              <% for (const file of (opt.assetFiles || [])) { const val = `data/inputs/${file}`; %>
+                                <option value="<%= val %>"><%= val %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Choisissez un fichier présent dans data/inputs ou saisissez un chemin personnalisé.</small>
+                          <% } else if (hasCustomizationFiles) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Fichier dans data/inputs —</option>
+                              <% for (const file of (opt.customizationFiles || [])) { const val = `data/inputs/${file}`; %>
+                                <option value="<%= val %>"><%= val %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Choisissez un fichier présent dans data/inputs ou saisissez un chemin personnalisé.</small>
                           <% } else if (hasInputFiles) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Fichier dans data/inputs —</option>
@@ -1770,6 +2055,44 @@
           reader.readAsDataURL(file);
         });
       });
+
+      const bindDeleteButtons = () => {
+        document.querySelectorAll('[data-delete-button]').forEach(button => {
+          if (button.dataset.deleteBound === '1') return;
+          button.dataset.deleteBound = '1';
+          const originalLabel = button.dataset.label || button.textContent || 'Supprimer';
+          button.addEventListener('click', async () => {
+            const file = button.dataset.file || '';
+            const url = button.dataset.deleteUrl || '';
+            if (!file || !url) return;
+            const confirmDelete = window.confirm(`Supprimer ${file} ?`);
+            if (!confirmDelete) return;
+            button.disabled = true;
+            button.textContent = '…';
+            try {
+              const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file })
+              });
+              let data = {};
+              try { data = await response.json(); } catch (_) {}
+              if (!response.ok || data.ok === false) {
+                alert(data.error || response.statusText);
+              } else {
+                const parent = button.closest('li');
+                if (parent) parent.remove();
+              }
+            } catch (err) {
+              alert(err && err.message ? err.message : err);
+            } finally {
+              button.disabled = false;
+              button.textContent = originalLabel;
+            }
+          });
+        });
+      };
+      bindDeleteButtons();
 
       /* ----- Attendance modal wiring ----- */
       const defaultEventSlug = <%- JSON.stringify((locals.monitoring && locals.monitoring.event && locals.monitoring.event.selectedEvent && locals.monitoring.event.selectedEvent.slug) ? locals.monitoring.event.selectedEvent.slug : '') %>;

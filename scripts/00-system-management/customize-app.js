@@ -1,18 +1,16 @@
 #!/usr/bin/env node
 /**
- * Customize application assets (names, icons, email templates).
+ * Customize application assets (names, icons).
  *
  * Usage:
  *   node scripts/00-system-management/customize-app.js --name="Club Name" [--short-name="BTS"]
  *     [--favicon=favicon.ico] [--logo-svg=logo.svg] [--logo-png=logo.png]
  *     [--icon-192=icon-192.png] [--icon-512=icon-512.png]
- *     [--email-template=templates/order-confirmation.json]
- *     [--email-templates=dir/of/templates] [--dry-run] [--show]
+ *     [--dry-run] [--show]
  *
  * Behaviour:
- *   - Reads/writes data/customization/app.json to store display names, public asset paths, and email templates.
- *   - Copies favicon, logos, and app icons into src/public/static/img/.
- *   - Copies provided email template JSON files or folders into data/customization/emails/.
+ *   - Reads/writes data/customization/app.json to store display names and public asset paths.
+ *   - Copies favicon, logos, and app icons into public/dynamic/assets.
  *   - All command paths can be absolute or relative; relative paths resolve from repo root or data/inputs.
  *
  * Notes:
@@ -26,10 +24,9 @@ import path from 'path';
 const ROOT = process.cwd();
 const INPUT_ROOT = path.resolve(ROOT, 'data/inputs');
 const CUSTOMIZATION_ROOT = path.resolve(ROOT, 'data/customization');
-const EMAIL_DIR = path.join(CUSTOMIZATION_ROOT, 'emails');
 const METADATA_PATH = path.join(CUSTOMIZATION_ROOT, 'app.json');
-const PUBLIC_IMG_DIR = path.resolve(ROOT, 'src/public/static/img');
-const PUBLIC_ROOT = path.resolve(ROOT, 'src/public');
+const PUBLIC_IMG_DIR = path.resolve(ROOT, 'public/dynamic/assets');
+const PUBLIC_ROOT = path.resolve(ROOT, 'public');
 
 function parseArgs(argv) {
   const options = {};
@@ -71,7 +68,6 @@ function usage() {
     [--short-name="BTS"] [--favicon=favicon.ico]
     [--logo-svg=logo.svg] [--logo-png=logo.png]
     [--icon-192=icon-192.png] [--icon-512=icon-512.png]
-    [--email-template=template.json] [--email-templates=path/to/folder]
     [--dry-run] [--show]
 
 Options resolve files by checking absolute paths first, then data/inputs/<path> as a fallback.`);
@@ -91,10 +87,6 @@ function ensureDir(dirPath, dryRun) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
-function toRel(p) {
-  return path.relative(CUSTOMIZATION_ROOT, p).split(path.sep).join('/');
-}
-
 function toPublicRel(p) {
   return path.relative(PUBLIC_ROOT, p).split(path.sep).join('/');
 }
@@ -104,8 +96,8 @@ function readExistingMetadata() {
     return {
       organizationName: '',
       shortName: '',
+      assets: {},
       publicAssets: {},
-      emailTemplates: [],
       notes: ''
     };
   }
@@ -116,7 +108,6 @@ function readExistingMetadata() {
       organizationName: parsed.organizationName || '',
       shortName: parsed.shortName || '',
       publicAssets: parsed.publicAssets || {},
-      emailTemplates: Array.isArray(parsed.emailTemplates) ? parsed.emailTemplates : [],
       notes: parsed.notes || ''
     };
   } catch (err) {
@@ -152,11 +143,11 @@ function stagePublicAsset(options, metadata, optionKey, propKey, destFilename, a
   }
 
   ensureDir(PUBLIC_IMG_DIR, dryRun);
-  const destination = path.join(PUBLIC_IMG_DIR, destFilename);
-  console.log(`• ${destFilename} ← ${resolved}`);
-  copyFile(resolved, destination, dryRun);
+  const publicDestination = path.join(PUBLIC_IMG_DIR, destFilename);
+  console.log(`• ${destFilename} ← ${resolved} (→ public/dynamic/assets)`);
+  copyFile(resolved, publicDestination, dryRun);
   metadata.publicAssets = metadata.publicAssets || {};
-  metadata.publicAssets[propKey] = toPublicRel(destination);
+  metadata.publicAssets[propKey] = toPublicRel(publicDestination);
 }
 
 function collectJsonFiles(dirPath) {
@@ -190,9 +181,7 @@ const actionableKeys = [
   'logo-svg',
   'logo-png',
   'icon-192',
-  'icon-512',
-  'email-template',
-  'email-templates'
+  'icon-512'
 ];
 const hasAction = actionableKeys.some(key => Object.prototype.hasOwnProperty.call(options, key));
 
@@ -232,52 +221,6 @@ stagePublicAsset(options, metadata, 'icon-512', 'icon512', 'icon-512.png', ['.pn
 function normalizeArray(value) {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
-}
-
-const emailTemplates = normalizeArray(options['email-template']);
-const emailDirectories = normalizeArray(options['email-templates']);
-const emailEntries = [];
-
-if (emailTemplates.length > 0) {
-  ensureDir(EMAIL_DIR, dryRun);
-  for (const template of emailTemplates) {
-    const resolved = resolveInputFile(template);
-    if (!fs.existsSync(resolved)) {
-      console.error(`❌ Email template not found: ${template}`);
-      process.exit(1);
-    }
-    if (path.extname(resolved).toLowerCase() !== '.json') {
-      console.error('❌ Email templates must be JSON files.');
-      process.exit(1);
-    }
-    const destination = path.join(EMAIL_DIR, path.basename(resolved));
-    console.log(`• email template ← ${resolved}`);
-    copyFile(resolved, destination, dryRun);
-    emailEntries.push(toRel(destination));
-  }
-}
-
-if (emailDirectories.length > 0) {
-  ensureDir(EMAIL_DIR, dryRun);
-  for (const directory of emailDirectories) {
-    const resolvedDir = resolveInputFile(directory);
-    if (!fs.existsSync(resolvedDir) || !fs.lstatSync(resolvedDir).isDirectory()) {
-      console.error(`❌ Email templates directory not found: ${directory}`);
-      process.exit(1);
-    }
-    const destDir = path.join(EMAIL_DIR, path.basename(resolvedDir));
-    console.log(`• email templates dir ← ${resolvedDir}`);
-    copyDirectory(resolvedDir, destDir, dryRun);
-    const copiedFiles = dryRun ? collectJsonFiles(resolvedDir)
-      .map(file => file.replace(resolvedDir, destDir)) : collectJsonFiles(destDir);
-    emailEntries.push(...copiedFiles.map(toRel));
-  }
-}
-
-if (emailEntries.length > 0) {
-  const existing = Array.isArray(metadata.emailTemplates) ? metadata.emailTemplates : [];
-  const merged = [...existing, ...emailEntries];
-  metadata.emailTemplates = Array.from(new Set(merged)).sort();
 }
 
 if (dryRun) {

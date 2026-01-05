@@ -16,7 +16,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import { Season } from '../../src/models/Season.js';
 
-const PHASE_NAMES = ['renewal', 'tbh7', 'public'];
+const PHASE_NAMES = ['renewal', 'fanclub', 'public'];
 
 function parseArgs(argv) {
   const positional = [];

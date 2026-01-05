@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="100%"
+   viewBox="0 0 297 210"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+
+<style id="style1">
+
+	text.legend { font-style:normal;font-weight:normal;font-size:5px;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#5f6ce1;fill-opacity:1;stroke:#000000;stroke-width:0.0989055;stroke-linejoin:round;stroke-opacity:1 } 
+
+	rect.seat { fill:lightgrey }
+
+	rect.seat.seat-available	{ fill: lightgreen; }
+	rect.seat.seat-booked		{ fill: red; }
+	rect.seat.seat-busy			{ fill: orange; }
+	rect.seat.seat-selected		{ fill: blue; }
+
+</style>
+
+<defs id="defs1" />
+
+
+<g id="map" >
+
+
+<g id="background" >
+     
+    <rect id="colorbg" width="280" height="190" x="5" y="5" style="fill:#ffffff;fill-opacity:1;stroke:#6477ff;stroke-width:0.0928559;stroke-linejoin:round" />
+
+	<rect id="field" width="150" height="70" x="75" y="35" style="fill:lightyellow;fill-opacity:1;stroke:yellow;stroke-width:0.100807;stroke-linejoin:round" />
+
+</g>
+
+
+  
+<g id="legends"  transform="translate(0,50)" >
+
+	<g id="legends_texts">
+
+		<text class="legend" id="text_Available" x="250" y="16" >
+			<tspan id="tspan96">Available</tspan>
+		</text>
+
+		<text class="legend" id="text_Booked" x="250" y="25" >
+			<tspan id="tspan97">Booked</tspan>
+		</text>
+
+		<text class="legend" id="text_Busy" x="250" y="33.5" >
+			<tspan id="tspan99">Busy/Held</tspan>
+		</text>
+
+		<text class="legend" id="text_Selected" x="250" y="43" >
+			<tspan id="tspan1">Selected</tspan>
+		</text>
+
+	</g>
+
+	<g id="legends_colors">
+
+		<rect class="seat seat-available" id="legend_Available" width="7" height="7" x="240" y="10" />
+
+		<rect class="seat seat-booked" id="legend_Booked" width="7" height="7" x="240" y="19" />
+
+		<rect class="seat seat-busy" id="legend_Busy" width="7" height="7" x="240" y="28" />
+
+		<rect class="seat seat-selected" id="legend_Selected" width="7" height="7" x="240" y="37" style="fill:blue;"/>
+
+    </g>
+
+</g>
+
+
+<g id="stands">
+
+
+<g id="stand_South" >
+
+	<text class="legend" id="text_Seats" x="140" y="135" >
+		<tspan id="tspan88">Zone Seats</tspan>
+	</text>
+
+
+	<g id="row_A" >
+
+		<rect class="seat" id="seat_N-A-08" width="12" height="12" x="92.89682" y="116.10299" />
+
+		<rect class="seat" id="seat_N-A-07" width="12" height="12" x="108.17262" y="116.10299" />
+
+		<rect class="seat" id="seat_N-A-06" width="12" height="12" x="123.44842" y="116.10299" />
+
+		<rect class="seat" id="seat_N-A-05" width="12" height="12" x="138.72423" y="116.10299" />
+
+		<rect class="seat" id="seat_N-A-04" width="12" height="12" x="154.00002" y="116.10299" />
+
+		<rect class="seat" id="seat_N-A-03" width="12" height="12" x="169.27557" y="116.10299" />
+
+		<rect class="seat" id="seat_N-A-02" width="12" height="12" x="184.55138" y="116.10299" />
+
+		<rect class="seat" id="seat_N-A-01" width="12" height="12" x="199.82718" y="116.10299" />
+
+	</g>
+    
+</g>
+
+
+<g id="stand_West" >
+
+	<text class="legend" id="text_FanZone" x="-90" y="30" transform="rotate(-90)">
+		<tspan id="tspan89">Zone Fan Zone</tspan>
+	</text>
+
+	<rect id="fan-zone" width="26" height="60" x="35" y="40" style="fill:magenta;fill-opacity:1;stroke:darkmagenta;stroke-width:0.8;stroke-linejoin:round" />
+
+</g>
+
+
+</g> <!-- g stands -->
+
+
+</g> <!-- g map -->
+
+</svg>

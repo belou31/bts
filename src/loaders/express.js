@@ -1,5 +1,6 @@
 // src/loaders/express.js
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import compression from 'compression';
 import cors from 'cors';
@@ -27,10 +28,51 @@ export async function buildApp() {
   // Healthz
   app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
-  // Statiques (toujours sous /static, préfixés par BASE_PATH côté frontal)
-  const STATIC_DIR = path.resolve(__dirname, '..', 'public', 'static');
-  //const STATIC_DIR = path.resolve(process.cwd(), 'public', 'static');
-  
+  // Statiques (/static) et dynamiques (/dynamic) préfixés par BASE_PATH côté frontal
+  const STATIC_DIR = path.resolve(process.cwd(), 'public', 'static');
+  const DYNAMIC_DIR = path.resolve(process.cwd(), 'public', 'dynamic');
+  const ASSETS_DIR = path.resolve(DYNAMIC_DIR, 'assets');
+  const VENUES_DIR = path.resolve(DYNAMIC_DIR, 'venues');
+  const PUBLIC_TEMPLATES_DIR = path.resolve(process.cwd(), 'public', 'templates');
+
+  app.use(path.posix.join(BASE_PATH, '/dynamic/assets'), express.static(ASSETS_DIR, {
+    fallthrough: true,
+    maxAge: '1h',
+    extensions: ['png', 'svg', 'ico']
+  }));
+  app.use(path.posix.join(BASE_PATH, '/dynamic/venues'), express.static(VENUES_DIR, {
+    fallthrough: true,
+    maxAge: '1h',
+    extensions: ['svg']
+  }));
+  // Accès direct à tout le répertoire dynamique si besoin
+  app.use(path.posix.join(BASE_PATH, '/dynamic'), express.static(DYNAMIC_DIR, {
+    fallthrough: true,
+    maxAge: '1h'
+  }));
+  // Templates publics (HTML/SVG) si présents
+  app.use(path.posix.join(BASE_PATH, '/templates'), express.static(PUBLIC_TEMPLATES_DIR, {
+    fallthrough: true,
+    maxAge: '1h'
+  }));
+  // Compatibilité : anciens chemins /assets et /venues
+  app.use(path.posix.join(BASE_PATH, '/assets'), express.static(ASSETS_DIR, {
+    fallthrough: true,
+    maxAge: '1h',
+    extensions: ['png', 'svg', 'ico']
+  }));
+  app.use(path.posix.join(BASE_PATH, '/venues'), express.static(VENUES_DIR, {
+    fallthrough: true,
+    maxAge: '1h',
+    extensions: ['svg']
+  }));
+  // Compatibilité : ancien préfixe des plans
+  app.use(path.posix.join(BASE_PATH, '/static/venues'), express.static(VENUES_DIR, {
+    fallthrough: true,
+    maxAge: '1h',
+    extensions: ['svg']
+  }));
+
   app.use(path.posix.join(BASE_PATH, '/static'), express.static(STATIC_DIR, {
     fallthrough: false,
     maxAge: '1h',
@@ -39,7 +81,8 @@ export async function buildApp() {
 
   // Favicon direct (facultatif)
   app.get(path.posix.join(BASE_PATH, '/favicon.ico'), (req, res) => {
-    res.sendFile(path.join(STATIC_DIR, 'img', 'favicon.ico'));
+    const target = path.join(ASSETS_DIR, 'favicon.ico');
+    res.sendFile(target);
   });
 
   // Router applicatif monté **sous BASE_PATH**

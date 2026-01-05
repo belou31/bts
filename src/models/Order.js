@@ -42,7 +42,7 @@ const LineSchema = new mongoose.Schema({
 
 /* ----- Optional sub-schema for origin ----- */
 const OriginSchema = new mongoose.Schema({
-  flow:   { type: String, enum: ['renew','tbh7','vip','subscription','vip','partner','public','event'], default: null },
+  flow:   { type: String, enum: ['renew','fanclub','vip','subscription','vip','partner','public','event'], default: null },
   uiPath: { type: String, default: null },
   apiPath:{ type: String, default: null }
 }, { _id:false });
@@ -73,7 +73,7 @@ const OrderSchema = new mongoose.Schema({
 
   paymentProvider:     { type: String, default: process.env.PAYMENT_PROVIDER || 'helloasso' },
 
-  // ✅ New canonical provider meta bag (used by renew/tbh7 routes & pay.js)
+  // ✅ New canonical provider meta bag (used by renew/fanclub routes & pay.js)
   paymentProviderMeta: { type: mongoose.Schema.Types.Mixed, default: {} },
 
   // ⬅ Legacy (keep for compatibility with older data/logic if any)
@@ -83,7 +83,7 @@ const OrderSchema = new mongoose.Schema({
   // Email/template routing
    origin: {
     // ajout de "event" pour distinguer le flux billetterie évènement
-    flow:   { type:String, enum:['renew','subscription','public','event','partner','vip','tbh7'], default:'subscription', index:true },
+    flow:   { type:String, enum:['renew','subscription','public','event','partner','vip','fanclub'], default:'subscription', index:true },
      uiPath: { type:String },
      apiPath:{ type:String }
    },

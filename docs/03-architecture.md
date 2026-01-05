@@ -12,7 +12,7 @@ Le plan des lieux est un **SVG** (servi en statique et parsé côté scripts).
 
 Client (HTML5/CSS) → Express → MongoDB
 │ ├── Routes renew / admin / payments
-│ ├── Static: /html, /static, /venues/<slug>/plan.svg
+│ ├── Static: /html, /static, /dynamic/venues/<slug>/plan.svg
 └── HelloAsso (sandbox/prod) via Checkout API (STUB en DEV)
 
 

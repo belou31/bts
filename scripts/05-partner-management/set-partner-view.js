@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Update partner UI/view settings (venue view and copy).
+ * Update partner venue view (global or scoped).
  *
  * Usage:
- *   node scripts/05-partner-management/set-partner-view.js --slug=<slug> [--venue-view=<slug>] [--ui-heading="..."] [--ui-lead="..."] [--ui-payment-help="..."]
+ *   node scripts/05-partner-management/set-partner-view.js --slug=<slug> --venue-view=<slug> [--event=<eventSlug>] [--season=<code>]
  */
 
 import fs from 'fs';
@@ -23,17 +23,16 @@ const getOption = (name) => {
 
 const slug = getOption('slug');
 if (!slug) {
-  console.error('Usage: node scripts/05-partner-management/set-partner-view.js --slug=<slug> [--venue-view=<slug>] [--ui-heading="..."] [--ui-lead="..."] [--ui-payment-help="..."]');
+  console.error('Usage: node scripts/05-partner-management/set-partner-view.js --slug=<slug> --venue-view=<slug> [--event=<eventSlug>] [--season=<code>]');
   process.exit(1);
 }
 
 const venueViewOpt = getOption('venue-view');
-const uiHeadingOpt = getOption('ui-heading');
-const uiLeadOpt = getOption('ui-lead');
-const uiPaymentHelpOpt = getOption('ui-payment-help');
+const eventOpt = getOption('event');
+const seasonOpt = getOption('season');
 
-if (venueViewOpt === undefined && uiHeadingOpt === undefined && uiLeadOpt === undefined && uiPaymentHelpOpt === undefined) {
-  console.error('Provide at least one option to update (venue-view, ui-heading, ui-lead, ui-payment-help).');
+if (venueViewOpt === undefined) {
+  console.error('Provide --venue-view to update (optionally scoped with --event or --season).');
   process.exit(1);
 }
 
@@ -61,15 +60,17 @@ if (idx === -1) {
 }
 
 const updated = { ...entries[idx] };
-if (venueViewOpt !== undefined) {
+if (!updated.venueViews) {
+  updated.venueViews = { events: {}, seasons: {} };
+}
+if (eventOpt) {
+  updated.venueViews.events = Object.assign({}, updated.venueViews.events || {}, { [eventOpt]: venueViewOpt || null });
+} else if (seasonOpt) {
+  updated.venueViews.seasons = Object.assign({}, updated.venueViews.seasons || {}, { [seasonOpt]: venueViewOpt || null });
+} else {
   updated.venueView = venueViewOpt ? String(venueViewOpt) : null;
 }
-const ui = { ...(updated.ui || {}) };
-if (uiHeadingOpt !== undefined) ui.heading = uiHeadingOpt;
-if (uiLeadOpt !== undefined) ui.lead = uiLeadOpt;
-if (uiPaymentHelpOpt !== undefined) ui.paymentHelp = uiPaymentHelpOpt;
-updated.ui = ui;
 
 entries[idx] = updated;
 fs.writeFileSync(targetFile, JSON.stringify(entries, null, 2), 'utf8');
-console.log(`[partner-view] Updated view/UI for "${slug}"`);
+console.log(`[partner-view] Updated venue view for "${slug}"${eventOpt ? ` (event=${eventOpt})` : seasonOpt ? ` (season=${seasonOpt})` : ''}`);

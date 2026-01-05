@@ -314,8 +314,8 @@ router.get('/control/guestlist', requireScanner, async (req, res) => {
         </tr>`;
     }).join('');
 
-    const assetBase = `${basePathValue}/static/`.replace(/\/{2,}/g, '/');
-    const logoSrc = `${assetBase}img/logo.png`;
+    const assetBase = `${basePathValue}/dynamic/assets/`.replace(/\/{2,}/g, '/');
+    const logoSrc = `${assetBase}logo.png`;
     const scanLink = `${basePathValue}/control/scan?event=${encodeURIComponent(selectedEventKey)}`.replace(/\/{2,}/g, '/');
 
     res.type('html').send(`<!doctype html>

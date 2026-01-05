@@ -10,8 +10,8 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "helloasso:stub": "node helloasso-stub/server.js",
-    "sumup:stub": "node sumup-stub/server.js",
+    "helloasso:stub": "node stub_helloasso/server.js",
+    "sumup:stub": "node stub_sumup/server.js",
     "test": "jest --runInBand",
     "lint": "eslint .",
     "db:sync-indexes": "node scripts/sync-indexes.mjs",
