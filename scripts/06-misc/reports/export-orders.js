@@ -9,7 +9,7 @@
  *   - MONGODB_DB (optional database name)
  *
  * Template:
- *   - data/templates/csv/orders-export.template.csv
+ *   - data_references/csv/orders-export.template.csv
  */
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';

@@ -3,9 +3,9 @@
  * Configure season phases (open/close dates and enabled flags).
  *
  * Usage:
- *   node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|tbh7|public> [--open=ISO] [--close=ISO] [--enabled=true|false]
+ *   node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|fanclub|public> [--open=ISO] [--close=ISO] [--enabled=true|false]
  *   # Legacy (still supported):
- *   # --renewal-open/close/enabled, --tbh7-open/close/enabled, --public-open/close/enabled
+ *   # --renewal-open/close/enabled, --fanclub-open/close/enabled, --public-open/close/enabled
  *
  * Notes:
  *   - Does not change season name/active flag; use create-season.js for creation/activation.
@@ -18,12 +18,12 @@ dotenv.config();
 
 import { Season } from '../../src/models/Season.js';
 
-const PHASE_NAMES = ['renewal', 'tbh7', 'public'];
+const PHASE_NAMES = ['renewal', 'fanclub', 'public'];
 function normalizePhase(value) {
   const v = String(value || '').trim().toLowerCase();
   if (!v) return null;
   if (v === 'renew' || v === 'renewal') return 'renewal';
-  if (v === 'tbh7') return 'tbh7';
+  if (v === 'fanclub') return 'fanclub';
   if (v === 'public') return 'public';
   return null;
 }
@@ -76,7 +76,7 @@ function parseDate(value, label) {
   const { positional, options } = parseArgs(process.argv.slice(2));
   const code = positional[0] || process.env.SEASON || '';
   if (!code) {
-    console.error('Usage: node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|tbh7|public> [--open=ISO] [--close=ISO] [--enabled=true|false]');
+    console.error('Usage: node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|fanclub|public> [--open=ISO] [--close=ISO] [--enabled=true|false]');
     process.exit(1);
   }
 

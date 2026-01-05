@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Import a venue-specific SVG view (no indexing) under public/static/venues/<slug>/views/<viewSlug>.svg
+ * Import a venue-specific view under public/dynamic/venues/<slug>/views/<viewSlug>.svg
+ * (pure copy, no enrichment).
  *
  * Usage:
  *   node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <path/to/view.svg> [--overwrite]
@@ -27,7 +28,7 @@ if (!fs.existsSync(absSrc)) {
   process.exit(1);
 }
 
-const destDir = path.resolve(process.cwd(), 'src', 'public', 'static', 'venues', venueSlug, 'views');
+const destDir = path.resolve(process.cwd(), 'public', 'dynamic', 'venues', venueSlug, 'views');
 const destFile = path.join(destDir, `${viewSlug}.svg`);
 
 fs.mkdirSync(destDir, { recursive: true });

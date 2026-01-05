@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f17"/>
   <title><%= title %></title>
   <link rel="manifest" href="<%= scope %>manifest.webmanifest">
-  <link rel="stylesheet" href="<%= assetBase %>styles/scan.css">
+  <link rel="stylesheet" href="<%= staticBase %>styles/scan.css">
 </head>
 <body>
   <% const guestListPath = ((basePath || '') + '/control/guestlist').replace(/\/{2,}/g, '/');
@@ -16,7 +16,7 @@
   %>
   <header class="top-bar">
     <div class="brand">
-      <img alt="BTS" src="<%= assetBase %>img/logo.png" onerror="this.style.display='none'"/>
+      <img alt="BTS" src="<%= assetsBase %>logo.png" onerror="this.style.display='none'"/>
       <div class="title-block">
         <strong>ACESS CONTROL</strong>
         <span>Ticket Scan</span>
@@ -40,6 +40,10 @@
               </select>
               <input id="eventId" type="hidden" />
             </div>
+          </div>
+          <div class="gate-group">
+            <label for="gate">Gate</label>
+            <input id="gate" name="gate" placeholder="Porte / équipe" autocomplete="off" aria-label="Gate"/>
           </div>
           <div class="auth-group">
             <div class="auth-header">
@@ -117,6 +121,6 @@
       scope:    <%- JSON.stringify(scope) %>
     };
   </script>
-  <script src="<%= assetBase %>js/scan.js"></script>
+  <script src="<%= staticBase %>js/scan.js"></script>
 </body>
 </html>

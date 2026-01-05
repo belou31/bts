@@ -69,7 +69,7 @@ async function deliverOrder({ order, eventDoc, dryRun }) {
   const eventDate = eventDoc.startsAt ? new Date(eventDoc.startsAt) : null;
   const eventDateLabel = eventDate ? eventDate.toLocaleString('fr-FR') : '';
   const defaultSubject = `Vos billets — ${eventDoc.name}${eventDateLabel ? ` — ${eventDateLabel}` : ''}`;
-  const subject = subjectForOrder(order) || defaultSubject;
+  const subject = await subjectForOrder(order) || defaultSubject;
 
   let html;
   try {

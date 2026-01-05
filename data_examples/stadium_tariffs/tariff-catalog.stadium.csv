@@ -1,0 +1,5 @@
+code,label,requiresField,fieldLabel,requiresInfo,sortOrder,active,channels
+NORMAL,"Tarif normal",false,,false,10,true,public
+REDUCED,"Tarif réduit",true,"Justificatif","Pièce d'identité",20,true,public
+CHILD,"Enfant (-12)",false,,"Justificatif obligatoire",30,true,public
+CS_PARTNER,"Corporate Seat",false,,"Accès réservé entreprise",40,true,"partner:cs"

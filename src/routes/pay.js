@@ -171,6 +171,7 @@ function renderPaymentReturn({
   const safeHomeUrl = escapeHtml(homeUrl || '/');
   const safeTicketsUrl = ticketsUrl ? escapeHtml(ticketsUrl) : '';
   const cardClass = state === 'success' ? 'success' : state === 'failure' ? 'failure' : 'pending';
+  const faviconHref = urlFor('/dynamic/assets/favicon.ico');
 
   let title;
   let intro;
@@ -232,7 +233,7 @@ function renderPaymentReturn({
 
   return `<!doctype html>
   <meta charset="utf-8">
-  <link rel="icon" href="/bts/static/img/favicon.ico">
+  <link rel="icon" href="${faviconHref}">
   <style>
     :root {
       color-scheme: light dark;
@@ -535,7 +536,7 @@ router.get('/tickets/:orderId.pdf', async (req, res) => {
 
 router.get('/back', (_req, res) => {
   res.send(`<!doctype html><meta charset="utf-8">
-    <link rel="icon" href="/bts/static/img/favicon.ico">
+    <link rel="icon" href="${urlFor('/dynamic/assets/favicon.ico')}">
     <h1>Paiement abandonné</h1>
     <p>Aucun débit n’a été effectué et vos places restent disponibles tant que la commande n’est pas confirmée.</p>
     <p><a href="/">Revenir à la billetterie</a></p>`);
@@ -543,7 +544,7 @@ router.get('/back', (_req, res) => {
 
 router.get('/error', (_req, res) => {
   res.status(400).send(`<!doctype html><meta charset="utf-8">
-    <link rel="icon" href="/bts/static/img/favicon.ico">
+    <link rel="icon" href="${urlFor('/dynamic/assets/favicon.ico')}">
     <h1>Erreur de paiement</h1><p>Une erreur est survenue. Réessayez plus tard.</p>`);
 });
 

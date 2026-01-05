@@ -3,7 +3,7 @@
  * Import zones for a venue/season from CSV and/or SVG sources.
  *
  * Usage:
- *   node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--plan=<path/to/plan.svg>] [--attr=data-zone-id]
+ *   node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--view=<viewSlug>]
  *
  * Behaviour:
  *   - When a CSV is provided, rows are interpreted using zones.template.csv columns.
@@ -24,10 +24,10 @@ dotenv.config();
 const INPUT_DIR = path.resolve(process.cwd(), 'data/inputs');
 const DEFAULT_ZONE_ATTR = 'data-zone-id';
 const FALLBACK_ZONE_ATTRS = ['data-zone-id', 'data-zone-key', 'data-zone'];
-const PLAN_ROOT = path.resolve(process.cwd(), 'src/public/static/venues');
+const PLAN_ROOT = path.resolve(process.cwd(), 'public/dynamic/venues');
 
 function usage() {
-  console.error('Usage: node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--plan=<path/to/plan.svg>] [--attr=data-zone-id]');
+  console.error('Usage: node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--view=<viewSlug>]');
   process.exit(1);
 }
 
@@ -44,12 +44,7 @@ function defaultPlanPath(slug) {
   return path.resolve(PLAN_ROOT, slug, 'plan.svg');
 }
 
-function resolvePlanPath(slug, override) {
-  if (override) {
-    const resolved = resolveInputFile(override);
-    if (fs.existsSync(resolved)) return resolved;
-    throw new Error(`[import-zones] Plan introuvable: ${override} (cherché aussi dans data/inputs)`);
-  }
+function resolvePlanPath(slug) {
   const canonical = defaultPlanPath(slug);
   return fs.existsSync(canonical) ? canonical : null;
 }
@@ -105,6 +100,20 @@ function splitCsvLine(line) {
   return result.map(cell => cell.replace(/\r$/, ''));
 }
 
+function parseMetaString(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const out = {};
+  raw.split(';').forEach(pair => {
+    const [k, ...rest] = pair.split(':');
+    const key = String(k || '').trim();
+    if (!key) return;
+    const val = rest.join(':').trim();
+    out[key] = val;
+  });
+  return Object.keys(out).length ? out : null;
+}
+
 function parseBoolean(value, defaultValue = true) {
   if (value === undefined || value === null || value === '') return defaultValue;
   const normalized = String(value).trim().toLowerCase();
@@ -155,7 +164,8 @@ function readZonesCsv(csvPath) {
       capacity: toNumber(record.capacity),
       quota: toNumber(record.quota),
       svgSelector: record.svgSelector ? String(record.svgSelector).trim() : '',
-      isActive: parseBoolean(record.isActive, true)
+      isActive: parseBoolean(record.isActive, true),
+      meta: parseMetaString(record.meta || record.Meta || record.META)
     });
   });
 
@@ -167,9 +177,7 @@ function cssAttrSelector(attr, value) {
   return `[${attr}="${escaped}"]`;
 }
 
-function parseSvgZones(svgPath, attrs) {
-  const svg = fs.readFileSync(svgPath, 'utf8');
-  const $ = load(svg);
+function parseSvgZones($, attrs) {
   const zones = new Map();
   const usedAttributes = new Set();
 
@@ -189,7 +197,9 @@ function parseSvgZones(svgPath, attrs) {
           attr,
           name: $(el).attr('data-zone-name')?.trim() || '',
           type: $(el).attr('data-zone-type')?.trim().toLowerCase() || '',
-          access: $(el).attr('data-zone-access')?.trim().toUpperCase() || ''
+          access: $(el).attr('data-zone-access')?.trim().toUpperCase() || '',
+          meta: parseMetaString($(el).attr('data-zone-meta')),
+          element: el
         });
       }
     });
@@ -203,26 +213,32 @@ function parseSvgZones(svgPath, attrs) {
   const positional = argv.positional || [];
   const venueSlug = argv.venue || positional[0];
   let csvArg = argv.csv || null;
-  let planOverride = argv.svg || argv.plan || null;
-  if (!planOverride && positional.length >= 2 && /\.svg$/i.test(positional[1] || '')) {
-    planOverride = positional[1];
-  }
   if (!csvArg) {
     const candidate = positional.find((value, index) => {
       if (index === 0) return false;
-      if (planOverride && value === planOverride) return false;
       return !/\.svg$/i.test(value || '');
     });
     if (candidate) csvArg = candidate;
   }
-  const attr = argv.attr || DEFAULT_ZONE_ATTR;
+  const attr = DEFAULT_ZONE_ATTR;
+  const writePlan = (argv['write-plan'] !== undefined) ? argv['write-plan'] === true : !!csvArg;
+  const viewSlug = argv.view || null;
+  const planOut = argv['plan-out'] ? resolveInputFile(argv['plan-out']) : null;
+  const viewPath = viewSlug
+    ? path.resolve(PLAN_ROOT, venueSlug, 'views', `${viewSlug}.svg`)
+    : null;
 
   if (!venueSlug) usage();
 
   const csvPath = csvArg ? resolveInputFile(csvArg) : null;
   let planPath = null;
+  let svgDocument = null;
   try {
-    planPath = resolvePlanPath(venueSlug, planOverride);
+    planPath = resolvePlanPath(venueSlug);
+    if (planPath) {
+      const svg = fs.readFileSync(planPath, 'utf8');
+      svgDocument = load(svg, { xmlMode: true });
+    }
   } catch (err) {
     console.error(err?.message || err);
     process.exit(1);
@@ -254,13 +270,15 @@ function parseSvgZones(svgPath, attrs) {
     }
 
     let svgData = { zones: new Map(), usedAttributes: new Set() };
-    if (planPath) {
-      const attrCandidates = attr === DEFAULT_ZONE_ATTR
-        ? FALLBACK_ZONE_ATTRS
-        : [attr];
-      svgData = parseSvgZones(planPath, attrCandidates);
+    if (planPath && svgDocument) {
+      const attrCandidates = FALLBACK_ZONE_ATTRS;
+      svgData = parseSvgZones(svgDocument, attrCandidates);
       if (!svgData.zones.size) {
-        console.warn(`[import-zones] Aucun élément trouvé dans ${planPath} avec l'attribut ${attrCandidates.join('/')}`);
+        if (csvData.rows > 0) {
+          console.log(`[import-zones] Aucun élément trouvé via ${attrCandidates.join('/')} (le plan sera enrichi depuis le CSV).`);
+        } else {
+          console.warn(`[import-zones] Aucun élément trouvé dans ${planPath} avec l'attribut ${attrCandidates.join('/')}`);
+        }
       } else {
         console.log(`[import-zones] Zones détectées dans ${planPath} via ${Array.from(svgData.usedAttributes).join(', ')}`);
       }
@@ -274,6 +292,7 @@ function parseSvgZones(svgPath, attrs) {
       throw new Error('Aucune zone détectée (ni via CSV ni via SVG).');
     }
 
+    const zoneInfoMap = new Map();
     let upserts = 0;
     for (const key of allKeys) {
       const csvZone = csvData.map.get(key);
@@ -284,11 +303,30 @@ function parseSvgZones(svgPath, attrs) {
       const capacity = csvZone?.capacity ?? 0;
       const quota = csvZone?.quota ?? 0;
       const svgSelector = (csvZone?.svgSelector || svgZone?.svgSelector || '').trim() || null;
+      const meta = csvZone?.meta || svgZone?.meta || null;
       const isActive = csvZone ? csvZone.isActive : true;
 
       if (!svgSelector) {
         console.warn(`[import-zones] Zone ${key}: aucun sélecteur SVG fourni ou détecté.`);
       }
+
+      // Ajoute l'attribut zone sur le plan si demandé
+      const applyZoneAttrs = (doc) => {
+        if (!doc || !svgSelector) return;
+        const targetAttr = DEFAULT_ZONE_ATTR;
+        const el = svgZone?.element || doc(svgSelector).get(0);
+        if (el) {
+          if (!doc(el).attr(targetAttr)) doc(el).attr(targetAttr, key);
+          if (!doc(el).attr('data-zone-name') && name) doc(el).attr('data-zone-name', name);
+          if (!doc(el).attr('data-zone-type') && type) doc(el).attr('data-zone-type', type);
+          if (!doc(el).attr('data-zone-access') && access) doc(el).attr('data-zone-access', access);
+          if (!doc(el).attr('data-zone-meta') && meta) {
+            const metaStr = Object.entries(meta).map(([k,v]) => `${k}:${v}`).join(';');
+            doc(el).attr('data-zone-meta', metaStr);
+          }
+        }
+      };
+      if (writePlan && svgDocument) applyZoneAttrs(svgDocument);
 
       await ZoneCatalog.updateOne(
         { venueSlug, key },
@@ -301,11 +339,13 @@ function parseSvgZones(svgPath, attrs) {
             quota,
             svgSelector,
             venueSlug,
-            isActive
+            isActive,
+            meta
           }
         },
         { upsert: true }
       );
+      zoneInfoMap.set(key, { key, name, type, access, meta });
       upserts++;
     }
 
@@ -316,7 +356,60 @@ function parseSvgZones(svgPath, attrs) {
       }
     }
 
+    // Enrich optional view with zone attributes (copy plan if view is missing)
+    if (viewPath) {
+      const ensureViewExists = () => {
+        if (fs.existsSync(viewPath)) return true;
+        if (!planPath || !fs.existsSync(planPath)) return false;
+        try {
+          fs.mkdirSync(path.dirname(viewPath), { recursive: true });
+          fs.copyFileSync(planPath, viewPath);
+          console.warn(`[import-zones] Vue ${viewSlug} absente. Copie de plan.svg vers views/${viewSlug}.svg avant enrichissement.`);
+          return true;
+        } catch (err) {
+          console.warn(`[import-zones] Vue ${viewSlug} introuvable à ${viewPath} et copie depuis plan.svg échouée: ${err?.message || err}`);
+          return false;
+        }
+      };
+
+      if (ensureViewExists()) {
+        try {
+          const viewSvg = fs.readFileSync(viewPath, 'utf8');
+          const $view = load(viewSvg, { xmlMode: true });
+          const setIfMissing = (el, attrName, value) => {
+            if (!value) return;
+            if ($view(el).attr(attrName)) return;
+            $view(el).attr(attrName, value);
+          };
+          for (const [key, info] of zoneInfoMap.entries()) {
+            const escaped = key.replace(/([\\.])/g, '\\$1');
+            let el = $view(`[data-zone-id="${key}"]`).get(0);
+            if (!el) el = $view(`#${escaped}`).get(0);
+            if (!el) el = $view(`#zone_${escaped}`).get(0);
+            if (!el) continue;
+            setIfMissing(el, 'data-zone-id', key);
+            setIfMissing(el, 'data-zone-name', info.name || '');
+            setIfMissing(el, 'data-zone-type', info.type || '');
+            setIfMissing(el, 'data-zone-access', info.access || '');
+            const metaStr = info.meta && Object.keys(info.meta).length
+              ? Object.entries(info.meta).map(([k, v]) => `${k}:${v}`).join(';')
+              : '';
+            setIfMissing(el, 'data-zone-meta', metaStr);
+          }
+          fs.writeFileSync(viewPath, $view.xml(), 'utf8');
+          console.log(`[import-zones] Vue "${viewSlug}" enrichie avec les attributs zones → ${viewPath}`);
+        } catch (err) {
+          console.warn(`[import-zones] Impossible d'enrichir la vue ${viewSlug}: ${err?.message || err}`);
+        }
+      }
+    }
+
     console.log(`✅ Zone catalog upserted: ${upserts} entrées (venue=${venueSlug})`);
+    if (writePlan && svgDocument && planPath) {
+      const outPath = planOut || planPath;
+      fs.writeFileSync(outPath, svgDocument.xml(), 'utf8');
+      console.log(`[import-zones] Plan mis à jour avec ${attr || DEFAULT_ZONE_ATTR} → ${outPath}`);
+    }
     await mongoose.disconnect();
     process.exit(0);
   } catch (err) {

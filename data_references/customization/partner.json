@@ -1,0 +1,8 @@
+{
+  "partner.title": "{{partnerName}}",
+  "partner.lead": "{{partnerName}} — accès privilégié",
+  "partner.help": "Choisissez votre zone dédiée pour {{partnerName}}.",
+  "partner.payButton": "Valider ma commande partenaire",
+  "partner.emailConfirmation": "Un email de confirmation sera envoyé à l'adresse indiquée.",
+  "partner.ticket": "Billets partenaires disponibles après paiement."
+}

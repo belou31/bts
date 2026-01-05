@@ -2,7 +2,7 @@
 import mongoose from 'mongoose';
 
 const PhaseSchema = new mongoose.Schema({
-  name: { type: String, enum: ['renewal','tbh7','public'], required: true },
+  name: { type: String, enum: ['renewal','fanclub','public'], required: true },
   openAt: Date,
   closeAt: Date,
   enabled: { type: Boolean, default: true }

@@ -37,11 +37,16 @@ import { adminScriptGroups, getAdminScript } from '../../config/adminScripts.js'
 const router = express.Router();
 
 const ROOT_DIR = process.cwd();
-const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
+const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data_references');
+const CUSTOM_ROOT = path.resolve(ROOT_DIR, 'data/customization');
+const DATA_TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
+const DYNAMIC_ROOT = path.resolve(ROOT_DIR, 'public/dynamic');
+const DYNAMIC_ASSETS_ROOT = path.resolve(DYNAMIC_ROOT, 'assets');
+const DYNAMIC_VENUES_ROOT = path.resolve(DYNAMIC_ROOT, 'venues');
+const PUBLIC_TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'public/templates');
 const OUTPUTS_ROOT = path.resolve(ROOT_DIR, 'data/outputs');
 const INPUTS_ROOT = path.resolve(ROOT_DIR, 'data/inputs');
-const STATIC_VENUES_ROOT = path.resolve(ROOT_DIR, 'src/public/static/venues');
-for (const dir of [OUTPUTS_ROOT, INPUTS_ROOT]) {
+for (const dir of [OUTPUTS_ROOT, INPUTS_ROOT, DYNAMIC_ASSETS_ROOT, DYNAMIC_VENUES_ROOT]) {
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
 }
 
@@ -191,7 +196,32 @@ function listFiles(root, limit = 50) {
   }
 }
 
-function listVenueViews(rootDir = STATIC_VENUES_ROOT) {
+function listTemplatesRecursive(root, prefix = '') {
+  const out = [];
+  try {
+    const entries = fs.readdirSync(root, { withFileTypes: true });
+    for (const entry of entries) {
+      const rel = prefix ? path.join(prefix, entry.name) : entry.name;
+      const full = path.join(root, entry.name);
+      if (entry.isDirectory()) {
+        out.push(...listTemplatesRecursive(full, rel));
+      } else if (entry.isFile()) {
+        const stats = fs.statSync(full);
+        out.push({ name: entry.name, rel, size: stats.size, mtime: stats.mtime });
+      }
+    }
+  } catch {
+    return out;
+  }
+  return out.sort((a, b) => b.mtime - a.mtime);
+}
+
+function listCustomizationRecursive(root, prefix = '') {
+  return listTemplatesRecursive(root, prefix)
+    .filter(entry => entry.name.toLowerCase().endsWith('.json'));
+}
+
+function listVenueViews(rootDir = DYNAMIC_VENUES_ROOT) {
   try {
     const venueDirs = fs.readdirSync(rootDir, { withFileTypes: true })
       .filter(entry => entry.isDirectory())
@@ -227,6 +257,57 @@ function listVenueViews(rootDir = STATIC_VENUES_ROOT) {
     console.error('[admin] unable to list venue views:', error?.message || error);
     return [];
   }
+}
+
+function listVenueResources(rootDir = DYNAMIC_VENUES_ROOT) {
+  const venues = [];
+  try {
+    const entries = fs.readdirSync(rootDir, { withFileTypes: true }).filter(e => e.isDirectory());
+    for (const entry of entries) {
+      const venueSlug = entry.name;
+      const venueRoot = path.join(rootDir, venueSlug);
+      const planPath = path.join(venueRoot, 'plan.svg');
+      let plan = null;
+      try {
+        const stats = fs.statSync(planPath);
+        if (stats.isFile()) {
+          plan = {
+            name: 'plan.svg',
+            rel: `dynamic/venues/${venueSlug}/plan.svg`,
+            size: stats.size,
+            mtime: stats.mtime
+          };
+        }
+      } catch {/* plan absent */}
+
+      const views = [];
+      const viewsDir = path.join(venueRoot, 'views');
+      try {
+        const viewEntries = fs.readdirSync(viewsDir, { withFileTypes: true });
+        for (const viewEntry of viewEntries) {
+          if (!viewEntry.isFile() || !viewEntry.name.toLowerCase().endsWith('.svg')) continue;
+          const slug = viewEntry.name.replace(/\.svg$/i, '');
+          const stats = fs.statSync(path.join(viewsDir, viewEntry.name));
+          views.push({
+            slug,
+            rel: `dynamic/venues/${venueSlug}/views/${viewEntry.name}`,
+            size: stats.size,
+            mtime: stats.mtime
+          });
+        }
+      } catch {/* ignore */ }
+
+      venues.push({
+        venueSlug,
+        plan,
+        views: views.sort((a, b) => a.slug.localeCompare(b.slug))
+      });
+    }
+    venues.sort((a, b) => a.venueSlug.localeCompare(b.venueSlug));
+  } catch {
+    return venues;
+  }
+  return venues;
 }
 
 async function findEventByKey(eventKey) {
@@ -436,6 +517,7 @@ router.get('/', (req, res) => {
   let target = urlFor('/admin/operate');
   if (view === 'monitor') target = urlFor('/admin/monitor');
   if (view === 'io') target = urlFor('/admin/io');
+  if (view === 'templates') target = urlFor('/admin/templates');
   return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
 });
 
@@ -446,6 +528,10 @@ router.get('/io', (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
+  const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
+  const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
+  const dataTemplatesList = listTemplatesRecursive(DATA_TEMPLATES_ROOT);
+  const venueResources = listVenueResources();
   const venueViews = listVenueViews();
 
   return res.render('admin/index', {
@@ -461,6 +547,7 @@ router.get('/io', (req, res) => {
     activeGroupId: null,
     outputsList,
     inputsList,
+    customizationList,
     operateOptions: {
       venues: [],
       seasons: [],
@@ -468,9 +555,61 @@ router.get('/io', (req, res) => {
       partners: [],
       tariffCatalogs: [],
       inputFiles: inputsList.map(file => file.name),
+      assetFiles: inputsList.map(file => file.name),
+      customizationFiles: inputsList.map(file => file.name),
       venueViews
     },
     viewMode: 'io',
+    monitorTab: 'tariffs',
+    monitoring: null,
+    dynamicAssetsList,
+    venueResources,
+    dataTemplatesList
+  });
+});
+
+router.get('/templates', (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const emailTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'email'));
+  const ticketTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'tickets'));
+  const csvTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'csv'));
+  const envTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'env'));
+  const svgTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'svg'));
+  const customization  = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'customization'));
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: [],
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    templatesEmail: emailTemplates,
+    templatesTickets: ticketTemplates,
+    templatesCsv: csvTemplates,
+    templatesEnv: envTemplates,
+    templatesSvg: svgTemplates,
+    customizationList: customization,
+    operateOptions: {
+      venues: [],
+      seasons: [],
+      events: [],
+      partners: [],
+      tariffCatalogs: [],
+      inputFiles: [],
+      assetFiles: [],
+      venueViews: []
+    },
+    viewMode: 'templates',
     monitorTab: 'tariffs',
     monitoring: null
   });
@@ -497,6 +636,8 @@ router.get('/operate', async (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
+  const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
+  const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
   const venueViews = listVenueViews();
   let operateOptions = {
     venues: [],
@@ -505,6 +646,8 @@ router.get('/operate', async (req, res) => {
     partners: [],
     tariffCatalogs: [],
     inputFiles: inputsList.map(file => file.name),
+    assetFiles: inputsList.map(file => file.name),
+    customizationFiles: inputsList.map(file => file.name),
     venueViews
   };
 
@@ -539,6 +682,8 @@ router.get('/operate', async (req, res) => {
         .map(entry => entry?._id)
         .filter(Boolean),
       inputFiles: inputsList.map(file => file.name),
+      assetFiles: inputsList.map(file => file.name),
+      customizationFiles: inputsList.map(file => file.name),
       venueViews
     };
   } catch (error) {
@@ -1397,8 +1542,22 @@ router.get('/templates/download', (req, res) => {
   const rawPath = (req.query.path || '').toString();
   if (!rawPath) return res.status(400).send('Missing template path');
   try {
-    const relative = rawPath.replace(/^(?:scripts|data)\/templates\/?/, '');
-    const abs = resolveInside(TEMPLATES_ROOT, relative);
+    const isCustomization = rawPath.startsWith('data/customization');
+    const isDataTemplates = rawPath.startsWith('data/templates');
+    const baseRoot = isCustomization
+      ? CUSTOM_ROOT
+      : isDataTemplates
+        ? DATA_TEMPLATES_ROOT
+        : TEMPLATES_ROOT;
+    const relative = isCustomization
+      ? rawPath.replace(/^data\/customization\/?/, '')
+      : isDataTemplates
+        ? rawPath.replace(/^data\/templates\/?/, '')
+      : rawPath
+          .replace(/^data_references\/?/, '')
+          .replace(/^data_templates\/?/, '')
+          .replace(/^(?:scripts|data)\/templates\/?/, '');
+    const abs = resolveInside(baseRoot, relative);
     const filename = path.basename(abs);
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
       return res.status(404).send('Template not found');
@@ -1426,6 +1585,21 @@ router.get('/outputs/download', (req, res) => {
   }
 });
 
+router.post('/outputs/delete', (req, res) => {
+  const raw = (req.body?.file || '').toString();
+  if (!raw) return res.status(400).json({ ok: false, error: 'Missing file' });
+  try {
+    const abs = resolveInside(OUTPUTS_ROOT, raw);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
+    fs.unlinkSync(abs);
+    return res.json({ ok: true });
+  } catch {
+    return res.status(400).json({ ok: false, error: 'Invalid output file' });
+  }
+});
+
 router.get('/inputs/download', (req, res) => {
   const raw = (req.query.file || '').toString();
   if (!raw) return res.status(400).send('Missing file');
@@ -1434,6 +1608,21 @@ router.get('/inputs/download', (req, res) => {
     return res.download(abs, path.basename(abs));
   } catch {
     return res.status(400).send('Invalid input file');
+  }
+});
+
+router.post('/inputs/delete', (req, res) => {
+  const raw = (req.body?.file || '').toString();
+  if (!raw) return res.status(400).json({ ok: false, error: 'Missing file' });
+  try {
+    const abs = resolveInside(INPUTS_ROOT, raw);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
+    fs.unlinkSync(abs);
+    return res.json({ ok: true });
+  } catch {
+    return res.status(400).json({ ok: false, error: 'Invalid input file' });
   }
 });
 
@@ -1468,6 +1657,14 @@ router.post('/uploads', (req, res) => {
   } catch (err) {
     return res.status(500).json({ ok: false, error: err?.message || 'Unable to store file' });
   }
+});
+
+router.post('/templates/upload', (req, res) => {
+  return res.status(403).json({ ok: false, error: 'Uploads are restricted to data/inputs.' });
+});
+
+router.post('/customization/upload', (req, res) => {
+  return res.status(403).json({ ok: false, error: 'Uploads are restricted to data/inputs.' });
 });
 
 

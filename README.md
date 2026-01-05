@@ -10,7 +10,7 @@
 
 - All scripts are grouped by lifecycle stage in `src/config/adminScripts.js`.
 - The admin UI mirrors this catalog, offering descriptions, notes, and runnable actions.
-- Boilerplate data lives under `data/templates/`:
+- Boilerplate data lives under `data_references/`:
   - `env/.env.template` — copy to `.env` before running scripts.
   - `csv/*.template.csv` — column layouts for imports/exports.
   - `files/plan.svg` — starter seating plan to customise per venue.
@@ -53,7 +53,7 @@ BTS_BASE_URL=https://billetterie-test.belougas.fr/bts
 ## HelloAsso Stub
 
 - Local checkout simulator listening on `http://127.0.0.1:3005`.
-- Launch with `npm run helloasso:stub` (or `node helloasso-stub/server.js`).
+- Launch with `npm run helloasso:stub` (or `node stub_helloasso/server.js`).
 - Point the BTS app to it via `HELLOASSO_API_URL=http://127.0.0.1:3005`; the rest of the HelloAsso integration keeps working unchanged.
 - Define `HELLOASSO_WEBHOOK_URL` (or `HELLOASSO_STUB_WEBHOOK_URL`) so the stub relays payment webhooks to the BTS `/pay/webhook` endpoint.
 - Visit `http://127.0.0.1:3005/` to inspect intents and play success/failure scenarios.

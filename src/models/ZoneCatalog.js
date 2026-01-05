@@ -10,7 +10,8 @@ const ZoneCatalogSchema = new mongoose.Schema({
   capacity:    { type: Number, default: 0 },
   quota:       { type: Number, default: 0 },
   svgSelector: { type: String, default: null },
-  isActive:    { type: Boolean, default: true }
+  isActive:    { type: Boolean, default: true },
+  meta:        { type: mongoose.Schema.Types.Mixed, default: undefined }
 }, { timestamps: true });
 
 ZoneCatalogSchema.index({ venueSlug: 1, key: 1 }, { unique: true });

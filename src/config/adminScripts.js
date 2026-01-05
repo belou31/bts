@@ -28,7 +28,7 @@ export const adminScriptGroups = [
         },
         description: 'Drops the MongoDB database defined in .env. Requires the --force flag to avoid accidental wipes.',
         danger: true,
-        templates: ['data/templates/env/.env.template'],
+        templates: ['data_references/env/.env.template'],
         notes: [
           'Make sure the MongoDB URI points to the intended environment before running.',
           'Include --force to acknowledge the drop command.'
@@ -51,13 +51,13 @@ export const adminScriptGroups = [
         label: 'Customize Application',
         order: 2,
         path: 'scripts/00-system-management/customize-app.js',
-        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--email-template=template.json]',
+        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]',
         run: {
           script: 'scripts/00-system-management/customize-app.js',
           args: []
         },
-        description: 'Copies organization assets (favicon, logos, app icons) to public/static/img and stores optional metadata/templates under data/customization.',
-        templates: ['data/templates/customization/app.json'],
+        description: 'Stages organization assets (favicon, logos, app icons) to public/dynamic/assets and saves metadata under data/customization.',
+        templates: ['data_references/customization/app.json'],
         notes: [
           'Input files can be referenced by absolute path or relative to data/inputs.',
           'Use --dry-run to preview the configuration without writing files.',
@@ -80,54 +80,64 @@ export const adminScriptGroups = [
             {
               name: 'favicon',
               label: 'Favicon (.ico)',
-              placeholder: 'data/inputs/favicon.ico',
+              placeholder: 'public/dynamic/assets/favicon.ico',
               arg: { type: 'option', template: '--favicon=${value}' }
             },
             {
               name: 'logoSvg',
               label: 'Logo vectoriel (.svg)',
-              placeholder: 'data/inputs/logo.svg',
+              placeholder: 'public/dynamic/assets/logo.svg',
               arg: { type: 'option', template: '--logo-svg=${value}' }
             },
             {
               name: 'logoPng',
               label: 'Logo bitmap (.png)',
-              placeholder: 'data/inputs/logo.png',
+              placeholder: 'public/dynamic/assets/logo.png',
               arg: { type: 'option', template: '--logo-png=${value}' }
             },
             {
               name: 'icon192',
               label: 'Icône 192×192 (.png)',
-              placeholder: 'data/inputs/icon-192.png',
+              placeholder: 'public/dynamic/assets/icon-192.png',
               arg: { type: 'option', template: '--icon-192=${value}' }
             },
             {
               name: 'icon512',
               label: 'Icône 512×512 (.png)',
-              placeholder: 'data/inputs/icon-512.png',
+              placeholder: 'public/dynamic/assets/icon-512.png',
               arg: { type: 'option', template: '--icon-512=${value}' }
-            },
-            {
-              name: 'emailTemplate',
-              label: 'Email template (JSON)',
-              placeholder: 'data/inputs/order-confirmation.json',
-              hint: 'Vous pouvez répéter l’option en la saisissant via le champ Arguments additionnels.',
-              arg: { type: 'option', template: '--email-template=${value}' }
-            },
-            {
-              name: 'emailTemplatesDir',
-              label: 'Répertoire de templates e-mail',
-              placeholder: 'data/inputs/email-templates',
-              arg: { type: 'option', template: '--email-templates=${value}' }
             }
           ]
         }
-      }
-      ,
+      },
+      {
+        id: 'set-default-custo',
+        label: 'Set Default Customization',
+        order: 3,
+        path: 'scripts/00-system-management/set-default-custo.js',
+        command: 'node scripts/00-system-management/set-default-custo.js --file=<customization.json>',
+        run: {
+          script: 'scripts/00-system-management/set-default-custo.js',
+          args: []
+        },
+        description: 'Writes default UI/email copy customizations to data/customization/default.json.',
+        templates: ['data/customization/default.json'],
+        form: {
+          fields: [
+            {
+              name: 'file',
+              label: 'JSON customization',
+              placeholder: 'data/customization/default.json',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            }
+          ]
+        }
+      },
       {
         id: 'purge-logs',
         label: 'Purge Logs (Mongo)',
-        order: 3,
+        order: 4,
         path: 'scripts/00-system-management/purge-logs.js',
         command: 'node scripts/00-system-management/purge-logs.js --apply',
         run: {
@@ -211,7 +221,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Loads renewal subscribers from a simple CSV (one seat per row) and marks them as invited.',
-        templates: ['data/templates/csv/renew-subscribers.template.csv'],
+        templates: ['data_references/csv/renew-subscribers.template.csv'],
         form: {
           fields: [
             {
@@ -285,7 +295,7 @@ export const adminScriptGroups = [
           'Requires JWT_SECRET and a public base URL (use --base to override APP_URL).',
           'Résultats déposés par défaut dans data/outputs.'
         ],
-        templates: ['data/templates/csv/renew-groups.template.csv'],
+        templates: ['data_references/csv/renew-groups.template.csv'],
         form: {
           fields: [
             {
@@ -334,7 +344,7 @@ export const adminScriptGroups = [
           'Dry-run activé par défaut depuis l’interface ; décochez pour envoyer réellement.',
           'Le CSV doit contenir les colonnes email, renewUrl, firstName/lastName et optionnellement seats.'
         ],
-        templates: ['data/templates/csv/renew-groups.template.csv'],
+        templates: ['data_references/csv/renew-groups.template.csv'],
         form: {
           fields: [
             {
@@ -380,7 +390,7 @@ export const adminScriptGroups = [
           'Supports filters (--email, --group) and token expiration via --expires (ex: 30d).',
           'Fichier généré dans data/outputs (nom par défaut basé sur la saison).'
         ],
-        templates: ['data/templates/csv/renew-seats.template.csv'],
+        templates: ['data_references/csv/renew-seats.template.csv'],
         form: {
           fields: [
             {
@@ -481,7 +491,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Creates or updates the venue document with the provided slug and display name. Add --overwrite to replace an existing SVG plan.',
-        templates: ['data/templates/files/plan.svg'],
+        templates: ['data_references/files/plan.svg'],
         form: {
           fields: [
             {
@@ -502,7 +512,7 @@ export const adminScriptGroups = [
               name: 'plan',
               label: 'Plan SVG (optionnel)',
               placeholder: 'data/inputs/plan.svg',
-              hint: 'Copié dans src/public/static/venues/<slug>/plan.svg si fourni.',
+              hint: 'Copié dans public/dynamic/venues/<slug>/plan.svg si fourni.',
               arg: { type: 'positional', index: 2, optional: true }
             }
           ]
@@ -510,18 +520,17 @@ export const adminScriptGroups = [
       },
       {
         id: 'import-seats',
-        label: 'Import Seats from SVG',
-        order: 1,
+        label: 'Import Seats',
+        order: 2,
         path: 'scripts/01-venue-management/import-seats.js',
-        command: 'node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=<path/to/seats.csv>] [--attr=<seatAttribute>] [--plan=<override.svg>]',
+        command: 'node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=<path/to/seats.csv>] [--view=<viewSlug>]',
         run: {
           script: 'scripts/01-venue-management/import-seats.js',
           args: []
         },
-        description: 'Parses the persisted venue plan SVG (copied via register-venue) and stores seats in the catalog. Optionally merge overrides from a CSV mapping (seatId, zoneKey, row, number).',
+        description: 'Parses the venue plan SVG (under public/dynamic/venues/<slug>/plan.svg) and stores seats in the catalog. Optionally merge overrides from a CSV mapping (seatId, zoneKey, row, number). When --view is provided, the matching view is also enriched with seat attributes.',
         templates: [
-          'data/templates/files/plan.svg',
-          'data/templates/csv/seats.template.csv'
+          'data_references/csv/seats.template.csv'
         ],
         form: {
           fields: [
@@ -539,17 +548,11 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--csv=${value}' }
             },
             {
-              name: 'attr',
-              label: 'Attribut des sièges (optionnel)',
-              placeholder: 'data-seat-id',
-              hint: 'Par défaut data-seat-id dans le SVG ; utilisez-le si vos plans encodent les sièges sous un autre attribut.',
-              arg: { type: 'option', template: '--attr=${value}' }
-            },
-            {
-              name: 'plan',
-              label: 'Plan SVG override (optionnel)',
-              placeholder: 'data/inputs/plan.svg',
-              arg: { type: 'option', template: '--plan=${value}' }
+              name: 'view',
+              label: 'Vue à enrichir (optionnel)',
+              placeholder: 'main',
+              hint: 'Slug de la vue présente dans public/dynamic/venues/<slug>/views/<vue>.svg.',
+              arg: { type: 'option', template: '--view=${value}' }
             }
           ]
         }
@@ -557,15 +560,15 @@ export const adminScriptGroups = [
       {
         id: 'import-zones',
         label: 'Import Zones',
-        order: 2,
+        order: 3,
         path: 'scripts/01-venue-management/import-zones.js',
-        command: 'node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--attr=<zoneAttribute>] [--plan=<path/to/plan.svg>]',
+        command: 'node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--view=<viewSlug>]',
         run: {
           script: 'scripts/01-venue-management/import-zones.js',
           args: []
         },
-        description: 'Maintains the ZoneCatalog for a venue from CSV and/or the persisted SVG plan (data-zone-id by default). Instantiate zones per season afterwards.',
-        templates: ['data/templates/csv/zones.template.csv'],
+        description: 'Maintains the ZoneCatalog for a venue from CSV and/or the persisted SVG plan (data-zone-id by default) under public/dynamic/venues/<slug>/plan.svg. Instantiate zones per season afterwards. When --view is provided, the matching view is also enriched with zone attributes.',
+        templates: ['data_references/csv/zones.template.csv'],
         form: {
           fields: [
             {
@@ -582,33 +585,27 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--csv=${value}' }
             },
             {
-              name: 'attr',
-              label: 'Attribut des zones (optionnel)',
-              placeholder: 'data-zone-id',
-              hint: 'Par défaut data-zone-id ; utile si le plan utilise un autre attribut.',
-              arg: { type: 'option', template: '--attr=${value}' }
-            },
-            {
-              name: 'plan',
-              label: 'Plan SVG override (optionnel)',
-              placeholder: 'data/inputs/plan.svg',
-              arg: { type: 'option', template: '--plan=${value}' }
+              name: 'view',
+              label: 'Vue à enrichir (optionnel)',
+              placeholder: 'main',
+              hint: 'Slug de la vue présente dans public/dynamic/venues/<slug>/views/<vue>.svg.',
+              arg: { type: 'option', template: '--view=${value}' }
             }
           ]
         }
       },
       {
         id: 'import-venue-view',
-        label: 'Import Venue View (SVG)',
-        order: 4,
+        label: 'Add View for Venue',
+        order: 1,
         path: 'scripts/01-venue-management/import-venue-view.js',
         command: 'node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <path/to/view.svg> [--overwrite]',
         run: {
           script: 'scripts/01-venue-management/import-venue-view.js',
           args: []
         },
-        description: 'Copies a custom SVG view for a venue to src/public/static/venues/<slug>/views/<viewSlug>.svg (no seat indexing).',
-        templates: ['data/templates/files/plan.svg'],
+        description: 'Copies a custom view to public/dynamic/venues/<slug>/views/<viewSlug>.svg (no enrichment).',
+        templates: ['data_references/files/plan.svg'],
         form: {
           fields: [
             {
@@ -634,42 +631,6 @@ export const adminScriptGroups = [
             }
           ]
         }
-      },
-      {
-        id: 'validate-venue-svg',
-        label: 'Validate Venue SVG',
-        order: 3,
-        path: 'scripts/01-venue-management/validate-svg.js',
-        command: 'node scripts/01-venue-management/validate-svg.js --svg=<path/to/plan.svg> --selectors="ZONE:#selector" [--min-seats=500] [--fail-on-missing]',
-        run: {
-          script: 'scripts/01-venue-management/validate-svg.js',
-          args: []
-        },
-        description: 'Checks that the SVG seating plan contains the expected selectors and seat count.',
-        form: {
-          fields: [
-            {
-              name: 'svg',
-              label: 'Plan SVG',
-              placeholder: 'src/public/static/venues/patinoire-blagnac/plan.svg',
-              required: true,
-              arg: { type: 'option', template: '--svg=${value}' }
-            },
-            {
-              name: 'selectors',
-              label: 'Sélecteurs zones',
-              placeholder: 'TBH7:#zone-tbh7,DEBOUT:#zone-debout',
-              hint: 'Format: ZONE:#css,ZONE2:#css2',
-              arg: { type: 'option', template: '--selectors=${value}' }
-            },
-            {
-              name: 'minSeats',
-              label: 'Nombre de sièges minimum',
-              placeholder: '500',
-              arg: { type: 'option', template: '--min-seats=${value}' }
-            }
-          ]
-        }
       }
     ]
   },
@@ -690,7 +651,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Imports the master tariff catalog (code, label, justification requirements).',
-        templates: ['data/templates/csv/tariff-catalog.template.csv'],
+        templates: ['data_references/csv/tariff-catalog.template.csv'],
         form: {
           fields: [
             {
@@ -743,7 +704,7 @@ export const adminScriptGroups = [
           'Supports list and matrix CSV formats; override detection with --format=list|matrix.',
           'Use --venue=<slug> to scope prices to a specific arena; omit to keep them global.'
         ],
-        templates: ['data/templates/csv/tariff-prices.template.csv'],
+        templates: ['data_references/csv/tariff-prices.template.csv'],
         form: {
           fields: [
             {
@@ -952,12 +913,12 @@ export const adminScriptGroups = [
         label: 'Configure Season Phases',
         order: 0.2,
         path: 'scripts/03-season-management/set-season-phases.js',
-        command: 'node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|tbh7|public> [--open=ISO] [--close=ISO] [--enabled=true|false]',
+        command: 'node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|fanclub|public> [--open=ISO] [--close=ISO] [--enabled=true|false]',
         run: {
           script: 'scripts/03-season-management/set-season-phases.js',
           args: []
         },
-        description: 'Manages phase scheduling/enabling for a season (renewal, tbh7, public).',
+        description: 'Manages phase scheduling/enabling for a season (renewal, fanclub, public).',
         notes: [
           'Open/close dates expect ISO format (e.g., 2025-08-01T00:00:00Z).',
           'Use enabled=true|false to toggle each phase.'
@@ -978,7 +939,7 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--phase=${value}' },
               options: [
                 { label: 'Renouvellement', value: 'renewal' },
-                { label: 'TBH7', value: 'tbh7' },
+                { label: 'Fanclub', value: 'fanclub' },
                 { label: 'Public', value: 'public' }
               ]
             },
@@ -999,6 +960,37 @@ export const adminScriptGroups = [
               label: 'Activer ? (true/false)',
               placeholder: 'true',
               arg: { type: 'option', template: '--enabled=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-season-custo',
+        label: 'Set Season Customization',
+        order: 0.3,
+        path: 'scripts/03-season-management/set-season-custo.js',
+        command: 'node scripts/03-season-management/set-season-custo.js --season=<code> --file=<customization.json>',
+        run: {
+          script: 'scripts/03-season-management/set-season-custo.js',
+          args: []
+        },
+        description: 'Stores season-level UI/email customization keys under data/customization/seasons/<code>.json.',
+        templates: ['data/customization/seasons/<code>.json'],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'JSON customization',
+              placeholder: 'data/customization/seasons/<code>.json',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
             }
           ]
         }
@@ -1081,7 +1073,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Re-import subscription orders exported from the system. Dry-run by default; add --commit to apply changes.',
-        templates: ['data/templates/csv/orders-export.template.csv'],
+        templates: ['data_references/csv/orders-export.template.csv'],
         form: {
           fields: [
             {
@@ -1123,7 +1115,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Exports the renewer registry (formerly Subscribers collection) for the requested season/venue.',
-        templates: ['data/templates/csv/subscribers-export.template.csv'],
+        templates: ['data_references/csv/subscribers-export.template.csv'],
         form: {
           fields: [
             {
@@ -1153,7 +1145,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Exports orders with phase=subscription. Useful to audit new season sales.',
-        templates: ['data/templates/csv/orders-export.template.csv'],
+        templates: ['data_references/csv/orders-export.template.csv'],
         form: {
           fields: [
             {
@@ -1191,7 +1183,7 @@ export const adminScriptGroups = [
         notes: [
           'Runs in dry-run by default; add --commit to persist and --force to override non-held seats.'
         ],
-        templates: ['data/templates/csv/seats-hold-release.template.csv'],
+        templates: ['data_references/csv/seats-hold-release.template.csv'],
         form: {
           fields: [
             {
@@ -1273,6 +1265,37 @@ export const adminScriptGroups = [
               label: 'Description courte (optionnel)',
               placeholder: 'Match de saison régulière',
               arg: { type: 'option', template: '--desc=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-event-custo',
+        label: 'Set Event Customization',
+        order: 0.3,
+        path: 'scripts/04-event-management/set-event-custo.js',
+        command: 'node scripts/04-event-management/set-event-custo.js --event=<slug> --file=<customization.json>',
+        run: {
+          script: 'scripts/04-event-management/set-event-custo.js',
+          args: []
+        },
+        description: 'Stores event-level UI/email customization keys under data/customization/events/<slug>.json.',
+        templates: ['data/customization/events/<slug>.json'],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'JSON customization',
+              placeholder: 'data/customization/events/<slug>.json',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
             }
           ]
         }
@@ -1470,7 +1493,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Re-import or create paid event orders from a CSV export. Dry-run by default; add --commit to persist and --sendEmail to trigger confirmations.',
-        templates: ['data/templates/csv/event-orders.template.csv'],
+        templates: ['data_references/csv/event-orders.template.csv'],
         form: {
           fields: [
             {
@@ -1529,7 +1552,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Exports event orders (one row per ticket) matching the same CSV format as the import tool.',
-        templates: ['data/templates/csv/event-orders.template.csv'],
+        templates: ['data_references/csv/event-orders.template.csv'],
         notes: [
           'Streams to stdout by default; provide --out to write directly to a file.'
         ],
@@ -1633,7 +1656,7 @@ export const adminScriptGroups = [
         notes: [
           'Without --commit the script runs in dry-run mode; add --force to overwrite existing holds.'
         ],
-        templates: ['data/templates/csv/seats-hold-release.template.csv'],
+        templates: ['data_references/csv/seats-hold-release.template.csv'],
         form: {
           fields: [
             {
@@ -1765,7 +1788,7 @@ export const adminScriptGroups = [
       {
         id: 'partners-init-template',
         label: 'Init Partner Template',
-        order: 0,
+        order: 5,
         path: 'scripts/05-partner-management/init-partners.js',
         command: 'node scripts/05-partner-management/init-partners.js [--force]',
         run: {
@@ -1780,9 +1803,56 @@ export const adminScriptGroups = [
         form: { fields: [] }
       },
       {
+        id: 'set-partner-custo',
+        label: 'Set Partner Customization',
+        order: 1,
+        path: 'scripts/05-partner-management/set-partner-custo.js',
+        command: 'node scripts/05-partner-management/set-partner-custo.js --partner=<slug> --file=<customization.json> [--season=<code>] [--event=<slug>]',
+        run: {
+          script: 'scripts/05-partner-management/set-partner-custo.js',
+          args: []
+        },
+        description: 'Stores partner-level UI/email customization keys under data/customization/partners/<slug>.json (or scoped files under partners/<slug>/seasons/ or partners/<slug>/events/ when provided).',
+        templates: [
+          'data/customization/partners/<slug>.json',
+          'data/customization/partners/<slug>/seasons/<code>.json',
+          'data/customization/partners/<slug>/events/<event>.json'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'partner',
+              label: 'Slug du partenaire',
+              placeholder: 'cseairbus',
+              required: true,
+              arg: { type: 'option', template: '--partner=${value}' }
+            },
+            {
+              name: 'season',
+              label: 'Code saison (optionnel)',
+              placeholder: '2025-2026',
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'event',
+              label: 'Slug événement (optionnel)',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'JSON customization',
+              placeholder: 'data/customization/partners/<slug>.json',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'partner-upsert',
         label: 'Create / Update Partner',
-        order: 1,
+        order: 0,
         path: 'scripts/05-partner-management/upsert-partner.js',
         command: 'node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [--payment-mode=psp|invoice_auto] [--allow-public-tariffs=yes|no] [--payment-provider=...]',
         run: {
@@ -1795,75 +1865,23 @@ export const adminScriptGroups = [
         ],
         form: {
           fields: [
-            {
-              name: 'slug',
-              label: 'Slug',
-              placeholder: 'cseairbus',
-              required: true,
-              arg: { type: 'option', template: '--slug=${value}' }
-            },
-            {
-              name: 'name',
-              label: 'Nom affiché',
-              placeholder: 'CSE Airbus',
-              required: true,
-              arg: { type: 'option', template: '--name=${value}' }
-            },
-            {
-              name: 'paymentMode',
-              label: 'Mode de paiement',
-              placeholder: 'psp | invoice_auto',
-              arg: { type: 'option', template: '--payment-mode=${value}' }
-            },
-            {
-              name: 'allowPublicTariffs',
-              label: 'Autoriser les tarifs publics',
-              hint: 'yes|no (par défaut: no). Si yes, les tarifs publics seront accessibles en fallback.',
-              arg: { type: 'option', template: '--allow-public-tariffs=${value}' }
-            },
-            {
-              name: 'paymentProvider',
-              label: 'ID prestataire (invoice_auto)',
-              placeholder: 'cseairbus_invoice',
-              arg: { type: 'option', template: '--payment-provider=${value}' }
-            },
-            {
-              name: 'payButton',
-              label: 'Libellé bouton (invoice_auto)',
-              placeholder: 'Envoyer ma demande',
-              arg: { type: 'option', template: '--pay-button=${value}' }
-            },
-            {
-              name: 'successMessage',
-              label: 'Message succès (invoice_auto)',
-              placeholder: 'Votre demande a été enregistrée...',
-              arg: { type: 'option', template: '--success-message=${value}' }
-            },
-            {
-              name: 'errorMessage',
-              label: 'Message erreur (invoice_auto)',
-              placeholder: 'Impossible d’enregistrer votre demande...',
-              arg: { type: 'option', template: '--error-message=${value}' }
-            },
-            {
-              name: 'autoFinalize',
-              label: 'Auto-finaliser (invoice_auto)',
-              placeholder: 'yes|no',
-              arg: { type: 'option', template: '--auto-finalize=${value}' }
-            },
-            {
-              name: 'sendTickets',
-              label: 'Envoyer billets (invoice_auto)',
-              placeholder: 'yes|no',
-              arg: { type: 'option', template: '--send-tickets=${value}' }
-            }
+            { name: 'partner', label: 'Slug', placeholder: 'cseairbus', required: true, arg: { type: 'option', template: '--slug=${value}' } },
+            { name: 'name', label: 'Nom affiché', placeholder: 'CSE Airbus', required: true, arg: { type: 'option', template: '--name=${value}' } },
+            { name: 'paymentMode', label: 'Mode de paiement', placeholder: 'psp | invoice_auto', arg: { type: 'option', template: '--payment-mode=${value}' } },
+            { name: 'allowPublicTariffs', label: 'Autoriser les tarifs publics', hint: 'yes|no (par défaut: no). Si yes, les tarifs publics seront accessibles en fallback.', arg: { type: 'option', template: '--allow-public-tariffs=${value}' } },
+            { name: 'paymentProvider', label: 'ID prestataire (invoice_auto)', placeholder: 'cseairbus_invoice', arg: { type: 'option', template: '--payment-provider=${value}' } },
+            { name: 'payButton', label: 'Libellé bouton (invoice_auto)', placeholder: 'Envoyer ma demande', arg: { type: 'option', template: '--pay-button=${value}' } },
+            { name: 'successMessage', label: 'Message succès (invoice_auto)', placeholder: 'Votre demande a été enregistrée...', arg: { type: 'option', template: '--success-message=${value}' } },
+            { name: 'errorMessage', label: 'Message erreur (invoice_auto)', placeholder: 'Impossible d’enregistrer votre demande...', arg: { type: 'option', template: '--error-message=${value}' } },
+            { name: 'autoFinalize', label: 'Auto-finaliser (invoice_auto)', placeholder: 'yes|no', arg: { type: 'option', template: '--auto-finalize=${value}' } },
+            { name: 'sendTickets', label: 'Envoyer billets (invoice_auto)', placeholder: 'yes|no', arg: { type: 'option', template: '--send-tickets=${value}' } }
           ]
         }
       },
       {
         id: 'partner-set-security',
         label: 'Partner Security (origins)',
-        order: 1.2,
+        order: 3,
         path: 'scripts/05-partner-management/set-partner-security.js',
         command: 'node scripts/05-partner-management/set-partner-security.js --slug=<slug> [--allowed-origins=CSV] [--frame-ancestors=CSV]',
         run: { script: 'scripts/05-partner-management/set-partner-security.js', args: [] },
@@ -1894,49 +1912,18 @@ export const adminScriptGroups = [
       },
       {
         id: 'partner-set-view',
-        label: 'Partner View & UI',
-        order: 1.4,
+        label: 'Partner View',
+        order: 1,
         path: 'scripts/05-partner-management/set-partner-view.js',
-        command: 'node scripts/05-partner-management/set-partner-view.js --slug=<slug> [--venue-view=<slug>] [--ui-heading=\"...\"] [--ui-lead=\"...\"] [--ui-payment-help=\"...\"]',
+        command: 'node scripts/05-partner-management/set-partner-view.js --slug=<slug> --venue-view=<slug> [--event=<eventSlug>] [--season=<code>]',
         run: { script: 'scripts/05-partner-management/set-partner-view.js', args: [] },
-        description: 'Customizes the partner plan view and UI copy.',
+        description: 'Sets a partner venue view override (optionally scoped to an event or season).',
         form: {
           fields: [
-            {
-              name: 'partner',
-              label: 'Slug',
-              placeholder: 'cseairbus',
-              required: true,
-              arg: { type: 'option', template: '--slug=${value}' }
-            },
-            {
-              name: 'venueView',
-              label: 'Vue plan (optionnel)',
-              placeholder: 'cseairbus-view',
-              arg: { type: 'option', template: '--venue-view=${value}' },
-              options: [
-                { label: '— Aucune vue spécifique —', value: '' },
-                { label: 'Exemple : aisc', value: 'aisc' }
-              ]
-            },
-            {
-              name: 'uiHeading',
-              label: 'Titre page (UI)',
-              placeholder: 'Billetterie partenaire',
-              arg: { type: 'option', template: '--ui-heading=${value}' }
-            },
-            {
-              name: 'uiLead',
-              label: 'Accroche (UI)',
-              placeholder: 'Offre négociée ...',
-              arg: { type: 'option', template: '--ui-lead=${value}' }
-            },
-            {
-              name: 'uiPaymentHelp',
-              label: 'Texte aide paiement (UI)',
-              placeholder: 'Paiement sécurisé via BTS.',
-              arg: { type: 'option', template: '--ui-payment-help=${value}' }
-            }
+            { name: 'partner', label: 'Slug', placeholder: 'cseairbus', required: true, arg: { type: 'option', template: '--slug=${value}' } },
+            { name: 'venueView', label: 'Vue plan', placeholder: 'cseairbus-view', required: true, arg: { type: 'option', template: '--venue-view=${value}' } },
+            { name: 'season', label: 'Code saison (optionnel)', placeholder: '2025-2026', arg: { type: 'option', template: '--season=${value}' } },
+            { name: 'event', label: 'Slug événement (optionnel)', placeholder: 'match-2025-09-21-bts-vs-xxx', arg: { type: 'option', template: '--event=${value}' } }
           ]
         }
       },
@@ -1951,7 +1938,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Import partners from CSV into data/customization/partners.json; merges by default, or replaces when --replace is provided.',
-        templates: ['data/templates/csv/partners.template.csv'],
+        templates: ['data_references/csv/partners.template.csv'],
         notes: [
           'Columns: slug,name,paymentMode,allowedOrigins,frameAncestors,paymentProvider,payButtonLabel,successMessage,errorMessage,autoFinalize,sendTickets,uiHeading,uiLead,uiPaymentHelp.'
         ],
@@ -1978,7 +1965,7 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Export partners.json to CSV (stdout or --out=<file>).',
-        templates: ['data/templates/csv/partners.template.csv'],
+        templates: ['data_references/csv/partners.template.csv'],
         form: {
           fields: [
             {
@@ -2089,7 +2076,7 @@ export const adminScriptGroups = [
         notes: [
           'Writes to stdout; redirect to a file if you need a persistent export.'
         ],
-        templates: ['data/templates/csv/orders-export.template.csv'],
+        templates: ['data_references/csv/orders-export.template.csv'],
         form: {
           fields: [
             {
@@ -2181,7 +2168,7 @@ export const adminScriptGroups = [
         notes: [
           'Combines seat availability with latest paid order info for each seat.'
         ],
-        templates: ['data/templates/csv/seats-export.template.csv'],
+        templates: ['data_references/csv/seats-export.template.csv'],
         form: {
           fields: [
             {

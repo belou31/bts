@@ -133,7 +133,7 @@ curl -I http://billetterie-dev.belougas.fr/.well-known/acme-challenge/test.txt
 <h2>8. Tests fonctionnels</h2>
 <pre><code># Front statique (CSS/plan)
 curl -I https://billetterie-dev.belougas.fr/bts/static/styles/renew.css     # → 200
-curl -I https://billetterie-dev.belougas.fr/bts/venues/patinoire-blagnac/plan.svg  # → 200
+curl -I https://billetterie-dev.belougas.fr/bts/dynamic/venues/patinoire-blagnac/plan.svg  # → 200
 
 # Santé API
 curl -s https://billetterie-dev.belougas.fr/bts/health | jq .

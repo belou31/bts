@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+MIT License
+
+Copyright (c) 2025 Stadium BTS
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+
+<svg
+   viewBox="0 0 1400 420"
+   role="img"
+   aria-label="Stadium BTS logo"
+   version="1.1"
+   id="svg11"
+   sodipodi:docname="logo.svg"
+   inkscape:version="1.4.2 (2aeb623e1d, 2025-05-12)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview11"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="1.2807143"
+     inkscape:cx="402.11935"
+     inkscape:cy="209.64863"
+     inkscape:window-width="1878"
+     inkscape:window-height="1131"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <title
+     id="title1">Stadium BTS</title>
+  <desc
+     id="desc1">Stadium BTS logo mark and wordmark. Licensed under the MIT License.</desc>
+  <defs
+     id="defs1">
+    <style
+       id="style1">
+      .black { fill: #0A0A0C; }
+      .red { fill: #E11D2E; }
+      .dark { fill: #16161A; }
+      .line { stroke: rgba(225,29,46,0.7); stroke-width: 6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .word { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; font-weight: 800; }
+    </style>
+  </defs>
+  <!-- MARK (left) -->
+  <g
+     inkscape:groupmode="layer"
+     id="layer1"
+     inkscape:label="background">
+    <rect
+       style="fill:#ffffff;stroke:#6477ff;stroke-width:0.373816;stroke-linejoin:round"
+       id="rect11"
+       width="1386.7262"
+       height="407.58502"
+       x="6.2465291"
+       y="5.4657001" />
+  </g>
+  <g
+     transform="translate(40,30)"
+     id="g10">
+    <!-- outer bowl -->
+    <ellipse
+       class="red"
+       cx="180"
+       cy="180"
+       rx="154"
+       ry="118"
+       id="ellipse1" />
+    <!-- stands ring -->
+    <ellipse
+       class="black"
+       cx="180"
+       cy="180"
+       rx="133"
+       ry="102"
+       id="ellipse2" />
+    <!-- field -->
+    <ellipse
+       class="dark"
+       cx="180"
+       cy="180"
+       rx="94"
+       ry="72"
+       id="ellipse3" />
+    <!-- field markings -->
+    <line
+       class="line"
+       x1="180"
+       y1="116"
+       x2="180"
+       y2="244"
+       id="line3" />
+    <circle
+       class="line"
+       cx="180"
+       cy="180"
+       r="24"
+       id="circle3" />
+    <rect
+       class="line"
+       x="158"
+       y="132"
+       width="44"
+       height="38"
+       rx="12"
+       id="rect3" />
+    <rect
+       class="line"
+       x="158"
+       y="190"
+       width="44"
+       height="38"
+       rx="12"
+       id="rect4" />
+    <!-- entrances -->
+    <g
+       id="g9">
+      <rect
+         class="red"
+         x="66"
+         y="268"
+         width="15"
+         height="10"
+         rx="4"
+         id="rect5" />
+      <rect
+         class="red"
+         x="119"
+         y="268"
+         width="15"
+         height="10"
+         rx="4"
+         id="rect6" />
+      <rect
+         class="red"
+         x="172"
+         y="268"
+         width="15"
+         height="10"
+         rx="4"
+         id="rect7" />
+      <rect
+         class="red"
+         x="225"
+         y="268"
+         width="15"
+         height="10"
+         rx="4"
+         id="rect8" />
+      <rect
+         class="red"
+         x="278"
+         y="268"
+         width="15"
+         height="10"
+         rx="4"
+         id="rect9" />
+    </g>
+  </g>
+  <!-- WORDMARK -->
+  <g
+     transform="translate(450,0)"
+     id="g11">
+    <text
+       class="black word"
+       x="0"
+       y="250"
+       font-size="130"
+       id="text10">Stadium BTS</text>
+    <!-- underline only BTS -->
+    <rect
+       class="red"
+       x="545"
+       y="280"
+       width="250"
+       height="12"
+       rx="6"
+       id="rect10" />
+  </g>
+</svg>

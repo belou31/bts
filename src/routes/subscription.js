@@ -13,6 +13,7 @@ import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from 
 import { makeTokenHash }        from '../utils/ha-token.js';
 import { findSingleGaps }       from '../utils/no-single-gap.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
+import { loadCustomization } from '../services/customization.js';
 
 const router = express.Router({ mergeParams: true });
 
@@ -22,9 +23,6 @@ const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 10); // durée du hold en minutes
 const HOLD_MS  = HOLD_MIN * 60 * 1000;
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
-
-// zones “grand public” qu’on expose au sélecteur (Fan club + debout)
-const SUB_ZONE_KEYS = ['TBH7', 'TBH7-VIRAGE', 'DEBOUT'];
 
 /* ====== Helpers ====== */
 const norm  = s => String(s || '').trim();
@@ -123,12 +121,13 @@ router.get('/status', async (req, res, next) => {
       { _id:0, seatId:1, status:1, zoneKey:1 }
     ).lean();
 
-    // --- Zones (Fan club + Debout) depuis le modèle Zone
-    const zones = await Zone.find({
+    // --- Zones actives (avec svgSelector si fourni)
+    const zonesAll = await Zone.find({
       seasonCode, venueSlug,
-      key: { $in: SUB_ZONE_KEYS },
       isActive: true
     }).lean();
+    const zones = zonesAll.filter(z => z?.svgSelector);
+    const zoneKeys = zones.map(z => String(z.key || '').toUpperCase()).filter(Boolean);
 
     // --- Tarifs & Prix applicables (TOUS les prix / tarifs actifs pour la salle)
     const allPrices = await TariffPrice.find({
@@ -143,10 +142,14 @@ router.get('/status', async (req, res, next) => {
       { kind: 'subscription' }
     );
 
+    const customization = loadCustomization({ seasonCode });
+
     // --- Calcul “remaining” zone = plafond - USAGE(only paid)
-    const usage = await computeZoneUsageAllOrders({
-      seasonCode, venueSlug, zoneKeys: SUB_ZONE_KEYS, statusIn: ['paid']
-    });
+    const usage = zoneKeys.length
+      ? await computeZoneUsageAllOrders({
+          seasonCode, venueSlug, zoneKeys, statusIn: ['paid']
+        })
+      : new Map();
     const zonesOut = (zones || []).map(z => {
       const quota     = Number(z.quota || 0);
       const capacity  = Number(z.capacity || 0);
@@ -164,7 +167,7 @@ router.get('/status', async (req, res, next) => {
       };
     });
 
-    res.json({ seasonCode, seasonName: season?.name || null, venueSlug, tariffs, prices, seats, zones: zonesOut });
+    res.json({ seasonCode, seasonName: season?.name || null, venueSlug, tariffs, prices, seats, zones: zonesOut, customization });
   } catch (e) { next(e); }
 });
 
@@ -202,12 +205,22 @@ router.post('/checkout', async (req, res) => {
       : [];
     const seatMap = new Map(dbSeats.map(s => [s.seatId, s]));
 
-    // Prépare contrôle quotas pour zones SUB_ZONE_KEYS
-    const zones = await Zone.find({
-      seasonCode, venueSlug, key: { $in: SUB_ZONE_KEYS }, isActive: true
-    }).lean();
+    // Prépare contrôle quotas pour zones explicitement demandées
+    const requestedZoneKeys = new Set(
+      items
+        .map(it => norm(it.zoneKey))
+        .filter(Boolean)
+    );
+    const zones = requestedZoneKeys.size
+      ? await Zone.find({
+          seasonCode,
+          venueSlug,
+          key: { $in: Array.from(requestedZoneKeys) },
+          isActive: true
+        }).lean()
+      : [];
     const zoneMap = new Map(zones.map(z => [z.key, z]));
-    const requestedPerZone = new Map(); // zoneKey -> count (lignes “zone” + lignes “siège” attribuées à cette zone si on veut les compter)
+    const requestedPerZone = new Map(); // zoneKey -> count (lignes “zone”)
 
     const lines = [];
 
@@ -279,12 +292,13 @@ router.post('/checkout', async (req, res) => {
 
     // ----- CONTRÔLE QUOTAS SUR LES ZONES -----
     if (requestedPerZone.size) {
+      const zoneKeys = Array.from(requestedPerZone.keys());
       // Garde-fou anti-oversell : ne compter que le "paid" pour autoriser la vente
       const usage = await computeZoneUsageAllOrders({
-        seasonCode, venueSlug, zoneKeys: SUB_ZONE_KEYS, statusIn: ['paid']
+        seasonCode, venueSlug, zoneKeys, statusIn: ['paid']
       });
 
-    for (const [zoneKey, count] of requestedPerZone) {
+      for (const [zoneKey, count] of requestedPerZone) {
         const z        = zoneMap.get(zoneKey);
         const used     = usage.get(zoneKey) || 0;
         const quota    = Number(z.quota || 0);

@@ -83,7 +83,7 @@ function looksLikeSeatId(v) {
 function normalizeFlow(v) {
   const x = String(v || '').trim().toLowerCase();
   if (x === 'renew') return 'renew';
-  if (x === 'subscription' || x === 'sub' || x === 'tbh7' || x === 'public') return 'subscription';
+  if (x === 'subscription' || x === 'sub' || x === 'fanclub' || x === 'public') return 'subscription';
   if (looksLikeSeatId(x)) {
     console.warn(`[import-orders] phase ressemble à un seatId ("${v}") → fallback "subscription"`);
     return 'subscription';

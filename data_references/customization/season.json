@@ -1,0 +1,8 @@
+{
+  "subscription.title": "Saison {{seasonCode}}",
+  "subscription.lead": "Bienvenue pour la saison {{seasonCode}} — profitez de tous les matchs à domicile.",
+  "subscription.help": "Sélectionnez un siège sur le plan ou ajoutez des places par zone.",
+  "subscription.payButton": "Payer mon abonnement {{seasonCode}}",
+  "subscription.emailConfirmation": "Votre confirmation sera envoyée par email une fois le paiement validé.",
+  "subscription.ticket": "Votre billet saison sera disponible après confirmation."
+}
