@@ -186,11 +186,16 @@ function shortHex(h) {
 
 async function buildTicketsHtml(order) {
   // tickets attendus en: order.meta.tickets = [{ seatId, tariff, hex }, ...]
-  const tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
-  if (!tickets.length) return '';
+  const ticketsRaw = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
+  const tickets = ticketsRaw.filter(t => t && t.hex);
+  if (!tickets.length) {
+    throw new Error('No QR codes available for tickets');
+  }
 
   // Génère les SVG en parallèle
-  const svgs = await Promise.all(tickets.map(t => hexToQrSvg(t.hex, { ecl:'M', margin:1 })));
+  const svgs = await Promise.all(
+    tickets.map(t => hexToQrSvg(t.hex, { ecl:'M', margin:1 }))
+  );
 
   const rows = tickets.map((t, i) => {
     const seat = t.seatId || t.zoneKey || '';

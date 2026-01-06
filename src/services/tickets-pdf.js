@@ -16,7 +16,7 @@ const TICKET_CONFIG_RUNTIME   = path.resolve(TICKET_ROOT_RUNTIME, 'templates.jso
 const TICKET_CONFIG_TEMPLATE  = path.resolve(TICKET_ROOT_REF, 'templates.json');
 const TICKET_DIR_RUNTIME      = path.join(TICKET_ROOT_RUNTIME, 'tickets');
 const TICKET_DIR_DATA         = path.join(TICKET_ROOT_REF, 'tickets');
-const DEFAULT_LOGO            = path.resolve(process.cwd(), 'public', 'dynamic', 'assets', 'logo.svg');
+const DEFAULT_LOGO            = path.resolve(process.cwd(), 'public', 'dynamic', 'assets', 'logo.png');
 
 const DEFAULT_TICKET_CONFIG = {
   templates: {
