@@ -102,11 +102,11 @@ async function main() {
     if (r?.ok && Array.isArray(r.tickets) && r.tickets.length) {
       ord.meta = { ...(ord.meta || {}), tickets: r.tickets };
       await ord.save();
-    } else if (!r?.ok) {
+    } else {
       const extra = r?.detail
         ? ` (${Object.entries(r.detail).map(([k, v]) => `${k}=${v}`).join(', ')})`
         : '';
-      throw new Error(`attachQrFromBank: ${r?.reason || 'unknown'}${extra}`);
+      console.warn(`[tickets-pdf] attachQrFromBank failed or empty: ${r?.reason || 'unknown'}${extra}`);
     }
   }
 

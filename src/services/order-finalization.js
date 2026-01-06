@@ -135,7 +135,7 @@ export async function ensureTicketsForEventOrder(order) {
   }
 
   const qrBankModeEnabled = String(process.env.QR_BANK_MODE || '').toLowerCase() === 'true';
-  if (!metaTickets.length && lines.length && !qrBankModeEnabled) {
+  if (!metaTickets.length && lines.length) {
     order.meta = order.meta || {};
     order.meta.tickets = lines.map((line, index) => {
       const seatId = String(line?.seatId || '').trim();
