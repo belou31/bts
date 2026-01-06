@@ -545,13 +545,6 @@ export async function sendOrderAttestationIfNeeded(order, options = {}) {
 
     const isEvent = !!(order?.eventId || order?.meta?.eventId);
 
-    const tpl = isEvent
-      ? (process.env.EMAIL_TEMPLATE_EVENT_CONFIRM || 'event-confirmation')
-      : (process.env.EMAIL_TEMPLATE_SUBSCRIPTION_CONFIRM || 'subscription-confirmation');
-
-    const subject = await subjectForOrder(order);
-    const html = await renderOrderEmail(order);
-
     // 1) Assure qu'on réutilise d'anciens billets si disponibles
     let tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
     let hasExistingQr = tickets.some((t) => {
@@ -588,6 +581,10 @@ export async function sendOrderAttestationIfNeeded(order, options = {}) {
     } catch (e) {
       console.warn('[mail] ensureTicketsForEventOrder failed:', e.message);
     }
+
+    // Sujet + HTML après avoir garanti les tickets/QR
+    const subject = await subjectForOrder(order);
+    const html = await renderOrderEmail(order);
 
     // 2) Génère le PDF si tickets présents
     let attachments = [];
