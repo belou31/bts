@@ -282,14 +282,14 @@ export async function buildTicketsPdfBuffer(order) {
     tplPath = await resolveTicketFile(tplEntry?.file || 'ticket.svg');
   }
   if (!tplPath) throw new Error('Ticket template not found (see data/templates/templates.json under tickets.templates)');
-  const rawSvg   = await fs.readFile(tplPath, 'utf8');
+  const rawSvg   = sanitizeInlineSvg(await fs.readFile(tplPath, 'utf8'));
 
   const logoPathEnv = process.env.CLUB_LOGO_SVG_PATH;
   const logoPath = logoPathEnv || (tplEntry?.logo ?? null);
   let logoSvg  = '';
   const resolvedLogo = await resolveLogoPath(logoPath);
   if (resolvedLogo) {
-    try { logoSvg = await fs.readFile(resolvedLogo, 'utf8'); } catch {/* ignore */}
+    try { logoSvg = sanitizeInlineSvg(await fs.readFile(resolvedLogo, 'utf8')); } catch {/* ignore */}
   }
 
 
