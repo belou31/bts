@@ -26,6 +26,7 @@ const INPUT_ROOT = path.resolve(ROOT, 'data/inputs');
 const CUSTOMIZATION_ROOT = path.resolve(ROOT, 'data/customization');
 const METADATA_PATH = path.join(CUSTOMIZATION_ROOT, 'app.json');
 const PUBLIC_IMG_DIR = path.resolve(ROOT, 'public/dynamic/assets');
+const TEMPLATE_ASSETS_DIR = path.resolve(ROOT, 'data/templates/assets');
 const PUBLIC_ROOT = path.resolve(ROOT, 'public');
 
 function parseArgs(argv) {
@@ -143,9 +144,12 @@ function stagePublicAsset(options, metadata, optionKey, propKey, destFilename, a
   }
 
   ensureDir(PUBLIC_IMG_DIR, dryRun);
+  ensureDir(TEMPLATE_ASSETS_DIR, dryRun);
   const publicDestination = path.join(PUBLIC_IMG_DIR, destFilename);
-  console.log(`• ${destFilename} ← ${resolved} (→ public/dynamic/assets)`);
+  const templateDestination = path.join(TEMPLATE_ASSETS_DIR, destFilename);
+  console.log(`• ${destFilename} ← ${resolved} (→ public/dynamic/assets & data/templates/assets)`);
   copyFile(resolved, publicDestination, dryRun);
+  copyFile(resolved, templateDestination, dryRun);
   metadata.publicAssets = metadata.publicAssets || {};
   metadata.publicAssets[propKey] = toPublicRel(publicDestination);
 }

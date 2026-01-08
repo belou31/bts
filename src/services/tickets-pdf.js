@@ -164,7 +164,8 @@ function applyVars(svg, vars) {
 }
 
 
-// Remplace un <rect id="slot"> par un <svg x/y/width/height>…</svg> qui embarque le SVG fourni
+// Remplace un <rect id="slot"> par un groupe <g> positionné/scalé avec le SVG fourni
+// Évite les balises <svg> imbriquées (qui perturbent svg-to-pdfkit) en projetant le contenu.
 function replaceSlotWithSvg(svg, slotId, innerSvg) {
   const re  = new RegExp(`<rect\\b[^>]*\\bid=(['"])${slotId}\\1[^>]*>`, 'i');
   const m   = svg.match(re);
@@ -179,18 +180,31 @@ function replaceSlotWithSvg(svg, slotId, innerSvg) {
   const y = num(attr('y')) || 0;
   const w = num(attr('width'))  || 180;
   const h = num(attr('height')) || 180;
-  const clean = sanitizeInlineSvg(innerSvg);
+  const clean = sanitizeEmbeddedSvg(innerSvg);
   const vbMatch = /viewBox\s*=\s*['"]([^'"]+)['"]/i.exec(clean);
-  const vb = vbMatch ? vbMatch[1] : (() => {
-    const { w: iw, h: ih } = parseSvgBoxSize(clean);
-    return `0 0 ${iw} ${ih}`;
-  })();
+  let { w: iw, h: ih } = vbMatch
+    ? (() => {
+        const parts = vbMatch[1].trim().split(/\s+/);
+        const vw = parseFloat(parts[2]) || 0;
+        const vh = parseFloat(parts[3]) || 0;
+        return { w: vw || 1, h: vh || 1 };
+      })()
+    : parseSvgBoxSize(clean);
+  if (!iw || iw <= 0) iw = 1;
+  if (!ih || ih <= 0) ih = 1;
+
   // On enlève l’enveloppe <svg> du contenu interne si présente
   const inner = (() => {
     const mm = /<svg[^>]*>([\s\S]*?)<\/svg>/i.exec(clean);
     return mm ? mm[1] : clean;
   })();
-  const inserted = `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="${vb}" preserveAspectRatio="xMidYMid meet">${inner}</svg>`;
+
+  // Mise à l’échelle proportionnelle pour rentrer dans le slot (preserveAspectRatio="xMidYMid meet")
+  const scale = Math.min(w / iw, h / ih);
+  const tx = x + (w - iw * scale) / 2;
+  const ty = y + (h - ih * scale) / 2;
+
+  const inserted = `<g transform="translate(${tx},${ty}) scale(${scale})">${inner}</g>`;
   return svg.replace(tag, inserted);
 }
 
@@ -244,6 +258,20 @@ function sanitizeInlineSvg(s) {
     .replace(/<!DOCTYPE[^>]*>/gi, '')
     .trim();
 }
+
+// Nettoyage supplémentaire pour les SVG embarqués (logo/QR) : on enlève les
+// attributs/éléments de métadonnées (inkscape:, sodipodi:, metadata…) qui
+// perturbent svg-to-pdfkit.
+function sanitizeEmbeddedSvg(raw) {
+  let out = sanitizeInlineSvg(raw);
+  // Supprime les blocs <metadata>…</metadata>
+  out = out.replace(/<metadata[\s\S]*?<\/metadata>/gi, '');
+  // Supprime les éléments vides Inkscape/Sodipodi
+  out = out.replace(/<\s*(?:sodipodi|inkscape):[^>]*\/?>/gi, '');
+  // Supprime les attributs namespacés courants
+  out = out.replace(/\s+(?:sodipodi|inkscape|xml:space|xmlns:[\w:-]+)=\"[^\"]*\"/gi, '');
+  return out;
+}
  
 
 // Récupère la taille "native" du SVG (via viewBox ou width/height), fallback 256
@@ -282,6 +310,7 @@ export async function buildTicketsPdfBuffer(order) {
     tplPath = await resolveTicketFile(tplEntry?.file || 'ticket.svg');
   }
   if (!tplPath) throw new Error('Ticket template not found (see data/templates/templates.json under tickets.templates)');
+  console.info(`[tickets-pdf] using ticket template: ${tplPath}`);
   const rawSvg   = sanitizeInlineSvg(await fs.readFile(tplPath, 'utf8'));
 
   const logoPathEnv = process.env.CLUB_LOGO_SVG_PATH;
@@ -289,7 +318,12 @@ export async function buildTicketsPdfBuffer(order) {
   let logoSvg  = '';
   const resolvedLogo = await resolveLogoPath(logoPath);
   if (resolvedLogo) {
-    try { logoSvg = sanitizeInlineSvg(await fs.readFile(resolvedLogo, 'utf8')); } catch {/* ignore */}
+    const ext = path.extname(resolvedLogo).toLowerCase();
+    if (ext === '.svg') {
+      try { logoSvg = sanitizeEmbeddedSvg(await fs.readFile(resolvedLogo, 'utf8')); } catch {/* ignore */}
+    } else {
+      console.warn(`[tickets-pdf] logo is not SVG (${resolvedLogo}), skipping inline logo`);
+    }
   }
 
 
@@ -318,9 +352,9 @@ export async function buildTicketsPdfBuffer(order) {
     
     // Une page par ticket : on remplit le template texte, on pose QR & logo dans leurs slots
 
-    for (let i = 0; i < tickets.length; i++) {
-      if (i > 0) doc.addPage();
-      const t = tickets[i] || {};
+  for (let i = 0; i < tickets.length; i++) {
+    if (i > 0) doc.addPage();
+    const t = tickets[i] || {};
       // Bénéficiaire : idéalement depuis la ligne correspondante, sinon fallback payer
       const beneficiary = beneficiaryForTicket(t, order);
       const tCode = String(t?.tariff || t?.tariffCode || 'NORMAL');
@@ -342,7 +376,21 @@ export async function buildTicketsPdfBuffer(order) {
       });
 
       // 2) On remplace les slots <rect id="qr|logo"> par des <svg x/y/w/h> embarquant le contenu
-      let pageSvg = textSvg;
+    let pageSvg = textSvg;
+    // — Injection des slots (QR + logo). On essaie plusieurs variantes si la
+    // librairie SVG→PDF remonte des erreurs de parsing.
+    const attemptRender = async (svgSource, label) => {
+      try {
+        SVGtoPDF(doc, svgSource, 0, 0, { width: tplSize.w, height: tplSize.h });
+        return true;
+      } catch (err) {
+        console.warn(`[tickets-pdf] SVG render failed (${label}): ${err.message || err}`);
+        return false;
+      }
+    };
+
+    // Variante complète (QR + logo si dispo)
+    try {
       if (t?.hex) {
         const qrSvg = await hexToQrSvg(String(t.hex), { ecl:'M', margin:0 });
         pageSvg = replaceSlotWithSvg(pageSvg, 'qr', qrSvg);
@@ -350,11 +398,32 @@ export async function buildTicketsPdfBuffer(order) {
       if (logoSvg) {
         pageSvg = replaceSlotWithSvg(pageSvg, 'logo', logoSvg);
       }
-
-      // 3) Un seul rendu du SVG complet
-      SVGtoPDF(doc, pageSvg, 0, 0, { width: tplSize.w, height: tplSize.h });
-
+    } catch (e) {
+      console.warn('[tickets-pdf] slot injection failed, will try fallbacks', e?.message || e);
+      pageSvg = textSvg;
     }
-    doc.end();
+
+    let rendered = await attemptRender(pageSvg, 'full');
+
+    // Fallback 1: sans logo
+    if (!rendered && logoSvg) {
+      let noLogo = textSvg;
+      try {
+        if (t?.hex) {
+          const qrSvg = await hexToQrSvg(String(t.hex), { ecl:'M', margin:0 });
+          noLogo = replaceSlotWithSvg(noLogo, 'qr', qrSvg);
+        }
+      } catch {/* ignore */}
+      rendered = await attemptRender(noLogo, 'no-logo');
+    }
+
+    // Fallback 2: template sans slots (juste texte)
+    if (!rendered) {
+      rendered = await attemptRender(textSvg, 'no-slots');
+      if (!rendered) throw new Error('SVG render failed for ticket page');
+    }
+
+  }
+  doc.end();
   });
 }
