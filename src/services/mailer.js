@@ -272,6 +272,7 @@ export async function renderOrderEmail(order) {
   const kind = resolveOrderKind(order);
   const config = await getEmailConfig();
   const tplName = config[kind]?.file || config.renew.file;
+  const includeTicketsInline = kind !== 'event';
 
   const tariffsMap = await buildTariffsMap(order.seasonCode, order.venueSlug);
 
@@ -297,10 +298,9 @@ export async function renderOrderEmail(order) {
   ).join('');
 
   const htmlRaw = await loadTemplateHtml(tplName);
-  // Pas de QR inline pour "event" (ils seront en PDF joint).
-  const ticketsHtml = (tplName === 'event-confirmation') ? '' : await buildTicketsHtml(order);
+  const ticketsHtml = includeTicketsInline ? await buildTicketsHtml(order) : '';
 
-  if (tplName === 'event-confirmation') {
+  if (kind === 'event') {
     const ename = order?.meta?.eventName || order?.meta?.eventSlug || 'Match';
     // Contexte unifié (event)
     const ctx = {
