@@ -793,3 +793,35 @@ function createMenu(libraryId) {
     BtsApp.createMenu(libraryId);
   }
 }
+
+// Compat: some sheets reference the library as `BtsLib.<fn>` (older docs).
+// Expose a lightweight alias and top-level proxies so Apps Script can find them.
+var BtsLib = BtsApp;
+
+function importEventOrdersFromSheet() {
+  if (typeof BtsApp?.importEventOrdersFromSheet === 'function') {
+    return BtsApp.importEventOrdersFromSheet();
+  }
+  throw new Error('importEventOrdersFromSheet is not available');
+}
+
+function importTariffCatalogFromSheet() {
+  if (typeof BtsApp?.importTariffCatalogFromSheet === 'function') {
+    return BtsApp.importTariffCatalogFromSheet();
+  }
+  throw new Error('importTariffCatalogFromSheet is not available');
+}
+
+function importTariffPricesFromSheet() {
+  if (typeof BtsApp?.importTariffPricesFromSheet === 'function') {
+    return BtsApp.importTariffPricesFromSheet();
+  }
+  throw new Error('importTariffPricesFromSheet is not available');
+}
+
+function sendRenewInvitesFromSheet() {
+  if (typeof BtsApp?.sendRenewInvitesFromSheet === 'function') {
+    return BtsApp.sendRenewInvitesFromSheet();
+  }
+  throw new Error('sendRenewInvitesFromSheet is not available');
+}

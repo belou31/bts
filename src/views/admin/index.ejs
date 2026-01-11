@@ -121,14 +121,21 @@
       border-radius: 999px;
       border: 1px solid var(--border);
       background: transparent;
-      cursor: pointer;
+      cursor: default;
       font: inherit;
       transition: background 0.15s, border-color 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
     .script-tab.active {
       background: var(--accent);
       color: #fff;
       border-color: var(--accent);
+    }
+    .script-tab.sub-tab {
+      padding: 6px 10px;
+      opacity: 0.9;
     }
     .script-group {
       display: none;
@@ -313,36 +320,112 @@
     .script-form-grid label.checkbox span {
       font-weight: 500;
     }
+    .topbar-shell {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+    }
     .topbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+    }
+    .brand-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+    .brand-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+    }
+    .menu-stack {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      align-items: center;
+    }
+    .dropdown {
+      position: relative;
+    }
+    .dropdown summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    .dropdown summary::-webkit-details-marker { display: none; }
+    .dropdown[open] summary {
+      border-color: var(--accent);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    }
+    .dropdown-menu {
+      position: absolute;
+      min-width: 220px;
+      margin-top: 6px;
+      padding: 8px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+      display: grid;
+      gap: 6px;
+      z-index: 30;
+    }
+    .dropdown a {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 24px;
-      flex-wrap: wrap;
-    }
-    .topbar h1 {
-      margin: 0;
-    }
-    .main-nav {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .main-nav a {
-      padding: 8px 14px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: #fff;
-      color: inherit;
+      padding: 8px 10px;
+      border-radius: 8px;
       text-decoration: none;
+      color: inherit;
+      border: 1px solid transparent;
+      transition: background 0.12s, border-color 0.12s;
+      font-size: 13px;
       font-weight: 600;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
     }
-    .main-nav a.active {
-      background: var(--accent);
-      color: #fff;
-      border-color: var(--accent);
+    .dropdown a:hover {
+      background: #f5f7ff;
+      border-color: var(--border);
+    }
+    .dropdown .pill {
+      font-size: 11px;
+      padding: 2px 6px;
+      background: #eef2ff;
+      border: 1px solid #dfe6ff;
+      color: #2c4fac;
+    }
+    .view-selector {
+      min-width: 160px;
     }
     .operations-grid {
       display: grid;
@@ -378,7 +461,7 @@
       gap: 12px;
       flex-wrap: wrap;
     }
-    .monitoring-tabs .script-tab {
+    .monitoring-tabs .menu-link {
       flex: 0 0 auto;
     }
     .monitoring-panel {
@@ -482,18 +565,213 @@
       font-size: 13px;
       padding: 8px 0;
     }
+    .topbar-shell {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+    }
+    .topbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+    }
+    .brand-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+    .brand-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+    }
+    .menu-stack {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      align-items: center;
+    }
+    .dropdown {
+      position: relative;
+    }
+    .dropdown summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    .dropdown summary::-webkit-details-marker { display: none; }
+    .dropdown[open] summary {
+      border-color: var(--accent);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    }
+    .dropdown-menu {
+      position: absolute;
+      min-width: 220px;
+      margin-top: 6px;
+      padding: 8px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+      display: grid;
+      gap: 6px;
+      z-index: 30;
+    }
+    .dropdown a {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 8px;
+      text-decoration: none;
+      color: inherit;
+      border: 1px solid transparent;
+      transition: background 0.12s, border-color 0.12s;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .dropdown a:hover {
+      background: #f5f7ff;
+      border-color: var(--border);
+    }
+    .dropdown .pill {
+      font-size: 11px;
+      padding: 2px 6px;
+      background: #eef2ff;
+      border: 1px solid #dfe6ff;
+      color: #2c4fac;
+    }
+    .view-selector {
+      min-width: 160px;
+    }
   </style>
 </head>
 <body>
-  <header class="topbar">
+  <% const tokenQueryString = tokenQuery ? ('?' + tokenQuery) : ''; %>
+  <% const baseOperate = urlFor('/admin/operate') + tokenQueryString; %>
+  <% const baseIo = urlFor('/admin/io') + tokenQueryString; %>
+  <% const baseTemplates = urlFor('/admin/templates') + tokenQueryString; %>
+  <% const baseMonitor = urlFor('/admin/monitor') + tokenQueryString; %>
+  <% 
+    const compactLabel = (lbl = '') => {
+      const clean = lbl.replace(/\s+/g, ' ').trim();
+      const dashParts = clean.split('—');
+      const body = dashParts.length > 1 ? dashParts[1].trim() : clean;
+      const words = body.split(' ');
+      const shortBody = words.slice(0, 2).join(' ');
+      const prefix = dashParts.length > 1 ? dashParts[0].trim() : '';
+      return (prefix ? `${prefix} ${shortBody}` : shortBody).trim();
+    };
+    const extractNum = (label = '', id = '') => {
+      const m1 = String(label).match(/^\s*(\d+)/);
+      if (m1) return m1[1];
+      const m2 = String(id).match(/^(\d+)/);
+      return m2 ? m2[1] : '';
+    };
+    const shortMenuLabel = (label = '', id = '') => {
+      const num = extractNum(label, id);
+      if (String(label).toLowerCase().includes('renewal')) {
+        return `${num ? num + ' ' : ''}Renewal`;
+      }
+      const cleaned = label.replace(/Management/gi, '').trim();
+      const compact = compactLabel(cleaned);
+      return num ? `${num} ${compact.replace(/^\d+\s*/, '').trim()}` : compact;
+    };
+    const groupedMenu = [];
+    const groupMap = new Map();
+    (scriptGroups || []).forEach((g) => {
+      const baseId = g.id === '03-season-management-renewal' ? '03-season-management' : g.id;
+      let entry = groupMap.get(baseId);
+      if (!entry) {
+        entry = { id: baseId, group: null, children: [] };
+        groupMap.set(baseId, entry);
+        groupedMenu.push(entry);
+      }
+      if (g.id === baseId) {
+        entry.group = g;
+      } else {
+        entry.children.push(g);
+      }
+    });
+  %>
+  <div class="topbar-shell">
+    <div class="topbar">
+      <div class="brand-chip">
+        <span class="brand-logo">B</span>
+        <span>BTS Admin</span>
+      </div>
+
+      <div class="menu-stack">
+        <% groupedMenu.forEach(entry => { 
+             const base = entry.group || entry.children[0];
+             const rawLabel = base?.label || base?.id || '';
+             const label = shortMenuLabel(rawLabel, base?.id || '');
+             const hrefBase = `${baseOperate}${baseOperate.includes('?') ? '&' : '?'}group=${encodeURIComponent(base?.id || '')}`;
+             const isActive = activeGroupId === (base?.id || '') || entry.children.some(c => c.id === activeGroupId);
+             if (entry.children.length) { %>
+          <details class="dropdown">
+            <summary class="script-tab <%= isActive ? 'active' : '' %>"><%= label %></summary>
+            <div class="dropdown-menu">
+              <% entry.children.forEach(child => { 
+                   const childHref = `${baseOperate}${baseOperate.includes('?') ? '&' : '?'}group=${encodeURIComponent(child.id)}`;
+                   const childLabel = shortMenuLabel(child.label || child.id, child.id);
+              %>
+                <a href="<%= childHref %>" class="<%= child.id === activeGroupId ? 'active' : '' %>">
+                  <span><%= childLabel %></span>
+                  <span class="pill">sous-chap.</span>
+                </a>
+              <% }); %>
+            </div>
+          </details>
+        <% } else { %>
+          <a href="<%= hrefBase %>" class="script-tab <%= isActive ? 'active' : '' %>"><%= label %></a>
+        <% } }); %>
+      </div>
+
+      <div>
+        <details class="dropdown view-selector">
+          <summary>Vue: <%= viewMode === 'io' ? 'Data I/O' : (viewMode === 'monitor' ? 'Monitoring' : (viewMode === 'templates' ? 'Templates' : 'Exploitation')) %></summary>
+          <div class="dropdown-menu">
+            <a href="<%= baseOperate %>" class="<%= viewMode === 'operate' ? 'active' : '' %>">Exploitation</a>
+            <a href="<%= baseIo %>" class="<%= viewMode === 'io' ? 'active' : '' %>">Data I/O</a>
+            <a href="<%= baseTemplates %>" class="<%= viewMode === 'templates' ? 'active' : '' %>">Templates</a>
+            <a href="<%= baseMonitor %>" class="<%= viewMode === 'monitor' ? 'active' : '' %>">Monitoring</a>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <header>
     <h1>BTS — Administration</h1>
-    <nav class="main-nav">
-      <% const tokenQueryString = tokenQuery ? ('?' + tokenQuery) : ''; %>
-      <a href="<%= urlFor('/admin/operate') %><%= tokenQueryString %>" class="<%= viewMode === 'operate' ? 'active' : '' %>">Exploitation</a>
-      <a href="<%= urlFor('/admin/io') %><%= tokenQueryString %>" class="<%= viewMode === 'io' ? 'active' : '' %>">Data I/O</a>
-      <a href="<%= urlFor('/admin/templates') %><%= tokenQueryString %>" class="<%= viewMode === 'templates' ? 'active' : '' %>">Templates</a>
-      <a href="<%= urlFor('/admin/monitor') %><%= tokenQueryString %>" class="<%= viewMode === 'monitor' ? 'active' : '' %>">Monitoring</a>
-    </nav>
   </header>
 
   <% if (viewMode === 'io') { %>
@@ -783,35 +1061,41 @@
   <% } %>
 
   <% if (viewMode === 'operate') { %>
-    <% const renewalGroup = (scriptGroups || []).find(g => g.id === '03-season-management-renewal'); %>
+    <% 
+      const groupedOpsMenu = [];
+      const opsMap = new Map();
+      (scriptGroups || []).forEach((g) => {
+        const baseId = g.id === '03-season-management-renewal' ? '03-season-management' : g.id;
+        let entry = opsMap.get(baseId);
+        if (!entry) {
+          entry = { id: baseId, group: null, children: [] };
+          opsMap.set(baseId, entry);
+          groupedOpsMenu.push(entry);
+        }
+        if (g.id === baseId) {
+          entry.group = g;
+        } else {
+          entry.children.push(g);
+        }
+      });
+    %>
     <div class="script-tabs-rail">
-      <div class="script-tabs">
-        <% (scriptGroups || []).forEach(group => {
-             if (group.id === '03-season-management-renewal') return;
-             if (group.id === '03-season-management' && renewalGroup) { %>
-          <div class="tab-stack">
-            <button
-              type="button"
-              class="script-tab <%= group.id === activeGroupId ? 'active' : '' %>"
-              data-tab="<%= group.id %>">
-              <%= group.label %>
-            </button>
-            <button
-              type="button"
-              class="script-tab <%= renewalGroup.id === activeGroupId ? 'active' : '' %>"
-              data-tab="<%= renewalGroup.id %>">
-              <%= renewalGroup.label %>
-            </button>
-          </div>
-        <%   } else { %>
-          <button
-            type="button"
-            class="script-tab <%= group.id === activeGroupId ? 'active' : '' %>"
-            data-tab="<%= group.id %>">
-            <%= group.label %>
-          </button>
-        <%   }
-           }); %>
+      <div class="menu-stack">
+        <% groupedOpsMenu.forEach(entry => { 
+             const base = entry.group || entry.children[0];
+             const label = base?.label || base?.id || '';
+        %>
+          <span
+            class="script-tab <%= base.id === activeGroupId ? 'active' : '' %>">
+            <%= label %>
+          </span>
+          <% if (entry.children.length) { entry.children.forEach(child => { %>
+            <span
+              class="script-tab sub-tab <%= child.id === activeGroupId ? 'active' : '' %>">
+              <%= child.label || child.id %>
+            </span>
+          <% }); } %>
+        <% }); %>
       </div>
     </div>
 
@@ -1053,7 +1337,7 @@
 
   <% if (viewMode === 'monitor' && monitoring) { %>
     <div class="script-tabs-rail">
-      <div class="script-tabs monitoring-tabs">
+      <div class="menu-stack monitoring-tabs">
         <button type="button" class="script-tab <%= monitorTab === 'system' ? 'active' : '' %>" data-monitor-button="system">Système</button>
         <button type="button" class="script-tab <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-button="tariffs">Tarifs</button>
         <button type="button" class="script-tab <%= monitorTab === 'seasons' ? 'active' : '' %>" data-monitor-button="seasons">Saisons</button>
@@ -1671,17 +1955,6 @@
         el.addEventListener('change', () => {
           const form = el.closest('form');
           if (form) form.submit();
-        });
-      });
-
-      const tabs = document.querySelectorAll('.script-tab');
-      const groups = document.querySelectorAll('.script-group');
-
-      tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-          const target = tab.dataset.tab;
-          tabs.forEach(t => t.classList.toggle('active', t === tab));
-          groups.forEach(g => g.classList.toggle('active', g.dataset.scriptGroup === target));
         });
       });
 
