@@ -39,6 +39,38 @@ function shouldFallbackToPublic(channelCtx) {
   return false;
 }
 
+function isPartnerPresaleAllowed(ev, channelCtx) {
+  if (!channelCtx || channelCtx.kind !== 'partner') return false;
+  const cfg = channelCtx.partnerConfig || {};
+  const quota = Number(cfg?.presale?.events?.[ev?.slug]?.quota || 0);
+  return quota > 0;
+}
+
+async function getPartnerPresaleRemaining(ev, channelCtx) {
+  if (!isPartnerPresaleAllowed(ev, channelCtx)) return null;
+  const cfg = channelCtx.partnerConfig || {};
+  const quota = Number(cfg?.presale?.events?.[ev?.slug]?.quota || 0);
+  if (!(quota > 0)) return null;
+  const usedAgg = await Order.aggregate([
+    {
+      $match: {
+        eventId: ev._id,
+        'meta.partner.slug': channelCtx.partnerSlug || cfg.slug,
+        status: { $nin: ['canceled', 'failed'] }
+      }
+    },
+    { $unwind: '$lines' },
+    {
+      $group: {
+        _id: null,
+        qty: { $sum: { $ifNull: ['$lines.qty', { $ifNull: ['$lines.quantity', 1] }] } }
+      }
+    }
+  ]);
+  const used = usedAgg?.[0]?.qty || 0;
+  return Math.max(0, quota - used);
+}
+
 function resolveVenueViewForEvent(ev, channelCtx) {
   if (!channelCtx || channelCtx.kind !== 'partner') {
     return ev?.venueView || null;
@@ -306,6 +338,18 @@ export function createEventFlowRouter({
     try {
       const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
+      const presaleRemaining = await getPartnerPresaleRemaining(ev, channelCtx);
+      const presaleQuota = isPartnerPresaleAllowed(ev, channelCtx)
+        ? Number(channelCtx?.partnerConfig?.presale?.events?.[ev?.slug]?.quota || 0)
+        : 0;
+      const saleStatus = (() => {
+        if (ev.isOnSale === true) return 'sale_opened';
+        if (isPartnerPresaleAllowed(ev, channelCtx)) {
+          if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
+          return 'presale_opened';
+        }
+        return 'sale_closed';
+      })();
       const resolvedVenueView = resolveVenueViewForEvent(ev, channelCtx);
       const [seatsBase, { tariffs, prices, scope }] = await Promise.all([
         computeSeatStates(ev),
@@ -459,7 +503,8 @@ export function createEventFlowRouter({
           name: ev.name,
           startsAt: ev.startsAt,
           isOnSale: ev.isOnSale,
-          venueView: resolvedVenueView
+          venueView: resolvedVenueView,
+          saleStatus
         },
         tariffs, prices, scope,
         allowedZones: Array.from(allowedSet),
@@ -468,6 +513,10 @@ export function createEventFlowRouter({
         zonesKind,
         seats: seatsOut,
         standingZones,
+        presale: isPartnerPresaleAllowed(ev, channelCtx)
+          ? { allowed: true, remaining: presaleRemaining ?? null, quota: presaleQuota }
+          : { allowed: false },
+        saleStatus,
         channel: channelCtx?.kind === 'partner'
           ? `partner:${channelCtx.partnerSlug || ''}`
           : (channelCtx?.kind || 'public')
@@ -482,9 +531,22 @@ export function createEventFlowRouter({
     try {
       const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
-      assert(ev.isOnSale === true, 'Vente fermée pour cet événement.');
+      const presale = isPartnerPresaleAllowed(ev, channelCtx);
+      const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
+      assert(ev.isOnSale === true || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
 
       const ctxData = await prepareOrderContext(req, ev, channelCtx);
+      if (ev.isOnSale !== true && presale) {
+        const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
+        if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
+          return res.status(400).json({
+            ok: false,
+            error: 'partner_presale_quota_exceeded',
+            remaining: remaining ?? 0,
+            message: `Quota prévente atteint (restant: ${remaining ?? 0})`
+          });
+        }
+      }
       const payerInfo = ctxData.payer;
       const scheduleValue = ctxData.schedule;
       const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
@@ -601,9 +663,22 @@ export function createEventFlowRouter({
 
       try {
         const ev = await loadEvent(req.params.eventId);
-        assert(ev.isOnSale === true, 'Vente fermée pour cet événement.');
+        const presale = isPartnerPresaleAllowed(ev, channelCtx);
+        const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
+        assert(ev.isOnSale === true || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
 
         const ctxData = await prepareOrderContext(req, ev, channelCtx);
+        if (ev.isOnSale !== true && presale) {
+          const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
+          if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
+            return res.status(400).json({
+              ok: false,
+              error: 'partner_presale_quota_exceeded',
+              remaining: remaining ?? 0,
+              message: `Quota prévente atteint (restant: ${remaining ?? 0})`
+            });
+          }
+        }
         const now = new Date();
         const until = new Date(now.getTime() + HOLD_MIN * 60 * 1000);
         const uniqueGroupKey = `${groupKeyPrefix}-${ev.slug}-INV-${new mongoose.Types.ObjectId().toString()}`;

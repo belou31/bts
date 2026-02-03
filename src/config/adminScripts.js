@@ -1928,6 +1928,22 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'partner-set-presale',
+        label: 'Set Partner Pre-sale Quota',
+        order: 5,
+        path: 'scripts/05-partner-management/set-partner-presale.js',
+        command: 'node scripts/05-partner-management/set-partner-presale.js --partner=<slug> --event=<eventSlug> --quota=<number>',
+        run: { script: 'scripts/05-partner-management/set-partner-presale.js', args: [] },
+        description: 'Configure a partner-specific pre-sale quota for an event. If the event is not yet on sale, status will show as presale/open for that partner.',
+        form: {
+          fields: [
+            { name: 'partner', label: 'Partner', placeholder: 'partner01', required: true, arg: { type: 'option', template: '--partner=${value}' } },
+            { name: 'event', label: 'Événement', placeholder: 'match-2026-02-14', required: true, arg: { type: 'option', template: '--event=${value}' } },
+            { name: 'quota', label: 'Quota (places)', placeholder: '100', required: true, arg: { type: 'option', template: '--quota=${value}' } }
+          ]
+        }
+      },
+      {
         id: 'partner-import-csv',
         label: 'Import Partners (CSV)',
         order: 2,

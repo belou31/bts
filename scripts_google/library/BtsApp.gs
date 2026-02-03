@@ -32,7 +32,8 @@ var BtsApp = (function () {
     secret: '',
     iss: 'google-sheets',
     aud: 'bts-automation',
-    scopes: 'automation:jobs:write automation:jobs:run',
+    // Default scopes for JWT (can be overridden via Script Properties or BTS_Config)
+    scopes: 'automation:jobs:write automation:jobs:run automation:jobs:read',
     sheetInvites: 'Invitations',
     sheetEventOrders: 'EventOrders',
     renewDryRun: false,
@@ -195,6 +196,28 @@ var BtsApp = (function () {
       headers: { Authorization: `Bearer ${createJwt_(config)}` },
       muteHttpExceptions: true,
       payload: JSON.stringify(payload)
+    });
+    if (response.getResponseCode() >= 300) {
+      throw new Error(`Automation API ${response.getResponseCode()}: ${response.getContentText()}`);
+    }
+    return JSON.parse(response.getContentText());
+  }
+
+  function callAutomationGet(path, query) {
+    const config = ensureConfig();
+    const search = query
+      ? '?' +
+        Object.entries(query)
+          .filter(([, v]) => v !== undefined && v !== null && v !== '')
+          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+          .join('&')
+      : '';
+    const url = `${config.baseUrl.replace(/\/$/, '')}/api/automation/${path.replace(/^\//, '')}${search}`;
+    const response = UrlFetchApp.fetch(url, {
+      method: 'get',
+      contentType: 'application/json',
+      headers: { Authorization: `Bearer ${createJwt_(config)}` },
+      muteHttpExceptions: true
     });
     if (response.getResponseCode() >= 300) {
       throw new Error(`Automation API ${response.getResponseCode()}: ${response.getContentText()}`);
@@ -446,14 +469,51 @@ var BtsApp = (function () {
         }
       };
       const response = callAutomation('scripts/event.import-orders/jobs', payload);
+      const note = `dryRun=${dryRun ? 'yes' : 'no'} · force=${force ? 'yes' : 'no'} · sendEmail=${sendEmail ? 'yes' : 'no'}`;
       appendJobLog({
         scriptId: 'event.import-orders',
         jobId: response.job.id,
         status: response.job.status,
         recordCount: orders.length,
-        sheetUrl: payload.metadata.sheetUrl
+        sheetUrl: payload.metadata.sheetUrl,
+        notes: note
       });
-      alertInfo(`Job ${response.job.id} enregistré (${response.job.status}).`);
+      alertInfo(
+        `Job ${response.job.id} enregistré (${response.job.status}).\n` +
+        `Ordres: ${orders.length} · dryRun=${dryRun ? 'oui' : 'non'} · force=${force ? 'oui' : 'non'} · emails=${sendEmail ? 'oui' : 'non'}\n` +
+        `Consultez la feuille "${JOB_LOG_SHEET}" pour suivre le statut.`
+      );
+    } catch (error) {
+      alertError(error);
+    }
+  }
+
+  function showImportOrderJobs() {
+    try {
+      const limit = 5;
+      const data = callAutomationGet('jobs', {
+        scriptId: 'event.import-orders',
+        limit,
+        logs: true
+      });
+      const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
+      if (!jobs.length) {
+        alertInfo('Aucun job event.import-orders trouvé.');
+        return;
+      }
+      const lines = jobs.map((job) => {
+        const status = job.status || 'unknown';
+        const id = job.id || '';
+        const sent = job.result?.payload?.stats?.sent ?? job.result?.stats?.sent ?? null;
+        const errors = job.result?.payload?.stats?.errors ?? job.result?.stats?.errors ?? null;
+        const emails = sent != null ? `sent=${sent}` : '';
+        const errs = errors != null ? `errors=${errors}` : '';
+        const msgs = job.logs && job.logs.length
+          ? job.logs.slice(-2).map((l) => l.message).join(' | ')
+          : '';
+        return `${status} — ${id}${emails || errs ? ' — ' + [emails, errs].filter(Boolean).join(' · ') : ''}${msgs ? '\n  ' + msgs : ''}`;
+      });
+      alertInfo(`Derniers jobs event.import-orders (limite ${limit}):\n\n${lines.join('\n\n')}`);
     } catch (error) {
       alertError(error);
     }
@@ -485,7 +545,7 @@ var BtsApp = (function () {
     let sheet = ss.getSheetByName(JOB_LOG_SHEET);
     if (!sheet) {
       sheet = ss.insertSheet(JOB_LOG_SHEET);
-      sheet.appendRow(['Timestamp', 'Script', 'Job ID', 'Status', 'Records', 'Sheet URL']);
+      sheet.appendRow(['Timestamp', 'Script', 'Job ID', 'Status', 'Records', 'Sheet URL', 'Notes']);
     }
     return sheet;
   }
@@ -498,7 +558,8 @@ var BtsApp = (function () {
       entry.jobId,
       entry.status,
       entry.recordCount || '',
-      entry.sheetUrl || ''
+      entry.sheetUrl || '',
+      entry.notes || ''
     ]);
   }
 
@@ -758,6 +819,12 @@ var BtsApp = (function () {
         items: [
           { label: 'Importer commandes (dry-run)', handler: 'importEventOrdersFromSheet' }
         ]
+      },
+      {
+        title: '05 — Automation Jobs',
+        items: [
+          { label: 'Jobs import commandes (5 derniers)', handler: 'showImportOrderJobs' }
+        ]
       }
     ];
   }
@@ -783,6 +850,7 @@ var BtsApp = (function () {
     importEventOrdersFromSheet,
     importTariffCatalogFromSheet,
     importTariffPricesFromSheet,
+    showImportOrderJobs,
     getMenuSections,
     createMenu
   };
@@ -803,6 +871,13 @@ function importEventOrdersFromSheet() {
     return BtsApp.importEventOrdersFromSheet();
   }
   throw new Error('importEventOrdersFromSheet is not available');
+}
+
+function showImportOrderJobs() {
+  if (typeof BtsApp?.showImportOrderJobs === 'function') {
+    return BtsApp.showImportOrderJobs();
+  }
+  throw new Error('showImportOrderJobs is not available');
 }
 
 function importTariffCatalogFromSheet() {
