@@ -263,17 +263,53 @@
     const badge = document.querySelector('#saleStatus');
     if (!badge) return;
     const ev = (raw && typeof raw === 'object') ? (raw.event || raw) : null;
-    const onSale  = ev?.isOnSale === true || ev?.onSale === true || String(ev?.status || '').toLowerCase() === 'on_sale';
-    const offSale = ev?.isOnSale === false || ev?.onSale === false || String(ev?.status || '').toLowerCase() === 'off_sale';
+    const presale = raw?.presale && typeof raw.presale === 'object' ? raw.presale : null;
+    const saleStatus = String(raw?.saleStatus || ev?.saleStatus || '').toLowerCase();
+    const onSale  = saleStatus === 'sale_opened' || ev?.isOnSale === true || ev?.onSale === true || String(ev?.status || '').toLowerCase() === 'on_sale';
+    const offSale = saleStatus === 'sale_closed' || ev?.isOnSale === false || ev?.onSale === false || String(ev?.status || '').toLowerCase() === 'off_sale';
+    const presaleAllowed = presale?.allowed === true;
+    const presaleRemaining = typeof presale?.remaining === 'number' ? presale.remaining : null;
+    const presaleQuota = typeof presale?.quota === 'number' ? presale.quota : null;
+    const presaleDepleted = presaleAllowed && presaleRemaining !== null && presaleRemaining <= 0;
 
     let main = 'STATUT EN COURS';
     let sub  = 'Chargement du statut…';
     let stateClass = 'pending';
 
-    if (onSale || offSale) {
+    if (saleStatus === 'presale_quota_reached' || (presaleAllowed && !onSale && presaleDepleted)) {
+      main = 'PRESALE QUOTA REACHED';
+      sub  = `Quota utilisé (${presaleQuota ?? 0})`;
+      stateClass = 'quota';
+    }
+    else if (saleStatus === 'presale_opened' || (presaleAllowed && !onSale)) {
+      main = 'PRESALE OPENED';
+      sub  = presaleRemaining !== null ? `Places restantes : ${presaleRemaining}` : 'Prévente partenaire';
+      stateClass = 'presale';
+    }
+    else if (saleStatus === 'sale_opened' || onSale) {
+      main = 'SALE OPENED';
+      sub  = 'Tickets on sale';
+      stateClass = 'open';
+    }
+    else if (saleStatus === 'sale_closed' || offSale) {
+      main = 'SALE CLOSED';
+      sub  = 'Ventes fermées';
+      stateClass = 'closed';
+    }
+    else if (presaleAllowed && !onSale) {
+      if (presaleDepleted) {
+        main = 'PRESALE QUOTA REACHED';
+        sub  = `Quota utilisé (${presaleQuota ?? 0})`;
+        stateClass = 'quota';
+      } else {
+        main = 'PRESALE OPENED';
+        sub  = presaleRemaining !== null ? `Places restantes : ${presaleRemaining}` : 'Prévente partenaire';
+        stateClass = 'presale';
+      }
+    } else if (onSale || offSale) {
       const open = onSale && !offSale;
-      main = open ? 'BILLETTERIE OUVERTE' : 'BILLETTERIE FERMÉE';
-      sub  = open ? 'Tickets on sale' : 'Ventes actuellement fermées';
+      main = open ? 'SALE OPENED' : 'SALE CLOSED';
+      sub  = open ? 'Tickets on sale' : 'Ventes fermées';
       stateClass = open ? 'open' : 'closed';
     }
 

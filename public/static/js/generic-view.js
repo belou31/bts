@@ -793,6 +793,12 @@ async function submitPayment() {
             const r = typeof err?.remaining === 'number' ? err.remaining : 0;
             details = [`Le quota est atteint pour la zone ${z}. Places restantes: ${r}.`];
           }
+          // 🔹 Quota prévente partenaire
+          else if (err?.error === 'partner_presale_quota_exceeded') {
+            title = 'Quota prévente atteint';
+            const r = typeof err?.remaining === 'number' ? err.remaining : 0;
+            details = [`Plus de places disponibles en prévente partenaire (restant: ${r}).`];
+          }
           // 🔹 Zone invalide
           else if (err?.error === 'invalid_zone') {
             title = 'Zone inconnue';

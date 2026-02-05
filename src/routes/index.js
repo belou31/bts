@@ -7,7 +7,9 @@ import { currentPaymentProviderLabel } from '../services/payments/index.js';
 import { Event } from '../models/Event.js';
 import { Season } from '../models/Season.js';
 import { Venue } from '../models/Venue.js';
+import { Order } from '../models/Order.js';
 import { loadCustomization } from '../services/customization.js';
+import { getPartnerConfig } from '../config/partners.js';
 
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 import fanclubRouter from './fanclub.js';
@@ -320,6 +322,85 @@ export default function routes(router) {
     }
   });
 
+  // Partner: list available events with shared token
+  router.get('/partner/:partnerSlug/events', async (req, res) => {
+    try {
+      const partnerSlug = String(req.params.partnerSlug || '').trim();
+      if (!partnerSlug) return res.status(400).send('Missing partner slug');
+      const partnerCfg = getPartnerConfig(partnerSlug);
+      if (!partnerCfg) return res.status(404).send('Partner not found');
+
+      const providedToken = (req.query?.token || '').trim();
+      const expectedGlobalToken = expectedPartnerToken(partnerCfg, null);
+      if (expectedGlobalToken && providedToken !== expectedGlobalToken) {
+        return res.status(403).send('Access restricted for this partner.');
+      }
+      if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
+        return res.status(403).send('Access restricted for this partner.');
+      }
+
+      applyPartnerFrameAncestorsHeaders(res, partnerCfg.frameAncestors);
+
+      const events = await Event.find({}).sort({ startsAt: 1 }).lean();
+      const list = [];
+      for (const ev of events) {
+        const quota = Number(partnerCfg?.presale?.events?.[ev.slug]?.quota || 0);
+        let remaining = null;
+        if (quota > 0) {
+          const usedAgg = await Order.aggregate([
+            { $match: { eventId: ev._id, 'meta.partner.slug': partnerSlug, status: { $nin: ['canceled', 'failed'] } } },
+            { $unwind: '$lines' },
+            { $group: { _id: null, qty: { $sum: { $ifNull: ['$lines.qty', { $ifNull: ['$lines.quantity', 1] }] } } } }
+          ]);
+          const used = usedAgg?.[0]?.qty || 0;
+          remaining = Math.max(0, quota - used);
+        }
+        const status = (() => {
+          if (ev.isOnSale === true) return 'sale_opened';
+          if (quota > 0) {
+            if (remaining !== null && remaining <= 0) return 'presale_quota_reached';
+            return 'presale_opened';
+          }
+          return 'sale_closed';
+        })();
+        const expectedToken = expectedPartnerToken(partnerCfg, ev.slug);
+        const sameToken = !expectedToken || expectedToken === providedToken;
+        const link = (sameToken && status !== 'sale_closed' && status !== 'presale_quota_reached')
+          ? path.posix.join(BASE_PATH || '/', 'partner', partnerSlug, 'event', ev.slug) +
+              (providedToken ? `?token=${encodeURIComponent(providedToken)}` : '')
+          : null;
+        list.push({
+          slug: ev.slug,
+          name: ev.name || ev.slug,
+          startsAt: ev.startsAt,
+          status,
+          presaleQuota: quota,
+          presaleRemaining: remaining,
+          link,
+          tokenMatch: sameToken
+        });
+      }
+
+      if (req.accepts('json') && !req.accepts('html')) {
+        return res.json({ ok: true, partner: partnerSlug, events: list });
+      }
+
+      const brandLogo = path.posix.join(ASSETS_BASE.media, 'logo.svg');
+
+      res.render(path.resolve(VIEWS_DIR, 'partner', 'events'), {
+        title: `${partnerCfg.name || partnerSlug} — Événements`,
+        partner: partnerCfg,
+        events: list,
+        providedToken,
+        assets: ASSETS_BASE,
+        brand: { logo: brandLogo, alt: partnerCfg.name || partnerSlug }
+      });
+    } catch (err) {
+      console.error('[partner/events] error:', err?.message || err);
+      res.status(500).send('Error loading partner events');
+    }
+  });
+
   router.get('/partner/:partnerSlug/event/:eventSlug', async (req, res) => {
     const partnerSlug = String(req.params.partnerSlug || '').trim();
     const eventSlug = String(req.params.eventSlug || '').trim();
@@ -561,7 +642,6 @@ export default function routes(router) {
 // Page racine -> redirige vers /renew (optionnel)
 //router.get('/', (_req, res) => res.redirect('./renew'));
 }
-import { getPartnerConfig } from '../config/partners.js';
 function extractRequestOrigins(req) {
   const origins = [];
   const origin = req.get('origin');
