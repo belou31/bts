@@ -130,7 +130,17 @@ function tariffsForZone(tariffs, pricesIdx, zoneKey) {
   const star = pricesIdx.get('*') || new Map();
   const codes = new Set([...zMap.keys(), ...star.keys()]);
   const list = tariffs.filter(t => codes.has(String(t.code||'').toUpperCase()));
-  list.sort((a,b) => (String(a.code).toUpperCase()==='NORMAL'? -1 : 0) + (String(b.code).toUpperCase()==='NORMAL'? 1 : 0));
+  list.sort((a, b) => {
+    const aOrder = Number.isFinite(Number(a?.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
+    const bOrder = Number.isFinite(Number(b?.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+
+    const aCode = String(a?.code || '').toUpperCase();
+    const bCode = String(b?.code || '').toUpperCase();
+    if (aCode === 'NORMAL' && bCode !== 'NORMAL') return -1;
+    if (bCode === 'NORMAL' && aCode !== 'NORMAL') return 1;
+    return aCode.localeCompare(bCode, 'fr', { sensitivity: 'base' });
+  });
   return list;
 }
 function computeLineAmount(pricesIdx, zoneKey, tariffCode) {
