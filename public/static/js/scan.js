@@ -604,6 +604,7 @@ function relocateImmersiveControls(immersive) {
   if (immersive) {
     if (scanInline) previewControlsCol.append(scanInline);
     if (modeInline) previewControlsCol.append(modeInline);
+    if (cleanInline) previewControlsCol.append(cleanInline);
     return;
   }
   if (modeInline && modeInlineHomeParent && modeInlineHomeMarker && modeInline.parentElement !== modeInlineHomeParent) {
@@ -935,6 +936,8 @@ function clearHistoryEntries() {
   historyOrder.splice(0, historyOrder.length);
   historyMap.clear();
   lastPreviewLookup.clear();
+  recentScanTimestamps.clear();
+  detectionLocked = false;
 }
 
 function getCurrentOrderTicketCount() {
