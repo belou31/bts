@@ -184,11 +184,7 @@ const modeInlineMeta = modeInline
       if (existing) return existing;
       const el = document.createElement('span');
       el.className = 'mode-side-meta';
-      if (modeLabel && modeLabel.parentElement === modeInline) {
-        modeInline.insertBefore(el, modeLabel.nextSibling);
-      } else {
-        modeInline.append(el);
-      }
+      modeInline.append(el);
       return el;
     })()
   : null;
