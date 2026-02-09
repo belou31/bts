@@ -203,7 +203,7 @@ cleanInline.className = 'clean-inline';
 const cleanBtn = document.createElement('button');
 cleanBtn.type = 'button';
 cleanBtn.className = 'clean-btn';
-cleanBtn.textContent = 'CLEAN';
+cleanBtn.textContent = 'CLEAR';
 cleanInline.append(cleanBtn);
 previewControlsCol.append(cleanInline);
 const scanCountContainer = scannedCountEl ? scannedCountEl.parentElement : null;
@@ -450,7 +450,7 @@ function updateModeToggleUI() {
   if (modeToggleLabel) modeToggleLabel.textContent = isOrder ? orderLabel : ticketLabel;
   if (modeOptionTicket) modeOptionTicket.textContent = ticketLabel;
   if (modeOptionOrder) modeOptionOrder.textContent = orderLabel;
-  if (modeLabel) modeLabel.textContent = compactLabels ? 'Scan per' : defaultModeLabelText;
+  if (modeLabel) modeLabel.textContent = compactLabels ? 'Scan QR' : defaultModeLabelText;
   if (orderMetaInline && orderMetaLabel) {
     const orderTicketCount = compactLabels ? getCurrentOrderTicketCount() : null;
     orderMetaLabel.textContent = orderTicketCount ? `Order of ${orderTicketCount}` : '';
@@ -2057,15 +2057,56 @@ function disableScan() {
   statusEl.textContent = 'Prêt.';
 }
 
+function getFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+async function requestScanFullscreen() {
+  const target = document.documentElement;
+  if (!target) return;
+  if (getFullscreenElement()) return;
+  try {
+    if (typeof target.requestFullscreen === 'function') {
+      await target.requestFullscreen({ navigationUI: 'hide' });
+      return;
+    }
+  } catch {}
+  try {
+    if (typeof target.webkitRequestFullscreen === 'function') {
+      target.webkitRequestFullscreen();
+    }
+  } catch {}
+}
+
+async function exitScanFullscreen() {
+  if (!getFullscreenElement()) return;
+  try {
+    if (typeof document.exitFullscreen === 'function') {
+      await document.exitFullscreen();
+      return;
+    }
+  } catch {}
+  try {
+    if (typeof document.webkitExitFullscreen === 'function') {
+      document.webkitExitFullscreen();
+    }
+  } catch {}
+}
+
 scanToggle?.addEventListener('click', async () => {
   try {
     if (scanActive) {
       disableScan();
+      await exitScanFullscreen();
     } else {
+      await requestScanFullscreen();
       await enableScan();
     }
   } catch (err) {
     console.error(err);
+    if (!scanActive) {
+      await exitScanFullscreen();
+    }
   }
 });
 
@@ -2075,11 +2116,16 @@ scanToggle?.addEventListener('keydown', async (e) => {
     try {
       if (scanActive) {
         disableScan();
+        await exitScanFullscreen();
       } else {
+        await requestScanFullscreen();
         await enableScan();
       }
     } catch (err) {
       console.error(err);
+      if (!scanActive) {
+        await exitScanFullscreen();
+      }
     }
   }
 });
