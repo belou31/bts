@@ -987,6 +987,31 @@ function getCurrentOrderTicketCount() {
   return null;
 }
 
+function getTicketOrderIndex(entry) {
+  const raw = Number(entry?.order?.ticketIndex);
+  if (Number.isFinite(raw) && raw > 0) return Math.round(raw);
+  return null;
+}
+
+function orderEntriesForDisplay(entries) {
+  const list = Array.isArray(entries) ? [...entries] : [];
+  return list
+    .map((entry, position) => ({ entry, position }))
+    .sort((a, b) => {
+      const aOrderId = String(a.entry?.order?.id || '');
+      const bOrderId = String(b.entry?.order?.id || '');
+      if (aOrderId && aOrderId === bOrderId) {
+        const aIndex = getTicketOrderIndex(a.entry);
+        const bIndex = getTicketOrderIndex(b.entry);
+        if (aIndex != null && bIndex != null && aIndex !== bIndex) return aIndex - bIndex;
+        if (aIndex != null && bIndex == null) return -1;
+        if (aIndex == null && bIndex != null) return 1;
+      }
+      return a.position - b.position;
+    })
+    .map((item) => item.entry);
+}
+
 function logAction({ action, status, entryKey, info, event }) {
   if (!entryKey) return;
   const entry = historyMap.get(entryKey);
@@ -1125,7 +1150,7 @@ function createActionsRow(targetEntries, profile = null, options = {}) {
 function renderTicketList() {
   if (!resultsEl) return;
   resultsEl.innerHTML = '';
-  const entries = getHistoryEntries();
+  const entries = orderEntriesForDisplay(getHistoryEntries());
   updateScannedCountDisplay();
   updateModeToggleUI();
   updateControlToggleUI();
