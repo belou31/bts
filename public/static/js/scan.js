@@ -192,16 +192,12 @@ const scanInlineLabel = scanInline
       return el;
     })()
   : null;
-const modeInlineMeta = modeInline
-  ? (() => {
-      const existing = modeInline.querySelector('.mode-side-meta');
-      if (existing) return existing;
-      const el = document.createElement('span');
-      el.className = 'mode-side-meta';
-      modeInline.append(el);
-      return el;
-    })()
-  : null;
+const orderMetaInline = document.createElement('div');
+orderMetaInline.className = 'order-meta-inline';
+const orderMetaLabel = document.createElement('span');
+orderMetaLabel.className = 'mode-side-meta';
+orderMetaInline.append(orderMetaLabel);
+previewControlsCol.append(orderMetaInline);
 const cleanInline = document.createElement('div');
 cleanInline.className = 'clean-inline';
 const cleanBtn = document.createElement('button');
@@ -455,15 +451,10 @@ function updateModeToggleUI() {
   if (modeOptionTicket) modeOptionTicket.textContent = ticketLabel;
   if (modeOptionOrder) modeOptionOrder.textContent = orderLabel;
   if (modeLabel) modeLabel.textContent = compactLabels ? 'Scan per' : defaultModeLabelText;
-  if (modeInlineMeta) {
+  if (orderMetaInline && orderMetaLabel) {
     const orderTicketCount = compactLabels ? getCurrentOrderTicketCount() : null;
-    if (orderTicketCount) {
-      modeInlineMeta.textContent = `Order of ${orderTicketCount}`;
-      modeInlineMeta.style.display = 'block';
-    } else {
-      modeInlineMeta.textContent = '';
-      modeInlineMeta.style.display = 'none';
-    }
+    orderMetaLabel.textContent = orderTicketCount ? `Order of ${orderTicketCount}` : '';
+    orderMetaInline.classList.toggle('is-empty', !orderTicketCount);
   }
 }
 
@@ -648,6 +639,7 @@ function relocateImmersiveControls(immersive) {
     if (scanInline) previewControlsCol.append(scanInline);
     if (modeInline) previewControlsCol.append(modeInline);
     if (controlInline) previewControlsCol.append(controlInline);
+    previewControlsCol.append(orderMetaInline);
     if (cleanInline) previewControlsCol.append(cleanInline);
     return;
   }
