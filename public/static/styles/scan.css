@@ -193,14 +193,14 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .toggle.scan-toggle:not(.on) .toggle-thumb{background:#ef4444}
 .toggle.scan-toggle.on .toggle-option.on,.toggle.scan-toggle:not(.on) .toggle-option.off{color:#f9fafb;opacity:1}
 .controls-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-.top-controls{justify-content:left;margin:12px 0}
-.mode-inline{display:flex;align-items:center;gap:12px;margin-left:auto}
+.top-controls{justify-content:space-between;align-items:flex-start;margin:12px 0;width:100%}
+.mode-control-stack{display:flex;flex-direction:column;align-items:flex-end;gap:8px;margin-left:auto}
+.mode-inline{display:flex;align-items:center;gap:12px;margin-left:0}
 .mode-label{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af}
 .control-inline{display:flex;align-items:center;gap:12px}
 .control-label{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af}
 .order-meta-inline{display:none}
 .mode-side-meta{display:none}
-.sub-controls{justify-content:flex-start;margin:0 0 12px;width:100%}
 .scan-inline{display:flex;align-items:center;gap:28px}
 .scan-side-label{display:none}
 .clean-inline{display:none}
