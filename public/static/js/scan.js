@@ -188,6 +188,14 @@ const modeInlineMeta = modeInline
       return el;
     })()
   : null;
+const cleanInline = document.createElement('div');
+cleanInline.className = 'clean-inline';
+const cleanBtn = document.createElement('button');
+cleanBtn.type = 'button';
+cleanBtn.className = 'clean-btn';
+cleanBtn.textContent = 'CLEAN';
+cleanInline.append(cleanBtn);
+previewControlsCol.append(cleanInline);
 const scanCountContainer = scannedCountEl ? scannedCountEl.parentElement : null;
 const scanCountHomeParent = scanCountContainer?.parentElement || null;
 const scanCountHomeMarker = (scanCountContainer && scanCountHomeParent)
@@ -923,6 +931,12 @@ function getHistoryEntries() {
   return historyOrder.map((key) => historyMap.get(key)).filter(Boolean);
 }
 
+function clearHistoryEntries() {
+  historyOrder.splice(0, historyOrder.length);
+  historyMap.clear();
+  lastPreviewLookup.clear();
+}
+
 function getCurrentOrderTicketCount() {
   const [latestEntry] = getHistoryEntries();
   const rawCount = Number(latestEntry?.order?.totalTickets);
@@ -1248,6 +1262,10 @@ function buildTicketCard(match) {
 }
 
 renderTicketList();
+cleanBtn.addEventListener('click', () => {
+  clearHistoryEntries();
+  renderTicketList();
+});
 async function postScanOnline(payload) {
   const headers = { 'Content-Type': 'application/json' };
   const authMode = payload.authMode || ((payload.login && payload.password) ? 'basic' : 'token');
