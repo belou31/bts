@@ -135,11 +135,34 @@ const modeToggle = document.getElementById('modeToggle');
 const authToggleLabel = authToggle?.querySelector('.toggle-label');
 const scanToggleLabel = scanToggle?.querySelector('.toggle-label');
 const modeToggleLabel = modeToggle?.querySelector('.toggle-label');
+const modeOptionTicket = modeToggle?.querySelector('.toggle-option.ticket');
+const modeOptionOrder = modeToggle?.querySelector('.toggle-option.order');
+const modeInline = document.querySelector('.mode-inline');
+const scanInline = document.querySelector('.scan-inline');
 const knownEvents = new Map();
 
 const bodyEl = document.body || document.querySelector('body');
 const portraitQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(orientation: portrait)') : null;
 const narrowQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 768px)') : null;
+const previewControlsCol = document.createElement('div');
+previewControlsCol.className = 'preview-controls-col';
+if (previewWrapper) {
+  previewWrapper.append(previewControlsCol);
+}
+const modeInlineHomeParent = modeInline?.parentElement || null;
+const scanInlineHomeParent = scanInline?.parentElement || null;
+const modeInlineHomeMarker = (modeInline && modeInlineHomeParent)
+  ? document.createComment('mode-inline-home')
+  : null;
+const scanInlineHomeMarker = (scanInline && scanInlineHomeParent)
+  ? document.createComment('scan-inline-home')
+  : null;
+if (modeInline && modeInlineHomeParent && modeInlineHomeMarker) {
+  modeInlineHomeParent.insertBefore(modeInlineHomeMarker, modeInline.nextSibling);
+}
+if (scanInline && scanInlineHomeParent && scanInlineHomeMarker) {
+  scanInlineHomeParent.insertBefore(scanInlineHomeMarker, scanInline.nextSibling);
+}
 const scanCountContainer = scannedCountEl ? scannedCountEl.parentElement : null;
 const scanCountHomeParent = scanCountContainer?.parentElement || null;
 const scanCountHomeMarker = (scanCountContainer && scanCountHomeParent)
@@ -375,9 +398,14 @@ authToggle?.addEventListener('keydown', (e) => {
 function updateModeToggleUI() {
   if (!modeToggle) return;
   const isOrder = loadMode === 'order';
+  const compactLabels = bodyEl?.classList.contains('scan-immersive');
+  const ticketLabel = compactLabels ? 'TCKT' : 'Ticket';
+  const orderLabel = compactLabels ? 'ORDR' : 'Commande';
   modeToggle.classList.toggle('on', isOrder);
   modeToggle.setAttribute('aria-checked', isOrder ? 'true' : 'false');
-  if (modeToggleLabel) modeToggleLabel.textContent = isOrder ? 'Commande' : 'Ticket';
+  if (modeToggleLabel) modeToggleLabel.textContent = isOrder ? orderLabel : ticketLabel;
+  if (modeOptionTicket) modeOptionTicket.textContent = ticketLabel;
+  if (modeOptionOrder) modeOptionOrder.textContent = orderLabel;
 }
 
 updateModeToggleUI();
@@ -512,11 +540,32 @@ function relocateScanCount(immersive) {
   }
 }
 
+function relocateImmersiveControls(immersive) {
+  if (!previewWrapper || !previewControlsCol || !previewControlsCol.parentElement) return;
+  if (immersive) {
+    if (modeInline && modeInline.parentElement !== previewControlsCol) {
+      previewControlsCol.append(modeInline);
+    }
+    if (scanInline && scanInline.parentElement !== previewControlsCol) {
+      previewControlsCol.append(scanInline);
+    }
+    return;
+  }
+  if (modeInline && modeInlineHomeParent && modeInlineHomeMarker && modeInline.parentElement !== modeInlineHomeParent) {
+    modeInlineHomeParent.insertBefore(modeInline, modeInlineHomeMarker);
+  }
+  if (scanInline && scanInlineHomeParent && scanInlineHomeMarker && scanInline.parentElement !== scanInlineHomeParent) {
+    scanInlineHomeParent.insertBefore(scanInline, scanInlineHomeMarker);
+  }
+}
+
 function updateImmersiveMode() {
   if (!bodyEl) return;
   const immersive = shouldUseImmersiveMode();
   bodyEl.classList.toggle('scan-immersive', immersive);
+  relocateImmersiveControls(immersive);
   relocateScanCount(immersive);
+  updateModeToggleUI();
 }
 
 if (portraitQuery) {
