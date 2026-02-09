@@ -134,9 +134,12 @@ const scanToggle = document.getElementById('scanToggle');
 const modeToggle = document.getElementById('modeToggle');
 const authToggleLabel = authToggle?.querySelector('.toggle-label');
 const scanToggleLabel = scanToggle?.querySelector('.toggle-label');
+const scanOptionOff = scanToggle?.querySelector('.toggle-option.off');
+const scanOptionOn = scanToggle?.querySelector('.toggle-option.on');
 const modeToggleLabel = modeToggle?.querySelector('.toggle-label');
 const modeOptionTicket = modeToggle?.querySelector('.toggle-option.ticket');
 const modeOptionOrder = modeToggle?.querySelector('.toggle-option.order');
+const modeLabel = document.querySelector('.mode-label');
 const modeInline = document.querySelector('.mode-inline');
 const scanInline = document.querySelector('.scan-inline');
 const knownEvents = new Map();
@@ -163,6 +166,18 @@ if (modeInline && modeInlineHomeParent && modeInlineHomeMarker) {
 if (scanInline && scanInlineHomeParent && scanInlineHomeMarker) {
   scanInlineHomeParent.insertBefore(scanInlineHomeMarker, scanInline.nextSibling);
 }
+const defaultModeLabelText = modeLabel ? String(modeLabel.textContent || '').trim() : 'Mode scan';
+const scanInlineLabel = scanInline
+  ? (() => {
+      const existing = scanInline.querySelector('.scan-side-label');
+      if (existing) return existing;
+      const el = document.createElement('span');
+      el.className = 'scan-side-label';
+      el.textContent = 'Scan O/I';
+      scanInline.prepend(el);
+      return el;
+    })()
+  : null;
 const scanCountContainer = scannedCountEl ? scannedCountEl.parentElement : null;
 const scanCountHomeParent = scanCountContainer?.parentElement || null;
 const scanCountHomeMarker = (scanCountContainer && scanCountHomeParent)
@@ -406,6 +421,22 @@ function updateModeToggleUI() {
   if (modeToggleLabel) modeToggleLabel.textContent = isOrder ? orderLabel : ticketLabel;
   if (modeOptionTicket) modeOptionTicket.textContent = ticketLabel;
   if (modeOptionOrder) modeOptionOrder.textContent = orderLabel;
+  if (modeLabel) modeLabel.textContent = compactLabels ? 'Scan per' : defaultModeLabelText;
+}
+
+function updateScanToggleUI() {
+  if (!scanToggle) return;
+  const compactLabels = bodyEl?.classList.contains('scan-immersive');
+  const offLabel = compactLabels ? 'OFF' : 'Scan OFF';
+  const onLabel = compactLabels ? 'ON' : 'Scan ON';
+  scanToggle.classList.toggle('on', scanActive);
+  scanToggle.setAttribute('aria-checked', scanActive ? 'true' : 'false');
+  if (scanToggleLabel) {
+    scanToggleLabel.textContent = scanActive ? onLabel : offLabel;
+  }
+  if (scanOptionOff) scanOptionOff.textContent = offLabel;
+  if (scanOptionOn) scanOptionOn.textContent = onLabel;
+  if (scanInlineLabel) scanInlineLabel.textContent = 'Scan O/I';
 }
 
 updateModeToggleUI();
@@ -566,6 +597,7 @@ function updateImmersiveMode() {
   relocateImmersiveControls(immersive);
   relocateScanCount(immersive);
   updateModeToggleUI();
+  updateScanToggleUI();
 }
 
 if (portraitQuery) {
@@ -592,13 +624,7 @@ updateImmersiveMode();
 
 function setScanToggleState(state) {
   scanActive = !!state;
-  if (scanToggle) {
-    scanToggle.classList.toggle('on', scanActive);
-    scanToggle.setAttribute('aria-checked', scanActive ? 'true' : 'false');
-    if (scanToggleLabel) {
-      scanToggleLabel.textContent = scanActive ? 'SCAN ON' : 'SCAN OFF';
-    }
-  }
+  updateScanToggleUI();
   if (previewWrapper) {
     previewWrapper.classList.toggle('hidden', !scanActive);
   }
