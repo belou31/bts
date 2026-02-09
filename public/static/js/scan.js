@@ -132,6 +132,7 @@ const authFields = document.querySelector('.auth-fields');
 const authToggle = document.getElementById('authToggle');
 const scanToggle = document.getElementById('scanToggle');
 const modeToggle = document.getElementById('modeToggle');
+const controlToggle = document.getElementById('controlToggle');
 const authToggleLabel = authToggle?.querySelector('.toggle-label');
 const scanToggleLabel = scanToggle?.querySelector('.toggle-label');
 const scanOptionOff = scanToggle?.querySelector('.toggle-option.off');
@@ -139,8 +140,13 @@ const scanOptionOn = scanToggle?.querySelector('.toggle-option.on');
 const modeToggleLabel = modeToggle?.querySelector('.toggle-label');
 const modeOptionTicket = modeToggle?.querySelector('.toggle-option.ticket');
 const modeOptionOrder = modeToggle?.querySelector('.toggle-option.order');
+const controlToggleLabel = controlToggle?.querySelector('.toggle-label');
+const controlOptionEach = controlToggle?.querySelector('.toggle-option.each');
+const controlOptionOnce = controlToggle?.querySelector('.toggle-option.once');
 const modeLabel = document.querySelector('.mode-label');
+const controlLabel = document.querySelector('.control-label');
 const modeInline = document.querySelector('.mode-inline');
+const controlInline = document.querySelector('.control-inline');
 const scanInline = document.querySelector('.scan-inline');
 const knownEvents = new Map();
 
@@ -153,9 +159,13 @@ if (previewWrapper) {
   previewWrapper.append(previewControlsCol);
 }
 const modeInlineHomeParent = modeInline?.parentElement || null;
+const controlInlineHomeParent = controlInline?.parentElement || null;
 const scanInlineHomeParent = scanInline?.parentElement || null;
 const modeInlineHomeMarker = (modeInline && modeInlineHomeParent)
   ? document.createComment('mode-inline-home')
+  : null;
+const controlInlineHomeMarker = (controlInline && controlInlineHomeParent)
+  ? document.createComment('control-inline-home')
   : null;
 const scanInlineHomeMarker = (scanInline && scanInlineHomeParent)
   ? document.createComment('scan-inline-home')
@@ -163,10 +173,14 @@ const scanInlineHomeMarker = (scanInline && scanInlineHomeParent)
 if (modeInline && modeInlineHomeParent && modeInlineHomeMarker) {
   modeInlineHomeParent.insertBefore(modeInlineHomeMarker, modeInline.nextSibling);
 }
+if (controlInline && controlInlineHomeParent && controlInlineHomeMarker) {
+  controlInlineHomeParent.insertBefore(controlInlineHomeMarker, controlInline.nextSibling);
+}
 if (scanInline && scanInlineHomeParent && scanInlineHomeMarker) {
   scanInlineHomeParent.insertBefore(scanInlineHomeMarker, scanInline.nextSibling);
 }
 const defaultModeLabelText = modeLabel ? String(modeLabel.textContent || '').trim() : 'Mode scan';
+const defaultControlLabelText = controlLabel ? String(controlLabel.textContent || '').trim() : 'Control';
 const scanInlineLabel = scanInline
   ? (() => {
       const existing = scanInline.querySelector('.scan-side-label');
@@ -213,6 +227,7 @@ const HISTORY_ACTION_MAP = {
 };
 let scanActive = false;
 let loadMode = 'order';
+let controlMode = 'each';
 if (previewWrapper) previewWrapper.classList.add('hidden');
 
 function detectSlugFromPath() {
@@ -467,6 +482,20 @@ function updateScanToggleUI() {
   if (scanInlineLabel) scanInlineLabel.textContent = 'Scan O/I';
 }
 
+function updateControlToggleUI() {
+  if (!controlToggle) return;
+  const isOnce = controlMode === 'once';
+  const compactLabels = bodyEl?.classList.contains('scan-immersive');
+  const eachLabel = compactLabels ? 'EACH' : 'Each';
+  const onceLabel = compactLabels ? 'ONCE' : 'Once';
+  controlToggle.classList.toggle('on', isOnce);
+  controlToggle.setAttribute('aria-checked', isOnce ? 'true' : 'false');
+  if (controlToggleLabel) controlToggleLabel.textContent = isOnce ? onceLabel : eachLabel;
+  if (controlOptionEach) controlOptionEach.textContent = eachLabel;
+  if (controlOptionOnce) controlOptionOnce.textContent = onceLabel;
+  if (controlLabel) controlLabel.textContent = compactLabels ? 'CONTROL' : defaultControlLabelText;
+}
+
 updateModeToggleUI();
 modeToggle?.addEventListener('click', () => {
   loadMode = loadMode === 'order' ? 'ticket' : 'order';
@@ -477,6 +506,20 @@ modeToggle?.addEventListener('keydown', (e) => {
     e.preventDefault();
     loadMode = loadMode === 'order' ? 'ticket' : 'order';
     updateModeToggleUI();
+  }
+});
+updateControlToggleUI();
+controlToggle?.addEventListener('click', () => {
+  controlMode = controlMode === 'once' ? 'each' : 'once';
+  updateControlToggleUI();
+  renderTicketList();
+});
+controlToggle?.addEventListener('keydown', (e) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    controlMode = controlMode === 'once' ? 'each' : 'once';
+    updateControlToggleUI();
+    renderTicketList();
   }
 });
 
@@ -604,11 +647,15 @@ function relocateImmersiveControls(immersive) {
   if (immersive) {
     if (scanInline) previewControlsCol.append(scanInline);
     if (modeInline) previewControlsCol.append(modeInline);
+    if (controlInline) previewControlsCol.append(controlInline);
     if (cleanInline) previewControlsCol.append(cleanInline);
     return;
   }
   if (modeInline && modeInlineHomeParent && modeInlineHomeMarker && modeInline.parentElement !== modeInlineHomeParent) {
     modeInlineHomeParent.insertBefore(modeInline, modeInlineHomeMarker);
+  }
+  if (controlInline && controlInlineHomeParent && controlInlineHomeMarker && controlInline.parentElement !== controlInlineHomeParent) {
+    controlInlineHomeParent.insertBefore(controlInline, controlInlineHomeMarker);
   }
   if (scanInline && scanInlineHomeParent && scanInlineHomeMarker && scanInline.parentElement !== scanInlineHomeParent) {
     scanInlineHomeParent.insertBefore(scanInline, scanInlineHomeMarker);
@@ -623,6 +670,7 @@ function updateImmersiveMode() {
   relocateScanCount(immersive);
   updateModeToggleUI();
   updateScanToggleUI();
+  updateControlToggleUI();
 }
 
 if (portraitQuery) {
@@ -986,12 +1034,92 @@ function renderTicketHistory(logs) {
   return wrap;
 }
 
+function getActionProfile(match) {
+  if (!match?.ticketId) return 'qr';
+  if (match.status === 'ready') return 'ready';
+  if (match.status === 'already_scanned') return 'already_scanned';
+  return 'other';
+}
+
+function splitEntriesByActionProfile(entries) {
+  const groups = [];
+  let currentGroup = null;
+  entries.forEach((entry) => {
+    const profile = getActionProfile(entry);
+    if (!currentGroup || currentGroup.profile !== profile) {
+      currentGroup = { profile, entries: [] };
+      groups.push(currentGroup);
+    }
+    currentGroup.entries.push(entry);
+  });
+  return groups;
+}
+
+function createActionsRow(targetEntries, profile = null) {
+  const entries = (Array.isArray(targetEntries) ? targetEntries : [targetEntries]).filter(Boolean);
+  if (!entries.length) return null;
+  const effectiveProfile = profile || getActionProfile(entries[0]);
+  const actions = document.createElement('div');
+  actions.className = 'card-actions';
+
+  const addBtn = (label, className, handler) => {
+    const btn = document.createElement('button');
+    btn.classList.add(className);
+    btn.textContent = label;
+    btn.addEventListener('click', handler);
+    actions.append(btn);
+    return btn;
+  };
+
+  const runSequential = async (handler) => {
+    if (actions.dataset.busy === '1') return;
+    actions.dataset.busy = '1';
+    const buttons = Array.from(actions.querySelectorAll('button'));
+    buttons.forEach((btn) => { btn.disabled = true; });
+    try {
+      for (const entry of [...entries]) {
+        await handler(entry);
+      }
+    } finally {
+      actions.dataset.busy = '0';
+      buttons.forEach((btn) => { btn.disabled = false; });
+    }
+  };
+
+  if (effectiveProfile === 'qr') {
+    addBtn('Accepter', 'action-accept', () => runSequential((entry) => handleConfirm(entry)));
+    addBtn('Refuser', 'action-reject', () => {
+      entries.forEach((entry) => removeHistoryEntry(entry));
+      renderTicketList();
+    });
+    return actions;
+  }
+
+  if (effectiveProfile === 'ready') {
+    addBtn('Accepter', 'action-accept', () => runSequential((entry) => handleAccept(entry)));
+    addBtn('Refuser', 'action-reject', () => runSequential((entry) => handleReject(entry)));
+    return actions;
+  }
+
+  if (effectiveProfile === 'already_scanned') {
+    addBtn('SORTIR', 'action-cancel', () => runSequential((entry) => handleExit(entry)));
+    addBtn('Forcer', 'action-force', () => runSequential((entry) => handleAccept(entry, { force: true })));
+    addBtn('Refuser', 'action-reject', () => runSequential((entry) => handleReject(entry)));
+    return actions;
+  }
+
+  addBtn('SORTIR', 'action-cancel', () => runSequential((entry) => handleExit(entry)));
+  addBtn('Refuser', 'action-reject', () => runSequential((entry) => handleReject(entry)));
+  return actions;
+}
+
 function renderTicketList() {
   if (!resultsEl) return;
   resultsEl.innerHTML = '';
   const entries = getHistoryEntries();
   updateScannedCountDisplay();
   updateModeToggleUI();
+  updateControlToggleUI();
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'results-empty';
@@ -999,12 +1127,38 @@ function renderTicketList() {
     resultsEl.append(empty);
     return;
   }
-  entries.forEach((entry) => {
-    resultsEl.append(buildTicketCard(entry));
+
+  if (controlMode !== 'once') {
+    entries.forEach((entry) => {
+      resultsEl.append(buildTicketCard(entry));
+    });
+    return;
+  }
+
+  const groups = splitEntriesByActionProfile(entries);
+  groups.forEach((group) => {
+    let lastCard = null;
+    group.entries.forEach((entry) => {
+      const card = buildTicketCard(entry, { showActions: false });
+      resultsEl.append(card);
+      lastCard = card;
+    });
+    const groupedActions = createActionsRow(group.entries, group.profile);
+    if (lastCard) {
+      const actionSlot = lastCard.querySelector('.card-actions-slot');
+      if (groupedActions && actionSlot) {
+        actionSlot.replaceWith(groupedActions);
+      } else if (groupedActions) {
+        lastCard.append(groupedActions);
+      } else if (actionSlot) {
+        actionSlot.remove();
+      }
+    }
   });
 }
 
-function buildTicketCard(match) {
+function buildTicketCard(match, options = {}) {
+  const showActions = options.showActions !== false;
   const card = document.createElement('div');
   card.className = 'ticket-card';
   card.dataset.entryKey = keyForEntry(match);
@@ -1227,35 +1381,13 @@ function buildTicketCard(match) {
 
   card.append(body);
 
-  const actions = document.createElement('div');
-  actions.className = 'card-actions';
-  const addBtn = (label, className, handler) => {
-    const btn = document.createElement('button');
-    btn.classList.add(className);
-    btn.textContent = label;
-    btn.addEventListener('click', handler);
-    actions.append(btn);
-    return btn;
-  };
-
-  if (!match.ticketId) {
-    addBtn('Accepter', 'action-accept', () => handleConfirm(match));
-    addBtn('Refuser', 'action-reject', () => { removeHistoryEntry(match); renderTicketList(); });
-  } else if (match.status === 'ready') {
-    addBtn('Accepter', 'action-accept', () => handleAccept(match));
-    addBtn('Refuser', 'action-reject', () => handleReject(match));
-  } else if (match.status === 'already_scanned') {
-    addBtn('SORTIR', 'action-cancel', () => handleExit(match));
-    addBtn('Forcer', 'action-force', () => handleAccept(match, { force: true }));
-    addBtn('Refuser', 'action-reject', () => handleReject(match));
+  if (showActions) {
+    const actions = createActionsRow(match);
+    if (actions) card.append(actions);
   } else {
-    addBtn('SORTIR', 'action-cancel', () => handleExit(match));
-    addBtn('Refuser', 'action-reject', () => handleReject(match));
-  }
-
-  const hasActions = actions.childElementCount > 0;
-  if (hasActions) {
-    card.append(actions);
+    const actionSlot = document.createElement('div');
+    actionSlot.className = 'card-actions-slot';
+    card.append(actionSlot);
   }
 
   const historyTable = renderTicketHistory(match.logs);
