@@ -32,19 +32,20 @@ body.scan-immersive .preview-wrapper::after{top:-6px;bottom:-6px;left:-6px;right
 body.scan-immersive .ticket-card .section-info,
 body.scan-immersive .ticket-card .section-order{display:none!important}
 .preview-controls-col{display:none}
-body.scan-immersive .preview-controls-col{display:flex;grid-column:2;grid-row:1;flex-direction:column;justify-content:flex-start;gap:18px;padding:10px;background:linear-gradient(180deg,rgba(15,22,34,0.95),rgba(15,22,34,0.75))}
+body.scan-immersive .preview-controls-col{display:flex;grid-column:2;grid-row:1;flex-direction:column;justify-content:flex-start;gap:8px;padding:8px;background:linear-gradient(180deg,rgba(15,22,34,0.95),rgba(15,22,34,0.75));overflow-y:auto;overflow-x:hidden}
 body.scan-immersive .preview-controls-col .mode-inline,
 body.scan-immersive .preview-controls-col .scan-inline{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:0;width:100%}
 body.scan-immersive .preview-controls-col .scan-inline{margin-bottom:0}
 body.scan-immersive .preview-controls-col .mode-label{display:block;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#cbd5e1;opacity:.95}
 body.scan-immersive .preview-controls-col .scan-side-label{display:none}
 body.scan-immersive .preview-controls-col .mode-side-meta{display:block;font-size:11px;font-weight:600;letter-spacing:.04em;color:#94a3b8;opacity:.95}
-body.scan-immersive .preview-controls-col .clean-inline{display:block;width:100%;margin-top:auto}
-body.scan-immersive .preview-controls-col .clean-btn{display:block;width:100%;padding:10px 8px;border-radius:10px;border:1px solid rgba(239,68,68,0.45);background:rgba(127,29,29,0.55);color:#fee2e2;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+body.scan-immersive .preview-controls-col .clean-inline{display:block;width:100%;margin-top:auto;position:sticky;bottom:0;padding-top:6px;background:linear-gradient(180deg,rgba(15,22,34,0),rgba(15,22,34,0.95) 35%)}
+body.scan-immersive .preview-controls-col .clean-btn{display:block;width:100%;padding:8px 8px;border-radius:10px;border:1px solid rgba(239,68,68,0.45);background:rgba(127,29,29,0.68);color:#fee2e2;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
 body.scan-immersive .preview-controls-col .toggle{width:100%;min-width:0}
-body.scan-immersive .preview-controls-col .toggle-track{min-width:0;width:100%}
+body.scan-immersive .preview-controls-col .toggle-track{min-width:0;width:100%;padding:4px;gap:6px}
 body.scan-immersive .preview-controls-col .scan-toggle{min-width:0}
-body.scan-immersive .preview-controls-col .toggle-thumb .toggle-label{font-size:12px;letter-spacing:.03em}
+body.scan-immersive .preview-controls-col .toggle-thumb{top:4px;bottom:4px;left:4px;width:calc(50% - 4px)}
+body.scan-immersive .preview-controls-col .toggle-thumb .toggle-label{font-size:11px;letter-spacing:.03em}
 body.scan-immersive .preview-controls-col .scan-inline .scan-toggle{order:2}
 body.scan-immersive .preview-controls-col .mode-inline .mode-label{order:1}
 body.scan-immersive .preview-controls-col .mode-inline .mode-toggle{order:2}
