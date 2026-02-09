@@ -178,6 +178,20 @@ const scanInlineLabel = scanInline
       return el;
     })()
   : null;
+const modeInlineMeta = modeInline
+  ? (() => {
+      const existing = modeInline.querySelector('.mode-side-meta');
+      if (existing) return existing;
+      const el = document.createElement('span');
+      el.className = 'mode-side-meta';
+      if (modeLabel && modeLabel.parentElement === modeInline) {
+        modeInline.insertBefore(el, modeLabel.nextSibling);
+      } else {
+        modeInline.append(el);
+      }
+      return el;
+    })()
+  : null;
 const scanCountContainer = scannedCountEl ? scannedCountEl.parentElement : null;
 const scanCountHomeParent = scanCountContainer?.parentElement || null;
 const scanCountHomeMarker = (scanCountContainer && scanCountHomeParent)
@@ -422,6 +436,16 @@ function updateModeToggleUI() {
   if (modeOptionTicket) modeOptionTicket.textContent = ticketLabel;
   if (modeOptionOrder) modeOptionOrder.textContent = orderLabel;
   if (modeLabel) modeLabel.textContent = compactLabels ? 'Scan per' : defaultModeLabelText;
+  if (modeInlineMeta) {
+    const orderTicketCount = compactLabels ? getCurrentOrderTicketCount() : null;
+    if (orderTicketCount) {
+      modeInlineMeta.textContent = `Order of ${orderTicketCount}`;
+      modeInlineMeta.style.display = 'block';
+    } else {
+      modeInlineMeta.textContent = '';
+      modeInlineMeta.style.display = 'none';
+    }
+  }
 }
 
 function updateScanToggleUI() {
@@ -574,12 +598,8 @@ function relocateScanCount(immersive) {
 function relocateImmersiveControls(immersive) {
   if (!previewWrapper || !previewControlsCol || !previewControlsCol.parentElement) return;
   if (immersive) {
-    if (modeInline && modeInline.parentElement !== previewControlsCol) {
-      previewControlsCol.append(modeInline);
-    }
-    if (scanInline && scanInline.parentElement !== previewControlsCol) {
-      previewControlsCol.append(scanInline);
-    }
+    if (scanInline) previewControlsCol.append(scanInline);
+    if (modeInline) previewControlsCol.append(modeInline);
     return;
   }
   if (modeInline && modeInlineHomeParent && modeInlineHomeMarker && modeInline.parentElement !== modeInlineHomeParent) {
@@ -907,6 +927,13 @@ function getHistoryEntries() {
   return historyOrder.map((key) => historyMap.get(key)).filter(Boolean);
 }
 
+function getCurrentOrderTicketCount() {
+  const [latestEntry] = getHistoryEntries();
+  const rawCount = Number(latestEntry?.order?.totalTickets);
+  if (Number.isFinite(rawCount) && rawCount > 0) return Math.round(rawCount);
+  return null;
+}
+
 function logAction({ action, status, entryKey, info, event }) {
   if (!entryKey) return;
   const entry = historyMap.get(entryKey);
@@ -951,6 +978,7 @@ function renderTicketList() {
   resultsEl.innerHTML = '';
   const entries = getHistoryEntries();
   updateScannedCountDisplay();
+  updateModeToggleUI();
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'results-empty';
