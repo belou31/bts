@@ -18,20 +18,27 @@ body.scan-immersive .top-bar{display:none!important}
 body.scan-immersive main{padding:0 0 16px;max-width:none}
 body.scan-immersive .scan-layout{gap:8px}
 body.scan-immersive .scan-panel{gap:12px;padding:16px;position:relative}
-body.scan-immersive .grid,body.scan-immersive .top-controls{display:none!important}
-body.scan-immersive .preview-wrapper{position:relative;max-height:33vh;height:min(33vh,320px);aspect-ratio:auto;width:100%;margin:0;border-radius:12px;overflow:hidden}
-body.scan-immersive .preview-wrapper video,body.scan-immersive .preview-wrapper canvas{border-radius:0}
+body.scan-immersive .grid,body.scan-immersive .top-controls,body.scan-immersive .sub-controls{display:none!important}
+body.scan-immersive .preview-wrapper{position:relative;display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);max-height:33vh;height:min(33vh,320px);aspect-ratio:auto;width:100%;margin:0;border-radius:12px;overflow:hidden}
+body.scan-immersive .preview-wrapper video{grid-column:1;grid-row:1;width:100%;height:100%;border-radius:12px 0 0 12px}
+body.scan-immersive .preview-wrapper canvas{position:absolute;top:0;left:0;width:66.6667%;height:100%;border-radius:12px 0 0 12px}
 body.scan-immersive .results{margin:0;padding:0 16px}
-body.scan-immersive .sub-controls{position:absolute;top:12px;left:12px;right:auto;width:auto;padding:0;justify-content:flex-start;z-index:30;pointer-events:none;background:none}
-body.scan-immersive .scan-inline{pointer-events:auto}
-body.scan-immersive .scan-inline .toggle{flex:0 1 auto;min-width:0;max-width:240px;box-shadow:0 12px 24px rgba(0,0,0,0.35)}
 body.scan-immersive .status-row{display:none!important}
-body.scan-immersive .preview-wrapper .scan-count{position:absolute;bottom:12px;right:12px;display:flex;align-items:center;gap:6px;background:rgba(15,22,34,0.9);border:1px solid rgba(34,197,94,0.4);box-shadow:0 12px 24px rgba(0,0,0,0.35);pointer-events:auto;padding:6px 14px;border-radius:999px}
+body.scan-immersive .preview-wrapper .scan-count{position:absolute;bottom:12px;right:calc(33.3333% + 12px);display:flex;align-items:center;gap:6px;background:rgba(15,22,34,0.9);border:1px solid rgba(34,197,94,0.4);box-shadow:0 12px 24px rgba(0,0,0,0.35);pointer-events:auto;padding:6px 14px;border-radius:999px}
 body.scan-immersive .preview-wrapper .scan-count-label{color:#f8fafc;opacity:.95}
-body.scan-immersive .preview-wrapper::after{border-radius:0}
-body.scan-immersive .preview-wrapper canvas{border-radius:0}
+body.scan-immersive .preview-wrapper .preview-badge{left:33.3333%}
+body.scan-immersive .preview-wrapper::after{top:-6px;bottom:-6px;left:-6px;right:calc(33.3333% - 6px);border-radius:16px 0 0 16px}
 body.scan-immersive .ticket-card .section-info,
 body.scan-immersive .ticket-card .section-order{display:none!important}
+.preview-controls-col{display:none}
+body.scan-immersive .preview-controls-col{display:flex;grid-column:2;grid-row:1;flex-direction:column;justify-content:center;gap:10px;padding:10px;background:linear-gradient(180deg,rgba(15,22,34,0.95),rgba(15,22,34,0.75))}
+body.scan-immersive .preview-controls-col .mode-inline,
+body.scan-immersive .preview-controls-col .scan-inline{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:0;width:100%}
+body.scan-immersive .preview-controls-col .mode-label{display:none}
+body.scan-immersive .preview-controls-col .toggle{width:100%;min-width:0}
+body.scan-immersive .preview-controls-col .toggle-track{min-width:0;width:100%}
+body.scan-immersive .preview-controls-col .scan-toggle{min-width:0}
+body.scan-immersive .preview-controls-col .toggle-thumb .toggle-label{font-size:12px;letter-spacing:.03em}
 @media (orientation:landscape){
   .scan-layout{flex-direction:row;align-items:flex-start;gap:32px}
   .scan-panel{flex:0 0 min(500px,45%)}
