@@ -36,16 +36,15 @@ body.scan-immersive .preview-controls-col{display:flex;grid-column:2;grid-row:1;
 body.scan-immersive .preview-controls-col .mode-inline,
 body.scan-immersive .preview-controls-col .scan-inline{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:0;width:100%}
 body.scan-immersive .preview-controls-col .scan-inline{margin-bottom:0}
-body.scan-immersive .preview-controls-col .mode-label,
-body.scan-immersive .preview-controls-col .scan-side-label{display:block;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#cbd5e1;opacity:.95}
+body.scan-immersive .preview-controls-col .mode-label{display:block;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#cbd5e1;opacity:.95}
+body.scan-immersive .preview-controls-col .scan-side-label{display:none}
 body.scan-immersive .preview-controls-col .mode-side-meta{display:block;font-size:11px;font-weight:600;letter-spacing:.04em;color:#94a3b8;opacity:.95}
-body.scan-immersive .preview-controls-col .clean-inline{display:block;width:100%;margin-top:4px}
+body.scan-immersive .preview-controls-col .clean-inline{display:block;width:100%;margin-top:auto}
 body.scan-immersive .preview-controls-col .clean-btn{display:block;width:100%;padding:10px 8px;border-radius:10px;border:1px solid rgba(239,68,68,0.45);background:rgba(127,29,29,0.55);color:#fee2e2;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
 body.scan-immersive .preview-controls-col .toggle{width:100%;min-width:0}
 body.scan-immersive .preview-controls-col .toggle-track{min-width:0;width:100%}
 body.scan-immersive .preview-controls-col .scan-toggle{min-width:0}
 body.scan-immersive .preview-controls-col .toggle-thumb .toggle-label{font-size:12px;letter-spacing:.03em}
-body.scan-immersive .preview-controls-col .scan-inline .scan-side-label{order:1}
 body.scan-immersive .preview-controls-col .scan-inline .scan-toggle{order:2}
 body.scan-immersive .preview-controls-col .mode-inline .mode-label{order:1}
 body.scan-immersive .preview-controls-col .mode-inline .mode-toggle{order:2}
