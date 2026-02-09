@@ -1055,12 +1055,29 @@ function splitEntriesByActionProfile(entries) {
   return groups;
 }
 
-function createActionsRow(targetEntries, profile = null) {
+function getTicketIndexLabel(entry) {
+  const rawIndex = Number(entry?.order?.ticketIndex);
+  if (Number.isFinite(rawIndex) && rawIndex > 0) {
+    return `#${Math.round(rawIndex)}`;
+  }
+  return '';
+}
+
+function createActionsRow(targetEntries, profile = null, options = {}) {
   const entries = (Array.isArray(targetEntries) ? targetEntries : [targetEntries]).filter(Boolean);
   if (!entries.length) return null;
   const effectiveProfile = profile || getActionProfile(entries[0]);
   const actions = document.createElement('div');
   actions.className = 'card-actions';
+  if (options.showTicketIndex && entries.length === 1) {
+    const indexLabel = getTicketIndexLabel(entries[0]);
+    if (indexLabel) {
+      const indexEl = document.createElement('span');
+      indexEl.className = 'card-actions-index';
+      indexEl.textContent = indexLabel;
+      actions.append(indexEl);
+    }
+  }
 
   const addBtn = (label, className, handler) => {
     const btn = document.createElement('button');
@@ -1143,15 +1160,10 @@ function renderTicketList() {
       resultsEl.append(card);
       lastCard = card;
     });
-    const groupedActions = createActionsRow(group.entries, group.profile);
+    const groupedActions = createActionsRow(group.entries, group.profile, { showTicketIndex: false });
     if (lastCard) {
-      const actionSlot = lastCard.querySelector('.card-actions-slot');
-      if (groupedActions && actionSlot) {
-        actionSlot.replaceWith(groupedActions);
-      } else if (groupedActions) {
+      if (groupedActions) {
         lastCard.append(groupedActions);
-      } else if (actionSlot) {
-        actionSlot.remove();
       }
     }
   });
@@ -1382,12 +1394,8 @@ function buildTicketCard(match, options = {}) {
   card.append(body);
 
   if (showActions) {
-    const actions = createActionsRow(match);
+    const actions = createActionsRow(match, null, { showTicketIndex: true });
     if (actions) card.append(actions);
-  } else {
-    const actionSlot = document.createElement('div');
-    actionSlot.className = 'card-actions-slot';
-    card.append(actionSlot);
   }
 
   const historyTable = renderTicketHistory(match.logs);

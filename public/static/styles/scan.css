@@ -148,6 +148,7 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .ticket-card .section-title.subscription{color:#f472b6;letter-spacing:.08em}
 .ticket-card .conditions{margin:0;padding-left:16px;list-style:disc;color:#d1d5db;font-size:13px}
 .ticket-card .card-actions{display:flex;gap:10px;margin-top:4px}
+.ticket-card .card-actions .card-actions-index{flex:0 0 auto;align-self:center;min-width:34px;padding:6px 0;text-align:center;font-size:12px;font-weight:700;color:#93c5fd}
 .ticket-card .card-actions button{flex:1 1 0;padding:10px 14px;border-radius:999px;border:1px solid #1f2937;background:#111827;color:#f9fafb;font-weight:600;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;transition:background .2s ease,transform .2s ease;white-space:nowrap}
 .ticket-card .card-actions button:hover{transform:translateY(-1px)}
 .ticket-card .card-actions button.action-accept{background:#14532d;border-color:#14532d}
