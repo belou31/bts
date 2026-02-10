@@ -200,7 +200,7 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .control-inline{display:flex;align-items:center;gap:12px}
 .control-label{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af}
 .mode-control-stack .mode-label,
-.mode-control-stack .control-label{min-width:92px;text-align:right}
+.mode-control-stack .control-label{min-width:92px;text-align:right;white-space:nowrap}
 .order-meta-inline{display:none}
 .mode-side-meta{display:none}
 .scan-inline{display:flex;align-items:center;gap:28px}
@@ -228,9 +228,9 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
   body:not(.scan-immersive) .top-controls .scan-inline .scan-toggle{min-width:0;width:min(100%,280px)}
   body:not(.scan-immersive) .top-controls .mode-control-stack{flex:1 1 100%;min-width:0;align-items:stretch;gap:6px}
   body:not(.scan-immersive) .top-controls .mode-inline,
-  body:not(.scan-immersive) .top-controls .control-inline{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:center;column-gap:6px;width:100%}
+  body:not(.scan-immersive) .top-controls .control-inline{display:grid;grid-template-columns:86px minmax(0,1fr);align-items:center;column-gap:6px;width:100%}
   body:not(.scan-immersive) .top-controls .mode-inline .toggle,
   body:not(.scan-immersive) .top-controls .control-inline .toggle{min-width:0;width:100%;max-width:220px;justify-self:end}
   body:not(.scan-immersive) .top-controls .mode-label,
-  body:not(.scan-immersive) .top-controls .control-label{font-size:11px;min-width:0;text-align:right}
+  body:not(.scan-immersive) .top-controls .control-label{font-size:11px;min-width:0;text-align:right;white-space:nowrap}
 }
