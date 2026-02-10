@@ -1,6 +1,7 @@
 // stub_sumup/server.js
 // Standalone SumUp checkout stub for local development.
 
+
 import express from 'express';
 import crypto from 'node:crypto';
 
