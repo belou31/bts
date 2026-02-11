@@ -26,13 +26,14 @@ import { connectMongo } from '../_utils.js';
 import { Event } from '../../src/models/Event.js';
 import { Order } from '../../src/models/Order.js';
 import {
-  buildReturnUrls,
-  createCheckoutIntent,
   currentPaymentProviderId,
   currentPaymentProviderLabel
 } from '../../src/services/payments/index.js';
 import { isPaidLike } from '../../src/services/order-finalization.js';
-import { sendMail } from '../../src/loaders/mailer.js';
+import {
+  createPaymentLinkForOrder,
+  sendPaymentLinkEmail
+} from '../../src/services/payment-links.js';
 
 const argv = yargs(hideBin(process.argv))
   .option('event', {
@@ -104,15 +105,6 @@ function fmtEuro(cents) {
   });
 }
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
 function statusAccepted(status) {
   const s = String(status || '').trim().toLowerCase();
   if (s === 'canceled' || s === 'refunded') return false;
@@ -137,32 +129,6 @@ function orderMatchesEvent(order, event) {
   if (orderEventId && orderEventId === evId) return true;
   if (!orderEventId && orderEventSlug && orderEventSlug === evSlug) return true;
   return false;
-}
-
-function paymentLinkEmailHtml({ order, event, redirectUrl, providerLabel }) {
-  const payerName = [order.payerFirstName, order.payerLastName].filter(Boolean).join(' ').trim();
-  const eventName = order?.meta?.eventName || event?.name || event?.slug || 'votre evenement';
-  const amount = fmtEuro(order.totalCents || 0);
-  const orderId = String(order._id || '');
-  const safeName = escapeHtml(payerName || '');
-  const safeEvent = escapeHtml(eventName);
-  const safeAmount = escapeHtml(amount);
-  const safeOrderId = escapeHtml(orderId);
-  const safeProvider = escapeHtml(providerLabel || 'prestataire');
-  const safeLink = escapeHtml(redirectUrl || '');
-
-  return `<!doctype html>
-<meta charset="utf-8">
-<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
-  <p>Bonjour${safeName ? ` ${safeName}` : ''},</p>
-  <p>Votre commande <strong>${safeOrderId}</strong> pour <strong>${safeEvent}</strong> est en attente de paiement.</p>
-  <p>Montant a regler: <strong>${safeAmount}</strong>.</p>
-  <p>Pour finaliser votre achat via ${safeProvider}, utilisez ce lien:</p>
-  <p><a href="${safeLink}" style="display:inline-block;padding:10px 14px;border-radius:8px;background:#1d4ed8;color:#fff;text-decoration:none">Payer ma commande</a></p>
-  <p>Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur:</p>
-  <p><a href="${safeLink}">${safeLink}</a></p>
-  <p style="color:#6b7280;font-size:12px">Si vous avez deja regle cette commande, ignorez ce message.</p>
-</div>`;
 }
 
 async function resolveEvent() {
@@ -313,81 +279,15 @@ async function main() {
     }
 
     try {
-      const urls = buildReturnUrls(order);
-      const intent = await createCheckoutIntent({
-        order,
-        returnUrl: urls.returnUrl,
-        backUrl: urls.backUrl,
-        errorUrl: urls.errorUrl
-      });
-      const redirectUrl = intent?.redirectUrl || intent?.url || '';
-      if (!redirectUrl) {
-        throw new Error('Checkout intent missing redirectUrl');
-      }
-
-      const checkoutId = String(
-        intent?.id ||
-          intent?.checkoutReference ||
-          intent?.raw?.id ||
-          intent?.raw?.checkout_reference ||
-          ''
-      ).trim();
-      const checkoutReference = String(
-        intent?.checkoutReference ||
-          intent?.raw?.checkout_reference ||
-          checkoutId
-      ).trim();
-      const providerOrderId =
-        intent?.providerOrderId ||
-        intent?.raw?.order?.id ||
-        intent?.raw?.orderId ||
-        intent?.raw?.transaction_code ||
-        intent?.raw?.transaction_id ||
-        intent?.raw?.id ||
-        null;
-
-      const now = new Date();
-      const paymentMeta = { ...(order.paymentProviderMeta || {}) };
-      paymentMeta.name = PROVIDER_ID;
-      paymentMeta.lastPaymentLinkAt = now;
-      paymentMeta.lastPaymentLinkUrl = redirectUrl;
-      paymentMeta.lastPaymentLinkSource = SOURCE;
-      if (checkoutId) paymentMeta.checkoutIntentId = checkoutId;
-      if (checkoutReference) paymentMeta.checkoutReference = checkoutReference;
-      if (providerOrderId) paymentMeta.providerOrderId = providerOrderId;
-
-      const linkHistory = Array.isArray(paymentMeta.paymentLinkHistory)
-        ? paymentMeta.paymentLinkHistory.slice(-9)
-        : [];
-      linkHistory.push({
-        at: now,
-        source: SOURCE,
-        provider: PROVIDER_ID,
-        checkoutIntentId: checkoutId || null,
-        checkoutReference: checkoutReference || null,
-        providerOrderId: providerOrderId || null,
-        redirectUrl
-      });
-      paymentMeta.paymentLinkHistory = linkHistory;
-
-      order.paymentProvider = PROVIDER_ID;
-      order.paymentProviderMeta = paymentMeta;
-      order.markModified('paymentProviderMeta');
-      await order.save();
+      const link = await createPaymentLinkForOrder(order, { source: SOURCE });
       stats.linkCreated += 1;
 
       if (SEND_EMAIL) {
-        const subjectBase =
-          process.env.EMAIL_SUBJECT_EVENT_PAYMENT_LINK || 'Lien de paiement - Billetterie';
-        const eventName = order?.meta?.eventName || event?.name || event?.slug || '';
-        const subject = eventName ? `${subjectBase} - ${eventName}` : subjectBase;
-        const html = paymentLinkEmailHtml({
-          order,
-          event,
-          redirectUrl,
-          providerLabel: PROVIDER_LABEL
+        await sendPaymentLinkEmail(order, {
+          redirectUrl: link.redirectUrl,
+          eventName: order?.meta?.eventName || event?.name || event?.slug || '',
+          providerLabel: link.providerLabel
         });
-        await sendMail({ to: order.payerEmail, subject, html });
         stats.emailed += 1;
       }
 

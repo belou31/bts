@@ -10,6 +10,7 @@
  *   - Rows with the same orderId/orderRef/groupKey are grouped inside a single order.
  *   - When orderId is omitted, the script groups by orderRef/groupKey if present; otherwise each row becomes a distinct order.
  *   - Dry-run by default; pass --commit to persist. --sendEmail only works with --commit.
+ *   - --sendEmail sends confirmation for paid-like statuses, and a payment link for status=tobepaid.
  *   - Use --force to bypass seat existence/conflict checks (useful for troubleshooting legacy data).
  */
 

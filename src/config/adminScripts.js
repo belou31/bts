@@ -1492,7 +1492,7 @@ export const adminScriptGroups = [
           script: 'scripts/04-event-management/import-orders.js',
           args: []
         },
-        description: 'Re-import or create paid event orders from a CSV export. Dry-run by default; add --commit to persist and --sendEmail to trigger confirmations.',
+        description: 'Re-import or create event orders from a CSV export. Dry-run by default; add --commit to persist. With --sendEmail: paid-like statuses send confirmations, tobepaid sends a payment link.',
         templates: ['data_references/csv/event-orders.template.csv'],
         form: {
           fields: [
