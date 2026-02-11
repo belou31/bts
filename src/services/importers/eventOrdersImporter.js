@@ -8,6 +8,10 @@ import { Order } from '../../models/Order.js';
 import { Seat } from '../../models/Seat.js';
 import { sendOrderAttestationIfNeeded, isPaidLike } from '../order-finalization.js';
 import { currentPaymentProviderLabel } from '../payments/index.js';
+import {
+  createPaymentLinkForOrder,
+  sendPaymentLinkEmail
+} from '../payment-links.js';
 
 const ALLOWED_STATUS = new Set([
   'pending',
@@ -861,6 +865,8 @@ export async function importEventOrders({
       });
     }
 
+    const normalizedStatus = String(parsed.status || '').trim().toLowerCase();
+
     if (sendEmail && isPaidLike(parsed.status)) {
       try {
         await sendOrderAttestationIfNeeded(order, { source: 'importer:event-orders' });
@@ -871,7 +877,24 @@ export async function importEventOrders({
           `  ✉️  Échec envoi email pour ${order._id}: ${error.message}`
         );
       }
-    } else if (sendEmail && !isPaidLike(parsed.status)) {
+    } else if (sendEmail && normalizedStatus === 'tobepaid') {
+      try {
+        const link = await createPaymentLinkForOrder(order, {
+          source: 'importer:event-orders'
+        });
+        await sendPaymentLinkEmail(order, {
+          redirectUrl: link.redirectUrl,
+          eventName: order?.meta?.eventName || parsed?.event?.name || parsed?.event?.slug || '',
+          providerLabel: link.providerLabel
+        });
+        log('info', `  ↳ Lien de paiement envoyé: ${order.payerEmail}`);
+      } catch (error) {
+        log(
+          'error',
+          `  ✉️  Échec envoi lien paiement pour ${order._id}: ${error.message}`
+        );
+      }
+    } else if (sendEmail) {
       log(
         'warn',
         `  ↳ Email non envoyé (status=${parsed.status} non payé) pour ${parsed.payerEmail}`
