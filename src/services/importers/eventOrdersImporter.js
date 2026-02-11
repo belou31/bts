@@ -11,6 +11,7 @@ import { currentPaymentProviderLabel } from '../payments/index.js';
 
 const ALLOWED_STATUS = new Set([
   'pending',
+  'tobepaid',
   'paid',
   'failed',
   'canceled',
@@ -366,7 +367,7 @@ async function detectSeatConflicts(parsed, seatIds, existingId) {
   const orderConflicts = await Order.find(
     {
       'meta.eventId': String(parsed.event._id),
-      status: { $in: ['paid', 'pending', 'processed', 'authorized'] },
+      status: { $in: ['paid', 'pending', 'tobepaid', 'processed', 'authorized'] },
       ...(existingId ? { _id: { $ne: existingId } } : {}),
       'lines.seatId': { $in: seatIds }
     },
