@@ -1487,12 +1487,12 @@ export const adminScriptGroups = [
         label: 'Import Orders for Event',
         order: 3.5,
         path: 'scripts/04-event-management/import-orders.js',
-        command: 'node scripts/04-event-management/import-orders.js <path/to/orders.csv> [--status=paid] [--commit] [--force] [--sendEmail]',
+        command: 'node scripts/04-event-management/import-orders.js <path/to/orders.csv> [--status=paid|tobepaid] [--commit] [--force] [--sendEmail]',
         run: {
           script: 'scripts/04-event-management/import-orders.js',
           args: []
         },
-        description: 'Re-import or create paid event orders from a CSV export. Dry-run by default; add --commit to persist and --sendEmail to trigger confirmations.',
+        description: 'Re-import or create event orders from a CSV export. Dry-run by default; add --commit to persist. With --sendEmail: paid-like statuses send confirmations, tobepaid sends a payment link.',
         templates: ['data_references/csv/event-orders.template.csv'],
         form: {
           fields: [
@@ -1502,6 +1502,53 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/event-orders.csv',
               required: true,
               arg: { type: 'positional', index: 0 }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-send-payment-links',
+        label: 'Send Payment Links for Event Orders',
+        order: 3.55,
+        path: 'scripts/04-event-management/send-payment-links.js',
+        command: 'node scripts/04-event-management/send-payment-links.js --event=<slug|ObjectId> [--order=<id[,id2]>] [--status=pending,tobepaid|nonpaid|all] [--limit=200] [--commit] [--mail=false]',
+        run: {
+          script: 'scripts/04-event-management/send-payment-links.js',
+          args: []
+        },
+        description: 'Creates fresh checkout intents and sends payment-link emails for unpaid event orders. Dry-run by default; use --commit to execute.',
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l\'evenement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'order',
+              label: 'IDs commande (CSV)',
+              placeholder: '67f...,680...',
+              arg: { type: 'option', template: '--order=${value}' }
+            },
+            {
+              name: 'status',
+              label: 'Filtre statut',
+              placeholder: 'pending,tobepaid',
+              arg: { type: 'option', template: '--status=${value}' }
+            },
+            {
+              name: 'limit',
+              label: 'Limite',
+              placeholder: '200',
+              arg: { type: 'option', template: '--limit=${value}' }
+            },
+            {
+              name: 'mail',
+              label: 'Envoyer email',
+              placeholder: 'true',
+              arg: { type: 'option', template: '--mail=${value}' }
             }
           ]
         }

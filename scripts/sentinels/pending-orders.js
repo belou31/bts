@@ -1,7 +1,7 @@
 /**
- * Sentinel to monitor pending HelloAsso orders.
+ * Sentinel to monitor pending/tobepaid payment-provider orders.
  *
- * Checks pending orders, finalises those marked as paid by HelloAsso, and
+ * Checks pending/tobepaid orders, finalises those marked as paid by provider, and
  * performs housekeeping (release expired holds, cancel stale pending orders).
  *
  * Usage:
@@ -91,7 +91,7 @@ async function runOnce() {
   });
 
   const list = await Order.find({
-    status: { $in: ['pending'] },
+    status: { $in: ['pending', 'tobepaid'] },
     paymentProvider: PAYMENT_PROVIDER_ID,
     'paymentProviderMeta.checkoutIntentId': { $exists: true, $ne: null },
     createdAt: { $gte: since }

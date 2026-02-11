@@ -3,13 +3,14 @@
  * Import event (match) orders from a CSV file.
  *
  * Usage:
- *   node scripts/04-event-management/import-orders.js <path/orders.csv> [--status=paid] [--commit] [--force] [--sendEmail]
+ *   node scripts/04-event-management/import-orders.js <path/orders.csv> [--status=paid|tobepaid] [--commit] [--force] [--sendEmail]
  *
  * Notes:
  *   - CSV format follows the standard orders export: orderId,createdAt,status,payerFirstName,payerLastName,payerEmail,seasonCode,venueSlug,paymentSplit,totalCents,providerName,haOrderId,checkoutIntentId,lastReturnCode,lastWebhookEvent,attestationSentAt,lineIndex,seatId,zoneKey,tariffCode,priceCents,holderFirstName,holderLastName,eventId,eventSlug,eventName,eventStartsAt
  *   - Rows with the same orderId/orderRef/groupKey are grouped inside a single order.
  *   - When orderId is omitted, the script groups by orderRef/groupKey if present; otherwise each row becomes a distinct order.
  *   - Dry-run by default; pass --commit to persist. --sendEmail only works with --commit.
+ *   - --sendEmail sends confirmation for paid-like statuses, and a payment link for status=tobepaid.
  *   - Use --force to bypass seat existence/conflict checks (useful for troubleshooting legacy data).
  */
 
@@ -41,10 +42,10 @@ const WANT_EMAIL = !!args.sendEmail || !!args.sendEmails || !!args.send || !!arg
 const SEND_EMAIL = WANT_EMAIL && COMMIT;
 const DRY_RUN = args.dryRun === true ? true : !COMMIT;
 
-const ALLOWED_STATUS = new Set(['pending', 'paid', 'failed', 'canceled', 'authorized', 'processed']);
+const ALLOWED_STATUS = new Set(['pending', 'tobepaid', 'paid', 'failed', 'canceled', 'authorized', 'processed']);
 
 function usage() {
-  console.error('Usage: node scripts/04-event-management/import-orders.js <path/orders.csv> [--status=paid] [--commit] [--force] [--sendEmail]');
+  console.error('Usage: node scripts/04-event-management/import-orders.js <path/orders.csv> [--status=paid|tobepaid] [--commit] [--force] [--sendEmail]');
   process.exit(1);
 }
 

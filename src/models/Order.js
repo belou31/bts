@@ -69,7 +69,7 @@ const OrderSchema = new mongoose.Schema({
   lines:      { type: [LineSchema], default: [] },
   totalCents: { type: Number, default: 0 },
 
-  status: { type: String, enum: ['pending','paid','failed','canceled','refunded'], default: 'pending', index: true },
+  status: { type: String, enum: ['pending','tobepaid','paid','failed','canceled','refunded'], default: 'pending', index: true },
 
   paymentProvider:     { type: String, default: process.env.PAYMENT_PROVIDER || 'helloasso' },
 

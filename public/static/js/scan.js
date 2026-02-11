@@ -132,14 +132,80 @@ const authFields = document.querySelector('.auth-fields');
 const authToggle = document.getElementById('authToggle');
 const scanToggle = document.getElementById('scanToggle');
 const modeToggle = document.getElementById('modeToggle');
+const controlToggle = document.getElementById('controlToggle');
 const authToggleLabel = authToggle?.querySelector('.toggle-label');
 const scanToggleLabel = scanToggle?.querySelector('.toggle-label');
+const scanOptionOff = scanToggle?.querySelector('.toggle-option.off');
+const scanOptionOn = scanToggle?.querySelector('.toggle-option.on');
 const modeToggleLabel = modeToggle?.querySelector('.toggle-label');
+const modeOptionTicket = modeToggle?.querySelector('.toggle-option.ticket');
+const modeOptionOrder = modeToggle?.querySelector('.toggle-option.order');
+const controlToggleLabel = controlToggle?.querySelector('.toggle-label');
+const controlOptionEach = controlToggle?.querySelector('.toggle-option.each');
+const controlOptionOnce = controlToggle?.querySelector('.toggle-option.once');
+const modeLabel = document.querySelector('.mode-label');
+const controlLabel = document.querySelector('.control-label');
+const modeInline = document.querySelector('.mode-inline');
+const controlInline = document.querySelector('.control-inline');
+const scanInline = document.querySelector('.scan-inline');
 const knownEvents = new Map();
 
 const bodyEl = document.body || document.querySelector('body');
 const portraitQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(orientation: portrait)') : null;
 const narrowQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 768px)') : null;
+const previewControlsCol = document.createElement('div');
+previewControlsCol.className = 'preview-controls-col';
+if (previewWrapper) {
+  previewWrapper.append(previewControlsCol);
+}
+const modeInlineHomeParent = modeInline?.parentElement || null;
+const controlInlineHomeParent = controlInline?.parentElement || null;
+const scanInlineHomeParent = scanInline?.parentElement || null;
+const modeInlineHomeMarker = (modeInline && modeInlineHomeParent)
+  ? document.createComment('mode-inline-home')
+  : null;
+const controlInlineHomeMarker = (controlInline && controlInlineHomeParent)
+  ? document.createComment('control-inline-home')
+  : null;
+const scanInlineHomeMarker = (scanInline && scanInlineHomeParent)
+  ? document.createComment('scan-inline-home')
+  : null;
+if (modeInline && modeInlineHomeParent && modeInlineHomeMarker) {
+  modeInlineHomeParent.insertBefore(modeInlineHomeMarker, modeInline.nextSibling);
+}
+if (controlInline && controlInlineHomeParent && controlInlineHomeMarker) {
+  controlInlineHomeParent.insertBefore(controlInlineHomeMarker, controlInline.nextSibling);
+}
+if (scanInline && scanInlineHomeParent && scanInlineHomeMarker) {
+  scanInlineHomeParent.insertBefore(scanInlineHomeMarker, scanInline.nextSibling);
+}
+const defaultModeLabelText = modeLabel ? String(modeLabel.textContent || '').trim() : 'Mode scan';
+const defaultControlLabelText = controlLabel ? String(controlLabel.textContent || '').trim() : 'Control';
+const scanInlineLabel = scanInline
+  ? (() => {
+      const existing = scanInline.querySelector('.scan-side-label');
+      if (existing) return existing;
+      const el = document.createElement('span');
+      el.className = 'scan-side-label';
+      el.textContent = 'Scan O/I';
+      scanInline.prepend(el);
+      return el;
+    })()
+  : null;
+const orderMetaInline = document.createElement('div');
+orderMetaInline.className = 'order-meta-inline';
+const orderMetaLabel = document.createElement('span');
+orderMetaLabel.className = 'mode-side-meta';
+orderMetaInline.append(orderMetaLabel);
+previewControlsCol.append(orderMetaInline);
+const cleanInline = document.createElement('div');
+cleanInline.className = 'clean-inline';
+const cleanBtn = document.createElement('button');
+cleanBtn.type = 'button';
+cleanBtn.className = 'clean-btn';
+cleanBtn.textContent = 'CLEAR';
+cleanInline.append(cleanBtn);
+previewControlsCol.append(cleanInline);
 const scanCountContainer = scannedCountEl ? scannedCountEl.parentElement : null;
 const scanCountHomeParent = scanCountContainer?.parentElement || null;
 const scanCountHomeMarker = (scanCountContainer && scanCountHomeParent)
@@ -157,6 +223,7 @@ const HISTORY_ACTION_MAP = {
 };
 let scanActive = false;
 let loadMode = 'order';
+let controlMode = 'each';
 if (previewWrapper) previewWrapper.classList.add('hidden');
 
 function detectSlugFromPath() {
@@ -375,9 +442,49 @@ authToggle?.addEventListener('keydown', (e) => {
 function updateModeToggleUI() {
   if (!modeToggle) return;
   const isOrder = loadMode === 'order';
+  const compactLabels = bodyEl?.classList.contains('scan-immersive');
+  const ticketLabel = compactLabels ? 'TCKT' : 'Ticket';
+  const orderLabel = compactLabels ? 'ORDR' : 'Commande';
   modeToggle.classList.toggle('on', isOrder);
   modeToggle.setAttribute('aria-checked', isOrder ? 'true' : 'false');
-  if (modeToggleLabel) modeToggleLabel.textContent = isOrder ? 'Commande' : 'Ticket';
+  if (modeToggleLabel) modeToggleLabel.textContent = isOrder ? orderLabel : ticketLabel;
+  if (modeOptionTicket) modeOptionTicket.textContent = ticketLabel;
+  if (modeOptionOrder) modeOptionOrder.textContent = orderLabel;
+  if (modeLabel) modeLabel.textContent = compactLabels ? 'Scan QR' : defaultModeLabelText;
+  if (orderMetaInline && orderMetaLabel) {
+    const orderTicketCount = compactLabels ? getCurrentOrderTicketCount() : null;
+    orderMetaLabel.textContent = orderTicketCount ? `Order of ${orderTicketCount}` : '';
+    orderMetaInline.classList.toggle('is-empty', !orderTicketCount);
+  }
+}
+
+function updateScanToggleUI() {
+  if (!scanToggle) return;
+  const compactLabels = bodyEl?.classList.contains('scan-immersive');
+  const offLabel = compactLabels ? 'OFF' : 'Scan OFF';
+  const onLabel = compactLabels ? 'ON' : 'Scan ON';
+  scanToggle.classList.toggle('on', scanActive);
+  scanToggle.setAttribute('aria-checked', scanActive ? 'true' : 'false');
+  if (scanToggleLabel) {
+    scanToggleLabel.textContent = scanActive ? onLabel : offLabel;
+  }
+  if (scanOptionOff) scanOptionOff.textContent = offLabel;
+  if (scanOptionOn) scanOptionOn.textContent = onLabel;
+  if (scanInlineLabel) scanInlineLabel.textContent = 'Scan O/I';
+}
+
+function updateControlToggleUI() {
+  if (!controlToggle) return;
+  const isOnce = controlMode === 'once';
+  const compactLabels = bodyEl?.classList.contains('scan-immersive');
+  const eachLabel = compactLabels ? 'EACH' : 'Each';
+  const onceLabel = compactLabels ? 'ONCE' : 'Once';
+  controlToggle.classList.toggle('on', isOnce);
+  controlToggle.setAttribute('aria-checked', isOnce ? 'true' : 'false');
+  if (controlToggleLabel) controlToggleLabel.textContent = isOnce ? onceLabel : eachLabel;
+  if (controlOptionEach) controlOptionEach.textContent = eachLabel;
+  if (controlOptionOnce) controlOptionOnce.textContent = onceLabel;
+  if (controlLabel) controlLabel.textContent = compactLabels ? 'CONTROL' : defaultControlLabelText;
 }
 
 updateModeToggleUI();
@@ -390,6 +497,20 @@ modeToggle?.addEventListener('keydown', (e) => {
     e.preventDefault();
     loadMode = loadMode === 'order' ? 'ticket' : 'order';
     updateModeToggleUI();
+  }
+});
+updateControlToggleUI();
+controlToggle?.addEventListener('click', () => {
+  controlMode = controlMode === 'once' ? 'each' : 'once';
+  updateControlToggleUI();
+  renderTicketList();
+});
+controlToggle?.addEventListener('keydown', (e) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    controlMode = controlMode === 'once' ? 'each' : 'once';
+    updateControlToggleUI();
+    renderTicketList();
   }
 });
 
@@ -512,11 +633,36 @@ function relocateScanCount(immersive) {
   }
 }
 
+function relocateImmersiveControls(immersive) {
+  if (!previewWrapper || !previewControlsCol || !previewControlsCol.parentElement) return;
+  if (immersive) {
+    if (scanInline) previewControlsCol.append(scanInline);
+    if (modeInline) previewControlsCol.append(modeInline);
+    if (controlInline) previewControlsCol.append(controlInline);
+    previewControlsCol.append(orderMetaInline);
+    if (cleanInline) previewControlsCol.append(cleanInline);
+    return;
+  }
+  if (modeInline && modeInlineHomeParent && modeInlineHomeMarker && modeInline.parentElement !== modeInlineHomeParent) {
+    modeInlineHomeParent.insertBefore(modeInline, modeInlineHomeMarker);
+  }
+  if (controlInline && controlInlineHomeParent && controlInlineHomeMarker && controlInline.parentElement !== controlInlineHomeParent) {
+    controlInlineHomeParent.insertBefore(controlInline, controlInlineHomeMarker);
+  }
+  if (scanInline && scanInlineHomeParent && scanInlineHomeMarker && scanInline.parentElement !== scanInlineHomeParent) {
+    scanInlineHomeParent.insertBefore(scanInline, scanInlineHomeMarker);
+  }
+}
+
 function updateImmersiveMode() {
   if (!bodyEl) return;
   const immersive = shouldUseImmersiveMode();
   bodyEl.classList.toggle('scan-immersive', immersive);
+  relocateImmersiveControls(immersive);
   relocateScanCount(immersive);
+  updateModeToggleUI();
+  updateScanToggleUI();
+  updateControlToggleUI();
 }
 
 if (portraitQuery) {
@@ -543,13 +689,7 @@ updateImmersiveMode();
 
 function setScanToggleState(state) {
   scanActive = !!state;
-  if (scanToggle) {
-    scanToggle.classList.toggle('on', scanActive);
-    scanToggle.setAttribute('aria-checked', scanActive ? 'true' : 'false');
-    if (scanToggleLabel) {
-      scanToggleLabel.textContent = scanActive ? 'SCAN ON' : 'SCAN OFF';
-    }
-  }
+  updateScanToggleUI();
   if (previewWrapper) {
     previewWrapper.classList.toggle('hidden', !scanActive);
   }
@@ -832,6 +972,46 @@ function getHistoryEntries() {
   return historyOrder.map((key) => historyMap.get(key)).filter(Boolean);
 }
 
+function clearHistoryEntries() {
+  historyOrder.splice(0, historyOrder.length);
+  historyMap.clear();
+  lastPreviewLookup.clear();
+  recentScanTimestamps.clear();
+  detectionLocked = false;
+}
+
+function getCurrentOrderTicketCount() {
+  const [latestEntry] = getHistoryEntries();
+  const rawCount = Number(latestEntry?.order?.totalTickets);
+  if (Number.isFinite(rawCount) && rawCount > 0) return Math.round(rawCount);
+  return null;
+}
+
+function getTicketOrderIndex(entry) {
+  const raw = Number(entry?.order?.ticketIndex);
+  if (Number.isFinite(raw) && raw > 0) return Math.round(raw);
+  return null;
+}
+
+function orderEntriesForDisplay(entries) {
+  const list = Array.isArray(entries) ? [...entries] : [];
+  return list
+    .map((entry, position) => ({ entry, position }))
+    .sort((a, b) => {
+      const aOrderId = String(a.entry?.order?.id || '');
+      const bOrderId = String(b.entry?.order?.id || '');
+      if (aOrderId && aOrderId === bOrderId) {
+        const aIndex = getTicketOrderIndex(a.entry);
+        const bIndex = getTicketOrderIndex(b.entry);
+        if (aIndex != null && bIndex != null && aIndex !== bIndex) return aIndex - bIndex;
+        if (aIndex != null && bIndex == null) return -1;
+        if (aIndex == null && bIndex != null) return 1;
+      }
+      return a.position - b.position;
+    })
+    .map((item) => item.entry);
+}
+
 function logAction({ action, status, entryKey, info, event }) {
   if (!entryKey) return;
   const entry = historyMap.get(entryKey);
@@ -871,11 +1051,109 @@ function renderTicketHistory(logs) {
   return wrap;
 }
 
+function getActionProfile(match) {
+  if (!match?.ticketId) return 'qr';
+  if (match.status === 'ready') return 'ready';
+  if (match.status === 'already_scanned') return 'already_scanned';
+  return 'other';
+}
+
+function splitEntriesByActionProfile(entries) {
+  const groups = [];
+  let currentGroup = null;
+  entries.forEach((entry) => {
+    const profile = getActionProfile(entry);
+    if (!currentGroup || currentGroup.profile !== profile) {
+      currentGroup = { profile, entries: [] };
+      groups.push(currentGroup);
+    }
+    currentGroup.entries.push(entry);
+  });
+  return groups;
+}
+
+function getTicketIndexLabel(entry) {
+  const rawIndex = Number(entry?.order?.ticketIndex);
+  if (Number.isFinite(rawIndex) && rawIndex > 0) {
+    return `#${Math.round(rawIndex)}`;
+  }
+  return '';
+}
+
+function createActionsRow(targetEntries, profile = null, options = {}) {
+  const entries = (Array.isArray(targetEntries) ? targetEntries : [targetEntries]).filter(Boolean);
+  if (!entries.length) return null;
+  const effectiveProfile = profile || getActionProfile(entries[0]);
+  const actions = document.createElement('div');
+  actions.className = 'card-actions';
+  if (options.showTicketIndex && entries.length === 1) {
+    const indexLabel = getTicketIndexLabel(entries[0]);
+    if (indexLabel) {
+      const indexEl = document.createElement('span');
+      indexEl.className = 'card-actions-index';
+      indexEl.textContent = indexLabel;
+      actions.append(indexEl);
+    }
+  }
+
+  const addBtn = (label, className, handler) => {
+    const btn = document.createElement('button');
+    btn.classList.add(className);
+    btn.textContent = label;
+    btn.addEventListener('click', handler);
+    actions.append(btn);
+    return btn;
+  };
+
+  const runSequential = async (handler) => {
+    if (actions.dataset.busy === '1') return;
+    actions.dataset.busy = '1';
+    const buttons = Array.from(actions.querySelectorAll('button'));
+    buttons.forEach((btn) => { btn.disabled = true; });
+    try {
+      for (const entry of [...entries]) {
+        await handler(entry);
+      }
+    } finally {
+      actions.dataset.busy = '0';
+      buttons.forEach((btn) => { btn.disabled = false; });
+    }
+  };
+
+  if (effectiveProfile === 'qr') {
+    addBtn('Accepter', 'action-accept', () => runSequential((entry) => handleConfirm(entry)));
+    addBtn('Refuser', 'action-reject', () => {
+      entries.forEach((entry) => removeHistoryEntry(entry));
+      renderTicketList();
+    });
+    return actions;
+  }
+
+  if (effectiveProfile === 'ready') {
+    addBtn('Accepter', 'action-accept', () => runSequential((entry) => handleAccept(entry)));
+    addBtn('Refuser', 'action-reject', () => runSequential((entry) => handleReject(entry)));
+    return actions;
+  }
+
+  if (effectiveProfile === 'already_scanned') {
+    addBtn('SORTIR', 'action-cancel', () => runSequential((entry) => handleExit(entry)));
+    addBtn('Forcer', 'action-force', () => runSequential((entry) => handleAccept(entry, { force: true })));
+    addBtn('Refuser', 'action-reject', () => runSequential((entry) => handleReject(entry)));
+    return actions;
+  }
+
+  addBtn('SORTIR', 'action-cancel', () => runSequential((entry) => handleExit(entry)));
+  addBtn('Refuser', 'action-reject', () => runSequential((entry) => handleReject(entry)));
+  return actions;
+}
+
 function renderTicketList() {
   if (!resultsEl) return;
   resultsEl.innerHTML = '';
-  const entries = getHistoryEntries();
+  const entries = orderEntriesForDisplay(getHistoryEntries());
   updateScannedCountDisplay();
+  updateModeToggleUI();
+  updateControlToggleUI();
   if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'results-empty';
@@ -883,12 +1161,33 @@ function renderTicketList() {
     resultsEl.append(empty);
     return;
   }
-  entries.forEach((entry) => {
-    resultsEl.append(buildTicketCard(entry));
+
+  if (controlMode !== 'once') {
+    entries.forEach((entry) => {
+      resultsEl.append(buildTicketCard(entry));
+    });
+    return;
+  }
+
+  const groups = splitEntriesByActionProfile(entries);
+  groups.forEach((group) => {
+    let lastCard = null;
+    group.entries.forEach((entry) => {
+      const card = buildTicketCard(entry, { showActions: false });
+      resultsEl.append(card);
+      lastCard = card;
+    });
+    const groupedActions = createActionsRow(group.entries, group.profile, { showTicketIndex: false });
+    if (lastCard) {
+      if (groupedActions) {
+        lastCard.append(groupedActions);
+      }
+    }
   });
 }
 
-function buildTicketCard(match) {
+function buildTicketCard(match, options = {}) {
+  const showActions = options.showActions !== false;
   const card = document.createElement('div');
   card.className = 'ticket-card';
   card.dataset.entryKey = keyForEntry(match);
@@ -1111,35 +1410,9 @@ function buildTicketCard(match) {
 
   card.append(body);
 
-  const actions = document.createElement('div');
-  actions.className = 'card-actions';
-  const addBtn = (label, className, handler) => {
-    const btn = document.createElement('button');
-    btn.classList.add(className);
-    btn.textContent = label;
-    btn.addEventListener('click', handler);
-    actions.append(btn);
-    return btn;
-  };
-
-  if (!match.ticketId) {
-    addBtn('Accepter', 'action-accept', () => handleConfirm(match));
-    addBtn('Refuser', 'action-reject', () => { removeHistoryEntry(match); renderTicketList(); });
-  } else if (match.status === 'ready') {
-    addBtn('Accepter', 'action-accept', () => handleAccept(match));
-    addBtn('Refuser', 'action-reject', () => handleReject(match));
-  } else if (match.status === 'already_scanned') {
-    addBtn('SORTIR', 'action-cancel', () => handleExit(match));
-    addBtn('Forcer', 'action-force', () => handleAccept(match, { force: true }));
-    addBtn('Refuser', 'action-reject', () => handleReject(match));
-  } else {
-    addBtn('SORTIR', 'action-cancel', () => handleExit(match));
-    addBtn('Refuser', 'action-reject', () => handleReject(match));
-  }
-
-  const hasActions = actions.childElementCount > 0;
-  if (hasActions) {
-    card.append(actions);
+  if (showActions) {
+    const actions = createActionsRow(match, null, { showTicketIndex: true });
+    if (actions) card.append(actions);
   }
 
   const historyTable = renderTicketHistory(match.logs);
@@ -1149,6 +1422,10 @@ function buildTicketCard(match) {
 }
 
 renderTicketList();
+cleanBtn.addEventListener('click', () => {
+  clearHistoryEntries();
+  renderTicketList();
+});
 async function postScanOnline(payload) {
   const headers = { 'Content-Type': 'application/json' };
   const authMode = payload.authMode || ((payload.login && payload.password) ? 'basic' : 'token');
@@ -1780,15 +2057,56 @@ function disableScan() {
   statusEl.textContent = 'Prêt.';
 }
 
+function getFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+async function requestScanFullscreen() {
+  const target = document.documentElement;
+  if (!target) return;
+  if (getFullscreenElement()) return;
+  try {
+    if (typeof target.requestFullscreen === 'function') {
+      await target.requestFullscreen({ navigationUI: 'hide' });
+      return;
+    }
+  } catch {}
+  try {
+    if (typeof target.webkitRequestFullscreen === 'function') {
+      target.webkitRequestFullscreen();
+    }
+  } catch {}
+}
+
+async function exitScanFullscreen() {
+  if (!getFullscreenElement()) return;
+  try {
+    if (typeof document.exitFullscreen === 'function') {
+      await document.exitFullscreen();
+      return;
+    }
+  } catch {}
+  try {
+    if (typeof document.webkitExitFullscreen === 'function') {
+      document.webkitExitFullscreen();
+    }
+  } catch {}
+}
+
 scanToggle?.addEventListener('click', async () => {
   try {
     if (scanActive) {
       disableScan();
+      await exitScanFullscreen();
     } else {
+      await requestScanFullscreen();
       await enableScan();
     }
   } catch (err) {
     console.error(err);
+    if (!scanActive) {
+      await exitScanFullscreen();
+    }
   }
 });
 
@@ -1798,11 +2116,16 @@ scanToggle?.addEventListener('keydown', async (e) => {
     try {
       if (scanActive) {
         disableScan();
+        await exitScanFullscreen();
       } else {
+        await requestScanFullscreen();
         await enableScan();
       }
     } catch (err) {
       console.error(err);
+      if (!scanActive) {
+        await exitScanFullscreen();
+      }
     }
   }
 });

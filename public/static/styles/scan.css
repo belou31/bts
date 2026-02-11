@@ -15,23 +15,50 @@ main{padding:16px;max-width:1200px;margin:0 auto}
 .scan-layout{display:flex;flex-direction:column;gap:24px}
 .scan-panel{display:flex;flex-direction:column;gap:16px;flex:1 1 auto}
 body.scan-immersive .top-bar{display:none!important}
-body.scan-immersive main{padding:0 0 16px;max-width:none}
-body.scan-immersive .scan-layout{gap:8px}
-body.scan-immersive .scan-panel{gap:12px;padding:16px;position:relative}
-body.scan-immersive .grid,body.scan-immersive .top-controls{display:none!important}
-body.scan-immersive .preview-wrapper{position:relative;max-height:33vh;height:min(33vh,320px);aspect-ratio:auto;width:100%;margin:0;border-radius:12px;overflow:hidden}
-body.scan-immersive .preview-wrapper video,body.scan-immersive .preview-wrapper canvas{border-radius:0}
-body.scan-immersive .results{margin:0;padding:0 16px}
-body.scan-immersive .sub-controls{position:absolute;top:12px;left:12px;right:auto;width:auto;padding:0;justify-content:flex-start;z-index:30;pointer-events:none;background:none}
-body.scan-immersive .scan-inline{pointer-events:auto}
-body.scan-immersive .scan-inline .toggle{flex:0 1 auto;min-width:0;max-width:240px;box-shadow:0 12px 24px rgba(0,0,0,0.35)}
+body.scan-immersive{height:100dvh;overflow:hidden}
+body.scan-immersive main{padding:0;max-width:none;min-height:100dvh;height:100dvh}
+body.scan-immersive .scan-layout{gap:8px;min-height:100dvh;height:100dvh}
+body.scan-immersive .scan-panel{gap:12px;padding:16px;position:relative;flex:0 0 auto}
+body.scan-immersive .grid,body.scan-immersive .top-controls,body.scan-immersive .sub-controls{display:none!important}
+body.scan-immersive .preview-wrapper{position:relative;display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);max-height:25vh;height:25vh;aspect-ratio:auto;width:100%;margin:0;border-radius:12px;overflow:hidden}
+body.scan-immersive .preview-wrapper video{grid-column:1;grid-row:1;width:100%;height:100%;border-radius:12px 0 0 12px}
+body.scan-immersive .preview-wrapper canvas{position:absolute;top:0;left:0;width:66.6667%;height:100%;border-radius:12px 0 0 12px}
+body.scan-immersive .results{margin:0;padding:0 16px 12px;flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
 body.scan-immersive .status-row{display:none!important}
-body.scan-immersive .preview-wrapper .scan-count{position:absolute;bottom:12px;right:12px;display:flex;align-items:center;gap:6px;background:rgba(15,22,34,0.9);border:1px solid rgba(34,197,94,0.4);box-shadow:0 12px 24px rgba(0,0,0,0.35);pointer-events:auto;padding:6px 14px;border-radius:999px}
+body.scan-immersive .preview-wrapper .scan-count{position:absolute;bottom:12px;right:calc(33.3333% + 12px);display:flex;align-items:center;gap:6px;background:rgba(15,22,34,0.9);border:1px solid rgba(245,158,11,0.45);box-shadow:0 12px 24px rgba(0,0,0,0.35);pointer-events:auto;padding:6px 14px;border-radius:999px}
 body.scan-immersive .preview-wrapper .scan-count-label{color:#f8fafc;opacity:.95}
-body.scan-immersive .preview-wrapper::after{border-radius:0}
-body.scan-immersive .preview-wrapper canvas{border-radius:0}
+body.scan-immersive .preview-wrapper .preview-badge{left:33.3333%}
+body.scan-immersive .preview-wrapper::after{top:-6px;bottom:-6px;left:-6px;right:calc(33.3333% - 6px);border-radius:16px 0 0 16px}
 body.scan-immersive .ticket-card .section-info,
 body.scan-immersive .ticket-card .section-order{display:none!important}
+.preview-controls-col{display:none}
+body.scan-immersive .preview-controls-col{display:flex;grid-column:2;grid-row:1;position:relative;flex-direction:column;justify-content:flex-start;gap:4px;padding:6px;background:linear-gradient(180deg,rgba(15,22,34,0.95),rgba(15,22,34,0.75));overflow-y:auto;overflow-x:hidden}
+body.scan-immersive .preview-controls-col .mode-inline,
+body.scan-immersive .preview-controls-col .control-inline,
+body.scan-immersive .preview-controls-col .scan-inline{display:flex;flex-direction:column;align-items:stretch;gap:4px;margin:0;width:100%}
+body.scan-immersive .preview-controls-col .scan-inline{margin-bottom:0}
+body.scan-immersive .preview-controls-col .mode-label,
+body.scan-immersive .preview-controls-col .control-label{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#cbd5e1;opacity:.95}
+body.scan-immersive .preview-controls-col .scan-side-label{display:none}
+body.scan-immersive .preview-controls-col .mode-side-meta{display:block;font-size:10px;font-weight:600;letter-spacing:.04em;color:#94a3b8;opacity:.95}
+body.scan-immersive .preview-controls-col .order-meta-inline{display:flex;align-items:center;min-height:14px;padding:0 2px;order:4}
+body.scan-immersive .preview-controls-col .order-meta-inline.is-empty .mode-side-meta{opacity:0}
+body.scan-immersive .preview-controls-col .clean-inline{display:block!important;position:static;width:100%;margin:0;order:5;flex:0 0 auto}
+body.scan-immersive .preview-controls-col .clean-btn{display:block!important;width:100%;height:24px;padding:0 8px;border-radius:999px;border:1px solid rgba(239,68,68,0.55);background:rgba(127,29,29,0.82);color:#fee2e2;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+body.scan-immersive .preview-controls-col .toggle{width:100%;min-width:0}
+body.scan-immersive .preview-controls-col .toggle-track{min-width:0;width:100%;padding:3px;gap:4px}
+body.scan-immersive .preview-controls-col .toggle-option{font-size:11px}
+body.scan-immersive .preview-controls-col .scan-toggle{min-width:0}
+body.scan-immersive .preview-controls-col .toggle-thumb{top:3px;bottom:3px;left:3px;width:calc(50% - 3px)}
+body.scan-immersive .preview-controls-col .toggle-thumb .toggle-label{font-size:10px;letter-spacing:.03em}
+body.scan-immersive .preview-controls-col .scan-inline .scan-toggle{order:2}
+body.scan-immersive .preview-controls-col .scan-inline{order:1}
+body.scan-immersive .preview-controls-col .mode-inline{order:2}
+body.scan-immersive .preview-controls-col .control-inline{order:3}
+body.scan-immersive .preview-controls-col .mode-inline .mode-label{order:1}
+body.scan-immersive .preview-controls-col .mode-inline .mode-toggle{order:2}
+body.scan-immersive .preview-controls-col .control-inline .control-label{order:1}
+body.scan-immersive .preview-controls-col .control-inline .control-toggle{order:2}
 @media (orientation:landscape){
   .scan-layout{flex-direction:row;align-items:flex-start;gap:32px}
   .scan-panel{flex:0 0 min(500px,45%)}
@@ -122,6 +149,7 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .ticket-card .section-title.subscription{color:#f472b6;letter-spacing:.08em}
 .ticket-card .conditions{margin:0;padding-left:16px;list-style:disc;color:#d1d5db;font-size:13px}
 .ticket-card .card-actions{display:flex;gap:10px;margin-top:4px}
+.ticket-card .card-actions .card-actions-index{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;align-self:center;min-width:38px;padding:8px 10px;border-radius:999px;border:1px solid rgba(245,158,11,0.75);background:linear-gradient(135deg,#f59e0b,#d97706);text-align:center;font-size:12px;font-weight:700;color:#111827}
 .ticket-card .card-actions button{flex:1 1 0;padding:10px 14px;border-radius:999px;border:1px solid #1f2937;background:#111827;color:#f9fafb;font-weight:600;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;transition:background .2s ease,transform .2s ease;white-space:nowrap}
 .ticket-card .card-actions button:hover{transform:translateY(-1px)}
 .ticket-card .card-actions button.action-accept{background:#14532d;border-color:#14532d}
@@ -155,6 +183,9 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .toggle.mode-toggle .toggle-thumb{background:#1d4ed8}
 .toggle.mode-toggle.on .toggle-thumb{transform:translateX(100%)}
 .toggle.mode-toggle.on .toggle-option.order,.toggle.mode-toggle:not(.on) .toggle-option.ticket{color:#f9fafb;opacity:1}
+.toggle.control-toggle .toggle-thumb{background:#0f766e}
+.toggle.control-toggle.on .toggle-thumb{transform:translateX(100%)}
+.toggle.control-toggle.on .toggle-option.once,.toggle.control-toggle:not(.on) .toggle-option.each{color:#f9fafb;opacity:1}
 .toggle.scan-toggle.on .toggle-thumb{background:#22c55e}
 .toggle.scan-toggle:not(.on) .toggle-thumb{background:#ef4444}
 .toggle.scan-toggle{min-width:220px}
@@ -162,13 +193,23 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .toggle.scan-toggle:not(.on) .toggle-thumb{background:#ef4444}
 .toggle.scan-toggle.on .toggle-option.on,.toggle.scan-toggle:not(.on) .toggle-option.off{color:#f9fafb;opacity:1}
 .controls-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-.top-controls{justify-content:left;margin:12px 0}
-.mode-inline{display:flex;align-items:center;gap:12px;margin-left:auto}
+.top-controls{justify-content:space-between;align-items:flex-start;margin:12px 0;width:100%}
+.mode-control-stack{display:flex;flex-direction:column;align-items:flex-end;gap:8px;margin-left:auto}
+.mode-inline{display:flex;align-items:center;gap:12px;margin-left:0}
 .mode-label{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af}
-.sub-controls{justify-content:flex-start;margin:0 0 12px;width:100%}
+.control-inline{display:flex;align-items:center;gap:12px}
+.control-label{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af}
+.mode-control-stack .mode-label,
+.mode-control-stack .control-label{min-width:92px;text-align:right;white-space:nowrap}
+.order-meta-inline{display:none}
+.mode-side-meta{display:none}
 .scan-inline{display:flex;align-items:center;gap:28px}
+.scan-side-label{display:none}
+.clean-inline{display:none}
+.control-inline .toggle{min-width:180px}
 .controls-row .toggle{flex:0 0 auto}
-.pill.stat-control{background:rgba(34,197,94,0.18);color:#22c55e;font-weight:700;font-size:18px;padding:6px 14px;border-color:rgba(34,197,94,0.35)}
+.top-controls .scan-inline .scan-toggle{min-width:220px}
+.pill.stat-control{background:linear-gradient(135deg,#f59e0b,#d97706);color:#111827;font-weight:700;font-size:18px;padding:6px 14px;border-color:rgba(245,158,11,0.75)}
 .status-row{display:flex;align-items:center;gap:16px;margin-top:12px;flex-wrap:wrap}
 .status-row .status{flex:1 1 auto}
 .scan-count{display:flex;align-items:center;gap:8px}
@@ -180,3 +221,16 @@ button.primary{background:#1d4ed8;border-color:#1d4ed8}
 .ticket-history th{background:#111827;padding:6px 8px;font-weight:600;color:#e5e7eb;text-align:left}
 .ticket-history td{padding:6px 8px;border-top:1px solid #1f2937;color:#d1d5db;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ticket-history tbody tr:nth-child(even) td{background:#111827}
+
+@media (max-width:768px){
+  body:not(.scan-immersive) .top-controls{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px}
+  body:not(.scan-immersive) .top-controls .scan-inline{flex:1 1 100%;min-width:0;justify-content:flex-start}
+  body:not(.scan-immersive) .top-controls .scan-inline .scan-toggle{min-width:0;width:min(100%,280px)}
+  body:not(.scan-immersive) .top-controls .mode-control-stack{flex:1 1 100%;min-width:0;align-items:stretch;gap:6px}
+  body:not(.scan-immersive) .top-controls .mode-inline,
+  body:not(.scan-immersive) .top-controls .control-inline{display:grid;grid-template-columns:86px minmax(0,1fr);align-items:center;column-gap:6px;width:100%}
+  body:not(.scan-immersive) .top-controls .mode-inline .toggle,
+  body:not(.scan-immersive) .top-controls .control-inline .toggle{min-width:0;width:100%;max-width:220px;justify-self:end}
+  body:not(.scan-immersive) .top-controls .mode-label,
+  body:not(.scan-immersive) .top-controls .control-label{font-size:11px;min-width:0;text-align:right;white-space:nowrap}
+}

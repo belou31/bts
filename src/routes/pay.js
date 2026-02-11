@@ -429,29 +429,34 @@ router.get('/return', async (req, res) => {
   }
 
   if (order && isPaidLike(providerStatus)) {
-    try {
-      finalizeInfo = await finalizePaidIfNoConflict(order);
-      if (finalizeInfo.ok) {
-        state = 'success';
-        if (!finalizeInfo.alreadyFinalized) {
-          const meta = { ...(order.paymentProviderMeta || {}) };
-          meta.lastReturnFinalizeAt = new Date();
-          meta.lastReturnFinalizeSource = 'return';
-          order.paymentProviderMeta = meta;
-          order.markModified?.('paymentProviderMeta');
-          try {
-            await sendOrderAttestationIfNeeded(order, { source: 'return' });
-          } catch (err) {
-            console.warn('[pay/return] mail send failed:', err?.message || err);
-            warnings.push('Le courriel de confirmation n’a pas pu être envoyé automatiquement.');
+    if (String(order.status || '').toLowerCase() === 'canceled') {
+      state = 'failure';
+      warnings.push('Cette commande a été annulée. Le paiement est fermé pour cette référence.');
+    } else {
+      try {
+        finalizeInfo = await finalizePaidIfNoConflict(order);
+        if (finalizeInfo.ok) {
+          state = 'success';
+          if (!finalizeInfo.alreadyFinalized) {
+            const meta = { ...(order.paymentProviderMeta || {}) };
+            meta.lastReturnFinalizeAt = new Date();
+            meta.lastReturnFinalizeSource = 'return';
+            order.paymentProviderMeta = meta;
+            order.markModified?.('paymentProviderMeta');
+            try {
+              await sendOrderAttestationIfNeeded(order, { source: 'return' });
+            } catch (err) {
+              console.warn('[pay/return] mail send failed:', err?.message || err);
+              warnings.push('Le courriel de confirmation n’a pas pu être envoyé automatiquement.');
+            }
           }
+        } else {
+          warnings.push("Le paiement est confirmé, mais la finalisation de vos sièges nécessite une intervention manuelle.");
         }
-      } else {
-        warnings.push("Le paiement est confirmé, mais la finalisation de vos sièges nécessite une intervention manuelle.");
+      } catch (err) {
+        console.error('[pay/return] finalize error:', err?.message || err);
+        errors.push('Erreur lors de la finalisation de la commande. Contactez le support si le problème persiste.');
       }
-    } catch (err) {
-      console.error('[pay/return] finalize error:', err?.message || err);
-      errors.push('Erreur lors de la finalisation de la commande. Contactez le support si le problème persiste.');
     }
   }
 
@@ -788,6 +793,9 @@ try {
     }
 
     if (isPaidLike(status)) {
+      if (String(order.status || '').toLowerCase() === 'canceled') {
+        return res.status(200).send('ignored-canceled');
+      }
       const fin = await finalizePaidIfNoConflict(order);
       if (fin.ok) {
         if (!fin.alreadyFinalized) {
@@ -795,12 +803,20 @@ try {
         }
         return res.status(200).send(fin.alreadyFinalized ? 'ok-already-finalized' : 'ok');
       } else {
+        if (fin?.blocked) {
+          return res.status(200).send('blocked');
+        }
         await sendConflictEmail(order);
         // on renvoie 200: le webhook a été traité (même s’il mène à failed)
         return res.status(200).send('conflict');
       }
     } else {
-      if (order.status !== 'paid' && order.status !== 'refunded') {
+      if (
+        order.status !== 'paid' &&
+        order.status !== 'refunded' &&
+        order.status !== 'canceled' &&
+        order.status !== 'tobepaid'
+      ) {
         order.status = 'pending';
         await order.save();
       }
