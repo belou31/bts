@@ -369,6 +369,20 @@ export async function finalizePaidIfNoConflict(order) {
   const isEvent = !!eventIdRaw;   // ⬅️ nouvel indicateur
   const meta = { ...(order.paymentProviderMeta || {}) };
   const now = new Date();
+  const currentStatus = String(order?.status || '').toLowerCase();
+
+  if (currentStatus === 'canceled' || currentStatus === 'refunded') {
+    meta.lastFinalizeResult = `blocked_${currentStatus}`;
+    meta.lastFinalizeAttemptAt = now;
+    order.paymentProviderMeta = meta;
+    await order.save();
+    return {
+      ok: false,
+      blocked: true,
+      booked: 0,
+      conflicts: [{ reason: `order_${currentStatus}` }]
+    };
+  }
 
   meta.finalizeAttemptCount = Number(meta.finalizeAttemptCount || 0) + 1;
   meta.lastFinalizeAttemptAt = now;

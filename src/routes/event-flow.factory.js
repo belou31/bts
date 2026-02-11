@@ -185,10 +185,10 @@ async function computeSeatStates(ev) {
 
   const byId = new Map(base.map(s => [String(s.seatId), { seatId: s.seatId, zoneKey: s.zoneKey, status: String(s.status || 'available').toLowerCase() }]));
 
-  // Surcouche: ordres paid pour CET évènement -> booked
+  // Surcouche: ordres paid/tobepaid pour CET évènement -> booked
   const paid = await Order.find(
     {
-      status: 'paid',
+      status: { $in: ['paid', 'tobepaid'] },
       $or: [
         { eventId: ev._id },
         { 'meta.eventId': String(ev._id) }

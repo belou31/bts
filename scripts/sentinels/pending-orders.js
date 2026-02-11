@@ -91,7 +91,7 @@ async function runOnce() {
   });
 
   const list = await Order.find({
-    status: { $in: ['pending'] },
+    status: { $in: ['pending', 'tobepaid'] },
     paymentProvider: PAYMENT_PROVIDER_ID,
     'paymentProviderMeta.checkoutIntentId': { $exists: true, $ne: null },
     createdAt: { $gte: since }
