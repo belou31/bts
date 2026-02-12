@@ -2373,11 +2373,99 @@
           });
         };
 
-        const bindPlanClicks = (svgDoc) => {
+        const enablePlanPanZoom = (svgDoc) => {
+          const svg = svgDoc?.querySelector('svg');
+          if (!svg) return () => false;
+
+          let host = svg.querySelector('#zoomHost');
+          if (!host) {
+            host = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+            host.setAttribute('id', 'zoomHost');
+            while (svg.firstChild) host.appendChild(svg.firstChild);
+            svg.appendChild(host);
+          }
+
+          try {
+            const style = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'style');
+            style.textContent = 'text, .zone-label, .seat-label, [data-label] { pointer-events: none; }';
+            svg.insertBefore(style, svg.firstChild);
+          } catch (_) {}
+
+          let scale = 1;
+          let tx = 0;
+          let ty = 0;
+          let dragging = false;
+          let moved = false;
+          let suppressNextClick = false;
+          let last = { x: 0, y: 0 };
+
+          const apply = () => host.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+          const svgPoint = (evt) => {
+            const pt = svg.createSVGPoint();
+            pt.x = evt.clientX;
+            pt.y = evt.clientY;
+            const ctm = svg.getScreenCTM();
+            if (!ctm) return { x: pt.x, y: pt.y };
+            return pt.matrixTransform(ctm.inverse());
+          };
+
+          svg.style.cursor = 'grab';
+
+          svg.addEventListener('wheel', (evt) => {
+            evt.preventDefault();
+            const delta = -(evt.deltaY || evt.wheelDelta || 0);
+            const factor = Math.exp(delta * 0.0015);
+            const p = svgPoint(evt);
+            const newScale = Math.min(10, Math.max(0.25, scale * factor));
+            const k = newScale / scale;
+            tx = p.x - (p.x - tx) * k;
+            ty = p.y - (p.y - ty) * k;
+            scale = newScale;
+            apply();
+          }, { passive: false });
+
+          const onDown = (evt) => {
+            dragging = true;
+            moved = false;
+            last = svgPoint(evt);
+            svg.style.cursor = 'grabbing';
+          };
+          const onMove = (evt) => {
+            if (!dragging) return;
+            const p = svgPoint(evt);
+            const dx = p.x - last.x;
+            const dy = p.y - last.y;
+            if (Math.abs(dx) > 0.2 || Math.abs(dy) > 0.2) moved = true;
+            tx += dx;
+            ty += dy;
+            last = p;
+            apply();
+          };
+          const onUp = () => {
+            if (!dragging) return;
+            if (moved) suppressNextClick = true;
+            dragging = false;
+            svg.style.cursor = 'grab';
+          };
+
+          svg.addEventListener('mousedown', onDown);
+          svg.addEventListener('mousemove', onMove);
+          svg.addEventListener('mouseup', onUp);
+          svg.addEventListener('mouseleave', onUp);
+
+          return () => {
+            if (!suppressNextClick) return false;
+            suppressNextClick = false;
+            return true;
+          };
+        };
+
+        const bindPlanClicks = (svgDoc, shouldIgnoreClick = () => false) => {
           const clickable = svgDoc.querySelectorAll('[data-seat-id],[data-seat],[id^="seat_"]');
           clickable.forEach((node) => { node.style.cursor = 'pointer'; });
 
           svgDoc.addEventListener('click', (event) => {
+            if (shouldIgnoreClick()) return;
             const targetNode = event.target?.closest?.('[data-seat-id],[data-seat],[id^="seat_"]');
             if (!targetNode) return;
             const seatId = extractPlanSeatId(targetNode);
@@ -2402,8 +2490,9 @@
           const svgDoc = planObject.contentDocument;
           if (!svgDoc) return;
           planInitialized = true;
+          const shouldIgnoreClick = enablePlanPanZoom(svgDoc);
           applySeatStatuses(svgDoc);
-          bindPlanClicks(svgDoc);
+          bindPlanClicks(svgDoc, shouldIgnoreClick);
         };
 
         if (planObject.contentDocument) onReady();
