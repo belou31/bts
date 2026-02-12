@@ -474,6 +474,26 @@ async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
   return counts;
 }
 
+function mapSeatStateForPlan(statusRaw = '') {
+  const st = String(statusRaw || '').trim().toLowerCase();
+  if (!st) return 'available';
+  if (st === 'booked' || st === 'sold') return 'booked';
+  if (['busy', 'provisioned', 'blocked', 'held', 'hold'].includes(st)) return 'busy';
+  return 'available';
+}
+
+function formatPersonLabel(firstName = '', lastName = '', email = '') {
+  const fullName = [String(firstName || '').trim(), String(lastName || '').trim()]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  const mail = String(email || '').trim();
+  if (fullName && mail) return `${fullName} <${mail}>`;
+  if (fullName) return fullName;
+  if (mail) return mail;
+  return '—';
+}
+
 function prepareScriptCatalog() {
   const scriptGroups = adminScriptGroups
     .slice()
@@ -518,6 +538,7 @@ router.get('/', (req, res) => {
   if (view === 'monitor') target = urlFor('/admin/monitor');
   if (view === 'io') target = urlFor('/admin/io');
   if (view === 'templates') target = urlFor('/admin/templates');
+  if (view === 'plan') target = urlFor('/admin/plan');
   return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
 });
 
@@ -562,6 +583,7 @@ router.get('/io', (req, res) => {
     viewMode: 'io',
     monitorTab: 'tariffs',
     monitoring: null,
+    planView: null,
     dynamicAssetsList,
     venueResources,
     dataTemplatesList
@@ -611,7 +633,179 @@ router.get('/templates', (req, res) => {
     },
     viewMode: 'templates',
     monitorTab: 'tariffs',
-    monitoring: null
+    monitoring: null,
+    planView: null
+  });
+});
+
+router.get('/plan', async (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const seasonsRaw = await Season.find({}).sort({ code: -1 }).lean();
+  const defaultSeason = seasonsRaw.find(s => s.active) || seasonsRaw[0] || null;
+  const selectedSeasonCodeRaw = typeof req.query.season === 'string' && req.query.season
+    ? req.query.season
+    : (defaultSeason?.code || null);
+  const selectedSeason = seasonsRaw.find(s => s.code === selectedSeasonCodeRaw) || defaultSeason || null;
+  const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
+
+  const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
+    .sort({ startsAt: 1 })
+    .lean();
+  const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
+    ? req.query.event
+    : (eventsRaw[0]?.slug || null);
+  const selectedEvent = eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null;
+
+  const effectiveSeasonCode = selectedEvent?.seasonCode || selectedSeasonCode || null;
+  const effectiveVenueSlug = selectedEvent?.venueSlug || selectedSeason?.venueSlug || null;
+
+  let planUrl = null;
+  let seats = [];
+  let seatDetailsById = {};
+  let seatCounts = {};
+
+  if (effectiveSeasonCode && effectiveVenueSlug) {
+    const planAbs = path.join(DYNAMIC_VENUES_ROOT, effectiveVenueSlug, 'plan.svg');
+    try {
+      const stats = fs.statSync(planAbs);
+      if (stats.isFile()) {
+        planUrl = urlFor(`/dynamic/venues/${encodeURIComponent(effectiveVenueSlug)}/plan.svg`);
+      }
+    } catch {}
+
+    const seatsRaw = await Seat.find(
+      { seasonCode: effectiveSeasonCode, venueSlug: effectiveVenueSlug },
+      { seatId: 1, status: 1, _id: 0 }
+    ).lean();
+
+    const seatStatusById = new Map();
+    for (const seat of seatsRaw || []) {
+      const seatId = String(seat?.seatId || '').trim();
+      if (!seatId) continue;
+      seatStatusById.set(seatId, mapSeatStateForPlan(seat?.status));
+    }
+
+    if (selectedEvent?._id) {
+      const eventId = String(selectedEvent._id);
+      const eventSlug = String(selectedEvent.slug || '').trim();
+      const eventOrders = await Order.find(
+        {
+          status: { $in: ['paid', 'tobepaid'] },
+          $or: [
+            { eventId },
+            { 'meta.eventId': eventId },
+            ...(eventSlug ? [{ 'meta.eventSlug': eventSlug }] : [])
+          ]
+        },
+        {
+          _id: 1,
+          status: 1,
+          payerFirstName: 1,
+          payerLastName: 1,
+          payerEmail: 1,
+          lines: 1,
+          createdAt: 1
+        }
+      )
+        .sort({ createdAt: -1 })
+        .lean();
+
+      seatDetailsById = {};
+      for (const order of eventOrders || []) {
+        for (const line of order?.lines || []) {
+          const placement = resolveLinePlacement(line);
+          if (placement?.released) continue;
+          const seatId = String(placement?.seatId || line?.seatId || '').trim();
+          if (!seatId || isVirtualZoneSeatId(seatId)) continue;
+          if (!seatStatusById.has(seatId)) continue;
+
+          seatStatusById.set(seatId, 'booked');
+          if (seatDetailsById[seatId]) continue;
+
+          seatDetailsById[seatId] = {
+            beneficiary: [String(line?.holderFirstName || '').trim(), String(line?.holderLastName || '').trim()].filter(Boolean).join(' ') || '—',
+            payer: formatPersonLabel(order?.payerFirstName, order?.payerLastName, order?.payerEmail),
+            tariff: String(line?.tariffCode || '').trim() || '—',
+            orderId: String(order?._id || '').trim() || '—',
+            orderStatus: String(order?.status || '').trim() || '—'
+          };
+        }
+      }
+    }
+
+    seats = Array.from(seatStatusById.entries())
+      .map(([seatId, status]) => ({ seatId, status }))
+      .sort((a, b) => a.seatId.localeCompare(b.seatId, 'fr', { numeric: true, sensitivity: 'base' }));
+
+    seatCounts = seats.reduce((acc, seat) => {
+      const key = String(seat.status || 'unknown');
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+  }
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: [],
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    operateOptions: {
+      venues: [],
+      seasons: [],
+      events: [],
+      partners: [],
+      tariffCatalogs: [],
+      inputFiles: [],
+      assetFiles: [],
+      venueViews: []
+    },
+    viewMode: 'plan',
+    monitorTab: 'tariffs',
+    monitoring: null,
+    planView: {
+      seasons: (seasonsRaw || []).map(s => ({
+        code: s.code,
+        name: s.name || '',
+        active: Boolean(s.active)
+      })),
+      events: (eventsRaw || []).map(ev => ({
+        id: String(ev._id),
+        slug: ev.slug,
+        name: ev.name || '',
+        startsAt: ev.startsAt || null,
+        venueSlug: ev.venueSlug || null,
+        isOnSale: Boolean(ev.isOnSale)
+      })),
+      selectedSeasonCode,
+      selectedEventSlug: selectedEvent ? selectedEvent.slug : null,
+      selectedEvent: selectedEvent
+        ? {
+            id: String(selectedEvent._id),
+            slug: selectedEvent.slug,
+            name: selectedEvent.name || '',
+            startsAt: selectedEvent.startsAt || null,
+            venueSlug: selectedEvent.venueSlug || null,
+            isOnSale: Boolean(selectedEvent.isOnSale)
+          }
+        : null,
+      venueSlug: effectiveVenueSlug,
+      seasonCode: effectiveSeasonCode,
+      planUrl,
+      seats,
+      seatDetailsById,
+      seatCounts
+    }
   });
 });
 
@@ -730,7 +924,8 @@ router.get('/operate', async (req, res) => {
     operateOptions,
     viewMode: 'operate',
     monitorTab: 'tariffs',
-    monitoring: null
+    monitoring: null,
+    planView: null
   });
 });
 
@@ -1217,7 +1412,8 @@ router.get('/monitor', async (req, res) => {
     inputsList: [],
     viewMode: 'monitor',
     monitorTab,
-    monitoring
+    monitoring,
+    planView: null
   });
 });
 

@@ -672,6 +672,100 @@
     .view-selector {
       min-width: 160px;
     }
+    .plan-view {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .plan-filter-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    .plan-filter-form label {
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+      color: var(--muted);
+      min-width: 220px;
+    }
+    .plan-filter-form select {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+      background: #fff;
+      color: var(--fg);
+    }
+    .plan-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 16px;
+      align-items: start;
+    }
+    .plan-canvas {
+      padding: 10px;
+    }
+    .plan-object {
+      width: 100%;
+      min-height: 72vh;
+      max-height: 82vh;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+    }
+    .plan-side {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: sticky;
+      top: 88px;
+    }
+    .plan-seat-panel {
+      display: none;
+    }
+    .plan-seat-panel.active {
+      display: block;
+    }
+    .plan-seat-panel dl {
+      margin: 0;
+      display: grid;
+      gap: 10px;
+    }
+    .plan-seat-panel dt {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .plan-seat-panel dd {
+      margin: 2px 0 0;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    .plan-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .plan-legend .pill {
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+    @media (max-width: 1180px) {
+      .plan-layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .plan-side {
+        position: static;
+      }
+      .plan-object {
+        min-height: 62vh;
+      }
+    }
   </style>
 </head>
 <body>
@@ -680,6 +774,7 @@
   <% const baseIo = urlFor('/admin/io') + tokenQueryString; %>
   <% const baseTemplates = urlFor('/admin/templates') + tokenQueryString; %>
   <% const baseMonitor = urlFor('/admin/monitor') + tokenQueryString; %>
+  <% const basePlan = urlFor('/admin/plan') + tokenQueryString; %>
   <% 
     const compactLabel = (lbl = '') => {
       const clean = lbl.replace(/\s+/g, ' ').trim();
@@ -758,12 +853,13 @@
 
       <div>
         <details class="dropdown view-selector">
-          <summary>Vue: <%= viewMode === 'io' ? 'Data I/O' : (viewMode === 'monitor' ? 'Monitoring' : (viewMode === 'templates' ? 'Templates' : 'Exploitation')) %></summary>
+          <summary>Vue: <%= viewMode === 'io' ? 'Data I/O' : (viewMode === 'monitor' ? 'Monitoring' : (viewMode === 'templates' ? 'Templates' : (viewMode === 'plan' ? 'Plan' : 'Exploitation'))) %></summary>
           <div class="dropdown-menu">
             <a href="<%= baseOperate %>" class="<%= viewMode === 'operate' ? 'active' : '' %>">Exploitation</a>
             <a href="<%= baseIo %>" class="<%= viewMode === 'io' ? 'active' : '' %>">Data I/O</a>
             <a href="<%= baseTemplates %>" class="<%= viewMode === 'templates' ? 'active' : '' %>">Templates</a>
             <a href="<%= baseMonitor %>" class="<%= viewMode === 'monitor' ? 'active' : '' %>">Monitoring</a>
+            <a href="<%= basePlan %>" class="<%= viewMode === 'plan' ? 'active' : '' %>">Plan</a>
           </div>
         </details>
       </div>
@@ -1057,6 +1153,110 @@
           </ul>
         <% } %>
       </section>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'plan' && planView) { %>
+    <div class="plan-view">
+      <section class="card">
+        <h2>Plan administrateur</h2>
+        <form method="get" action="<%= basePlan %>" class="plan-filter-form">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <label>
+            Saison
+            <select name="season" data-auto-submit="change">
+              <% if (planView.seasons && planView.seasons.length) { %>
+                <% for (const s of planView.seasons) { %>
+                  <option value="<%= s.code %>" <%= s.code === planView.selectedSeasonCode ? 'selected' : '' %>>
+                    <%= s.code %><%= s.name ? ' — ' + s.name : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucune saison</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Événement
+            <select name="event" data-auto-submit="change">
+              <% if (planView.events && planView.events.length) { %>
+                <% for (const ev of planView.events) { const eventDate = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
+                  <option value="<%= ev.slug %>" <%= ev.slug === planView.selectedEventSlug ? 'selected' : '' %>>
+                    <%= ev.slug %><%= ev.name ? ' — ' + ev.name : '' %><%= eventDate ? ' (' + eventDate + ')' : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucun événement</option>
+              <% } %>
+            </select>
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Actualiser</button></noscript>
+        </form>
+        <% if (planView.selectedEvent) { %>
+          <div class="muted" style="margin-top:8px;">
+            <strong><%= planView.selectedEvent.name || planView.selectedEvent.slug %></strong>
+            · <%= planView.selectedEvent.startsAt ? new Date(planView.selectedEvent.startsAt).toLocaleString() : 'Date non définie' %>
+            · Lieu: <%= planView.selectedEvent.venueSlug || planView.venueSlug || '—' %>
+          </div>
+        <% } %>
+      </section>
+
+      <div class="plan-layout">
+        <section class="card plan-canvas">
+          <% if (planView.planUrl) { %>
+            <object
+              class="plan-object"
+              data-admin-plan-object
+              id="adminPlanObject"
+              type="image/svg+xml"
+              data="<%= planView.planUrl %>">
+            </object>
+          <% } else { %>
+            <div class="empty-state">Plan SVG introuvable pour la sélection courante.</div>
+          <% } %>
+        </section>
+
+        <aside class="plan-side">
+          <section class="card">
+            <h3>Répartition des sièges</h3>
+            <% const planSeatCounts = planView.seatCounts || {}; const planCountKeys = Object.keys(planSeatCounts); %>
+            <% if (planCountKeys.length) { %>
+              <ul class="metrics-list">
+                <% for (const key of planCountKeys) { %>
+                  <li><span><%= key %></span><span><%= planSeatCounts[key] %></span></li>
+                <% } %>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Aucun siège pour cette sélection.</div>
+            <% } %>
+            <div class="plan-legend">
+              <span class="pill">Cliquez sur un siège pour voir son allocation.</span>
+            </div>
+          </section>
+
+          <section class="card plan-seat-panel" data-plan-seat-panel>
+            <h3 data-plan-seat-title>Allocation siège</h3>
+            <dl>
+              <div>
+                <dt>Bénéficiaire</dt>
+                <dd data-plan-seat-beneficiary>—</dd>
+              </div>
+              <div>
+                <dt>Payer</dt>
+                <dd data-plan-seat-payer>—</dd>
+              </div>
+              <div>
+                <dt>Tarif</dt>
+                <dd data-plan-seat-tariff>—</dd>
+              </div>
+              <div>
+                <dt>Order id</dt>
+                <dd data-plan-seat-order-id>—</dd>
+              </div>
+            </dl>
+          </section>
+        </aside>
+      </div>
     </div>
   <% } %>
 
@@ -1936,6 +2136,8 @@
   <script>
     const SCRIPT_FORMS = <%- JSON.stringify(scriptForms || {}).replace(/</g, '\\u003c') %>;
     const AUTOMATION_JOBS_STATE = <%- JSON.stringify(automationJobs || {}).replace(/</g, '\\u003c') %>;
+    const PLAN_VIEW_DATA = <%- JSON.stringify(planView || null).replace(/</g, '\\u003c') %>;
+    const CURRENT_VIEW_MODE = <%- JSON.stringify(viewMode || '') %>;
     (() => {
       const monitorTabs = document.querySelectorAll('[data-monitor-button]');
       const monitorPanels = document.querySelectorAll('[data-monitor-panel]');
@@ -2078,6 +2280,137 @@
       };
 
       const escapeSelector = (value) => String(value).replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+
+      const normalizePlanSeatStatus = (raw = '') => {
+        const val = String(raw || '').trim().toLowerCase();
+        if (!val) return 'available';
+        if (val === 'booked' || val === 'sold') return 'booked';
+        if (['busy', 'provisioned', 'blocked', 'held', 'hold'].includes(val)) return 'busy';
+        return 'available';
+      };
+
+      const extractPlanSeatId = (node) => {
+        if (!node || typeof node.getAttribute !== 'function') return '';
+        const fromData = String(node.getAttribute('data-seat-id') || node.getAttribute('data-seat') || '').trim();
+        if (fromData) return fromData;
+        const fromId = String(node.id || '').trim();
+        if (!fromId) return '';
+        if (fromId.startsWith('seat_')) return fromId.slice(5).trim();
+        return '';
+      };
+
+      const findPlanSeatElement = (svgDoc, seatId) => {
+        if (!svgDoc || !seatId) return null;
+        const escaped = escapeSelector(seatId);
+        const selectors = [
+          `[data-seat-id="${seatId}"]`,
+          `[data-seat="${seatId}"]`,
+          `#${escaped}`,
+          `#seat_${escaped}`
+        ];
+        for (const selector of selectors) {
+          const node = svgDoc.querySelector(selector);
+          if (node) return node;
+        }
+        return null;
+      };
+
+      const initAdminPlanView = () => {
+        if (CURRENT_VIEW_MODE !== 'plan') return;
+        const planObject = document.querySelector('[data-admin-plan-object]');
+        if (!planObject || !PLAN_VIEW_DATA) return;
+
+        const seatPanel = document.querySelector('[data-plan-seat-panel]');
+        const seatTitle = document.querySelector('[data-plan-seat-title]');
+        const beneficiaryEl = document.querySelector('[data-plan-seat-beneficiary]');
+        const payerEl = document.querySelector('[data-plan-seat-payer]');
+        const tariffEl = document.querySelector('[data-plan-seat-tariff]');
+        const orderIdEl = document.querySelector('[data-plan-seat-order-id]');
+
+        const seatStatusById = new Map(
+          (Array.isArray(PLAN_VIEW_DATA.seats) ? PLAN_VIEW_DATA.seats : [])
+            .map((entry) => [String(entry?.seatId || '').trim(), normalizePlanSeatStatus(entry?.status)])
+            .filter(([seatId]) => Boolean(seatId))
+        );
+        const seatDetailsById = (PLAN_VIEW_DATA && typeof PLAN_VIEW_DATA.seatDetailsById === 'object' && PLAN_VIEW_DATA.seatDetailsById)
+          ? PLAN_VIEW_DATA.seatDetailsById
+          : {};
+
+        let selectedSeatId = '';
+        let selectedNode = null;
+        let planInitialized = false;
+
+        const clearSelected = () => {
+          if (selectedNode) selectedNode.classList.remove('seat-selected');
+          selectedSeatId = '';
+          selectedNode = null;
+        };
+
+        const hidePanel = () => {
+          if (!seatPanel) return;
+          seatPanel.classList.remove('active');
+        };
+
+        const showSeatPanel = (seatId) => {
+          if (!seatPanel) return;
+          const details = seatDetailsById[seatId] || {};
+          if (seatTitle) seatTitle.textContent = `Allocation siège ${seatId}`;
+          if (beneficiaryEl) beneficiaryEl.textContent = details.beneficiary || '—';
+          if (payerEl) payerEl.textContent = details.payer || '—';
+          if (tariffEl) tariffEl.textContent = details.tariff || '—';
+          if (orderIdEl) orderIdEl.textContent = details.orderId || '—';
+          seatPanel.classList.add('active');
+        };
+
+        const applySeatStatuses = (svgDoc) => {
+          seatStatusById.forEach((status, seatId) => {
+            const node = findPlanSeatElement(svgDoc, seatId);
+            if (!node) return;
+            node.classList.remove('seat-available', 'seat-booked', 'seat-busy');
+            if (status === 'booked') node.classList.add('seat-booked');
+            else if (status === 'busy') node.classList.add('seat-busy');
+            else node.classList.add('seat-available');
+          });
+        };
+
+        const bindPlanClicks = (svgDoc) => {
+          const clickable = svgDoc.querySelectorAll('[data-seat-id],[data-seat],[id^="seat_"]');
+          clickable.forEach((node) => { node.style.cursor = 'pointer'; });
+
+          svgDoc.addEventListener('click', (event) => {
+            const targetNode = event.target?.closest?.('[data-seat-id],[data-seat],[id^="seat_"]');
+            if (!targetNode) return;
+            const seatId = extractPlanSeatId(targetNode);
+            if (!seatId) return;
+
+            if (seatId === selectedSeatId) {
+              clearSelected();
+              hidePanel();
+              return;
+            }
+
+            clearSelected();
+            selectedSeatId = seatId;
+            selectedNode = targetNode;
+            selectedNode.classList.add('seat-selected');
+            showSeatPanel(seatId);
+          });
+        };
+
+        const onReady = () => {
+          if (planInitialized) return;
+          const svgDoc = planObject.contentDocument;
+          if (!svgDoc) return;
+          planInitialized = true;
+          applySeatStatuses(svgDoc);
+          bindPlanClicks(svgDoc);
+        };
+
+        if (planObject.contentDocument) onReady();
+        planObject.addEventListener('load', onReady, { once: true });
+      };
+
+      initAdminPlanView();
 
       const isReturnUrl = (value) => {
         if (value == null) return false;
