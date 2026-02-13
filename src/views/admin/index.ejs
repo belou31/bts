@@ -766,6 +766,59 @@
         min-height: 62vh;
       }
     }
+    .records-view {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .records-toolbar {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+    .records-toolbar label {
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .records-toolbar select,
+    .records-toolbar input[type="search"] {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+      color: var(--fg);
+      background: #fff;
+    }
+    .records-table-wrap {
+      width: 100%;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      max-height: calc(100vh - 250px);
+    }
+    .records-table {
+      width: 100%;
+      min-width: 980px;
+      border-collapse: collapse;
+    }
+    .records-table thead th {
+      position: sticky;
+      top: 0;
+      background: #f7f9ff;
+      z-index: 2;
+    }
+    @media (max-width: 980px) {
+      .records-toolbar {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .records-table-wrap {
+        max-height: none;
+      }
+    }
   </style>
 </head>
 <body>
@@ -775,6 +828,8 @@
   <% const baseTemplates = urlFor('/admin/templates') + tokenQueryString; %>
   <% const baseMonitor = urlFor('/admin/monitor') + tokenQueryString; %>
   <% const basePlan = urlFor('/admin/plan') + tokenQueryString; %>
+  <% const baseOrders = urlFor('/admin/orders') + tokenQueryString; %>
+  <% const baseTickets = urlFor('/admin/tickets') + tokenQueryString; %>
   <% 
     const compactLabel = (lbl = '') => {
       const clean = lbl.replace(/\s+/g, ' ').trim();
@@ -853,13 +908,15 @@
 
       <div>
         <details class="dropdown view-selector">
-          <summary>Vue: <%= viewMode === 'io' ? 'Data I/O' : (viewMode === 'monitor' ? 'Monitoring' : (viewMode === 'templates' ? 'Templates' : (viewMode === 'plan' ? 'Plan' : 'Exploitation'))) %></summary>
+          <summary>Vue: <%= viewMode === 'io' ? 'Data I/O' : (viewMode === 'monitor' ? 'Monitoring' : (viewMode === 'templates' ? 'Templates' : (viewMode === 'plan' ? 'Plan' : (viewMode === 'orders' ? 'Orders' : (viewMode === 'tickets' ? 'Tickets' : 'Exploitation'))))) %></summary>
           <div class="dropdown-menu">
             <a href="<%= baseOperate %>" class="<%= viewMode === 'operate' ? 'active' : '' %>">Exploitation</a>
             <a href="<%= baseIo %>" class="<%= viewMode === 'io' ? 'active' : '' %>">Data I/O</a>
             <a href="<%= baseTemplates %>" class="<%= viewMode === 'templates' ? 'active' : '' %>">Templates</a>
             <a href="<%= baseMonitor %>" class="<%= viewMode === 'monitor' ? 'active' : '' %>">Monitoring</a>
             <a href="<%= basePlan %>" class="<%= viewMode === 'plan' ? 'active' : '' %>">Plan</a>
+            <a href="<%= baseOrders %>" class="<%= viewMode === 'orders' ? 'active' : '' %>">Orders</a>
+            <a href="<%= baseTickets %>" class="<%= viewMode === 'tickets' ? 'active' : '' %>">Tickets</a>
           </div>
         </details>
       </div>
@@ -1257,6 +1314,179 @@
           </section>
         </aside>
       </div>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'orders' && ordersView) { %>
+    <div class="records-view">
+      <section class="card">
+        <h2>Orders administrateur</h2>
+        <form method="get" action="<%= baseOrders %>" class="records-toolbar">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <label>
+            Saison
+            <select name="season" data-auto-submit="change">
+              <% if (ordersView.seasons && ordersView.seasons.length) { %>
+                <% for (const s of ordersView.seasons) { %>
+                  <option value="<%= s.code %>" <%= s.code === ordersView.selectedSeasonCode ? 'selected' : '' %>>
+                    <%= s.code %><%= s.name ? ' — ' + s.name : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucune saison</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Événement
+            <select name="event" data-auto-submit="change">
+              <% if (ordersView.events && ordersView.events.length) { %>
+                <% for (const ev of ordersView.events) { const eventDate = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
+                  <option value="<%= ev.slug %>" <%= ev.slug === ordersView.selectedEventSlug ? 'selected' : '' %>>
+                    <%= ev.slug %><%= ev.name ? ' — ' + ev.name : '' %><%= eventDate ? ' (' + eventDate + ')' : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucun événement</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Filtrer bénéficiaire / contact / email
+            <input type="search" data-table-filter data-table-target="ordersRows" placeholder="Tapez un nom ou un email">
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Actualiser</button></noscript>
+        </form>
+      </section>
+
+      <section class="card">
+        <% if (ordersView.rows && ordersView.rows.length) { %>
+          <div class="records-table-wrap">
+            <table class="records-table">
+              <thead>
+                <tr>
+                  <th>Order id</th>
+                  <th>Créé</th>
+                  <th>Statut</th>
+                  <th>Bénéficiaire(s)</th>
+                  <th>Contact</th>
+                  <th>Email</th>
+                  <th>Tarif(s)</th>
+                  <th>Lignes</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody id="ordersRows">
+                <% for (const row of ordersView.rows) { %>
+                  <tr data-search="<%= row.searchIndex || '' %>">
+                    <td><code><%= row.id %></code></td>
+                    <td><%= row.createdAt ? new Date(row.createdAt).toLocaleString() : '—' %></td>
+                    <td><%= row.status || '—' %></td>
+                    <td><%= row.beneficiaries && row.beneficiaries.length ? row.beneficiaries.join(', ') : '—' %></td>
+                    <td><%= row.payerName || '—' %></td>
+                    <td><%= row.payerEmail || '—' %></td>
+                    <td><%= row.tariffs && row.tariffs.length ? row.tariffs.join(', ') : '—' %></td>
+                    <td><%= row.lineCount || 0 %></td>
+                    <td><%= ((row.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state">Aucune commande pour cette sélection.</div>
+        <% } %>
+      </section>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'tickets' && ticketsView) { %>
+    <div class="records-view">
+      <section class="card">
+        <h2>Tickets administrateur</h2>
+        <form method="get" action="<%= baseTickets %>" class="records-toolbar">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <label>
+            Saison
+            <select name="season" data-auto-submit="change">
+              <% if (ticketsView.seasons && ticketsView.seasons.length) { %>
+                <% for (const s of ticketsView.seasons) { %>
+                  <option value="<%= s.code %>" <%= s.code === ticketsView.selectedSeasonCode ? 'selected' : '' %>>
+                    <%= s.code %><%= s.name ? ' — ' + s.name : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucune saison</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Événement
+            <select name="event" data-auto-submit="change">
+              <% if (ticketsView.events && ticketsView.events.length) { %>
+                <% for (const ev of ticketsView.events) { const eventDate = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
+                  <option value="<%= ev.slug %>" <%= ev.slug === ticketsView.selectedEventSlug ? 'selected' : '' %>>
+                    <%= ev.slug %><%= ev.name ? ' — ' + ev.name : '' %><%= eventDate ? ' (' + eventDate + ')' : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucun événement</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Filtrer bénéficiaire / contact / email
+            <input type="search" data-table-filter data-table-target="ticketsRows" placeholder="Tapez un nom ou un email">
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Actualiser</button></noscript>
+        </form>
+      </section>
+
+      <section class="card">
+        <% if (ticketsView.rows && ticketsView.rows.length) { %>
+          <div class="records-table-wrap">
+            <table class="records-table">
+              <thead>
+                <tr>
+                  <th>Ticket id</th>
+                  <th>Siège</th>
+                  <th>Tarif</th>
+                  <th>Bénéficiaire</th>
+                  <th>Email bénéficiaire</th>
+                  <th>Contact</th>
+                  <th>Email contact</th>
+                  <th>Order id</th>
+                  <th>Créé</th>
+                  <th>Scan</th>
+                </tr>
+              </thead>
+              <tbody id="ticketsRows">
+                <% for (const row of ticketsView.rows) { %>
+                  <tr data-search="<%= row.searchIndex || '' %>">
+                    <td><code><%= row.id %></code></td>
+                    <td><%= row.seatId || '—' %></td>
+                    <td><%= row.tariffCode || '—' %></td>
+                    <td><%= row.holderName || '—' %></td>
+                    <td><%= row.holderEmail || '—' %></td>
+                    <td><%= row.contactName || '—' %></td>
+                    <td><%= row.contactEmail || '—' %></td>
+                    <td><%= row.orderId && row.orderId !== '—' ? row.orderId : '—' %></td>
+                    <td><%= row.createdAt ? new Date(row.createdAt).toLocaleString() : '—' %></td>
+                    <td>
+                      <%= row.scannedAt ? ('Scanné le ' + new Date(row.scannedAt).toLocaleString()) : 'Non scanné' %>
+                      <% if ((row.scanCount || 0) > 0) { %>
+                        (<%= row.scanCount %>)
+                      <% } %>
+                    </td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state">Aucun ticket pour cette sélection.</div>
+        <% } %>
+      </section>
     </div>
   <% } %>
 
@@ -2158,6 +2388,28 @@
           const form = el.closest('form');
           if (form) form.submit();
         });
+      });
+
+      document.querySelectorAll('[data-table-filter]').forEach((input) => {
+        const targetId = input.getAttribute('data-table-target') || '';
+        if (!targetId) return;
+        const tbody = document.getElementById(targetId);
+        if (!tbody) return;
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        if (!rows.length) return;
+        const normalize = (value) => String(value || '').trim().toLowerCase();
+        const applyFilter = () => {
+          const needle = normalize(input.value || '');
+          rows.forEach((row) => {
+            if (!needle) {
+              row.style.display = '';
+              return;
+            }
+            const hay = normalize(row.getAttribute('data-search') || '');
+            row.style.display = hay.includes(needle) ? '' : 'none';
+          });
+        };
+        input.addEventListener('input', applyFilter);
       });
 
       const collectScriptArgs = (form, argLine) => {
