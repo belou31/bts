@@ -494,6 +494,19 @@ function formatPersonLabel(firstName = '', lastName = '', email = '') {
   return '—';
 }
 
+function buildEventOrderMatch(eventDoc = null) {
+  if (!eventDoc?._id) return null;
+  const eventId = String(eventDoc._id);
+  const eventSlug = String(eventDoc.slug || '').trim();
+  return {
+    $or: [
+      { eventId },
+      { 'meta.eventId': eventId },
+      ...(eventSlug ? [{ 'meta.eventSlug': eventSlug }] : [])
+    ]
+  };
+}
+
 function prepareScriptCatalog() {
   const scriptGroups = adminScriptGroups
     .slice()
@@ -539,6 +552,8 @@ router.get('/', (req, res) => {
   if (view === 'io') target = urlFor('/admin/io');
   if (view === 'templates') target = urlFor('/admin/templates');
   if (view === 'plan') target = urlFor('/admin/plan');
+  if (view === 'orders') target = urlFor('/admin/orders');
+  if (view === 'tickets') target = urlFor('/admin/tickets');
   return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
 });
 
@@ -584,6 +599,8 @@ router.get('/io', (req, res) => {
     monitorTab: 'tariffs',
     monitoring: null,
     planView: null,
+    ordersView: null,
+    ticketsView: null,
     dynamicAssetsList,
     venueResources,
     dataTemplatesList
@@ -634,7 +651,9 @@ router.get('/templates', (req, res) => {
     viewMode: 'templates',
     monitorTab: 'tariffs',
     monitoring: null,
-    planView: null
+    planView: null,
+    ordersView: null,
+    ticketsView: null
   });
 });
 
@@ -773,6 +792,8 @@ router.get('/plan', async (req, res) => {
     viewMode: 'plan',
     monitorTab: 'tariffs',
     monitoring: null,
+    ordersView: null,
+    ticketsView: null,
     planView: {
       seasons: (seasonsRaw || []).map(s => ({
         code: s.code,
@@ -805,6 +826,306 @@ router.get('/plan', async (req, res) => {
       seats,
       seatDetailsById,
       seatCounts
+    }
+  });
+});
+
+router.get('/orders', async (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const seasonsRaw = await Season.find({}).sort({ code: -1 }).lean();
+  const defaultSeason = seasonsRaw.find(s => s.active) || seasonsRaw[0] || null;
+  const selectedSeasonCodeRaw = typeof req.query.season === 'string' && req.query.season
+    ? req.query.season
+    : (defaultSeason?.code || null);
+  const selectedSeason = seasonsRaw.find(s => s.code === selectedSeasonCodeRaw) || defaultSeason || null;
+  const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
+
+  const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
+    .sort({ startsAt: 1 })
+    .lean();
+  const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
+    ? req.query.event
+    : (eventsRaw[0]?.slug || null);
+  const selectedEvent = eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null;
+
+  let rows = [];
+  if (selectedEvent) {
+    const eventMatch = buildEventOrderMatch(selectedEvent);
+    const orderMatch = eventMatch || {};
+    const ordersRaw = await Order.find(
+      orderMatch,
+      {
+        _id: 1,
+        createdAt: 1,
+        status: 1,
+        payerFirstName: 1,
+        payerLastName: 1,
+        payerEmail: 1,
+        totalCents: 1,
+        lines: 1
+      }
+    )
+      .sort({ createdAt: -1 })
+      .limit(2500)
+      .lean();
+
+    rows = ordersRaw.map((order) => {
+      const beneficiaries = [];
+      const beneficiarySet = new Set();
+      const tariffs = new Set();
+      for (const line of order?.lines || []) {
+        const fullName = [String(line?.holderFirstName || '').trim(), String(line?.holderLastName || '').trim()]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        if (fullName && !beneficiarySet.has(fullName.toLowerCase())) {
+          beneficiarySet.add(fullName.toLowerCase());
+          beneficiaries.push(fullName);
+        }
+        const tariff = String(line?.tariffCode || '').trim();
+        if (tariff) tariffs.add(tariff);
+      }
+      const payerName = [String(order?.payerFirstName || '').trim(), String(order?.payerLastName || '').trim()]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      const payerEmail = String(order?.payerEmail || '').trim();
+      const searchIndex = [
+        ...beneficiaries,
+        payerName,
+        payerEmail
+      ]
+        .join(' ')
+        .toLowerCase();
+      return {
+        id: String(order?._id || ''),
+        createdAt: order?.createdAt || null,
+        status: String(order?.status || ''),
+        lineCount: Array.isArray(order?.lines) ? order.lines.length : 0,
+        totalCents: Number(order?.totalCents || 0),
+        beneficiaries,
+        payerName: payerName || '—',
+        payerEmail: payerEmail || '—',
+        tariffs: Array.from(tariffs),
+        searchIndex
+      };
+    });
+  }
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: [],
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    operateOptions: {
+      venues: [],
+      seasons: [],
+      events: [],
+      partners: [],
+      tariffCatalogs: [],
+      inputFiles: [],
+      assetFiles: [],
+      venueViews: []
+    },
+    viewMode: 'orders',
+    monitorTab: 'tariffs',
+    monitoring: null,
+    planView: null,
+    ticketsView: null,
+    ordersView: {
+      seasons: (seasonsRaw || []).map(s => ({
+        code: s.code,
+        name: s.name || '',
+        active: Boolean(s.active)
+      })),
+      events: (eventsRaw || []).map(ev => ({
+        id: String(ev._id),
+        slug: ev.slug,
+        name: ev.name || '',
+        startsAt: ev.startsAt || null,
+        venueSlug: ev.venueSlug || null
+      })),
+      selectedSeasonCode,
+      selectedEventSlug: selectedEvent ? selectedEvent.slug : null,
+      selectedEvent: selectedEvent
+        ? {
+            id: String(selectedEvent._id),
+            slug: selectedEvent.slug,
+            name: selectedEvent.name || '',
+            startsAt: selectedEvent.startsAt || null,
+            venueSlug: selectedEvent.venueSlug || null
+          }
+        : null,
+      rows
+    }
+  });
+});
+
+router.get('/tickets', async (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const seasonsRaw = await Season.find({}).sort({ code: -1 }).lean();
+  const defaultSeason = seasonsRaw.find(s => s.active) || seasonsRaw[0] || null;
+  const selectedSeasonCodeRaw = typeof req.query.season === 'string' && req.query.season
+    ? req.query.season
+    : (defaultSeason?.code || null);
+  const selectedSeason = seasonsRaw.find(s => s.code === selectedSeasonCodeRaw) || defaultSeason || null;
+  const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
+
+  const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
+    .sort({ startsAt: 1 })
+    .lean();
+  const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
+    ? req.query.event
+    : (eventsRaw[0]?.slug || null);
+  const selectedEvent = eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null;
+
+  let rows = [];
+  if (selectedEvent) {
+    const eventId = String(selectedEvent._id);
+    const eventSlug = String(selectedEvent.slug || '').trim();
+    const eventKeys = [eventId, eventSlug].filter(Boolean);
+
+    const ticketsRaw = await Ticket.find(
+      { eventId: { $in: eventKeys } },
+      {
+        _id: 1,
+        seatId: 1,
+        tariffCode: 1,
+        holder: 1,
+        orderId: 1,
+        createdAt: 1,
+        scannedAt: 1,
+        scanCount: 1
+      }
+    )
+      .sort({ seatId: 1, createdAt: -1 })
+      .limit(5000)
+      .lean();
+
+    const orderIds = [];
+    const seenOrderIds = new Set();
+    for (const ticket of ticketsRaw || []) {
+      const id = String(ticket?.orderId || '').trim();
+      if (!id || !mongoose.isValidObjectId(id) || seenOrderIds.has(id)) continue;
+      seenOrderIds.add(id);
+      orderIds.push(new mongoose.Types.ObjectId(id));
+    }
+
+    let orderMap = new Map();
+    if (orderIds.length) {
+      const ordersRaw = await Order.find(
+        { _id: { $in: orderIds } },
+        { payerFirstName: 1, payerLastName: 1, payerEmail: 1 }
+      ).lean();
+      orderMap = new Map(
+        ordersRaw.map(order => [String(order?._id || ''), order])
+      );
+    }
+
+    rows = (ticketsRaw || []).map((ticket) => {
+      const holderName = [String(ticket?.holder?.firstName || '').trim(), String(ticket?.holder?.lastName || '').trim()]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      const holderEmail = String(ticket?.holder?.email || '').trim();
+      const order = ticket?.orderId ? orderMap.get(String(ticket.orderId)) : null;
+      const contactName = [String(order?.payerFirstName || '').trim(), String(order?.payerLastName || '').trim()]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      const contactEmail = String(order?.payerEmail || '').trim();
+      const searchIndex = [
+        holderName,
+        holderEmail,
+        contactName,
+        contactEmail
+      ]
+        .join(' ')
+        .toLowerCase();
+      return {
+        id: String(ticket?._id || ''),
+        createdAt: ticket?.createdAt || null,
+        scannedAt: ticket?.scannedAt || null,
+        scanCount: Number(ticket?.scanCount || 0),
+        seatId: String(ticket?.seatId || '').trim() || '—',
+        tariffCode: String(ticket?.tariffCode || '').trim() || '—',
+        holderName: holderName || '—',
+        holderEmail: holderEmail || '—',
+        contactName: contactName || '—',
+        contactEmail: contactEmail || '—',
+        orderId: ticket?.orderId ? String(ticket.orderId) : '—',
+        searchIndex
+      };
+    });
+  }
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: [],
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    operateOptions: {
+      venues: [],
+      seasons: [],
+      events: [],
+      partners: [],
+      tariffCatalogs: [],
+      inputFiles: [],
+      assetFiles: [],
+      venueViews: []
+    },
+    viewMode: 'tickets',
+    monitorTab: 'tariffs',
+    monitoring: null,
+    planView: null,
+    ordersView: null,
+    ticketsView: {
+      seasons: (seasonsRaw || []).map(s => ({
+        code: s.code,
+        name: s.name || '',
+        active: Boolean(s.active)
+      })),
+      events: (eventsRaw || []).map(ev => ({
+        id: String(ev._id),
+        slug: ev.slug,
+        name: ev.name || '',
+        startsAt: ev.startsAt || null,
+        venueSlug: ev.venueSlug || null
+      })),
+      selectedSeasonCode,
+      selectedEventSlug: selectedEvent ? selectedEvent.slug : null,
+      selectedEvent: selectedEvent
+        ? {
+            id: String(selectedEvent._id),
+            slug: selectedEvent.slug,
+            name: selectedEvent.name || '',
+            startsAt: selectedEvent.startsAt || null,
+            venueSlug: selectedEvent.venueSlug || null
+          }
+        : null,
+      rows
     }
   });
 });
@@ -925,7 +1246,9 @@ router.get('/operate', async (req, res) => {
     viewMode: 'operate',
     monitorTab: 'tariffs',
     monitoring: null,
-    planView: null
+    planView: null,
+    ordersView: null,
+    ticketsView: null
   });
 });
 
@@ -1413,7 +1736,9 @@ router.get('/monitor', async (req, res) => {
     viewMode: 'monitor',
     monitorTab,
     monitoring,
-    planView: null
+    planView: null,
+    ordersView: null,
+    ticketsView: null
   });
 });
 
