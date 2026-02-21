@@ -810,7 +810,9 @@ const REASON_MESSAGES = {
   error: 'Erreur',
   invalid_response: 'Réponse inattendue du serveur',
   invalid_json: 'Réponse serveur invalide',
-  sortie: 'Sortie enregistrée'
+  sortie: 'Sortie enregistrée',
+  unauthorized: 'Authentification invalide (token/login)',
+  server_error: 'Erreur serveur'
 };
 
 const ACTION_LABELS = {
@@ -861,6 +863,18 @@ function shortId(id) {
 
 function translateReason(reason) {
   return REASON_MESSAGES[reason] || reason || 'Information';
+}
+
+function getServerReason(err) {
+  const reason = String(err?.body?.reason || err?.body?.error || '').trim();
+  return reason || null;
+}
+
+function getServerMessage(err) {
+  const reason = getServerReason(err);
+  if (reason) return translateReason(reason);
+  if (Number.isFinite(err?.status)) return `HTTP ${err.status}`;
+  return 'Erreur serveur';
 }
 
 function formatDate(value) {
@@ -1629,8 +1643,8 @@ async function previewScan(raw) {
   } catch (e) {
     lastPreviewLookup.set(raw, Date.now());
     if (e.server) {
-      const reason = e.body?.reason || 'error';
-      updateStatus('ko', translateReason(reason) || e.body?.error || ('HTTP ' + e.status));
+      const reason = getServerReason(e) || 'error';
+      updateStatus('ko', getServerMessage(e));
       logAction({ action: 'preview', status: reason, entryKey: null, entry: raw, info: 'Erreur serveur', event: eventValue });
       return;
     }
@@ -1735,15 +1749,16 @@ async function handleAccept(match, options = {}) {
     }
   } catch (e) {
     if (e.server) {
+      const reason = getServerReason(e) || 'error';
       if (e.body?.ticket) {
         const entry = enrichEntryBase(e.body.ticket, { eventId, eventSlug: match.eventSlug || eventId, qrValue: match.qrValue });
         upsertHistory(entry);
-        logAction({ action: 'accept', status: e.body?.reason || 'error', entryKey: keyForEntry(entry), entry: shortId(match.ticketId), info: 'Erreur serveur', event: match.eventSlug || eventId });
+        logAction({ action: 'accept', status: reason, entryKey: keyForEntry(entry), entry: shortId(match.ticketId), info: 'Erreur serveur', event: match.eventSlug || eventId });
       } else {
-        logAction({ action: 'accept', status: e.body?.reason || 'error', entryKey, entry: shortId(match.ticketId), info: 'Erreur serveur', event: match.eventSlug || eventId });
+        logAction({ action: 'accept', status: reason, entryKey, entry: shortId(match.ticketId), info: 'Erreur serveur', event: match.eventSlug || eventId });
       }
       renderTicketList();
-      updateStatus('ko', translateReason(e.body?.reason) || e.body?.error || ('HTTP ' + e.status));
+      updateStatus('ko', getServerMessage(e));
       return;
     }
     logAction({ action: 'accept', status: 'error', entryKey, entry: shortId(match.ticketId), info: 'Hors ligne', event: match.eventSlug || eventId });
@@ -1789,9 +1804,10 @@ async function handleReject(match) {
     updateStatus('ko', 'Billet rejeté');
   } catch (e) {
     if (e.server) {
-      logAction({ action: 'reject', status: e.body?.reason || 'error', entryKey, entry: match.ticketId ? shortId(match.ticketId) : match.qrValue, info: 'Erreur serveur', event: match.eventSlug || eventId });
+      const reason = getServerReason(e) || 'error';
+      logAction({ action: 'reject', status: reason, entryKey, entry: match.ticketId ? shortId(match.ticketId) : match.qrValue, info: 'Erreur serveur', event: match.eventSlug || eventId });
       renderTicketList();
-      updateStatus('ko', translateReason(e.body?.reason) || e.body?.error || ('HTTP ' + e.status));
+      updateStatus('ko', getServerMessage(e));
       return;
     }
     logAction({ action: 'reject', status: 'error', entryKey, entry: match.ticketId ? shortId(match.ticketId) : match.qrValue, info: 'Hors ligne', event: match.eventSlug || eventId });
@@ -1837,9 +1853,10 @@ async function handleConfirm(match) {
     updateStatus('ok', 'Situation confirmée');
   } catch (e) {
     if (e.server) {
-      logAction({ action: 'confirm', status: e.body?.reason || 'error', entryKey, entry: match.ticketId ? shortId(match.ticketId) : match.qrValue, info: 'Erreur serveur', event: match.eventSlug || eventId });
+      const reason = getServerReason(e) || 'error';
+      logAction({ action: 'confirm', status: reason, entryKey, entry: match.ticketId ? shortId(match.ticketId) : match.qrValue, info: 'Erreur serveur', event: match.eventSlug || eventId });
       renderTicketList();
-      updateStatus('ko', translateReason(e.body?.reason) || e.body?.error || ('HTTP ' + e.status));
+      updateStatus('ko', getServerMessage(e));
       return;
     }
     logAction({ action: 'confirm', status: 'error', entryKey, entry: match.ticketId ? shortId(match.ticketId) : match.qrValue, info: 'Hors ligne', event: match.eventSlug || eventId });
@@ -1885,7 +1902,7 @@ async function handleExit(match) {
     updateStatus('ok', 'Sortie effectuée');
   } catch (e) {
     if (e.server) {
-      updateStatus('ko', translateReason(e.body?.reason) || e.body?.error || ('HTTP ' + e.status));
+      updateStatus('ko', getServerMessage(e));
       return;
     }
     updateStatus('ko', 'Hors-ligne — action impossible');
