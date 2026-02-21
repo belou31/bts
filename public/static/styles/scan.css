@@ -25,6 +25,7 @@ body.scan-immersive .preview-wrapper video{grid-column:1;grid-row:1;width:100%;h
 body.scan-immersive .preview-wrapper canvas{position:absolute;top:0;left:0;width:66.6667%;height:100%;border-radius:12px 0 0 12px}
 body.scan-immersive .results{margin:0;padding:0 16px 12px;flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
 body.scan-immersive .status-row{display:none!important}
+body.scan-immersive .status-row.status-error{display:flex!important;margin-top:6px}
 body.scan-immersive .preview-wrapper .scan-count{position:absolute;bottom:12px;right:calc(33.3333% + 12px);display:flex;align-items:center;gap:6px;background:rgba(15,22,34,0.9);border:1px solid rgba(245,158,11,0.45);box-shadow:0 12px 24px rgba(0,0,0,0.35);pointer-events:auto;padding:6px 14px;border-radius:999px}
 body.scan-immersive .preview-wrapper .scan-count-label{color:#f8fafc;opacity:.95}
 body.scan-immersive .preview-wrapper .preview-badge{left:33.3333%}
