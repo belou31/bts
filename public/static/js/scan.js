@@ -36,6 +36,7 @@ async function idbClear(){ const db=await idb(); await new Promise((ok,ko)=>{ co
 const previewWrapper = document.getElementById('previewWrapper');
 const video = document.getElementById('preview');
 const statusEl = document.getElementById('status');
+const statusRow = statusEl?.closest('.status-row') || null;
 const scannedCountEl = document.getElementById('scannedCount');
 const previewBadge = document.getElementById('previewBadge');
 const overlay = document.getElementById('overlay');
@@ -111,11 +112,13 @@ function updateStatus(state, text) {
   if (!statusEl) return;
   statusEl.textContent = text || '';
   statusEl.classList.remove('ok', 'ko');
+  statusRow?.classList.remove('status-error');
   if (state === 'ok') {
     statusEl.classList.add('ok');
     triggerPreviewFlash();
   } else if (state === 'ko') {
     statusEl.classList.add('ko');
+    statusRow?.classList.add('status-error');
     hidePreviewGain();
   } else {
     hidePreviewGain();
@@ -562,22 +565,26 @@ function applyAuthMode(mode) {
 }
 
 function getAuthContext() {
-  const mode = authMode;
-  let tokenValue = '';
-  let loginValue = '';
-  let passwordValue = '';
-  if (mode === 'token') {
-    tokenValue = tokenInput ? String(tokenInput.value || '').trim() : '';
-  } else {
-    loginValue = loginInput ? String(loginInput.value || '').trim() : '';
-    passwordValue = passwordInput ? String(passwordInput.value || '').trim() : '';
+  const selectedMode = authMode;
+  const tokenValue = tokenInput ? String(tokenInput.value || '').trim() : '';
+  const loginValue = loginInput ? String(loginInput.value || '').trim() : '';
+  const passwordValue = passwordInput ? String(passwordInput.value || '').trim() : '';
+  const hasToken = !!tokenValue;
+  const hasBasic = !!loginValue && !!passwordValue;
+
+  let effectiveMode = selectedMode;
+  if (selectedMode === 'basic' && !hasBasic && hasToken) {
+    effectiveMode = 'token';
+  } else if (selectedMode === 'token' && !hasToken && hasBasic) {
+    effectiveMode = 'basic';
   }
-  authContext.mode = mode;
+
+  authContext.mode = effectiveMode;
   authContext.token = tokenValue;
   authContext.login = loginValue;
   authContext.password = passwordValue;
   return {
-    mode,
+    mode: effectiveMode,
     token: tokenValue,
     login: loginValue,
     password: passwordValue
@@ -1466,11 +1473,20 @@ cleanBtn.addEventListener('click', () => {
 });
 async function postScanOnline(payload) {
   const headers = { 'Content-Type': 'application/json' };
-  const authMode = payload.authMode || ((payload.login && payload.password) ? 'basic' : 'token');
-  if (authMode === 'basic' && payload.login && payload.password) {
-    headers['Authorization'] = 'Basic ' + encodeBasicCredentials(payload.login, payload.password);
-  } else if (authMode === 'token' && payload.token) {
-    headers['Authorization'] = 'Bearer ' + payload.token;
+  const token = String(payload.token || '').trim();
+  const login = String(payload.login || '').trim();
+  const password = String(payload.password || '').trim();
+  const hasToken = !!token;
+  const hasBasic = !!login && !!password;
+
+  let authMode = payload.authMode || (hasBasic ? 'basic' : 'token');
+  if (authMode === 'basic' && !hasBasic && hasToken) authMode = 'token';
+  if (authMode === 'token' && !hasToken && hasBasic) authMode = 'basic';
+
+  if (authMode === 'basic' && hasBasic) {
+    headers['Authorization'] = 'Basic ' + encodeBasicCredentials(login, password);
+  } else if (authMode === 'token' && hasToken) {
+    headers['Authorization'] = 'Bearer ' + token;
   }
   if (payload.gate) headers['X-Gate'] = payload.gate;
 
@@ -1482,6 +1498,11 @@ async function postScanOnline(payload) {
   };
   if (payload.ticketId) body.ticketId = payload.ticketId;
   if (payload.force) body.force = true;
+  if (hasToken) body.token = token;
+  if (hasBasic) {
+    body.login = login;
+    body.password = password;
+  }
 
   let res;
   try {
