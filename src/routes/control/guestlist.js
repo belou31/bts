@@ -132,8 +132,8 @@ router.get('/admin/guestlist', (req, res) => {
 router.get('/control/guestlist', requireScanner, async (req, res) => {
   try {
     const credentialParams = buildCredentialParams({
-      token: req.query.token,
-      login: req.query.login,
+      token: req.scannerAuth?.token || req.query.token,
+      login: req.scannerAuth?.login || req.query.login,
       password: req.query.password
     });
 
