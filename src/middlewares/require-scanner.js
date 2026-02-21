@@ -15,6 +15,48 @@ function parseBasic(header = '') {
   }
 }
 
+function decodeQueryValuePreservePlus(rawValue = '') {
+  const raw = String(rawValue || '');
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, '%2B'));
+  } catch {
+    return raw;
+  }
+}
+
+function extractQueryParamPreservePlus(req, keys = []) {
+  const wantedKeys = new Set(
+    (Array.isArray(keys) ? keys : [keys])
+      .map((key) => String(key || '').trim())
+      .filter(Boolean)
+  );
+  if (!wantedKeys.size) return '';
+
+  const originalUrl = String(req.originalUrl || req.url || '');
+  const qsIndex = originalUrl.indexOf('?');
+  if (qsIndex < 0) return '';
+
+  const queryString = originalUrl.slice(qsIndex + 1);
+  if (!queryString) return '';
+
+  for (const segment of queryString.split('&')) {
+    if (!segment) continue;
+    const eqIndex = segment.indexOf('=');
+    const rawKey = eqIndex >= 0 ? segment.slice(0, eqIndex) : segment;
+    const rawValue = eqIndex >= 0 ? segment.slice(eqIndex + 1) : '';
+    let decodedKey = rawKey;
+    try {
+      decodedKey = decodeURIComponent(rawKey.replace(/\+/g, '%20'));
+    } catch {}
+    if (!wantedKeys.has(decodedKey)) continue;
+    const value = String(decodeQueryValuePreservePlus(rawValue) || '').trim();
+    if (value) return value;
+  }
+
+  return '';
+}
+
 export function requireScanner(req, res, next) {
   const envToken = String(process.env.SCANNER_TOKEN || '').trim();
   const envLogin = String(process.env.SCAN_LOGIN || '').trim();
@@ -31,11 +73,14 @@ export function requireScanner(req, res, next) {
     ({ login, password } = parseBasic(header));
   }
 
-  token = token || String(req.query.token || req.query.bearer || req.body?.token || '').trim();
+  const queryToken = extractQueryParamPreservePlus(req, ['token', 'bearer']);
+  token = token || queryToken || String(req.query.token || req.query.bearer || req.body?.token || '').trim();
 
   if (!login && !password) {
-    const qLogin = String(req.query.login || req.query.user || req.body?.login || '').trim();
-    const qPassword = String(req.query.password || req.query.pass || req.body?.password || '').trim();
+    const qLogin = extractQueryParamPreservePlus(req, ['login', 'user'])
+      || String(req.query.login || req.query.user || req.body?.login || '').trim();
+    const qPassword = extractQueryParamPreservePlus(req, ['password', 'pass'])
+      || String(req.query.password || req.query.pass || req.body?.password || '').trim();
     if (qLogin && qPassword) {
       login = qLogin;
       password = qPassword;
@@ -47,7 +92,8 @@ export function requireScanner(req, res, next) {
   if (!ok && login && envLogin && envPassword && login === envLogin && password === envPassword) ok = true;
 
   if (!ok) {
-    if (!res.headersSent) {
+    const isApiPath = String(req.path || '').includes('/api/');
+    if (!res.headersSent && !isApiPath) {
       res.set('WWW-Authenticate', 'Basic realm="BTS Control", charset="UTF-8"');
     }
     return res.status(401).json({ error: 'unauthorized' });

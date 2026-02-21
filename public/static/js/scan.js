@@ -240,14 +240,52 @@ function detectSlugFromPath() {
   }
 }
 
+function decodeQueryValuePreservePlus(rawValue = '') {
+  const raw = String(rawValue || '');
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, '%2B'));
+  } catch {
+    return raw;
+  }
+}
+
+function getQueryParamPreservePlus(paramNames = []) {
+  const names = new Set(
+    (Array.isArray(paramNames) ? paramNames : [paramNames])
+      .map((name) => String(name || '').trim())
+      .filter(Boolean)
+  );
+  if (!names.size) return '';
+
+  const queryString = String(window.location.search || '').replace(/^\?/, '');
+  if (!queryString) return '';
+
+  for (const segment of queryString.split('&')) {
+    if (!segment) continue;
+    const eqIndex = segment.indexOf('=');
+    const rawKey = eqIndex >= 0 ? segment.slice(0, eqIndex) : segment;
+    const rawValue = eqIndex >= 0 ? segment.slice(eqIndex + 1) : '';
+    let key = rawKey;
+    try {
+      key = decodeURIComponent(rawKey.replace(/\+/g, '%20'));
+    } catch {}
+    if (!names.has(key)) continue;
+    const value = String(decodeQueryValuePreservePlus(rawValue) || '').trim();
+    if (value) return value;
+  }
+
+  return '';
+}
+
 const initialContext = (() => {
   const params = new URLSearchParams(window.location.search);
   const slugParam = params.get('event') || params.get('eventSlug') || params.get('slug') || '';
   const slugFromPath = detectSlugFromPath();
   const slug = String(slugParam || slugFromPath || '').trim();
-  const token = params.get('token') || params.get('bearer') || '';
-  const login = params.get('login') || params.get('user') || '';
-  const password = params.get('password') || params.get('pass') || '';
+  const token = getQueryParamPreservePlus(['token', 'bearer']) || params.get('token') || params.get('bearer') || '';
+  const login = getQueryParamPreservePlus(['login', 'user']) || params.get('login') || params.get('user') || '';
+  const password = getQueryParamPreservePlus(['password', 'pass']) || params.get('password') || params.get('pass') || '';
   const gate = params.get('gate') || params.get('portail') || '';
   return { slug, token, login, password, gate };
 })();

@@ -16,6 +16,48 @@ function basePath() {
   return process.env.BASE_PATH || '';
 }
 
+function decodeQueryValuePreservePlus(rawValue = '') {
+  const raw = String(rawValue || '');
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, '%2B'));
+  } catch {
+    return raw;
+  }
+}
+
+function extractQueryParamPreservePlus(req, keys = []) {
+  const wantedKeys = new Set(
+    (Array.isArray(keys) ? keys : [keys])
+      .map((key) => String(key || '').trim())
+      .filter(Boolean)
+  );
+  if (!wantedKeys.size) return '';
+
+  const originalUrl = String(req.originalUrl || req.url || '');
+  const qsIndex = originalUrl.indexOf('?');
+  if (qsIndex < 0) return '';
+
+  const queryString = originalUrl.slice(qsIndex + 1);
+  if (!queryString) return '';
+
+  for (const segment of queryString.split('&')) {
+    if (!segment) continue;
+    const eqIndex = segment.indexOf('=');
+    const rawKey = eqIndex >= 0 ? segment.slice(0, eqIndex) : segment;
+    const rawValue = eqIndex >= 0 ? segment.slice(eqIndex + 1) : '';
+    let decodedKey = rawKey;
+    try {
+      decodedKey = decodeURIComponent(rawKey.replace(/\+/g, '%20'));
+    } catch {}
+    if (!wantedKeys.has(decodedKey)) continue;
+    const value = String(decodeQueryValuePreservePlus(rawValue) || '').trim();
+    if (value) return value;
+  }
+
+  return '';
+}
+
 const router = express.Router();
 
 const EVENT_CACHE_TTL_MS = 60 * 1000;
@@ -951,6 +993,15 @@ function renderScanView(req, res) {
   if (eventSlug && !forward.has('event')) {
     forward.set('event', eventSlug);
   }
+  const token = extractQueryParamPreservePlus(req, ['token', 'bearer']);
+  const login = extractQueryParamPreservePlus(req, ['login', 'user']);
+  const password = extractQueryParamPreservePlus(req, ['password', 'pass']);
+  if (token) {
+    forward.delete('bearer');
+    forward.set('token', token);
+  }
+  if (login) forward.set('login', login);
+  if (password) forward.set('password', password);
 
   res.render('scan/index', {
     title: 'Contrôle d’accès — BTS',
