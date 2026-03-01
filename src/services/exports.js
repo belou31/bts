@@ -3,6 +3,7 @@ import { Order }  from '../models/Order.js';
 import { Seat }   from '../models/Seat.js';
 import { Ticket } from '../models/Ticket.js';
 import { Event }  from '../models/Event.js';
+import { Tariff } from '../models/Tariff.js';
 
 const csvEscape = (v) => {
   if (v == null) return '';
@@ -11,6 +12,102 @@ const csvEscape = (v) => {
 };
 
 const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
+const normalizeTariffCode = (value) => String(value || '').trim().toUpperCase();
+
+function chooseTariffForEvent(tariffDocs = [], eventDoc = null) {
+  if (!Array.isArray(tariffDocs) || !tariffDocs.length) return null;
+
+  const priceTableKey = eventDoc?.priceTableKey ? String(eventDoc.priceTableKey) : null;
+  if (priceTableKey) {
+    const fromPriceTable = tariffDocs.find((doc) => String(doc?.priceTableKey || '') === priceTableKey);
+    if (fromPriceTable) return fromPriceTable;
+  }
+
+  if (eventDoc?.seasonCode && eventDoc?.venueSlug) {
+    const season = String(eventDoc.seasonCode || '').toLowerCase();
+    const venue = String(eventDoc.venueSlug || '').toLowerCase();
+    const fromSeasonVenue = tariffDocs.find((doc) =>
+      String(doc?.seasonCode || '').toLowerCase() === season &&
+      String(doc?.venueSlug || '').toLowerCase() === venue
+    );
+    if (fromSeasonVenue) return fromSeasonVenue;
+  }
+
+  const globalTariff = tariffDocs.find((doc) => !doc?.priceTableKey);
+  return globalTariff || tariffDocs[0] || null;
+}
+
+function normalizeRequiresField(value) {
+  if (value === false || value == null) return null;
+  const txt = String(value).trim();
+  if (!txt) return null;
+  const lowered = txt.toLowerCase();
+  if (lowered === 'false' || lowered === '0' || lowered === 'no' || lowered === 'non' || lowered === 'null') {
+    return null;
+  }
+  return txt;
+}
+
+function resolveRequiresValue(line = null, metaTicket = null) {
+  for (const raw of [
+    line?.justif,
+    line?.justificationField,
+    metaTicket?.note,
+    line?.info,
+    metaTicket?.info
+  ]) {
+    const txt = String(raw ?? '').trim();
+    if (txt) return txt;
+  }
+  return '';
+}
+
+function formatRequiresField({ requiresField, fieldLabel, value }) {
+  const fieldKey = normalizeRequiresField(requiresField);
+  if (!fieldKey) return '';
+  const label = String(fieldLabel || '').trim() || fieldKey;
+  return `${label}=${String(value ?? '').trim()}`;
+}
+
+function resolveOrderLineMetaForTicket(ticket = null, orderDoc = null) {
+  if (!ticket || !orderDoc) return { line: null, metaTicket: null };
+  const lines = Array.isArray(orderDoc.lines) ? orderDoc.lines : [];
+  const metaTickets = Array.isArray(orderDoc?.meta?.tickets) ? orderDoc.meta.tickets : [];
+
+  const qrValue = String(ticket?.qr?.value || '').trim();
+  if (qrValue && metaTickets.length) {
+    const idx = metaTickets.findIndex((metaTicket) => String(metaTicket?.hex || metaTicket?.value || '').trim() === qrValue);
+    if (idx >= 0) {
+      return { line: lines[idx] || null, metaTicket: metaTickets[idx] || null };
+    }
+  }
+
+  const seatId = String(ticket?.seatId || '').trim();
+  const ticketTariffCode = normalizeTariffCode(ticket?.tariffCode);
+  if (seatId && lines.length) {
+    let fallbackIdx = -1;
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i] || {};
+      if (String(line?.seatId || '').trim() !== seatId) continue;
+      const lineTariffCode = normalizeTariffCode(line?.tariffCode);
+      if (ticketTariffCode && lineTariffCode && lineTariffCode !== ticketTariffCode) {
+        if (fallbackIdx < 0) fallbackIdx = i;
+        continue;
+      }
+      return { line: lines[i] || null, metaTicket: metaTickets[i] || null };
+    }
+    if (fallbackIdx >= 0) {
+      return { line: lines[fallbackIdx] || null, metaTicket: metaTickets[fallbackIdx] || null };
+    }
+  }
+
+  if (ticketTariffCode && lines.length) {
+    const idx = lines.findIndex((line) => normalizeTariffCode(line?.tariffCode) === ticketTariffCode);
+    if (idx >= 0) return { line: lines[idx] || null, metaTicket: metaTickets[idx] || null };
+  }
+
+  return { line: null, metaTicket: null };
+}
 
 /**
  * Exporte les commandes en CSV vers un Writable (res, process.stdout, …)
@@ -206,6 +303,7 @@ export async function exportEventTicketsCsv({
     'zoneKey',
     'isVirtualSeat',
     'tariffCode',
+    'requires',
     'holderFirstName',
     'holderLastName',
     'holderEmail',
@@ -227,13 +325,28 @@ export async function exportEventTicketsCsv({
   if (includeHeader) out.write(header + '\n');
 
   const orderCache = new Map();
+  const tariffCache = new Map();
+
+  const loadTariff = async (codeRaw) => {
+    const code = normalizeTariffCode(codeRaw);
+    if (!code) return null;
+    if (tariffCache.has(code)) return tariffCache.get(code);
+
+    const docs = await Tariff.find({ code })
+      .select('code label requiresField fieldLabel requiresInfo priceTableKey seasonCode venueSlug')
+      .lean();
+    const chosen = chooseTariffForEvent(docs, resolvedEvent || event || null) || null;
+    tariffCache.set(code, chosen);
+    return chosen;
+  };
+
   const loadOrderMeta = async (orderIdRaw) => {
     if (!orderIdRaw) return null;
     const key = String(orderIdRaw);
     if (orderCache.has(key)) return orderCache.get(key);
 
     const orderDoc = await Order.findById(orderIdRaw)
-      .select('_id status phase payerFirstName payerLastName payerEmail')
+      .select('_id status phase payerFirstName payerLastName payerEmail lines meta')
       .lean();
     orderCache.set(key, orderDoc || null);
     return orderDoc || null;
@@ -260,8 +373,17 @@ export async function exportEventTicketsCsv({
 
   for await (const ticket of cursor) {
     const orderMeta = await loadOrderMeta(ticket.orderId);
+    const { line, metaTicket } = resolveOrderLineMetaForTicket(ticket, orderMeta);
     const holder = ticket.holder || {};
     const qr = ticket.qr || {};
+    const tariffCode = normalizeTariffCode(ticket.tariffCode || line?.tariffCode || metaTicket?.tariff || metaTicket?.tariffCode);
+    const tariffDoc = await loadTariff(tariffCode);
+    const requiresValue = resolveRequiresValue(line, metaTicket);
+    const requiresOut = formatRequiresField({
+      requiresField: tariffDoc?.requiresField ?? metaTicket?.requiresField ?? null,
+      fieldLabel: tariffDoc?.fieldLabel ?? metaTicket?.fieldLabel ?? '',
+      value: requiresValue
+    });
 
     const historyRaw = Array.isArray(ticket.scanHistory) ? ticket.scanHistory : [];
     const history = historyRaw
@@ -317,7 +439,8 @@ export async function exportEventTicketsCsv({
       csvEscape(ticket.seatId || ''),
       csvEscape(zoneFromSeatId(ticket.seatId || '')),
       csvEscape(isVirtualZoneSeatId(ticket.seatId || '') ? '1' : '0'),
-      csvEscape(ticket.tariffCode || ''),
+      csvEscape(tariffCode),
+      csvEscape(requiresOut),
       csvEscape(holder.firstName || ''),
       csvEscape(holder.lastName || ''),
       csvEscape(holder.email || ''),
@@ -384,12 +507,18 @@ export async function exportEventTicketsCsv({
         return `${zone}-GA-${suffix}-${index}`;
       })();
       const seatId = seatCandidate || fallbackSeat;
-      const tariffCode = String(line.tariffCode || metaTicket.tariff || metaTicket.tariffCode || '').trim().toUpperCase();
+      const tariffCode = normalizeTariffCode(line.tariffCode || metaTicket.tariff || metaTicket.tariffCode);
       const createdAtOut = metaTicket.createdAt ? new Date(metaTicket.createdAt).toISOString()
         : (orderDoc.createdAt ? new Date(orderDoc.createdAt).toISOString() : '');
       const updatedAtOut = orderDoc.updatedAt ? new Date(orderDoc.updatedAt).toISOString() : createdAtOut;
       const qrKindOut = String(metaTicket.kind || 'text');
       const bankIdOut = metaTicket.bankId ? String(metaTicket.bankId) : '';
+      const tariffDoc = await loadTariff(tariffCode);
+      const requiresOut = formatRequiresField({
+        requiresField: tariffDoc?.requiresField ?? metaTicket?.requiresField ?? null,
+        fieldLabel: tariffDoc?.fieldLabel ?? metaTicket?.fieldLabel ?? '',
+        value: resolveRequiresValue(line, metaTicket)
+      });
 
       const row = [
         csvEscape(metaTicket.ticketId || ''),
@@ -409,6 +538,7 @@ export async function exportEventTicketsCsv({
         csvEscape(zoneFromSeatId(seatId)),
         csvEscape(isVirtualZoneSeatId(seatId) ? '1' : '0'),
         csvEscape(tariffCode),
+        csvEscape(requiresOut),
         csvEscape(holderFirst),
         csvEscape(holderLast),
         csvEscape(holderEmail),
