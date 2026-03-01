@@ -295,7 +295,9 @@ export function createEventFlowRouter({
         partnerPriceCents: partnerPrice,
         partnerTotalCents: partnerTotal,
         holderFirstName: String(it.firstName || ''),
-        holderLastName: String(it.lastName || '')
+        holderLastName: String(it.lastName || ''),
+        justif: String(it.justif || '').trim(),
+        info: String(it.info || '').trim()
       };
     });
 
