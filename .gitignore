@@ -1,8 +1,18 @@
-*.log
-*.csv
-*.svg
-*.zip
+# ENV files (security => no git sync)
 .env
+*.env
 .env.*
-.ha-token.json
-node_modules
+.env_*
+.env-*
+# Dependencies
+node_modules/
+# Data specific
+data/
+public/dynamic/
+# Local only
+archives/
+tests/
+.~lock.*
+.eslint*
+grep_*
+*.log
