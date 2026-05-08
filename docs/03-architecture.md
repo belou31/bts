@@ -1,7 +1,9 @@
 ---
 title: Architecture & arborescence
-nav_order: 4
+nav_exclude: true
 ---
+
+> Legacy reference page. The canonical architecture entry point is now [architecture.md](architecture.md).
 
 # Architecture
 

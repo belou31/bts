@@ -16,7 +16,7 @@
     "lint": "eslint .",
     "db:sync-indexes": "node scripts/sync-indexes.mjs",
     "db:verify-models": "node scripts/verify-models.mjs",
-    "docs:build": "node scripts/docs/build-docs.js"
+    "docs:refs": "node scripts/docs/generate-reference-docs.js"
   },
   "dependencies": {
     "bts": "^1.0.3",

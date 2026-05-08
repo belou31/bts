@@ -223,6 +223,28 @@ async function getCheckoutStatus(intentId) {
 const provider = {
   id: 'helloasso',
   label: 'HelloAsso',
+  docs: {
+    env: [
+      'PAYMENT_PROVIDER',
+      'HELLOASSO_API_URL',
+      'HELLOASSO_ORG_SLUG',
+      'HELLOASSO_CLIENT_ID',
+      'HELLOASSO_CLIENT_SECRET',
+      'HELLOASSO_RETURN_URL',
+      'HELLOASSO_BACK_URL',
+      'HELLOASSO_ERROR_URL',
+      'HELLOASSO_WEBHOOK_URL',
+      'HELLOASSO_STUB_WEBHOOK_URL',
+      'HELLOASSO_ENV'
+    ],
+    stubCommand: 'npm run helloasso:stub',
+    defaultApiBase: API_DEFAULT,
+    webhookDriven: true,
+    notes: [
+      'Uses OAuth client credentials against the HelloAsso API.',
+      'Supports local development through the HelloAsso stub by overriding HELLOASSO_API_URL.'
+    ]
+  },
   buildReturnUrls,
   createCheckoutIntent,
   getCheckoutIntent,
