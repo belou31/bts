@@ -1,107 +1,144 @@
-# Script Catalog & Admin Console
+---
+title: Catalogue des scripts
+nav_order: 60
+---
 
-The repository consolidates all operational scripts under a shared catalog (`src/config/adminScripts.js`) and exposes them through the `/admin` console. Scripts are grouped by lifecycle stage so you can trigger them from the UI or from the CLI.
+# Catalogue des scripts
 
-Each entry below references the canonical command, required environment variables, and optional template files you can copy before running the script. Unless noted otherwise, scripts look for input assets in `data/inputs` (where the admin upload stores files) and write their CSV exports to `data/outputs`.
+> Generated from code.
+> Source: src/config/adminScripts.js
+> Regenerate with: `npm run docs:refs`
 
-## 00 — Initialization
+The repository consolidates all operational scripts under a shared catalog exposed in the admin UI and in CLI workflows.
 
-| Script | Purpose | Command | Templates |
-| --- | --- | --- | --- |
-| `scripts/00-system-management/reset-db.js` | Drop the MongoDB database defined in `.env`. Requires `--force`. | `node scripts/00-system-management/reset-db.js --force` | `data_references/env/.env.template` |
-| `scripts/00-system-management/check-env.js` | Validate the core `.env` configuration (APP_URL, HelloAsso, etc.). | `node scripts/00-system-management/check-env.js` | — |
-| `scripts/00-system-management/customize-app.js` | Copy organization assets into `public/dynamic/assets` and persist names under `data/customization`. | `node scripts/00-system-management/customize-app.js --name="Club" [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]` | `data_references/customization/app.json` |
+Each section below is rendered directly from the metadata in `src/config/adminScripts.js`.
+
+## 00 — System Management
+
+Initialization tasks that prepare the environment, validate configuration, and stage tenant-specific assets.
+
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `scripts/00-system-management/reset-db.js`<br><small>Reset MongoDB Database</small> | Drops the MongoDB database defined in .env. Requires the --force flag to avoid accidental wipes. | `node scripts/00-system-management/reset-db.js --force` | cli | `data_references/env/.env.template` |
+| `scripts/00-system-management/check-env.js`<br><small>Validate Environment (.env)</small> | Verifies the consistency of APP_URL/BASE_PATH and payment provider configuration for the current APP_ENV. | `node scripts/00-system-management/check-env.js` | cli | — |
+| `scripts/00-system-management/customize-app.js`<br><small>Customize Application</small> | Stages organization assets (favicon, logos, app icons) to public/dynamic/assets and saves metadata under data/customization. | `node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]` | cli | `data_references/customization/app.json` |
+| `scripts/00-system-management/set-default-custo.js`<br><small>Set Default Customization</small> | Writes default UI/email copy customizations to data/customization/default.json. | `node scripts/00-system-management/set-default-custo.js --file=<customization.json>` | cli | `data/customization/default.json` |
+| `scripts/00-system-management/purge-logs.js`<br><small>Purge Logs (Mongo)</small> | Supprime les logs opérationnels : collections ScanLog et journaux intégrés aux jobs automation. | `node scripts/00-system-management/purge-logs.js --apply` | cli | — |
+| `scripts/00-system-management/pm2-control.js`<br><small>Restart BTS (pm2)</small> | Redémarre le processus principal BTS via pm2 (démarre si absent). | `node scripts/00-system-management/pm2-control.js --name=bts --action=restart` | cli | — |
+| `scripts/00-system-management/pm2-control.js`<br><small>Start/Restart bts-sentinel (pm2)</small> | Démarre ou redémarre le sentinel pm2 (bts-sentinel). | `node scripts/00-system-management/pm2-control.js --name=bts-sentinel --action=restart` | cli | — |
+| `scripts/00-system-management/pm2-control.js`<br><small>Start/Restart pm2-logrotate</small> | Démarre ou redémarre le service de rotation des logs (pm2: pm2-logrotate). | `node scripts/00-system-management/pm2-control.js --name=pm2-logrotate --action=restart` | cli | — |
 
 ## 01 — Venue Management
 
-| Script | Purpose | Command | Templates |
-| --- | --- | --- | --- |
-| `scripts/01-venue-management/register-venue.js` | Register or update a venue record (slug, display name, optional plan copy). | `node scripts/01-venue-management/register-venue.js <slug> "<Venue>" [plan.svg] [--overwrite]` | `data_references/files/plan.svg` |
-| `scripts/01-venue-management/import-seats.js` | Parse the persisted SVG plan for a venue and import seats, with optional CSV overrides. Can also enrich a specific view with seat attributes. | `node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=seats.csv] [--view=<viewSlug>]` | `data_references/csv/seats.template.csv` |
-| `scripts/01-venue-management/import-zones.js` | Maintain the venue zone catalog from CSV and/or SVG (`data-zone-id`). Can also enrich a specific view with zone attributes. | `node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=zones.csv] [--view=<viewSlug>]` | `data_references/csv/zones.template.csv` |
-| `scripts/01-venue-management/import-venue-view.js` | Copy a custom view for a venue to `public/dynamic/venues/<slug>/views/<view>.svg` (no enrichment). | `node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <view.svg> [--overwrite]` | `data_references/files/plan.svg` |
+Register venues and keep their seating layout in sync with the database.
+
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `scripts/01-venue-management/register-venue.js`<br><small>Register Venue</small> | Creates or updates the venue document with the provided slug and display name. Add --overwrite to replace an existing SVG plan. | `node scripts/01-venue-management/register-venue.js <slug> "<Venue Name>" [plan.svg] [--overwrite]` | cli | `data_references/files/plan.svg` |
+| `scripts/01-venue-management/import-venue-view.js`<br><small>Add View for Venue</small> | Copies a custom view to public/dynamic/venues/<slug>/views/<viewSlug>.svg (no enrichment). | `node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <path/to/view.svg> [--overwrite]` | cli | `data_references/files/plan.svg` |
+| `scripts/01-venue-management/import-seats.js`<br><small>Import Seats</small> | Parses the venue plan SVG (under public/dynamic/venues/<slug>/plan.svg) and stores seats in the catalog. Optionally merge overrides from a CSV mapping (seatId, zoneKey, row, number). When --view is provided, the matching view is also enriched with seat attributes. | `node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=<path/to/seats.csv>] [--view=<viewSlug>]` | cli | `data_references/csv/seats.template.csv` |
+| `scripts/01-venue-management/import-zones.js`<br><small>Import Zones</small> | Maintains the ZoneCatalog for a venue from CSV and/or the persisted SVG plan (data-zone-id by default) under public/dynamic/venues/<slug>/plan.svg. Instantiate zones per season afterwards. When --view is provided, the matching view is also enriched with zone attributes. | `node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--view=<viewSlug>]` | cli | `data_references/csv/zones.template.csv` |
 
 ## 02 — Tariff Management
 
-| Script | Purpose | Command | Templates |
-| --- | --- | --- | --- |
-| `scripts/02-tariff-management/import-tariffs.js` | Import the global tariff catalog (code, label, justification). | `node scripts/02-tariff-management/import-tariffs.js tariff_catalog.csv` | `data_references/csv/tariff-catalog.template.csv` |
-| `scripts/02-tariff-management/export-tariffs.js` | Export the current tariff catalog to CSV. | `node scripts/02-tariff-management/export-tariffs.js [--out=tariff_catalog.csv]` | — |
-| `scripts/02-tariff-management/import-tariff-prices.js` | Import reusable tariff prices (list or matrix) into a named catalog. | `node scripts/02-tariff-management/import-tariff-prices.js <catalogSlug> prices.csv [--venue=<slug>]` | `data_references/csv/tariff-prices.template.csv` |
-| `scripts/02-tariff-management/export-zone-tariffs.js` | Export the per-zone price matrix for review/sharing. | `node scripts/02-tariff-management/export-zone-tariffs.js <season> <slug> --out=prices.csv` | — |
-| `scripts/02-tariff-management/export-zone-tariffs-matrix.js` | Produce a tariffCode × zone matrix (in euros). | `node scripts/02-tariff-management/export-zone-tariffs-matrix.js <season> <slug> [out.csv]` | — |
-| `scripts/02-tariff-management/clone-zone-tariffs.mjs` | Clone tariffs from one zone to others (with optional discount). | `node scripts/02-tariff-management/clone-zone-tariffs.mjs --season=<code> --venue=<slug> --from-zone=<A1> --to-zones=<B1,B2>` | — |
+Maintain the tariff catalog and zone-specific pricing matrices.
+
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `scripts/02-tariff-management/import-tariffs.js`<br><small>Import Tariff Catalog</small> | Imports the master tariff catalog (code, label, justification requirements). | `node scripts/02-tariff-management/import-tariffs.js <path/to/tariff_catalog.csv>` | cli | `data_references/csv/tariff-catalog.template.csv` |
+| `scripts/02-tariff-management/export-tariffs.js`<br><small>Export Tariff Catalog</small> | Exports the current tariff catalog (code, labels, requirements) to CSV. | `node scripts/02-tariff-management/export-tariffs.js [--out=<tariff_catalog.csv>]` | cli | — |
+| `scripts/02-tariff-management/import-tariff-prices.js`<br><small>Import Tariff Prices Catalog</small> | Loads reusable tariff prices (list CSV by default) that can later be instantiated for seasons or events. | `node scripts/02-tariff-management/import-tariff-prices.js <catalogSlug> <path/to/prices.csv> [--venue=<slug>] [--format=list|matrix]` | cli | `data_references/csv/tariff-prices.template.csv` |
+| `scripts/02-tariff-management/export-zone-tariffs.js`<br><small>Export Zone Tariffs</small> | Exports the price matrix for verification or sharing. | `node scripts/02-tariff-management/export-zone-tariffs.js <seasonCode> <venueSlug> --out=<file.csv>` | cli | — |
+| `scripts/02-tariff-management/export-zone-tariffs-matrix.js`<br><small>Export Tariffs (matrix)</small> | Produces a tariffCode × zone matrix (euros) to ease comparisons. | `node scripts/02-tariff-management/export-zone-tariffs-matrix.js <seasonCode> <venueSlug> [outCsvPath]` | cli | — |
+| `scripts/02-tariff-management/clone-zone-tariffs.mjs`<br><small>Clone Zone Tariffs</small> | Copies pricing from one zone to others, optionally applying a discount. | `node scripts/02-tariff-management/clone-zone-tariffs.mjs --season=<code> --venue=<slug> --from-zone=<A1> --to-zones=<B1,B2> [--discount=30]` | cli | — |
 
 ## 03 — Season Management
 
-### Core setup
+Season setup tasks (data seeding, subscriber imports, seat provisioning).
 
-| Script | Purpose | Command | Templates |
-| --- | --- | --- | --- |
-| `scripts/03-season-management/create-season.js` | Create or update a season (code/name/active). | `node scripts/03-season-management/create-season.js <season> --name="..." [--active=true]` | — |
-| `scripts/03-season-management/instantiate-venue-for-season.js` | Clone seat and zone catalogs into season-specific collections. | `node scripts/03-season-management/instantiate-venue-for-season.js <season> <slug> [--skip-seats] [--skip-zones]` | — |
-| `scripts/03-season-management/instantiate-tariffs.js` | Apply one or more tariff matrix catalogs to a season/venue. | `node scripts/03-season-management/instantiate-tariffs.js <season> <slug> --catalog=<slug[,slug2]> [--clear]` | — |
-| `scripts/03-season-management/import-subscription-orders.js` | Import subscription orders, book seats, and upsert subscribers. | `node scripts/03-season-management/import-subscription-orders.js orders.csv [--season=...] [--venue=...] [--status=paid] [--commit] [--sendEmails]` | `data_references/csv/subscribers-import.template.csv` |
-| `scripts/03-season-management/export-subscribers.js` | Export subscribers for a season/venue. | `node scripts/03-season-management/export-subscribers.js [--season=...] [--venue=...] [--activeOnly]` | `data_references/csv/subscribers-export.template.csv` |
-| `scripts/03-season-management/export-subscription-orders.js` | Export orders with phase `subscription` for audit. | `node scripts/03-season-management/export-subscription-orders.js [--season=...] [--venue=...] [--status=paid]` | `data_references/csv/orders-export.template.csv` |
-| `scripts/03-season-management/block-free-seats-for-season.js` | Block or free season seats from a CSV (seatId/regex/zone). | `node scripts/03-season-management/block-free-seats-for-season.js --file=<holds.csv> [--season=...] [--venue=...] [--commit] [--force]` | `data_references/csv/seats-hold-release.template.csv` |
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `scripts/03-season-management/create-season.js`<br><small>Create Season</small> | Creates or updates a season document (code/name/active). Configure phases separately. | `node scripts/03-season-management/create-season.js <seasonCode> --name="<Display Name>" [--active=true]` | cli | — |
+| `scripts/03-season-management/set-season-phases.js`<br><small>Configure Season Phases</small> | Manages phase scheduling/enabling for a season (renewal, fanclub, public). | `node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|fanclub|public> [--open=ISO] [--close=ISO] [--enabled=true|false]` | cli | — |
+| `scripts/03-season-management/set-season-custo.js`<br><small>Set Season Customization</small> | Stores season-level UI/email customization keys under data/customization/seasons/<code>.json. | `node scripts/03-season-management/set-season-custo.js --season=<code> --file=<customization.json>` | cli | `data/customization/seasons/<code>.json` |
+| `scripts/03-season-management/instantiate-venue-for-season.js`<br><small>Instantiate Venue for Season</small> | Clones seat and zone catalogs into season-specific collections. Use the skip flags to target only seats or zones. | `node scripts/03-season-management/instantiate-venue-for-season.js <seasonCode> <venueSlug> [--skip-seats] [--skip-zones]` | cli | — |
+| `scripts/03-season-management/instantiate-tariffs.js`<br><small>Instantiate Tariffs for Season</small> | Applies one or more tariff matrix catalogs to populate TariffPrice for the season/venue. Add --clear to purge existing rows first. | `node scripts/03-season-management/instantiate-tariffs.js <seasonCode> <venueSlug> --catalog=<slug[,slug2]>` | cli | — |
+| `scripts/03-season-management/import-subscription-orders.js`<br><small>Import Subscription Orders</small> | Re-import subscription orders exported from the system. Dry-run by default; add --commit to apply changes. | `node scripts/03-season-management/import-subscription-orders.js <path/to/orders.csv> [--season=...] [--venue=...] [--status=paid] [--commit] [--force] [--sendEmails]` | cli | `data_references/csv/orders-export.template.csv` |
+| `scripts/03-season-management/export-subscribers.js`<br><small>Export Renewers</small> | Exports the renewer registry (formerly Subscribers collection) for the requested season/venue. | `node scripts/03-season-management/export-subscribers.js --season=<code> [--venue=...] [--activeOnly]` | cli | `data_references/csv/subscribers-export.template.csv` |
+| `scripts/03-season-management/export-subscription-orders.js`<br><small>Export Subscription Orders</small> | Exports orders with phase=subscription. Useful to audit new season sales. | `node scripts/03-season-management/export-subscription-orders.js [--season=...] [--venue=...] [--status=paid]` | cli | `data_references/csv/orders-export.template.csv` |
+| `scripts/03-season-management/block-free-seats-for-season.js`<br><small>Block/Free Seats for Season</small> | Blocks or frees season seats (status busy) based on a CSV; accepts seatId, seatPattern (regex), or zoneKey. | `node scripts/03-season-management/block-free-seats-for-season.js --file=<holds.csv> [--season=...] [--venue=...] [--commit] [--force]` | cli | `data_references/csv/seats-hold-release.template.csv` |
 
-### Renewal workflow
+## 03 — Season Management · Renewal
 
-| Script | Purpose | Command | Templates |
-| --- | --- | --- | --- |
-| `scripts/03-season-management/import-renewers-flat.js` | Import renewal subscribers (flat CSV) and link seats. | `node scripts/03-season-management/import-renewers-flat.js subscribers.csv <season> --venue=<slug>` | `data_references/csv/renew-subscribers.template.csv` |
-| `scripts/03-season-management/renewal-provision-seats.js` | Provision previous-season seats for renewal (dry-run by default). | `node scripts/03-season-management/renewal-provision-seats.js <season> --venue=<slug> [--apply]` | — |
-| `scripts/03-season-management/export-renew-groups.js` | Generate renewal tokens grouped per subscriber. | `node scripts/03-season-management/export-renew-groups.js <season> --venue=<slug> --base=<https://host/bts>` | `data_references/csv/renew-groups.template.csv` |
-| `scripts/03-season-management/export-renew-seats.js` | List seats involved in renewal (with signed URLs). | `node scripts/03-season-management/export-renew-seats.js <season> --venue=<slug>` | `data_references/csv/renew-seats.template.csv` |
-| `scripts/03-season-management/renewal-close-phase.js` | Disable renewal and release non-renewed seats. | `node scripts/03-season-management/renewal-close-phase.js <season> [--venue=<slug>]` | — |
+Renewal-focused tooling: import legacy subscribers, provision their seats, publish renewal links, and close the campaign.
+
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `scripts/03-season-management/import-renewers-flat.js`<br><small>Import Renewal Subscribers (flat CSV)</small> | Loads renewal subscribers from a simple CSV (one seat per row) and marks them as invited. | `node scripts/03-season-management/import-renewers-flat.js <path/to/subscribers.csv> <seasonCode> --venue=<slug>` | cli | `data_references/csv/renew-subscribers.template.csv` |
+| `scripts/03-season-management/renewal-provision-seats.js`<br><small>Provision Seats for Renewal</small> | Tags previous-season seats as provisioned so subscribers can renew them. | `node scripts/03-season-management/renewal-provision-seats.js <seasonCode> --venue=<slug> [--apply]` | cli | — |
+| `scripts/03-season-management/export-renew-groups.js`<br><small>Export Renewal Tokens</small> | Generates renewal tokens grouped by subscriber, exporting a CSV ready for emailing. | `node scripts/03-season-management/export-renew-groups.js <seasonCode> --venue=<slug> --base=<https://host/bts> --out=<file.csv>` | cli | `data_references/csv/renew-groups.template.csv` |
+| `scripts/03-season-management/send-renew-invites.js`<br><small>Send Renewal Invitations</small> | Sends renewal invitation emails using the automation job runner (supports dry-run). | `node scripts/03-season-management/send-renew-invites.js <renew-groups.csv> [--subject="..."] [--season=...] [--deadline=ISO] [--venue=...] [--dry]` | automation (season.send-renew-invites) | `data_references/csv/renew-groups.template.csv` |
+| `scripts/03-season-management/export-renew-seats.js`<br><small>Export Renewal Seats</small> | Exports the list of seats involved in the renewal campaign for auditing. | `node scripts/03-season-management/export-renew-seats.js <seasonCode> --venue=<slug> --out=<file.csv>` | cli | `data_references/csv/renew-seats.template.csv` |
+| `scripts/03-season-management/renewal-close-phase.js`<br><small>Close Renewal Phase</small> | Closes the renewal campaign for a season and releases remaining provisioned seats. | `node scripts/03-season-management/renewal-close-phase.js <seasonCode> [--venue=<slug>]` | cli | — |
 
 ## 04 — Event Management
 
-| Script | Purpose | Command | Templates |
-| --- | --- | --- | --- |
-| `scripts/04-event-management/create.js` | Create an event bound to a season (attach venue later). | `node scripts/04-event-management/create.js --slug=... --name="..." --date=ISO --season=<code> [--price-table=<key>]` | — |
-| `scripts/04-event-management/instantiate-tariffs.js` | Instantiate event tariffs from catalog(s). | `node scripts/04-event-management/instantiate-tariffs.js --event=<slug> --catalog=<slug[,slug2]> [--clear] [--dry-run]` | — |
-| `scripts/04-event-management/build-allowed-from-prices.js` | Recompute "allowed from" pricing based on zone tariffs. | `node scripts/04-event-management/build-allowed-from-prices.js --event=<slug>` | — |
-| `scripts/04-event-management/set-onsale.js` | Toggle ticket sales for an event. | `node scripts/04-event-management/set-onsale.js --event=<slug|ObjectId> --open` | — |
-| `scripts/04-event-management/import-qr-bank.js` | Import QR codes into a shared pool for the event. | `node scripts/04-event-management/import-qr-bank.js --event=<slug> --csv=<codes.csv>` | — |
-| `scripts/04-event-management/block-free-seats-for-event.js` | Block or free seat holds for an event from a CSV (seatId/regex/zone). | `node scripts/04-event-management/block-free-seats-for-event.js --event=<slug> --file=holds.csv [--commit] [--force]` | `data_references/csv/seats-hold-release.template.csv` |
-| `scripts/04-event-management/send-all-season-tickets-for-event.js` | Generate/send season tickets (PDF) for an event based on the season subscriber base. | `node scripts/04-event-management/send-all-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run]` | — |
-| `scripts/04-event-management/import-orders.js` | Import or replay event orders from a CSV export (with optional email: confirmation for paid, payment link for tobepaid). | `node scripts/04-event-management/import-orders.js <orders.csv> [--status=paid|tobepaid] [--commit] [--force] [--sendEmail]` | `data_references/csv/event-orders.template.csv` |
-| `scripts/04-event-management/send-payment-links.js` | Create checkout intents and email payment links for unpaid event orders. | `node scripts/04-event-management/send-payment-links.js --event=<slug|ObjectId> [--order=<id[,id2]>] [--status=pending,tobepaid|nonpaid|all] [--limit=200] [--commit] [--mail=false]` | — |
-| `scripts/04-event-management/export-orders.js` | Export event orders (one row per ticket) using the import-compatible layout. | `node scripts/04-event-management/export-orders.js --event=<slug> [--status=paid] [--out=orders.csv]` | `data_references/csv/event-orders.template.csv` |
-| `scripts/04-event-management/resend-event-tickets.js` | Resend event tickets for specific order IDs. | `node scripts/04-event-management/resend-event-tickets.js --event=<slug> --order=<orderId[,orderId2]> [--status=paid] [--dry-run]` | — |
-| `scripts/04-event-management/tickets-pdf.js` | Produce a tickets PDF for a given order. | `node scripts/04-event-management/tickets-pdf.js <orderId>` | — |
+Create events, configure their sales windows, and manage ancillary assets (QR banks, PDFs…).
+
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `scripts/04-event-management/create.js`<br><small>Create Event</small> | Creates a new event bound to a season; attach venue/plan later via Instantiate Venue for Event. | `node scripts/04-event-management/create.js --slug=<eventCode> --name="<Event Name>" --date=YYYY-MM-DDThh:mm:ssZ --season=<code>` | cli | — |
+| `scripts/04-event-management/set-event-custo.js`<br><small>Set Event Customization</small> | Stores event-level UI/email customization keys under data/customization/events/<slug>.json. | `node scripts/04-event-management/set-event-custo.js --event=<slug> --file=<customization.json>` | cli | `data/customization/events/<slug>.json` |
+| `scripts/04-event-management/instantiate-venue-for-event.js`<br><small>Instantiate Venue for Event</small> | Clones seat/zone catalogs for the event season/venue and optionally attaches a custom plan view. | `node scripts/04-event-management/instantiate-venue-for-event.js --event=<slug|ObjectId> [--venue=<slug>] [--skip-seats] [--skip-zones] [--venue-view=<slug>]` | cli | — |
+| `scripts/04-event-management/instantiate-tariffs.js`<br><small>Instantiate Tariffs for Event</small> | Clones one or more tariff catalogs into the event price table. | `node scripts/04-event-management/instantiate-tariffs.js --event=<slug> --catalog=<slug[,slug2]> [--clear] [--dry-run]` | cli | — |
+| `scripts/04-event-management/build-allowed-from-prices.js`<br><small>Build Allowed-From Prices</small> | Recomputes allowed-from pricing for an event based on zone tariffs. | `node scripts/04-event-management/build-allowed-from-prices.js --event=<slug> --season=<code> --venue=<slug>` | cli | — |
+| `scripts/04-event-management/set-onsale.js`<br><small>Set Event On-sale</small> | Opens or closes ticket sales for an event (use --open / --close / --on=true\|false). | `node scripts/04-event-management/set-onsale.js --event=<slug|ObjectId> [--open|--close]` | cli | — |
+| `scripts/04-event-management/cancel-order.js`<br><small>Cancel Event Order</small> | Cancels an event order, releases seats, and marks lines as released. Dry-run by default; add --commit to apply. | `node scripts/04-event-management/cancel-order.js --order=<orderId> [--event=<slug|ObjectId>] [--commit]` | cli | — |
+| `scripts/04-event-management/sync-season-orders-to-event.js`<br><small>Sync Season Orders to Event</small> | Clones paid subscription orders into child event orders so subscribers receive tickets. Dry-run by défaut (sans --commit). | `node scripts/04-event-management/sync-season-orders-to-event.js --event=<slug|ObjectId> [--commit]` | cli | — |
+| `scripts/04-event-management/import-orders.js`<br><small>Import Orders for Event</small> | Re-import or create event orders from a CSV export. Dry-run by default; add --commit to persist. With --sendEmail: paid-like statuses send confirmations, tobepaid sends a payment link. | `node scripts/04-event-management/import-orders.js <path/to/orders.csv> [--status=paid|tobepaid] [--commit] [--force] [--sendEmail]` | cli | `data_references/csv/event-orders.template.csv` |
+| `scripts/04-event-management/send-payment-links.js`<br><small>Send Payment Links for Event Orders</small> | Creates fresh checkout intents and sends payment-link emails for unpaid event orders. Dry-run by default; use --commit to execute. | `node scripts/04-event-management/send-payment-links.js --event=<slug|ObjectId> [--order=<id[,id2]>] [--status=pending,tobepaid|nonpaid|all] [--limit=200] [--commit] [--mail=false]` | cli | — |
+| `scripts/04-event-management/export-attendance-overrides.js`<br><small>Export Attendance Overrides</small> | Exports event lines flagged released/moved for follow-up (CSV by default). | `node scripts/04-event-management/export-attendance-overrides.js --event=<slug|ObjectId> [--statuses=released,moved] [--out=overrides.csv]` | cli | — |
+| `scripts/04-event-management/export-orders.js`<br><small>Export Orders for Event</small> | Exports event orders (one row per ticket) matching the same CSV format as the import tool. | `node scripts/04-event-management/export-orders.js --event=<slug|ObjectId> [--status=paid] [--out=orders.csv]` | cli | `data_references/csv/event-orders.template.csv` |
+| `scripts/04-event-management/export-tickets.js`<br><small>Export Tickets for Event</small> | Exports event tickets with QR metadata and scan status for downstream reconciliation. | `node scripts/04-event-management/export-tickets.js --event=<slug|ObjectId> [--out=tickets.csv] [--include-history]` | cli | — |
+| `scripts/04-event-management/import-qr-bank.js`<br><small>Import QR Bank</small> | Imports QR codes for an event as a single shared pool. | `node scripts/04-event-management/import-qr-bank.js --event=<slug> --csv=<codes.csv> [--append]` | cli | — |
+| `scripts/04-event-management/block-free-seats-for-event.js`<br><small>Block/Free Seats for Event</small> | Blocks or frees event seat holds based on a CSV describing action, seatId/seatPattern/zoneKey, reason, and expiry. | `node scripts/04-event-management/block-free-seats-for-event.js --event=<slug> --file=<holds.csv> [--commit] [--force]` | cli | `data_references/csv/seats-hold-release.template.csv` |
+| `scripts/04-event-management/send-all-season-tickets-for-event.js`<br><small>Send All Season Tickets for Event</small> | Ensures event orders carry tickets and emails them to subscribers (works on orders created by the sync command). | `node scripts/04-event-management/send-all-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run] [--force]` | cli | — |
+| `scripts/04-event-management/resend-event-tickets.js`<br><small>Resend Tickets for Event</small> | Resends event ticket emails for specific order IDs. Dry-run by default; add --commit to send. | `node scripts/04-event-management/resend-event-tickets.js --event=<slug> --order=<orderId[,orderId2]> [--status=paid] [--commit]` | cli | — |
+| `scripts/04-event-management/tickets-pdf.js`<br><small>Generate Tickets PDF</small> | Builds a PDF of tickets for a given order, reusing QR codes from the bank. | `node scripts/04-event-management/tickets-pdf.js --event=<slug> --id=<orderId>` | cli | — |
 
 ## 05 — Partner Management
 
-| Script | Purpose | Command | Templates |
-| --- | --- | --- | --- |
-| `scripts/05-partner-management/init-partners.js` | Create `data/customization/partners.json` with starter entries (cseairbus, aisc). | `node scripts/05-partner-management/init-partners.js [--force]` | — |
-| `scripts/05-partner-management/upsert-partner.js` | Add or update a partner entry (iframe allowlist, payment mode, UI copy). | `node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Name>" [--payment-mode=psp|invoice_auto] [--allowed-origins=...] [--frame-ancestors=...] [--payment-provider=...]` | — |
-| `scripts/05-partner-management/import-partners.js` | Import partners from CSV into `data/customization/partners.json` (merge or replace). | `node scripts/05-partner-management/import-partners.js partners.csv [--replace]` | `data_references/csv/partners.template.csv` |
-| `scripts/05-partner-management/export-partners.js` | Export partners to CSV (stdout or file). | `node scripts/05-partner-management/export-partners.js [--out=partners.csv]` | `data_references/csv/partners.template.csv` |
-| `scripts/05-partner-management/generate-partner-token.js` | Generate or reuse a partner token (default or per-event) and print the URL with `?token=...`. | `node scripts/05-partner-management/generate-partner-token.js --partner=<slug> [--event=<eventSlug> | --season=<code> | --default] [--force]` | — |
+Manage partner-specific access, iframe restrictions, and payment modes backed by data/customization/partners.json.
+
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `scripts/05-partner-management/upsert-partner.js`<br><small>Create / Update Partner</small> | Adds or updates a partner entry in data/customization/partners.json (consumed at runtime via config/partners.js). | `node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [--payment-mode=psp|invoice_auto] [--allow-public-tariffs=yes|no] [--payment-provider=...]` | cli | — |
+| `scripts/05-partner-management/set-partner-custo.js`<br><small>Set Partner Customization</small> | Stores partner-level UI/email customization keys under data/customization/partners/<slug>.json (or scoped files under partners/<slug>/seasons/ or partners/<slug>/events/ when provided). | `node scripts/05-partner-management/set-partner-custo.js --partner=<slug> --file=<customization.json> [--season=<code>] [--event=<slug>]` | cli | `data/customization/partners/<slug>.json`<br>`data/customization/partners/<slug>/seasons/<code>.json`<br>`data/customization/partners/<slug>/events/<event>.json` |
+| `scripts/05-partner-management/set-partner-view.js`<br><small>Partner View</small> | Sets a partner venue view override (optionally scoped to an event or season). | `node scripts/05-partner-management/set-partner-view.js --slug=<slug> --venue-view=<slug> [--event=<eventSlug>] [--season=<code>]` | cli | — |
+| `scripts/05-partner-management/import-partners.js`<br><small>Import Partners (CSV)</small> | Import partners from CSV into data/customization/partners.json; merges by default, or replaces when --replace is provided. | `node scripts/05-partner-management/import-partners.js <partners.csv> [--replace]` | cli | `data_references/csv/partners.template.csv` |
+| `scripts/05-partner-management/set-partner-security.js`<br><small>Partner Security (origins)</small> | Updates iframe/embed security for a partner (allowed origins, frame-ancestors). | `node scripts/05-partner-management/set-partner-security.js --slug=<slug> [--allowed-origins=CSV] [--frame-ancestors=CSV]` | cli | — |
+| `scripts/05-partner-management/export-partners.js`<br><small>Export Partners (CSV)</small> | Export partners.json to CSV (stdout or --out=<file>). | `node scripts/05-partner-management/export-partners.js [--out=partners.csv]` | cli | `data_references/csv/partners.template.csv` |
+| `scripts/05-partner-management/generate-partner-token.js`<br><small>Generate Partner Token</small> | Generate or reuse a partner token (default or per-event) in partners.json and print the URL with ?token=... | `node scripts/05-partner-management/generate-partner-token.js --partner=<slug> [--event=<eventSlug> | --season=<code> | --default] [--force]` | cli | — |
+| `scripts/05-partner-management/init-partners.js`<br><small>Init Partner Template</small> | Creates data/customization/partners.json with starter entries (cseairbus, aisc). | `node scripts/05-partner-management/init-partners.js [--force]` | cli | — |
+| `scripts/05-partner-management/set-partner-presale.js`<br><small>Set Partner Pre-sale Quota</small> | Configure a partner-specific pre-sale quota for an event. If the event is not yet on sale, status will show as presale/open for that partner. | `node scripts/05-partner-management/set-partner-presale.js --partner=<slug> --event=<eventSlug> --quota=<number>` | cli | — |
+| `scripts/05-partner-management/set-partner-admin.js`<br><small>Set Partner Admin Credentials</small> | Set or update Basic Auth credentials for the partner admin page (/partner/<slug>/admin). | `node scripts/05-partner-management/set-partner-admin.js --partner=<slug> --user=<login> --pass=<password>` | cli | — |
 
 ## 06 — Misc
 
-| Script | Purpose | Command | Templates |
-| --- | --- | --- | --- |
-| `scripts/06-misc/reports/export-orders.js` | Export orders via the shared CSV service. | `node scripts/06-misc/reports/export-orders.js [--season=...] [--venue=...] [--status=paid]` | `data_references/csv/orders-export.template.csv` |
-| `scripts/orders-import-csv.js` | Import paid orders in bulk from a CSV (optionally send confirmations). | `node scripts/orders-import-csv.js --file=orders.csv [--send] [--commit]` | `data_references/csv/orders-import.template.csv` |
-| `scripts/orders-delete-csv.js` | Cancel or hard delete orders listed in a CSV. | `node scripts/orders-delete-csv.js --file=orders.csv [--commit] [--force]` | `data_references/csv/orders-delete.template.csv` |
-| `scripts/06-misc/reports/export-seats.js` | Export seats with provisioning + booking metadata. | `node scripts/06-misc/reports/export-seats.js [--season=...] [--venue=...] [--zone=...]` | `data_references/csv/seats-export.template.csv` |
-| `scripts/sentinels/pending-orders.js` | Watch pending HelloAsso orders and release holds. | `node scripts/sentinels/pending-orders.js [--max-age-minutes=60]` | — |
-| `scripts/06-misc/audit-missing-seats.js` | Audit subscribers referencing seats missing from the season. | `node scripts/06-misc/audit-missing-seats.js <seasonCode> [--venue=<slug>] [--out=...]` | — |
+Miscellaneous operational scripts: exports, audits, order management, and sentinels.
 
-## Admin Console
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `scripts/06-misc/reports/export-orders.js`<br><small>Export Orders (CSV)</small> | Streams orders to CSV using the shared exports service. | `node scripts/06-misc/reports/export-orders.js [--season=<code>] [--venue=<slug>] [--status=paid]` | cli | `data_references/csv/orders-export.template.csv` |
+| `scripts/orders-import-csv.js`<br><small>Import Orders from CSV</small> | Creates paid orders (with tickets) from a CSV and optionally emails confirmations. | `node scripts/orders-import-csv.js --file=<orders.csv> [--send] [--commit]` | cli | — |
+| `scripts/orders-delete-csv.js`<br><small>Delete Orders from CSV</small> | Cancels (soft) or deletes (hard) orders listed in a CSV, voiding their tickets. | `node scripts/orders-delete-csv.js --file=<orders.csv> [--commit] [--force]` | cli | — |
+| `scripts/06-misc/reports/export-seats.js`<br><small>Export Seats (CSV)</small> | Streams seats with provisioning and booking metadata to CSV. | `node scripts/06-misc/reports/export-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>]` | cli | `data_references/csv/seats-export.template.csv` |
+| `scripts/sentinels/pending-orders.js`<br><small>Sentinel: Pending Orders</small> | Reports orders stuck in pending state beyond the expected delay. | `node scripts/sentinels/pending-orders.js [--max-age-minutes=60]` | cli | — |
+| `scripts/06-misc/audit-missing-seats.js`<br><small>Audit Missing Seats</small> | Checks for discrepancies between seat provisioning and subscriptions. | `node scripts/06-misc/audit-missing-seats.js <seasonCode> --venue=<slug>` | cli | — |
 
-* Base URL: `/admin` (subject to `BASE_PATH`).
-* Authentication: Basic auth (`ADMIN_USER`/`ADMIN_PASS`) or Bearer token (`ADMIN_TOKEN`).
-* Features:
-  - Server, MongoDB, PM2 and order metrics at a glance.
-  - Direct download links for CSV exports.
-  - Script runner with optional argument field and inline output.
-  - Confirmation prompt for destructive actions (e.g. database reset).
+## Console d'administration
 
-The console relies on the metadata defined in `src/config/adminScripts.js`. Keep that file updated when adding new scripts so they appear both in the UI and in the documentation tables above.
+- Base URL: `/admin` (subject to `BASE_PATH`).
+- Authentication: Basic auth (`ADMIN_USER`/`ADMIN_PASS`) or bearer token (`ADMIN_TOKEN`).
+- Features: monitoring panels, exports, script runner, and automation job controls.
+

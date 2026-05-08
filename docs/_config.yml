@@ -1,11 +1,11 @@
 title: Belougas Ticketing System (BTS)
-description: Documentation du projet Billetterie (BelougasTicketingSystem)
+description: Documentation source BTS (Markdown) et références opérationnelles
 theme: just-the-docs
 
 url: "https://belou00.github.io"
 baseurl: "/bts"
 
-logo: "/bts/dynamic/assets/logo.png"
+logo: "/bts/logo.png"
 aux_links:
   "Voir sur GitHub":
     - "https://github.com/belou00/bts"

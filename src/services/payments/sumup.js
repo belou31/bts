@@ -181,6 +181,34 @@ async function getCheckoutStatus(intentId) {
 const provider = {
   id: 'sumup',
   label: 'SumUp',
+  docs: {
+    env: [
+      'PAYMENT_PROVIDER',
+      'SUMUP_API_BASE',
+      'SUMUP_TOKEN_URL',
+      'SUMUP_CLIENT_ID',
+      'SUMUP_CLIENT_SECRET',
+      'SUMUP_MERCHANT_CODE',
+      'SUMUP_PAY_TO_EMAIL',
+      'SUMUP_CURRENCY',
+      'SUMUP_RETURN_URL',
+      'SUMUP_CANCEL_URL',
+      'SUMUP_ERROR_URL',
+      'SUMUP_CALLBACK_URL',
+      'SUMUP_WEBHOOK_URL',
+      'SUMUP_OAUTH_SCOPES',
+      'SUMUP_PAYMENT_TYPE',
+      'SUMUP_CHECKOUT_PREFIX'
+    ],
+    stubCommand: 'npm run sumup:stub',
+    defaultApiBase: DEFAULT_API_BASE,
+    webhookDriven: true,
+    notes: [
+      'Uses OAuth client credentials against the SumUp API.',
+      'Requires either SUMUP_MERCHANT_CODE or SUMUP_PAY_TO_EMAIL.',
+      'Supports local development through the SumUp stub by overriding SUMUP_API_BASE and SUMUP_TOKEN_URL.'
+    ]
+  },
   buildReturnUrls,
   createCheckoutIntent,
   getCheckoutIntent,
