@@ -1,9 +1,9 @@
 // src/models/Campaign.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const CampaignSchema = new mongoose.Schema({
   code: { type: String, unique: true },      // ex: RENEW-2025 ou TBH7-2025
-  phase: { type: String, enum: ['renewal','tbh7'] },
+  phase: { type: String, enum: ['renewal','fanclub'] },
   seasonCode: String,
   // "tokens" pour liens personnalisés (renouvellement) ou code partagé (TBH7)
   // pour TBH7 on peut générer un lien avec ?id=TBH7-2025 et contrôler les quotas
@@ -12,4 +12,4 @@ const CampaignSchema = new mongoose.Schema({
   meta: Object
 },{timestamps:true});
 
-module.exports = mongoose.model('Campaign', CampaignSchema);
+export const Campaign = mongoose.models.Campaign || mongoose.model('Campaign', CampaignSchema);

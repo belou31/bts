@@ -1,0 +1,21 @@
+title: Belougas Ticketing System (BTS)
+description: Documentation source BTS (Markdown) et références opérationnelles
+theme: just-the-docs
+
+url: "https://belou00.github.io"
+baseurl: "/bts"
+
+logo: "/bts/logo.png"
+aux_links:
+  "Voir sur GitHub":
+    - "https://github.com/belou00/bts"
+
+search_enabled: true
+heading_anchors: true
+permalink: pretty
+
+# 👉 bouton "Copy" sur les blocs de code
+enable_copy_code_button: true
+
+# Optionnel : ordre par défaut des titres H2/H3 dans la nav latérale
+nav_sort: case_insensitive

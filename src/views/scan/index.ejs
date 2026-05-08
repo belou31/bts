@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="theme-color" content="#0b0f17"/>
+  <title><%= title %></title>
+  <link rel="manifest" href="<%= scope %>manifest.webmanifest">
+  <link rel="stylesheet" href="<%= staticBase %>styles/scan.css">
+</head>
+<body>
+  <% const guestListPath = ((basePath || '') + '/control/guestlist').replace(/\/{2,}/g, '/');
+     const guestListUrl = (forwardedQuery && forwardedQuery.length)
+       ? `${guestListPath}?${forwardedQuery}`
+       : guestListPath;
+  %>
+  <header class="top-bar">
+    <div class="brand">
+      <img alt="BTS" src="<%= assetsBase %>logo.png" onerror="this.style.display='none'"/>
+      <div class="title-block">
+        <strong>ACESS CONTROL</strong>
+        <span>Ticket Scan</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="pill" id="net">offline</span>
+      <a class="pill-link" href="<%= guestListUrl %>" target="_blank" rel="noopener">Ouvrir le mode Liste</a>
+    </div>
+  </header>
+
+  <main class="scan-layout">
+    <section class="scan-panel">
+      <div class="grid">
+        <div class="row row-config">
+          <div class="event-group">
+            <label for="eventSelect">Événement</label>
+            <div class="event-selector">
+              <select id="eventSelect">
+                <option value="">Chargement…</option>
+              </select>
+              <input id="eventId" type="hidden" />
+            </div>
+          </div>
+          <div class="gate-group">
+            <label for="gate">Gate</label>
+            <input id="gate" name="gate" placeholder="Porte / équipe" autocomplete="off" aria-label="Gate"/>
+          </div>
+          <div class="auth-group">
+            <div class="auth-header">
+              <span>Authentification</span>
+              <div class="toggle auth-toggle" id="authToggle" role="switch" aria-checked="false" tabindex="0">
+                <div class="toggle-track">
+                  <span class="toggle-option token" aria-hidden="true">Token</span>
+                  <span class="toggle-option login" aria-hidden="true">Login</span>
+                  <span class="toggle-thumb"><span class="toggle-label">Token</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="auth-fields">
+              <div class="auth-row auth-row-token">
+                <input id="token" placeholder="Token" aria-label="Token"/>
+              </div>
+              <div class="auth-row auth-row-login auth-row-basic auth-hidden">
+                <input id="login" placeholder="Login" autocomplete="username" aria-label="Login"/>
+              </div>
+              <div class="auth-row auth-row-password auth-row-basic auth-hidden">
+                <input id="password" type="password" placeholder="Mot de passe" autocomplete="current-password" aria-label="Mot de passe"/>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls-row top-controls">
+        <div class="scan-inline">
+          <div class="toggle scan-toggle" id="scanToggle" role="switch" aria-checked="false" tabindex="0">
+            <div class="toggle-track">
+              <span class="toggle-option off" aria-hidden="true">Scan OFF</span>
+              <span class="toggle-option on" aria-hidden="true">Scan ON</span>
+              <span class="toggle-thumb"><span class="toggle-label">Scan OFF</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="mode-control-stack">
+          <div class="mode-inline">
+            <span class="mode-label">Mode scan</span>
+            <div class="toggle mode-toggle" id="modeToggle" role="switch" aria-checked="true" tabindex="0">
+              <div class="toggle-track">
+                <span class="toggle-option ticket" aria-hidden="true">Ticket</span>
+                <span class="toggle-option order" aria-hidden="true">Commande</span>
+                <span class="toggle-thumb"><span class="toggle-label">Commande</span></span>
+              </div>
+            </div>
+          </div>
+          <div class="control-inline">
+            <span class="control-label">Control</span>
+            <div class="toggle control-toggle" id="controlToggle" role="switch" aria-checked="false" tabindex="0">
+              <div class="toggle-track">
+                <span class="toggle-option each" aria-hidden="true">Each</span>
+                <span class="toggle-option once" aria-hidden="true">Once</span>
+                <span class="toggle-thumb"><span class="toggle-label">Each</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="preview-wrapper" id="previewWrapper">
+        <video id="preview" playsinline></video>
+        <canvas id="overlay"></canvas>
+        <div class="preview-badge" id="previewBadge" aria-hidden="true"></div>
+      </div>
+      <button id="installBtn" style="display:none">Installer</button>
+
+      <div class="status-row">
+        <div class="status" id="status">Prêt.</div>
+        <div class="scan-count">
+          <span class="pill stat-control" id="scannedCount">0</span>
+          <span class="scan-count-label">à contrôler</span>
+        </div>
+      </div>
+    </section>
+    <section class="results" id="results"></section>
+  </main>
+
+  <script>
+    // Variables fournies par le serveur (fallback côté client si besoin)
+    window.__BTS__ = {
+      basePath: <%- JSON.stringify(basePath) %>,
+      scope:    <%- JSON.stringify(scope) %>
+    };
+  </script>
+  <script src="<%= staticBase %>js/scan.js"></script>
+</body>
+</html>

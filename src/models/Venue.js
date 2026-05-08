@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const VenueZoneSchema = new mongoose.Schema({
   key: { type: String, required: true },              // ex: "A", "B", "DEBOUT"
@@ -11,8 +11,8 @@ const VenueZoneSchema = new mongoose.Schema({
 const VenueSchema = new mongoose.Schema({
   slug:   { type: String, unique: true, index: true }, // ex: "patinoire-bdl"
   name:   { type: String, required: true },
-  svgPath:{ type: String, required: true },            // ex: /public/venues/patinoire-bdl/plan.svg
+  svgPath:{ type: String, required: true },            // ex: /dynamic/venues/patinoire-bdl/plan.svg
   zones:  { type: [VenueZoneSchema], default: [] }
 }, { timestamps: true });
 
-module.exports = mongoose.model('Venue', VenueSchema);
+export const Venue = mongoose.models.Venue || mongoose.model('Venue', VenueSchema);

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>{{clubName}} — Confirmation (Match / Évènement)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+  body{margin:0;padding:0;background:#ffffff;color:#111827;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif}
+  .wrap{max-width:720px;margin:0 auto;padding:24px}
+  .card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px;box-shadow:0 6px 18px rgba(15,23,42,0.06)}
+  h1{margin:0 0 12px 0;font-size:20px;color:#0f172a}
+  h2{margin:16px 0 6px 0;font-size:16px;color:#0f172a}
+  p{margin:0 0 10px 0;line-height:1.5;color:#111827}
+  .muted{color:#475569}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .badge{display:inline-block;padding:3px 8px;border-radius:999px;border:1px solid #cbd5e1;background:#e2e8f0;color:#0f172a;font-size:12px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left;color:#111827}
+  th:last-child, td:last-child{text-align:right}
+  .total{font-weight:600}
+  .note{margin-top:12px;padding:10px;border:1px dashed #cbd5e1;border-radius:8px;background:#eef2f7;color:#111827}
+  a{color:#0f172a}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Les Bélougas — {{order.eventName}}</h1>
+      <p>Bonjour <b>{{payerFirstName}} {{payerLastName}}</b>,</p>
+      <p>Voici le récapitulatif de votre commande de billets.</p>
+
+      <div class="grid">
+        <div>
+          <h2>Détails</h2>
+          <p class="muted">Saison : <b>{{order.seasonCode}}</b></p>
+          <p class="muted">Lieu : <b>{{order.venueSlug}}</b></p>
+        </div>
+        <div>
+          <h2>Paiement</h2>
+          <p class="muted" style="display:none;"><strong>Échéancier :</strong> {{order.split}} fois — {{order.installmentsHuman}}</p>
+          <p class="muted">Total réglé : <b>{{order.totalEuro}}</b></p>
+        </div>
+      </div>
+
+      <h2>Vos places</h2>
+      <table role="table" aria-label="Vos lignes">
+        <thead>
+          <tr>
+            <th>Place / Zone</th>
+            <th>Bénéficiaire</th>
+            <th>Tarif</th>
+            <th>Montant</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{LINES_HTML}}
+          <tr>
+            <td colspan="2" class="total">Total</td>
+            <td class="total">{{order.totalEuro}}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {{haOrderBlock}}
+
+      <!-- Bloc billets/QR injecté par le code si disponible -->
+      {{TICKETS_HTML}}
+
+      <div class="note">
+        Présentez les QR ci-dessus à l’entrée le jour du match.  
+        Si vous ne voyez pas les QR, un envoi séparé pourra suivre.
+      </div>
+
+      <p class="muted" style="margin-top:12px">{{clubName}} — Merci pour votre soutien ❤️🖤</p>
+    </div>
+  </div>
+</body>
+</html>

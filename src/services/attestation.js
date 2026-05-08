@@ -1,8 +1,8 @@
 // src/services/attestation.js
-const { fmtEuros } = require('../utils/money'); // suppose que tu as ce helper (sinon remplace par (c)=> (c/100).toFixed(2)+' €')
+import { fmtEuros } from '../utils/money.js';
 
 function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById }) {
-  const logoPath = (process.env.APP_URL || '').replace(/https?:\/\/[^/]+/, '') + '/static/img/logo.png';
+  const logoPath = (process.env.APP_URL || '').replace(/https?:\/\/[^/]+/, '') + '/dynamic/assets/logo.png';
   const lines = Array.isArray(order?.lines) ? order.lines : [];
 
   // Groupe par subscriberId pour afficher le numéro d’abonné
@@ -25,7 +25,12 @@ function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById 
           <div style="font-weight:600">${subLabel}</div>
           <div style="font-size:12px;color:#64748b">N° abonné: <b>${subNo}</b></div>
           <ul style="margin:8px 0 0 18px">
-            ${arr.map(x => `<li>${x.seatId} — ${x.tariffCode || 'TARIF'} ${(x.priceCents!=null)?'('+fmtEuros(x.priceCents)+')':''}</li>`).join('')}
+            ${arr.map(x => {
+              const isVirtual = /-Z\d{3,}$/i.test(String(x.seatId||''));
+              const place = isVirtual ? (x.zoneKey || '') : (x.seatId || '');
+              return `<li>${place} — ${x.tariffCode || 'TARIF'} ${(x.priceCents!=null)?'('+fmtEuros(x.priceCents)+')':''}</li>`;
+            }).join('')}
+
           </ul>
         </td>
       </tr>
@@ -67,4 +72,4 @@ function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById 
   </div>`;
 }
 
-module.exports = { renderAttestationHtml };
+exports { renderAttestationHtml };

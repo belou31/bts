@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Renouvellement d’abonnement — {{clubName}}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+  body{margin:0;padding:0;background:#0b0f17;;color:#FFFFFF;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif}
+  .wrap{max-width:680px;margin:0 auto;padding:24px}
+  .card{background:#0f1622;color:#FFFFFF;border:1px solid #111827;border-radius:12px;padding:20px}
+  h1{margin:0 0 12px 0;font-size:20px;color:#FFFFFF}
+  h2{margin:16px 0 6px 0;font-size:16px;color:#FFFFFF}
+  p{margin:0 0 10px 0;line-height:1.5;color:#FFFFFF}
+  .muted{color:#FFFFFF}
+  .btn{display:inline-block;background:#5080aa;color:#000000;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:600}
+  .note{margin-top:12px;padding:10px;border:1px dashed #1f2937;border-radius:8px;background:#0b1220;color:#FFFFFF}
+  ul{margin:8px 0 0 20px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Renouvelez votre abonnement pour {{seasonCode}}</h1>
+      <p>Bonjour {{firstName}} {{lastName}},</p>
+      <p>Vous pouvez <b>renouveler votre abonnement</b> pour {{seasonCode}} à l’aide de votre lien personnel&nbsp;:</p>
+      <p><a class="btn" href="{{renewUrl}}">Je renouvelle maintenant</a></p>
+
+      {{seatsBlock}}
+    <br/>
+    {{deadlineBlock}}
+      <p class="note">Sans réservation de votre part, les places seront libérées à cette date.
+        <br/>Le paiement est sécurisé via {{paymentProviderLabel}}. 
+        <br/>Les billets (QR codes) seront envoyés match par match à l’adresse <b>{{email}}</b>.</p>
+
+      <p class="muted" style="margin-top:12px">{{clubName}} — Merci pour votre soutien ❤️🖤</p>
+    </div>
+  </div>
+</body>
+</html>

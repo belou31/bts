@@ -1,31 +1,26 @@
 // src/server.js
-const loadEnv = require('./config/env');
-loadEnv();
+import 'dotenv/config';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const http = require('http');
-const connectMongo = require('./loaders/mongo');
-const buildApp = require('./loaders/express');
+import { connectDB } from './loaders/mongoose.js';
+import { buildApp } from './loaders/express.js';
 
-async function start() {
-  try {
-    await connectMongo();
-    const app = buildApp();
-    const port = Number(process.env.PORT || 8080);
-    const server = http.createServer(app);
-    server.listen(port, () => {
-      console.log(`[BTS] API listening on http://localhost:${port}`);
-    });
+await connectDB();
 
-    const shutdown = () => {
-      console.log('[BTS] Received SIGINT, shutting down...');
-      server.close(() => process.exit(0));
-    };
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
-  } catch (err) {
-    console.error('Fatal start error', err);
-    process.exit(1);
-  }
-}
+const HOST = process.env.HOST || '127.0.0.1';
+const PORT = Number(process.env.PORT || 8080);
 
-start();
+const app = await buildApp();
+
+app.set('view engine', 'ejs');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+app.set('views', path.resolve(__dirname, 'views'));
+
+  app.listen(PORT, HOST, () => {
+  const env = process.env.APP_ENV || 'development';
+  console.log(`[server] ${env} listening on http://${HOST}:${PORT}`);
+});
+
+

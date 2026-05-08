@@ -1,7 +1,9 @@
 // src/routes/venues.js
-const router = require('express').Router();
-const Venue = require('../models/Venue');
-const SeatCatalog = require('../models/SeatCatalog');
+import express from 'express';
+import { Venue } from '../models/Venue.js';
+import { SeatCatalog } from '../models/SeatCatalog.js';
+
+const router = express.Router();
 
 router.get('/', async (_req,res,next)=>{
   try {
@@ -20,4 +22,4 @@ router.get('/:slug/seats', async (req,res,next)=>{
   } catch(e){ next(e); }
 });
 
-module.exports = router;
+export default router;

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>BTS · Admin Tarifs</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="../static/styles/admin.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">BTS · Admin Tarifs</div>
+    <div class="auth">
+      <label>Auth header:
+        <input id="authHeader" type="text" placeholder="Bearer <token> ou x-admin-key: <secret>" />
+      </label>
+      <button id="saveAuth">Enregistrer</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <nav class="tabs">
+      <button class="tab active" data-tab="catalog">Catalogue des tarifs</button>
+      <button class="tab" data-tab="prices">Prix par zone</button>
+    </nav>
+
+    <!-- CATALOG -->
+    <section id="tab-catalog" class="panel active">
+      <div class="panel-head">
+        <div>
+          <button id="btnCatReload">Recharger</button>
+          <button id="btnCatAdd">Ajouter une ligne</button>
+        </div>
+        <div>
+          <input type="file" id="catCsvFile" accept=".csv" />
+          <button id="btnCatImport">Importer CSV</button>
+          <button id="btnCatExport">Exporter CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="catTable">
+          <thead>
+            <tr>
+              <th>code</th><th>label</th><th>requiresField</th><th>fieldLabel</th>
+              <th>requiresInfo</th><th>active</th><th>sortOrder</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PRICES -->
+    <section id="tab-prices" class="panel">
+      <div class="panel-head">
+        <div class="row">
+          <label>Saison: <input id="pSeason" placeholder="2025-2026" /></label>
+          <label>Lieu (venueSlug): <input id="pVenue" placeholder="patinoire-blagnac" /></label>
+          <button id="btnPriceReload">Recharger</button>
+          <button id="btnPriceAdd">Ajouter une ligne</button>
+        </div>
+        <div>
+          <input type="file" id="priceCsvFile" accept=".csv" />
+          <button id="btnPriceImport">Importer CSV</button>
+          <button id="btnPriceExport">Exporter CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="priceTable">
+          <thead>
+            <tr>
+              <th>zoneKey</th><th>tariffCode</th><th>priceCents</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="../static/js/admin-pricing.js"></script>
+</body>
+</html>

@@ -1,0 +1,3259 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>BTS — Administration</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #fafafa;
+      --fg: #222;
+      --muted: #666;
+      --border: #e2e2e2;
+      --accent: #2360c6;
+      --danger: #b3001e;
+      --success: #0b7d2b;
+      --warn: #b36b00;
+      --card-bg: #fff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      margin: 24px;
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+    }
+    h1 { font-size: 20px; margin: 0 0 20px; }
+    h2 { font-size: 16px; margin: 0 0 8px; }
+    h3 { font-size: 15px; margin: 16px 0 8px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 1px 1px rgba(0,0,0,0.04);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      text-align: left;
+    }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #eee;
+      font-size: 12px;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .warn { color: var(--warn); }
+    .danger { color: var(--danger); }
+    .success { color: var(--success); }
+    .btn {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-decoration: none;
+      color: inherit;
+      background: #fff;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #f3f6ff; }
+    .btn-danger {
+      color: var(--danger);
+      border-color: #f4c2c2;
+      background: #fff6f6;
+    }
+    .btn-danger:hover {
+      background: #ffecec;
+    }
+    .btn-small { padding: 4px 8px; font-size: 12px; margin-left: 6px; margin-top: 0; }
+    .btn-link { border: none; background: transparent; color: var(--accent); padding: 0; margin-left: 8px; cursor: pointer; font-weight: 500; }
+    .btn-link:hover { text-decoration: underline; background: transparent; }
+    .scripts-card {
+      margin-top: 24px;
+    }
+    .script-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .script-tabs-rail {
+      position: sticky;
+      top: 0;
+      z-index: 8;
+      padding: 10px 0 12px;
+      margin-bottom: 16px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+    }
+    .script-tabs-rail .script-tabs {
+      margin: 0;
+    }
+    .script-tabs-rail .monitoring-tabs {
+      margin: 0;
+    }
+    .tab-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .script-tab {
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: transparent;
+      cursor: default;
+      font: inherit;
+      transition: background 0.15s, border-color 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .script-tab.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .script-tab.sub-tab {
+      padding: 6px 10px;
+      opacity: 0.9;
+    }
+    .script-group {
+      display: none;
+      gap: 16px;
+    }
+    .script-group.active { display: grid; }
+    .script-item {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      background: #fff;
+      box-shadow: 0 1px 1px rgba(0,0,0,0.03);
+    }
+    .script-item.danger {
+      border-color: var(--danger);
+    }
+    .automation-jobs {
+      margin-top: 16px;
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+    }
+    .automation-jobs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .automation-jobs table {
+      font-size: 12px;
+      border: 1px solid var(--border);
+    }
+    .automation-jobs thead th {
+      background: #f7f9ff;
+    }
+    .automation-job-status {
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .automation-jobs-empty {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .automation-jobs tr.highlight {
+      background: #fff7d6;
+      transition: background 0.8s ease;
+    }
+    .script-item header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+    }
+    .script-item header .title {
+      font-weight: 600;
+      font-size: 15px;
+    }
+    .script-item header .badge {
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: #f3f3f3;
+      border: 1px solid var(--border);
+    }
+    .script-desc { margin: 12px 0; color: var(--muted); }
+    .script-meta { margin-bottom: 12px; font-size: 13px; color: var(--muted); }
+    .script-meta code {
+      display: inline-block;
+      padding: 2px 4px;
+      background: #f5f5f5;
+      border-radius: 6px;
+      border: 1px solid #e1e1e1;
+      font-size: 12px;
+    }
+    form.script-runner {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    form.script-runner input[type="text"],
+    form.script-runner input[type="password"] {
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+    }
+    form.script-runner button {
+      align-self: flex-start;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    form.script-runner button[disabled] {
+      opacity: 0.5;
+      cursor: wait;
+    }
+    .script-output {
+      border-radius: 8px;
+      border: 1px solid #e1e1e1;
+      background: #f7f7f7;
+      padding: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      min-height: 24px;
+    }
+    .file-list{list-style:none;padding:0;margin:0}
+    .file-list li{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+    .file-list code{flex:1}
+    .file-meta{font-size:12px;color:var(--muted)}
+    .inline-form{display:inline-flex;align-items:center;gap:6px;margin-left:6px}
+    .inline-form input[type="text"]{padding:4px 6px;font-size:12px;border-radius:6px;border:1px solid var(--border);width:140px}
+    .inline-form input[type="file"]{display:none}
+    .upload-status{font-size:12px;color:var(--muted);margin-left:6px;min-height:16px}
+    .templates, .notes {
+      margin: 8px 0;
+      padding-left: 16px;
+      color: var(--muted);
+    }
+    .templates li,
+    .notes li {
+      margin-bottom: 4px;
+    }
+    .script-form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px 12px;
+      margin-top: 4px;
+    }
+    .script-form-grid label {
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .script-form-grid label span {
+      font-weight: 500;
+      color: inherit;
+    }
+    .script-form-grid label input[type="text"] {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+      color: var(--fg);
+    }
+    .script-form-grid label select {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+      color: var(--fg);
+      background: #fff;
+    }
+    .script-form-grid label select[multiple] {
+      min-height: 96px;
+    }
+    .field-hint {
+      display: block;
+      margin-top: 4px;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+    .script-form-grid label.checkbox {
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .script-form-grid label.checkbox input[type="checkbox"] {
+      margin: 0;
+    }
+    .script-form-grid label.checkbox span {
+      font-weight: 500;
+    }
+    .topbar-shell {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+    }
+    .topbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+    }
+    .brand-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+    .brand-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+    }
+    .menu-stack {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      align-items: center;
+    }
+    .dropdown {
+      position: relative;
+    }
+    .dropdown summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    .dropdown summary::-webkit-details-marker { display: none; }
+    .dropdown[open] summary {
+      border-color: var(--accent);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    }
+    .dropdown-menu {
+      position: absolute;
+      min-width: 220px;
+      margin-top: 6px;
+      padding: 8px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+      display: grid;
+      gap: 6px;
+      z-index: 30;
+    }
+    .dropdown a {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 8px;
+      text-decoration: none;
+      color: inherit;
+      border: 1px solid transparent;
+      transition: background 0.12s, border-color 0.12s;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .dropdown a:hover {
+      background: #f5f7ff;
+      border-color: var(--border);
+    }
+    .dropdown .pill {
+      font-size: 11px;
+      padding: 2px 6px;
+      background: #eef2ff;
+      border: 1px solid #dfe6ff;
+      color: #2c4fac;
+    }
+    .view-selector {
+      min-width: 160px;
+    }
+    .operations-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .io-layout {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 20px;
+      align-items: stretch;
+      min-height: calc(100vh - 160px);
+    }
+    @media (max-width: 1100px) {
+      .io-layout {
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+    }
+    .io-card {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .monitoring-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .monitoring-tabs {
+      margin: 16px 0;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .monitoring-tabs .menu-link {
+      flex: 0 0 auto;
+    }
+    .monitoring-panel {
+      display: none;
+    }
+    .monitoring-panel.active {
+      display: block;
+    }
+    .metrics-list {
+      list-style: none;
+      padding: 0;
+      margin: 8px 0 0;
+    }
+    .metrics-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+    .inline-filter-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+      align-items: flex-end;
+    }
+    .inline-filter-form label {
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .inline-filter-form select {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+    }
+    .inputs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .inputs-header h2 {
+      margin: 0;
+    }
+    .inputs-header form {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .btn-upload {
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: none;
+      background: var(--accent);
+      color: #0b1020;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-upload:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    .scroll-limited {
+      max-height: calc(5 * 48px);
+      overflow-y: auto;
+    }
+    .io-card .scroll-limited {
+      max-height: none;
+      flex: 1;
+      min-height: 320px;
+    }
+    .io-subsection {
+      margin-top: 12px;
+    }
+    .io-subsection h3 {
+      margin-top: 0;
+      margin-bottom: 6px;
+    }
+    .io-subsection .muted {
+      margin-bottom: 8px;
+      display: block;
+    }
+    .scroll-table {
+      max-height: 240px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .scroll-table table {
+      margin: 0;
+    }
+    .empty-state {
+      color: var(--muted);
+      font-size: 13px;
+      padding: 8px 0;
+    }
+    .topbar-shell {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+    }
+    .topbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+    }
+    .brand-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+    .brand-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+    }
+    .menu-stack {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      align-items: center;
+    }
+    .dropdown {
+      position: relative;
+    }
+    .dropdown summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    .dropdown summary::-webkit-details-marker { display: none; }
+    .dropdown[open] summary {
+      border-color: var(--accent);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    }
+    .dropdown-menu {
+      position: absolute;
+      min-width: 220px;
+      margin-top: 6px;
+      padding: 8px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+      display: grid;
+      gap: 6px;
+      z-index: 30;
+    }
+    .dropdown a {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 8px;
+      text-decoration: none;
+      color: inherit;
+      border: 1px solid transparent;
+      transition: background 0.12s, border-color 0.12s;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .dropdown a:hover {
+      background: #f5f7ff;
+      border-color: var(--border);
+    }
+    .dropdown .pill {
+      font-size: 11px;
+      padding: 2px 6px;
+      background: #eef2ff;
+      border: 1px solid #dfe6ff;
+      color: #2c4fac;
+    }
+    .view-selector {
+      min-width: 160px;
+    }
+    .plan-view {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .plan-filter-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    .plan-filter-form label {
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+      color: var(--muted);
+      min-width: 220px;
+    }
+    .plan-filter-form select {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+      background: #fff;
+      color: var(--fg);
+    }
+    .plan-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 16px;
+      align-items: start;
+    }
+    .plan-canvas {
+      padding: 10px;
+    }
+    .plan-object {
+      width: 100%;
+      min-height: 72vh;
+      max-height: 82vh;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+    }
+    .plan-side {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: sticky;
+      top: 88px;
+    }
+    .plan-seat-panel {
+      display: none;
+    }
+    .plan-seat-panel.active {
+      display: block;
+    }
+    .plan-seat-panel dl {
+      margin: 0;
+      display: grid;
+      gap: 10px;
+    }
+    .plan-seat-panel dt {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .plan-seat-panel dd {
+      margin: 2px 0 0;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    .plan-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .plan-legend .pill {
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+    @media (max-width: 1180px) {
+      .plan-layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .plan-side {
+        position: static;
+      }
+      .plan-object {
+        min-height: 62vh;
+      }
+    }
+    .records-view {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .records-toolbar {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+    .records-toolbar label {
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .records-toolbar select,
+    .records-toolbar input[type="search"] {
+      margin-top: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+      color: var(--fg);
+      background: #fff;
+    }
+    .records-table-wrap {
+      width: 100%;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      max-height: calc(100vh - 250px);
+    }
+    .records-table {
+      width: 100%;
+      min-width: 980px;
+      border-collapse: collapse;
+    }
+    .records-table thead th {
+      position: sticky;
+      top: 0;
+      background: #f7f9ff;
+      z-index: 2;
+    }
+    @media (max-width: 980px) {
+      .records-toolbar {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .records-table-wrap {
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <% const tokenQueryString = tokenQuery ? ('?' + tokenQuery) : ''; %>
+  <% const baseOperate = urlFor('/admin/operate') + tokenQueryString; %>
+  <% const baseIo = urlFor('/admin/io') + tokenQueryString; %>
+  <% const baseTemplates = urlFor('/admin/templates') + tokenQueryString; %>
+  <% const baseMonitor = urlFor('/admin/monitor') + tokenQueryString; %>
+  <% const basePlan = urlFor('/admin/plan') + tokenQueryString; %>
+  <% const baseOrders = urlFor('/admin/orders') + tokenQueryString; %>
+  <% const baseTickets = urlFor('/admin/tickets') + tokenQueryString; %>
+  <% 
+    const compactLabel = (lbl = '') => {
+      const clean = lbl.replace(/\s+/g, ' ').trim();
+      const dashParts = clean.split('—');
+      const body = dashParts.length > 1 ? dashParts[1].trim() : clean;
+      const words = body.split(' ');
+      const shortBody = words.slice(0, 2).join(' ');
+      const prefix = dashParts.length > 1 ? dashParts[0].trim() : '';
+      return (prefix ? `${prefix} ${shortBody}` : shortBody).trim();
+    };
+    const extractNum = (label = '', id = '') => {
+      const m1 = String(label).match(/^\s*(\d+)/);
+      if (m1) return m1[1];
+      const m2 = String(id).match(/^(\d+)/);
+      return m2 ? m2[1] : '';
+    };
+    const shortMenuLabel = (label = '', id = '') => {
+      const num = extractNum(label, id);
+      if (String(label).toLowerCase().includes('renewal')) {
+        return `${num ? num + ' ' : ''}Renewal`;
+      }
+      const cleaned = label.replace(/Management/gi, '').trim();
+      const compact = compactLabel(cleaned);
+      return num ? `${num} ${compact.replace(/^\d+\s*/, '').trim()}` : compact;
+    };
+    const groupedMenu = [];
+    const groupMap = new Map();
+    (scriptGroups || []).forEach((g) => {
+      const baseId = g.id === '03-season-management-renewal' ? '03-season-management' : g.id;
+      let entry = groupMap.get(baseId);
+      if (!entry) {
+        entry = { id: baseId, group: null, children: [] };
+        groupMap.set(baseId, entry);
+        groupedMenu.push(entry);
+      }
+      if (g.id === baseId) {
+        entry.group = g;
+      } else {
+        entry.children.push(g);
+      }
+    });
+  %>
+  <div class="topbar-shell">
+    <div class="topbar">
+      <div class="brand-chip">
+        <span class="brand-logo">B</span>
+        <span>BTS Admin</span>
+      </div>
+
+      <div class="menu-stack">
+        <% groupedMenu.forEach(entry => { 
+             const base = entry.group || entry.children[0];
+             const rawLabel = base?.label || base?.id || '';
+             const label = shortMenuLabel(rawLabel, base?.id || '');
+             const hrefBase = `${baseOperate}${baseOperate.includes('?') ? '&' : '?'}group=${encodeURIComponent(base?.id || '')}`;
+             const isActive = activeGroupId === (base?.id || '') || entry.children.some(c => c.id === activeGroupId);
+             if (entry.children.length) { %>
+          <details class="dropdown">
+            <summary class="script-tab <%= isActive ? 'active' : '' %>"><%= label %></summary>
+            <div class="dropdown-menu">
+              <% entry.children.forEach(child => { 
+                   const childHref = `${baseOperate}${baseOperate.includes('?') ? '&' : '?'}group=${encodeURIComponent(child.id)}`;
+                   const childLabel = shortMenuLabel(child.label || child.id, child.id);
+              %>
+                <a href="<%= childHref %>" class="<%= child.id === activeGroupId ? 'active' : '' %>">
+                  <span><%= childLabel %></span>
+                  <span class="pill">sous-chap.</span>
+                </a>
+              <% }); %>
+            </div>
+          </details>
+        <% } else { %>
+          <a href="<%= hrefBase %>" class="script-tab <%= isActive ? 'active' : '' %>"><%= label %></a>
+        <% } }); %>
+      </div>
+
+      <div>
+        <details class="dropdown view-selector">
+          <summary>Vue: <%= viewMode === 'io' ? 'Data I/O' : (viewMode === 'monitor' ? 'Monitoring' : (viewMode === 'templates' ? 'Templates' : (viewMode === 'plan' ? 'Plan' : (viewMode === 'orders' ? 'Orders' : (viewMode === 'tickets' ? 'Tickets' : 'Exploitation'))))) %></summary>
+          <div class="dropdown-menu">
+            <a href="<%= baseOperate %>" class="<%= viewMode === 'operate' ? 'active' : '' %>">Exploitation</a>
+            <a href="<%= baseIo %>" class="<%= viewMode === 'io' ? 'active' : '' %>">Data I/O</a>
+            <a href="<%= baseTemplates %>" class="<%= viewMode === 'templates' ? 'active' : '' %>">Templates</a>
+            <a href="<%= baseMonitor %>" class="<%= viewMode === 'monitor' ? 'active' : '' %>">Monitoring</a>
+            <a href="<%= basePlan %>" class="<%= viewMode === 'plan' ? 'active' : '' %>">Plan</a>
+            <a href="<%= baseOrders %>" class="<%= viewMode === 'orders' ? 'active' : '' %>">Orders</a>
+            <a href="<%= baseTickets %>" class="<%= viewMode === 'tickets' ? 'active' : '' %>">Tickets</a>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <header>
+    <h1>BTS — Administration</h1>
+  </header>
+
+  <% if (viewMode === 'io') { %>
+    <div class="operations-grid io-layout">
+      <section class="card io-card">
+        <div class="inputs-header">
+          <h2>Entrées disponibles (data/inputs)</h2>
+          <% const uploadAction = urlFor('/admin/uploads') + (tokenSuffix || ''); %>
+          <form class="inline-form" data-upload-form data-upload-dir="" action="<%= uploadAction %>" method="post">
+            <input type="file" name="file" data-upload-input hidden />
+            <input type="hidden" name="targetName" data-upload-target />
+            <button type="button" class="btn-upload" data-upload-trigger>Uploader</button>
+            <span class="upload-status" data-upload-status></span>
+          </form>
+        </div>
+        <% if (!inputsList || !inputsList.length) { %>
+          <div class="muted">Ajoutez vos CSV/SVG grâce au bouton ci-dessus.</div>
+        <% } else { %>
+          <% const deleteInputsUrl = urlFor('/admin/inputs/delete') + (tokenSuffix || ''); %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of inputsList || []) {
+                 const dlUrl = urlFor('/admin/inputs/download') + '?file=' + encodeURIComponent(file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.name %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                <button
+                  type="button"
+                  class="btn btn-small btn-danger"
+                  data-delete-button
+                  data-delete-url="<%= deleteInputsUrl %>"
+                  data-file="<%= file.rel %>"
+                  data-label="Supprimer">Supprimer</button>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+
+      <section class="card io-card">
+        <h2>Fichiers générés (data/outputs)</h2>
+        <% if (!outputsList || !outputsList.length) { %>
+          <div class="muted">Aucun export enregistré pour le moment.</div>
+        <% } else { %>
+          <% const deleteOutputsUrl = urlFor('/admin/outputs/delete') + (tokenSuffix || ''); %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of outputsList || []) {
+                 const dlUrl = urlFor('/admin/outputs/download') + '?file=' + encodeURIComponent(file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.name %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                <button
+                  type="button"
+                  class="btn btn-small btn-danger"
+                  data-delete-button
+                  data-delete-url="<%= deleteOutputsUrl %>"
+                  data-file="<%= file.rel %>"
+                  data-label="Supprimer">Supprimer</button>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+
+      <section class="card io-card">
+        <div class="inputs-header">
+          <h2>Personnalisation (lecture seule)</h2>
+        </div>
+
+        <div class="io-subsection">
+          <h3>JSON (data/customization)</h3>
+          <% if (!customizationList || !customizationList.length) { %>
+            <div class="muted">Aucune personnalisation détectée.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of customizationList || []) {
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li>
+                  <code><%= file.rel %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+        </div>
+
+        <div class="io-subsection">
+          <h3>Public (public/dynamic)</h3>
+          <div class="muted">Assets dynamiques (public/dynamic/assets)</div>
+          <% if (!dynamicAssetsList || !dynamicAssetsList.length) { %>
+            <div class="muted">Aucun asset dynamique pour le moment.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of dynamicAssetsList || []) {
+                   const assetUrl = urlFor('/dynamic/assets/' + encodeURIComponent(file.rel));
+              %>
+                <li>
+                  <code><%= file.name %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= assetUrl %>" download="<%= file.name %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+          <div class="muted" style="margin-top:8px;">Lieux (public/dynamic/venues)</div>
+          <% if (!venueResources || !venueResources.length) { %>
+            <div class="muted">Aucun plan ou vue détecté.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const venue of venueResources) { %>
+                <li>
+                  <div><strong><%= venue.venueSlug %></strong></div>
+                  <% if (venue.plan) { const planUrl = urlFor('/' + venue.plan.rel); %>
+                    <div class="file-meta">Plan (<%= (venue.plan.size/1024).toFixed(1) %> KB)
+                      <a class="btn btn-small" href="<%= planUrl %>" download="plan.svg">Télécharger</a>
+                    </div>
+                  <% } else { %>
+                    <div class="file-meta muted">Plan manquant</div>
+                  <% } %>
+                  <% if (venue.views && venue.views.length) { %>
+                    <div class="file-meta">Vues :</div>
+                    <div class="file-meta" style="display:flex;flex-wrap:wrap;gap:6px;">
+                      <% for (const view of venue.views) { const viewUrl = urlFor('/' + view.rel); %>
+                        <a class="btn btn-small" href="<%= viewUrl %>" download="<%= view.slug %>.svg"><%= view.slug %></a>
+                      <% } %>
+                    </div>
+                  <% } else { %>
+                    <div class="file-meta muted">Aucune vue</div>
+                  <% } %>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+        </div>
+
+        <div class="io-subsection">
+          <h3>Templates (data/templates)</h3>
+          <% if (!dataTemplatesList || !dataTemplatesList.length) { %>
+            <div class="muted">Aucun template détecté.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of dataTemplatesList || []) {
+                   const tplUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li>
+                  <code><%= file.rel %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= tplUrl %>" download="<%= file.name %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+        </div>
+      </section>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'templates') { %>
+    <div class="operations-grid io-layout">
+      <section class="card io-card">
+        <h2>.env & Customization</h2>
+        <h3>.env (data_references/env)</h3>
+        <% if (!templatesEnv || !templatesEnv.length) { %>
+          <div class="muted">Aucun fichier détecté dans data_references/env.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesEnv || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/env/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+
+        <h3>Customizations (data_references/customization)</h3>
+        <% if (!customizationList || !customizationList.length) { %>
+          <div class="muted">Aucune customization détectée.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of customizationList || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+
+      <section class="card io-card">
+        <h2>Templates e-mail & Tickets</h2>
+        <h3>E-mail (data_references/templates/email)</h3>
+        <% if (!templatesEmail || !templatesEmail.length) { %>
+          <div class="muted">Aucun template détecté dans data_references/templates/email.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesEmail || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/email/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+
+        <h3>Tickets (data_references/templates/tickets)</h3>
+        <% if (!templatesTickets || !templatesTickets.length) { %>
+          <div class="muted">Aucun template détecté dans data_references/templates/tickets.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesTickets || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/tickets/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+
+      <section class="card io-card">
+        <h2>Templates CSV & SVG</h2>
+        <h3>CSV (data_references/csv)</h3>
+        <% if (!templatesCsv || !templatesCsv.length) { %>
+          <div class="muted">Aucun template détecté dans data_references/csv.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesCsv || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/csv/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+
+        <h3>SVG (data_references/svg)</h3>
+        <% if (!templatesSvg || !templatesSvg.length) { %>
+          <div class="muted">Aucun template détecté dans data_references/svg.</div>
+        <% } else { %>
+          <ul class="file-list scroll-limited">
+            <% for (const file of templatesSvg || []) {
+                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/svg/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+            %>
+              <li>
+                <code><%= file.rel %></code>
+                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+              </li>
+            <% } %>
+          </ul>
+        <% } %>
+      </section>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'plan' && planView) { %>
+    <div class="plan-view">
+      <section class="card">
+        <h2>Plan administrateur</h2>
+        <form method="get" action="<%= basePlan %>" class="plan-filter-form">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <label>
+            Saison
+            <select name="season" data-auto-submit="change">
+              <% if (planView.seasons && planView.seasons.length) { %>
+                <% for (const s of planView.seasons) { %>
+                  <option value="<%= s.code %>" <%= s.code === planView.selectedSeasonCode ? 'selected' : '' %>>
+                    <%= s.code %><%= s.name ? ' — ' + s.name : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucune saison</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Événement
+            <select name="event" data-auto-submit="change">
+              <% if (planView.events && planView.events.length) { %>
+                <% for (const ev of planView.events) { const eventDate = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
+                  <option value="<%= ev.slug %>" <%= ev.slug === planView.selectedEventSlug ? 'selected' : '' %>>
+                    <%= ev.slug %><%= ev.name ? ' — ' + ev.name : '' %><%= eventDate ? ' (' + eventDate + ')' : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucun événement</option>
+              <% } %>
+            </select>
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Actualiser</button></noscript>
+        </form>
+        <% if (planView.selectedEvent) { %>
+          <div class="muted" style="margin-top:8px;">
+            <strong><%= planView.selectedEvent.name || planView.selectedEvent.slug %></strong>
+            · <%= planView.selectedEvent.startsAt ? new Date(planView.selectedEvent.startsAt).toLocaleString() : 'Date non définie' %>
+            · Lieu: <%= planView.selectedEvent.venueSlug || planView.venueSlug || '—' %>
+          </div>
+        <% } %>
+      </section>
+
+      <div class="plan-layout">
+        <section class="card plan-canvas">
+          <% if (planView.planUrl) { %>
+            <object
+              class="plan-object"
+              data-admin-plan-object
+              id="adminPlanObject"
+              type="image/svg+xml"
+              data="<%= planView.planUrl %>">
+            </object>
+          <% } else { %>
+            <div class="empty-state">Plan SVG introuvable pour la sélection courante.</div>
+          <% } %>
+        </section>
+
+        <aside class="plan-side">
+          <section class="card">
+            <h3>Répartition des sièges</h3>
+            <% const planSeatCounts = planView.seatCounts || {}; const planCountKeys = Object.keys(planSeatCounts); %>
+            <% if (planCountKeys.length) { %>
+              <ul class="metrics-list">
+                <% for (const key of planCountKeys) { %>
+                  <li><span><%= key %></span><span><%= planSeatCounts[key] %></span></li>
+                <% } %>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Aucun siège pour cette sélection.</div>
+            <% } %>
+            <div class="plan-legend">
+              <span class="pill">Cliquez sur un siège pour voir son allocation.</span>
+            </div>
+          </section>
+
+          <section class="card plan-seat-panel" data-plan-seat-panel>
+            <h3 data-plan-seat-title>Allocation siège</h3>
+            <dl>
+              <div>
+                <dt>Bénéficiaire</dt>
+                <dd data-plan-seat-beneficiary>—</dd>
+              </div>
+              <div>
+                <dt>Payer</dt>
+                <dd data-plan-seat-payer>—</dd>
+              </div>
+              <div>
+                <dt>Tarif</dt>
+                <dd data-plan-seat-tariff>—</dd>
+              </div>
+              <div>
+                <dt>Order id</dt>
+                <dd data-plan-seat-order-id>—</dd>
+              </div>
+            </dl>
+          </section>
+        </aside>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'orders' && ordersView) { %>
+    <div class="records-view">
+      <section class="card">
+        <h2>Orders administrateur</h2>
+        <form method="get" action="<%= baseOrders %>" class="records-toolbar">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <label>
+            Saison
+            <select name="season" data-auto-submit="change">
+              <% if (ordersView.seasons && ordersView.seasons.length) { %>
+                <% for (const s of ordersView.seasons) { %>
+                  <option value="<%= s.code %>" <%= s.code === ordersView.selectedSeasonCode ? 'selected' : '' %>>
+                    <%= s.code %><%= s.name ? ' — ' + s.name : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucune saison</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Événement
+            <select name="event" data-auto-submit="change">
+              <% if (ordersView.events && ordersView.events.length) { %>
+                <% for (const ev of ordersView.events) { const eventDate = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
+                  <option value="<%= ev.slug %>" <%= ev.slug === ordersView.selectedEventSlug ? 'selected' : '' %>>
+                    <%= ev.slug %><%= ev.name ? ' — ' + ev.name : '' %><%= eventDate ? ' (' + eventDate + ')' : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucun événement</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Filtrer bénéficiaire / contact / email
+            <input type="search" data-table-filter data-table-target="ordersRows" placeholder="Tapez un nom ou un email">
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Actualiser</button></noscript>
+        </form>
+      </section>
+
+      <section class="card">
+        <% if (ordersView.rows && ordersView.rows.length) { %>
+          <div class="records-table-wrap">
+            <table class="records-table">
+              <thead>
+                <tr>
+                  <th>Order id</th>
+                  <th>Créé</th>
+                  <th>Statut</th>
+                  <th>Bénéficiaire(s)</th>
+                  <th>Contact</th>
+                  <th>Email</th>
+                  <th>Tarif(s)</th>
+                  <th>Lignes</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody id="ordersRows">
+                <% for (const row of ordersView.rows) { %>
+                  <tr data-search="<%= row.searchIndex || '' %>">
+                    <td><code><%= row.id %></code></td>
+                    <td><%= row.createdAt ? new Date(row.createdAt).toLocaleString() : '—' %></td>
+                    <td><%= row.status || '—' %></td>
+                    <td><%= row.beneficiaries && row.beneficiaries.length ? row.beneficiaries.join(', ') : '—' %></td>
+                    <td><%= row.payerName || '—' %></td>
+                    <td><%= row.payerEmail || '—' %></td>
+                    <td><%= row.tariffs && row.tariffs.length ? row.tariffs.join(', ') : '—' %></td>
+                    <td><%= row.lineCount || 0 %></td>
+                    <td><%= ((row.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state">Aucune commande pour cette sélection.</div>
+        <% } %>
+      </section>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'tickets' && ticketsView) { %>
+    <div class="records-view">
+      <section class="card">
+        <h2>Tickets administrateur</h2>
+        <form method="get" action="<%= baseTickets %>" class="records-toolbar">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <label>
+            Saison
+            <select name="season" data-auto-submit="change">
+              <% if (ticketsView.seasons && ticketsView.seasons.length) { %>
+                <% for (const s of ticketsView.seasons) { %>
+                  <option value="<%= s.code %>" <%= s.code === ticketsView.selectedSeasonCode ? 'selected' : '' %>>
+                    <%= s.code %><%= s.name ? ' — ' + s.name : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucune saison</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Événement
+            <select name="event" data-auto-submit="change">
+              <% if (ticketsView.events && ticketsView.events.length) { %>
+                <% for (const ev of ticketsView.events) { const eventDate = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
+                  <option value="<%= ev.slug %>" <%= ev.slug === ticketsView.selectedEventSlug ? 'selected' : '' %>>
+                    <%= ev.slug %><%= ev.name ? ' — ' + ev.name : '' %><%= eventDate ? ' (' + eventDate + ')' : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucun événement</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Filtrer bénéficiaire / contact / email
+            <input type="search" data-table-filter data-table-target="ticketsRows" placeholder="Tapez un nom ou un email">
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Actualiser</button></noscript>
+        </form>
+      </section>
+
+      <section class="card">
+        <% if (ticketsView.rows && ticketsView.rows.length) { %>
+          <div class="records-table-wrap">
+            <table class="records-table">
+              <thead>
+                <tr>
+                  <th>Ticket id</th>
+                  <th>Siège</th>
+                  <th>Tarif</th>
+                  <th>Bénéficiaire</th>
+                  <th>Email bénéficiaire</th>
+                  <th>Contact</th>
+                  <th>Email contact</th>
+                  <th>Order id</th>
+                  <th>Créé</th>
+                  <th>Scan</th>
+                </tr>
+              </thead>
+              <tbody id="ticketsRows">
+                <% for (const row of ticketsView.rows) { %>
+                  <tr data-search="<%= row.searchIndex || '' %>">
+                    <td><code><%= row.id %></code></td>
+                    <td><%= row.seatId || '—' %></td>
+                    <td><%= row.tariffCode || '—' %></td>
+                    <td><%= row.holderName || '—' %></td>
+                    <td><%= row.holderEmail || '—' %></td>
+                    <td><%= row.contactName || '—' %></td>
+                    <td><%= row.contactEmail || '—' %></td>
+                    <td><%= row.orderId && row.orderId !== '—' ? row.orderId : '—' %></td>
+                    <td><%= row.createdAt ? new Date(row.createdAt).toLocaleString() : '—' %></td>
+                    <td>
+                      <%= row.scannedAt ? ('Scanné le ' + new Date(row.scannedAt).toLocaleString()) : 'Non scanné' %>
+                      <% if ((row.scanCount || 0) > 0) { %>
+                        (<%= row.scanCount %>)
+                      <% } %>
+                    </td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state">Aucun ticket pour cette sélection.</div>
+        <% } %>
+      </section>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'operate') { %>
+    <% 
+      const groupedOpsMenu = [];
+      const opsMap = new Map();
+      (scriptGroups || []).forEach((g) => {
+        const baseId = g.id === '03-season-management-renewal' ? '03-season-management' : g.id;
+        let entry = opsMap.get(baseId);
+        if (!entry) {
+          entry = { id: baseId, group: null, children: [] };
+          opsMap.set(baseId, entry);
+          groupedOpsMenu.push(entry);
+        }
+        if (g.id === baseId) {
+          entry.group = g;
+        } else {
+          entry.children.push(g);
+        }
+      });
+    %>
+    <div class="script-tabs-rail">
+      <div class="menu-stack">
+        <% groupedOpsMenu.forEach(entry => { 
+             const base = entry.group || entry.children[0];
+             const label = base?.label || base?.id || '';
+        %>
+          <span
+            class="script-tab <%= base.id === activeGroupId ? 'active' : '' %>">
+            <%= label %>
+          </span>
+          <% if (entry.children.length) { entry.children.forEach(child => { %>
+            <span
+              class="script-tab sub-tab <%= child.id === activeGroupId ? 'active' : '' %>">
+              <%= child.label || child.id %>
+            </span>
+          <% }); } %>
+        <% }); %>
+      </div>
+    </div>
+
+    <section class="card scripts-card">
+      <h2>Scripts opérationnels</h2>
+      <p style="color: var(--muted); margin-bottom: 16px;">
+        Les scripts sont organisés par thématique. Ajoutez des arguments optionnels dans le champ prévu puis exécutez. Les chemins de template sont indiqués pour faciliter la préparation des fichiers.
+      </p>
+
+      <% for (const group of scriptGroups || []) { %>
+        <div class="script-group <%= group.id === activeGroupId ? 'active' : '' %>" data-script-group="<%= group.id %>">
+          <% for (const script of group.scripts || []) {
+               const isAutomation = !!(script.automation && script.automation.taskId);
+               const runUrl = urlFor((isAutomation ? '/admin/automation/scripts/' : '/admin/scripts/') + script.id + (isAutomation ? '/jobs' : '/run')) + (tokenSuffix || '');
+               const jobsUrl = isAutomation ? (urlFor('/admin/automation/scripts/' + script.id + '/jobs') + (tokenSuffix || '')) : '';
+               const jobDetailBase = urlFor('/admin/automation/jobs/');
+               const automationJobList = (automationJobs && automationJobs[script.id]) || [];
+               const defaultDryRun = script.automation && script.automation.defaultDryRun ? 'true' : 'false';
+          %>
+            <article class="script-item <%= script.danger ? 'danger' : '' %>">
+              <header>
+                <div class="title"><%= script.label %></div>
+                <div class="badge">#<%= script.order != null ? script.order.toString().padStart(2,'0') : '—' %></div>
+              </header>
+              <div class="script-desc"><%= script.description %></div>
+              <div class="script-meta">
+                <div><strong>Commande</strong> : <code><%= script.command %></code></div>
+                <% if (script.templates && script.templates.length) { %>
+                  <div>Templates :</div>
+                  <ul class="templates">
+                    <% for (const t of script.templates) {
+                         const templateDownloadUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent(t) + (token ? '&token=' + encodeURIComponent(token) : '');
+                    %>
+                      <li>
+                        <code><%= t %></code>
+                        <a class="btn btn-small" href="<%= templateDownloadUrl %>">Télécharger</a>
+                      </li>
+                    <% } %>
+                  </ul>
+                <% } %>
+                <% if (script.notes && script.notes.length) { %>
+                  <div>Notes :</div>
+                  <ul class="notes">
+                    <% for (const note of script.notes) { %>
+                      <li><%= note %></li>
+                    <% } %>
+                  </ul>
+                <% } %>
+                <% if (script.danger) { %>
+                  <div class="danger">Action dangereuse — confirmation obligatoire (<code><%= script.id %></code>).</div>
+                <% } %>
+              </div>
+
+              <form
+                class="script-runner"
+                data-script-form
+                data-script-id="<%= script.id %>"
+                data-mode="<%= isAutomation ? 'automation' : 'cli' %>"
+                data-action="<%= runUrl %>"
+                <% if (isAutomation) { %>
+                  data-jobs-url="<%= jobsUrl %>"
+                  data-job-detail-base="<%= jobDetailBase %>"
+                  data-token-suffix="<%= tokenSuffix || '' %>"
+                  data-default-dry-run="<%= defaultDryRun %>"
+                <% } %>>
+                <% if (script.form && script.form.fields && script.form.fields.length) { %>
+                  <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'create-season'; const freeCatalogField = script.id === 'import-tariff-prices'; %>
+                  <div class="script-form-grid">
+                  <% for (const field of script.form.fields) { 
+                         const inputRole = script.id + ':' + field.name;
+                         const fieldType = field.type || 'text';
+                         const hasInputFiles =
+                           Array.isArray(opt.inputFiles)
+                           && opt.inputFiles.length
+                           && field.placeholder
+                           && field.placeholder.startsWith('data/inputs');
+                          const hasAssetFiles =
+                            Array.isArray(opt.assetFiles)
+                            && opt.assetFiles.length
+                            && field.placeholder
+                           && field.placeholder.startsWith('public/dynamic/assets');
+                         const hasCustomizationFiles =
+                           Array.isArray(opt.customizationFiles)
+                           && opt.customizationFiles.length
+                           && field.placeholder
+                           && field.placeholder.startsWith('data/customization/');
+                         const datalistId = hasInputFiles
+                           ? `inputs-${inputRole.replace(/[^a-zA-Z0-9_-]/g, '')}`
+                           : null;
+                         const hasEventSelect = field.name === 'event' && Array.isArray(opt.events) && opt.events.length;
+                         const hasSeasonSelect = !freeSeasonField && field.name === 'season' && Array.isArray(opt.seasons) && opt.seasons.length;
+                         const hasVenueSelect = field.name === 'venue' && Array.isArray(opt.venues) && opt.venues.length;
+                         const hasVenueViewSelect = field.name === 'venueView' && Array.isArray(opt.venueViews) && opt.venueViews.length;
+                         const isPartnerField = (field.name === 'partner' || field.name === 'partnerSlug' || (field.name === 'slug' && group.id === '05-partner-management'));
+                         const hasPartnerSelect = isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
+                          const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
+                          const defaultValue = (field.placeholder && field.placeholder.startsWith('data/outputs/'))
+                           ? field.placeholder
+                           : '';
+                    %>
+                      <% if (fieldType === 'checkbox') {
+                           const defaultChecked = field.default === true;
+                      %>
+                        <label class="checkbox">
+                          <input type="checkbox" data-role="<%= inputRole %>" <%= defaultChecked ? 'checked' : '' %> />
+                          <span>
+                            <%= field.label %>
+                            <% if (field.hint) { %><small class="field-hint"><%= field.hint %></small><% } %>
+                          </span>
+                        </label>
+                      <% } else { %>
+                        <label>
+                          <span><%= field.label %></span>
+                          <% if (hasVenueViewSelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Aucune vue spécifique —</option>
+                              <% for (const view of opt.venueViews) { const lbl = view.label || (view.venueSlug ? `${view.venueSlug} — ${view.slug}` : (view.slug || '')); %>
+                                <option value="<%= view.slug %>"><%= lbl %></option>
+                              <% } %>
+                            </select>
+                          <% } else if (Array.isArray(field.options) && field.options.length) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <% if (!field.required) { %><option value="">—</option><% } %>
+                              <% for (const optItem of field.options) { const val = optItem.value ?? ''; const lbl = optItem.label ?? val; %>
+                                <option value="<%= val %>"><%= lbl %></option>
+                              <% } %>
+                            </select>
+                          <% } else if (hasEventSelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Choisir un événement —</option>
+                              <% for (const ev of opt.events) { const dateLabel = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
+                                <option value="<%= ev.slug %>">
+                                  <%= ev.slug %><%= ev.name ? ' — ' + ev.name : '' %><%= dateLabel ? ' · ' + dateLabel : '' %>
+                                </option>
+                              <% } %>
+                            </select>
+                          <% } else if (hasSeasonSelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Choisir une saison —</option>
+                              <% for (const season of opt.seasons) { %>
+                                <option value="<%= season.code %>">
+                                  <%= season.code %><%= season.name ? ' — ' + season.name : '' %>
+                                </option>
+                              <% } %>
+                            </select>
+                          <% } else if (hasVenueSelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Choisir un lieu —</option>
+                              <% for (const venue of opt.venues) { %>
+                                <option value="<%= venue.slug %>">
+                                  <%= venue.slug %><%= venue.name ? ' — ' + venue.name : '' %>
+                                </option>
+                              <% } %>
+                            </select>
+                          <% } else if (hasPartnerSelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Choisir un partenaire —</option>
+                              <% for (const partner of opt.partners) { %>
+                                <option value="<%= partner.slug %>">
+                                  <%= partner.slug %><%= partner.name ? ' — ' + partner.name : '' %>
+                                </option>
+                              <% } %>
+                            </select>
+                          <% } else if (hasCatalogSelect) { %>
+                            <select data-role="<%= inputRole %>" multiple data-join="," <%= field.required ? 'required' : '' %>>
+                              <% for (const cat of opt.tariffCatalogs) { %>
+                                <option value="<%= cat %>"><%= cat %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Sélection multiple permise (Cmd/Ctrl + clic).</small>
+                          <% } else if (hasAssetFiles) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Fichier dans data/inputs —</option>
+                              <% for (const file of (opt.assetFiles || [])) { const val = `data/inputs/${file}`; %>
+                                <option value="<%= val %>"><%= val %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Choisissez un fichier présent dans data/inputs ou saisissez un chemin personnalisé.</small>
+                          <% } else if (hasCustomizationFiles) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Fichier dans data/inputs —</option>
+                              <% for (const file of (opt.customizationFiles || [])) { const val = `data/inputs/${file}`; %>
+                                <option value="<%= val %>"><%= val %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Choisissez un fichier présent dans data/inputs ou saisissez un chemin personnalisé.</small>
+                          <% } else if (hasInputFiles) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Fichier dans data/inputs —</option>
+                              <% for (const file of (opt.inputFiles || [])) { const val = `data/inputs/${file}`; %>
+                                <option value="<%= val %>"><%= val %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Choisissez un fichier existant ou saisissez un chemin personnalisé.</small>
+                          <% } else { %>
+                            <input
+                              type="text"
+                              data-role="<%= inputRole %>"
+                              placeholder="<%= field.placeholder || '' %>"
+                              value="<%= defaultValue %>"
+                              <%= datalistId ? `list=\"${datalistId}\"` : '' %> />
+                            <% if (datalistId) { %>
+                              <datalist id="<%= datalistId %>">
+                                <% for (const file of (opt.inputFiles || [])) { %>
+                                  <option value="data/inputs/<%= file %>"></option>
+                                <% } %>
+                              </datalist>
+                            <% } %>
+                          <% } %>
+                          <% if (field.hint) { %><small class="field-hint"><%= field.hint %></small><% } %>
+                        </label>
+                      <% } %>
+                    <% } %>
+                  </div>
+                <% } %>
+
+                <% if (!isAutomation || script.allowArgs) { %>
+                  <label>
+                    Arguments additionnels
+                    <input type="text" name="argLine" placeholder="ex : --apply --dry-run --extra=value" />
+                  </label>
+                <% } %>
+                <% if (script.danger) { %>
+                <label>
+                  Confirmation (<code><%= script.id %></code>)
+                  <input type="text" name="confirm" placeholder="<%= script.id %>" />
+                </label>
+                <% } %>
+                <button type="submit">Exécuter</button>
+                <div class="script-output" data-output></div>
+              </form>
+
+            </article>
+          <% } %>
+        </div>
+      <% } %>
+    </section>
+  <% } %>
+
+  <% if (viewMode === 'monitor' && monitoring) { %>
+    <div class="script-tabs-rail">
+      <div class="menu-stack monitoring-tabs">
+        <button type="button" class="script-tab <%= monitorTab === 'system' ? 'active' : '' %>" data-monitor-button="system">Système</button>
+        <button type="button" class="script-tab <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-button="tariffs">Tarifs</button>
+        <button type="button" class="script-tab <%= monitorTab === 'seasons' ? 'active' : '' %>" data-monitor-button="seasons">Saisons</button>
+        <button type="button" class="script-tab <%= monitorTab === 'events' ? 'active' : '' %>" data-monitor-button="events">Événements</button>
+        <button type="button" class="script-tab <%= monitorTab === 'partners' ? 'active' : '' %>" data-monitor-button="partners">Partenaires</button>
+      </div>
+    </div>
+
+    <div class="monitoring-panel <%= monitorTab === 'system' ? 'active' : '' %>" data-monitor-panel="system">
+      <div class="monitoring-grid">
+        <section class="card">
+          <h2>Application</h2>
+          <div>Host : <span class="mono"><%= monitoring.summary.serverInfo.host %></span></div>
+          <div>Node : <%= monitoring.summary.serverInfo.nodeVersion %></div>
+          <div>Env : <span class="pill"><%= monitoring.summary.serverInfo.env %></span></div>
+          <div>Base path : <span class="mono"><%= monitoring.summary.serverInfo.basePath %></span></div>
+        </section>
+
+        <section class="card">
+          <h2>MongoDB</h2>
+          <div>État : <strong><%= monitoring.summary.mongoState %></strong></div>
+          <div class="muted" style="margin-top:8px;">Statut en temps réel de la connexion.</div>
+        </section>
+
+        <section class="card">
+          <h2>PM2</h2>
+          <% if (monitoring.summary.pm2 && monitoring.summary.pm2.length) { %>
+            <div class="scroll-table">
+              <table>
+                <tr><th>Process</th><th>Status</th><th>CPU</th><th>RAM</th><th>Restarts</th></tr>
+                <% for (const p of monitoring.summary.pm2.slice(0, 8)) { %>
+                  <tr>
+                    <td><%= p.name %></td>
+                    <td><%= p.status || '' %></td>
+                    <td><%= p.cpu || 0 %>%</td>
+                    <td><%= Math.round((p.mem || 0) / 1048576) %> MB</td>
+                    <td><%= p.restarts || 0 %></td>
+                  </tr>
+                <% } %>
+              </table>
+            </div>
+          <% } else { %>
+            <div class="empty-state">PM2 non disponible.</div>
+          <% } %>
+        </section>
+
+        <section class="card">
+          <h2>Espace disque</h2>
+          <% const disk = monitoring.summary.diskUsage; %>
+          <% if (disk) { %>
+            <div>Total : <%= (disk.sizeKB / (1024 * 1024)).toFixed(2) %> GB</div>
+            <div>Utilisé : <%= (disk.usedKB / (1024 * 1024)).toFixed(2) %> GB (<%= disk.usedPct != null ? disk.usedPct + '%' : '—' %>)</div>
+            <div>Libre : <%= (disk.availKB / (1024 * 1024)).toFixed(2) %> GB</div>
+            <div class="muted mono" style="margin-top:8px;"><%= disk.filesystem || '' %></div>
+          <% } else { %>
+            <div class="empty-state">Non disponible.</div>
+          <% } %>
+        </section>
+      </div>
+
+      <div class="monitoring-grid">
+        <section class="card">
+          <h2>Sièges (global)</h2>
+          <% if (monitoring.summary.seatCounts && Object.keys(monitoring.summary.seatCounts).length) { %>
+            <ul class="metrics-list">
+              <% for (const [status, value] of Object.entries(monitoring.summary.seatCounts)) { %>
+                <li><span><%= status %></span><span><%= value %></span></li>
+              <% } %>
+            </ul>
+          <% } else { %>
+            <div class="empty-state">Aucune donnée siège disponible.</div>
+          <% } %>
+        </section>
+
+        <section class="card">
+          <h2>Commandes (24h)</h2>
+          <% if (monitoring.summary.recentOrders && monitoring.summary.recentOrders.length) { %>
+            <ul class="metrics-list">
+              <% for (const row of monitoring.summary.recentOrders) { %>
+                <li><span><%= row._id || 'unknown' %></span><span><%= row.c %></span></li>
+              <% } %>
+            </ul>
+          <% } else { %>
+            <div class="empty-state">Aucune commande enregistrée sur les 24 dernières heures.</div>
+          <% } %>
+          <div style="margin-top:12px;">
+            <a class="btn btn-small" href="<%= urlFor('/admin/export/orders.csv') %><%= tokenSuffix %>">Exporter commandes</a>
+            <a class="btn btn-small" href="<%= urlFor('/admin/export/seats.csv') %><%= tokenSuffix %>" style="margin-left:8px;">Exporter sièges</a>
+          </div>
+        </section>
+      </div>
+
+      <section class="card">
+        <h3>Jobs automatisés récents</h3>
+        <% 
+          const jobRows = [];
+          for (const [scriptId, list] of Object.entries(automationJobs || {})) {
+            (list || []).forEach(job => jobRows.push({ scriptId, job }));
+          }
+          jobRows.sort((a, b) => {
+            const da = a.job.createdAt ? new Date(a.job.createdAt).getTime() : 0;
+            const db = b.job.createdAt ? new Date(b.job.createdAt).getTime() : 0;
+            return db - da;
+          });
+        %>
+        <% if (jobRows.length) { %>
+          <div class="scroll-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Script</th>
+                  <th>ID</th>
+                  <th>Statut</th>
+                  <th>Mode</th>
+                  <th>Résumé</th>
+                  <th>Créé</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% for (const row of jobRows) {
+                     const job = row.job;
+                     const summary = job?.result?.summary || job?.error?.message || '';
+                     const createdLabel = job?.createdAt ? new Date(job.createdAt).toLocaleString() : '—';
+                %>
+                  <tr>
+                    <td><%= row.scriptId %></td>
+                    <td class="mono"><%= job.id ? job.id.slice(-6) : '—' %></td>
+                    <td><%= job.status || '—' %></td>
+                    <td><%= job.dryRun ? 'dry-run' : 'envoi' %></td>
+                    <td><%= summary || '—' %></td>
+                    <td><%= createdLabel %></td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state">Aucun job récent.</div>
+        <% } %>
+      </section>
+    </div>
+
+    <div class="monitoring-panel <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-panel="tariffs">
+      <h3>Résumé des tables de tarifs</h3>
+      <% if (monitoring.lists.tariffSummary && monitoring.lists.tariffSummary.length) { %>
+        <div class="scroll-table" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Table</th><th>Tarifs</th><th>Actifs</th><th>Entrées de prix</th></tr>
+            <% for (const row of monitoring.lists.tariffSummary) { %>
+              <tr>
+                <td><%= row.priceTableKey === 'global' ? 'Global (abonnements)' : row.priceTableKey %></td>
+                <td><%= row.total %></td>
+                <td><%= row.active %></td>
+                <td><%= row.priceEntries %></td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucune table tarifaire configurée.</div>
+      <% } %>
+
+      <h3>Tarifs (extraits)</h3>
+      <% if (monitoring.lists.tariffs && monitoring.lists.tariffs.length) { %>
+        <div class="scroll-table">
+          <table>
+            <tr><th>Code</th><th>Libellé</th><th>Actif</th><th>Table</th></tr>
+            <% for (const t of monitoring.lists.tariffs) { %>
+              <tr>
+                <td><code><%= t.code %></code></td>
+                <td><%= t.label %></td>
+                <td><%= t.active ? 'Oui' : 'Non' %></td>
+                <td><%= t.priceTableKey || 'Global' %></td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun tarif disponible.</div>
+      <% } %>
+    </div>
+
+    <div class="monitoring-panel <%= monitorTab === 'seasons' ? 'active' : '' %>" data-monitor-panel="seasons">
+      <h3>Abonnement</h3>
+      <% if (monitoring.subscription.selectedSeasonCode) { %>
+        <form method="get" class="inline-filter-form">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <input type="hidden" name="view" value="monitoring">
+          <input type="hidden" name="monitorTab" value="seasons">
+          <% if (monitoring.event.selectedEventSlug) { %><input type="hidden" name="event" value="<%= monitoring.event.selectedEventSlug %>"><% } %>
+          <label>
+            Saison
+            <select name="season" data-auto-submit="change">
+              <% for (const s of monitoring.lists.seasons) { %>
+                <option value="<%= s.code %>" <%= s.code === monitoring.subscription.selectedSeasonCode ? 'selected' : '' %>>
+                  <%= s.code %><%= s.name ? ' — ' + s.name : '' %>
+                </option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Lieu
+            <select name="venue" data-auto-submit="change">
+              <% for (const v of monitoring.lists.venues) { %>
+                <option value="<%= v.slug %>" <%= v.slug === monitoring.subscription.selectedVenueSlug ? 'selected' : '' %>>
+                  <%= v.slug %>
+                </option>
+              <% } %>
+            </select>
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Mettre à jour</button></noscript>
+        </form>
+
+        <div class="monitoring-grid">
+          <section class="card">
+            <h4>Statut des commandes</h4>
+            <% const subStats = monitoring.subscription.orderStats || {}; const subStatKeys = Object.keys(subStats); %>
+            <% if (subStatKeys.length) { %>
+              <ul class="metrics-list">
+                <% for (const key of subStatKeys) { %>
+                  <li>
+                    <span><%= key %></span>
+                    <span><%= subStats[key].count %> (<%= ((subStats[key].totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %>)</span>
+                  </li>
+                <% } %>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Aucune commande pour cette sélection.</div>
+            <% } %>
+          </section>
+          <section class="card">
+            <h4>Sièges par statut</h4>
+            <% const subSeats = monitoring.subscription.seatCounts || {}; const subSeatKeys = Object.keys(subSeats); %>
+            <% if (subSeatKeys.length) { %>
+              <ul class="metrics-list">
+                <% for (const key of subSeatKeys) { %>
+                  <li><span><%= key %></span><span><%= subSeats[key] %></span></li>
+                <% } %>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Pas de sièges correspondants.</div>
+            <% } %>
+          </section>
+        </div>
+
+        <div class="monitoring-grid">
+          <section class="card">
+            <h4>Commandes récentes</h4>
+            <% if (monitoring.subscription.orders && monitoring.subscription.orders.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>ID</th><th>Créée</th><th>Status</th><th>Email</th><th>Lignes</th><th>Total</th></tr>
+            <% for (const o of monitoring.subscription.orders || []) { %>
+              <tr>
+                <td><code><%= o.id %></code></td>
+                <td><%= o.createdAt ? new Date(o.createdAt).toLocaleString() : '—' %></td>
+                <td><%= o.status %></td>
+                <td><%= o.payerEmail || '—' %></td>
+                <td><%= o.lineCount %></td>
+                <td><%= ((o.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
+              </tr>
+            <% } %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucune commande.</div>
+            <% } %>
+          </section>
+
+          <section class="card">
+            <h4>Tickets récents</h4>
+            <% if (monitoring.subscription.tickets && monitoring.subscription.tickets.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>ID</th><th>Siège</th><th>Tarif</th><th>Événement</th><th>Créé</th></tr>
+            <% for (const t of monitoring.subscription.tickets || []) { %>
+              <tr>
+                <td><code><%= t.id %></code></td>
+                <td><%= t.seatId || '—' %></td>
+                <td><%= t.tariffCode || '—' %></td>
+                <td><%= t.eventId || '—' %></td>
+                <td><%= t.createdAt ? new Date(t.createdAt).toLocaleString() : '—' %></td>
+              </tr>
+            <% } %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucun ticket généré.</div>
+            <% } %>
+          </section>
+
+          <section class="card">
+            <h4>Sièges récemment mis à jour</h4>
+            <% if (monitoring.subscription.seats && monitoring.subscription.seats.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>Siège</th><th>Zone</th><th>Status</th><th>Maj</th></tr>
+            <% for (const s of monitoring.subscription.seats || []) { %>
+              <tr>
+                <td><%= s.seatId %></td>
+                <td><%= s.zoneKey || '—' %></td>
+                <td><%= s.status || '—' %></td>
+                <td><%= s.updatedAt ? new Date(s.updatedAt).toLocaleString() : '—' %></td>
+              </tr>
+            <% } %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucun siège modifié récemment.</div>
+            <% } %>
+          </section>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucune saison sélectionnable.</div>
+      <% } %>
+    </div>
+
+    <div class="monitoring-panel <%= monitorTab === 'events' ? 'active' : '' %>" data-monitor-panel="events">
+      <h3>Événement</h3>
+      <% if (monitoring.event && monitoring.event.selectedEvent) { %>
+        <form method="get" class="inline-filter-form">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <input type="hidden" name="view" value="monitoring">
+          <input type="hidden" name="monitorTab" value="events">
+          <% if (monitoring.subscription.selectedSeasonCode) { %><input type="hidden" name="season" value="<%= monitoring.subscription.selectedSeasonCode %>"><% } %>
+          <% if (monitoring.subscription.selectedVenueSlug) { %><input type="hidden" name="venue" value="<%= monitoring.subscription.selectedVenueSlug %>"><% } %>
+          <label>
+            Événement
+            <select name="event" data-auto-submit="change">
+          <% for (const ev of monitoring.lists.events || []) { %>
+            <option value="<%= ev.slug %>" <%= ev.slug === monitoring.event.selectedEventSlug ? 'selected' : '' %>>
+              <%= ev.slug %>
+            </option>
+          <% } %>
+            </select>
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Mettre à jour</button></noscript>
+        </form>
+
+        <section class="card">
+          <h4>Détails</h4>
+          <div><strong><%= monitoring.event.selectedEvent.name %></strong></div>
+          <div>Date : <%= monitoring.event.selectedEvent.startsAt ? new Date(monitoring.event.selectedEvent.startsAt).toLocaleString() : '—' %></div>
+          <div>Saison : <%= monitoring.event.selectedEvent.seasonCode || '—' %></div>
+          <div>Lieu : <%= monitoring.event.selectedEvent.venueSlug || '—' %></div>
+          <div>En vente : <%= monitoring.event.selectedEvent.isOnSale ? 'Oui' : 'Non' %></div>
+        </section>
+
+        <div class="monitoring-grid">
+          <section class="card">
+            <h4>Statut des commandes</h4>
+            <% const evStats = monitoring.event.orderStats || {}; const evStatKeys = Object.keys(evStats); %>
+            <% if (evStatKeys.length) { %>
+              <ul class="metrics-list">
+                <% evStatKeys.forEach(key => { %>
+                  <li>
+                    <span><%= key %></span>
+                    <span><%= evStats[key].count %> (<%= ((evStats[key].totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %>)</span>
+                  </li>
+                <% }) %>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Aucune commande pour cet événement.</div>
+            <% } %>
+          </section>
+          <section class="card">
+            <h4>Sièges</h4>
+            <% const evSeatCounts = monitoring.event.seatCounts || {}; const evSeatKeys = Object.keys(evSeatCounts); %>
+            <% if (evSeatKeys.length) { %>
+              <ul class="metrics-list">
+                <% evSeatKeys.forEach(key => { %>
+                  <li><span><%= key %></span><span><%= evSeatCounts[key] %></span></li>
+                <% }) %>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Pas de données siège.</div>
+            <% } %>
+          </section>
+          <section class="card">
+            <h4>Présence abonnés</h4>
+            <% const evAttendance = monitoring.event.attendance || {}; const totalAttendance = (evAttendance.kept || 0) + (evAttendance.released || 0) + (evAttendance.moved || 0); %>
+            <% if (totalAttendance > 0) { %>
+              <ul class="metrics-list">
+                <li>
+                  <span>Gardées</span>
+                  <span><%= evAttendance.kept || 0 %> (<%= Math.round(((evAttendance.kept || 0) / totalAttendance) * 100) %>%)</span>
+                </li>
+                <li>
+                  <span>Libérées</span>
+                  <span><%= evAttendance.released || 0 %> (<%= Math.round(((evAttendance.released || 0) / totalAttendance) * 100) %>%)</span>
+                </li>
+                <li>
+                  <span>Déplacées</span>
+                  <span><%= evAttendance.moved || 0 %> (<%= Math.round(((evAttendance.moved || 0) / totalAttendance) * 100) %>%)</span>
+                </li>
+              </ul>
+            <% } else { %>
+              <div class="empty-state">Aucun billet abonné importé.</div>
+            <% } %>
+          </section>
+        </div>
+
+        <div class="monitoring-grid" data-event-orders-block data-event-slug="<%= monitoring.event.selectedEvent.slug %>">
+          <section class="card">
+            <h4>Commandes récentes</h4>
+            <% if (monitoring.event.orders && monitoring.event.orders.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr>
+                    <th>ID</th>
+                    <th>Parent</th>
+                    <th>Créée</th>
+                    <th>Status</th>
+                    <th>Email</th>
+                    <th>Lignes</th>
+                    <th>Présence</th>
+                    <th>Ajustements</th>
+                    <th></th>
+                    <th>Total</th>
+                  </tr>
+                  <% monitoring.event.orders.forEach(o => { %>
+                    <tr>
+                      <td><code><%= o.id %></code></td>
+                      <td>
+                        <% if (o.parentOrderId) { %>
+                          <code><%= o.parentOrderId.slice(-6) %></code>
+                        <% } else { %>
+                          <span class="muted">—</span>
+                        <% } %>
+                      </td>
+                      <td><%= o.createdAt ? new Date(o.createdAt).toLocaleString() : '—' %></td>
+                      <td><%= o.status %></td>
+                      <td><%= o.payerEmail || '—' %></td>
+                      <td><%= o.lineCount %></td>
+                      <td class="mono">K:<%= o.attendance?.kept ?? 0 %> / R:<%= o.attendance?.released ?? 0 %> / M:<%= o.attendance?.moved ?? 0 %></td>
+                      <td>
+                        <% if (o.overrides && o.overrides.length) { %>
+                          <ul style="margin:0;padding-left:16px;">
+                            <% o.overrides.slice(0,4).forEach(ov => { %>
+                              <li>
+                                <strong><%= ov.status === 'released' ? 'Libérée' : 'Déplacée' %></strong>
+                                <% if (ov.seatId) { %>
+                                  → <code><%= ov.seatId %></code>
+                                <% } else if (ov.zoneKey) { %>
+                                  → zone <%= ov.zoneKey %>
+                                <% } %>
+                                <% if (ov.note) { %>
+                                  <span class="muted"> — <%= ov.note %></span>
+                                <% } %>
+                              </li>
+                            <% }) %>
+                            <% if (o.overrides.length > 4) { %>
+                              <li class="muted">(+<%= o.overrides.length - 4 %> autres)</li>
+                            <% } %>
+                          </ul>
+                        <% } else { %>
+                          <span class="muted">—</span>
+                        <% } %>
+                      </td>
+                      <td>
+                        <button type="button" class="btn btn-small" data-attendance-edit data-order-id="<%= o.id %>">
+                          Ajuster
+                        </button>
+                      </td>
+                      <td><%= ((o.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
+                    </tr>
+                  <% }) %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucune commande récente.</div>
+            <% } %>
+          </section>
+
+          <section class="card">
+            <h4>Tickets</h4>
+            <% if (monitoring.event.tickets && monitoring.event.tickets.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>ID</th><th>Siège</th><th>Zone</th><th>Tarif</th><th>Scanné</th></tr>
+                  <% monitoring.event.tickets.forEach(t => { %>
+                    <tr>
+                      <td><code><%= t.id %></code></td>
+                      <td><%= t.seatId || '—' %></td>
+                      <td><%= t.zoneKey || '—' %></td>
+                      <td><%= t.tariffCode || '—' %></td>
+                      <td><%= t.scannedAt ? new Date(t.scannedAt).toLocaleString() : 'Non' %></td>
+                    </tr>
+                  <% }) %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucun ticket généré.</div>
+            <% } %>
+          </section>
+
+          <section class="card">
+            <h4>Abonnés liés</h4>
+            <% if (monitoring.event.subscribers && monitoring.event.subscribers.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>Nom</th><th>Email</th><th>Groupe</th><th>Sièges précédents</th></tr>
+                  <% monitoring.event.subscribers.forEach(s => { %>
+                    <tr>
+                      <td><%= (s.firstName || '') + ' ' + (s.lastName || '') %></td>
+                      <td><%= s.email || '—' %></td>
+                      <td><%= s.groupKey || '—' %></td>
+                      <td><%= s.previousSeats && s.previousSeats.length ? s.previousSeats.join(', ') : '—' %></td>
+                    </tr>
+                  <% }) %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucun abonné pour cet événement.</div>
+            <% } %>
+          </section>
+
+          <section class="card">
+            <h4>Logs de scans</h4>
+            <% if (monitoring.event.scans && monitoring.event.scans.length) { %>
+              <div class="scroll-table">
+                <table>
+                  <tr><th>Horodatage</th><th>Gate</th><th>OK</th><th>Raison</th></tr>
+                  <% monitoring.event.scans.forEach(log => { %>
+                    <tr>
+                      <td><%= log.when ? new Date(log.when).toLocaleString() : '—' %></td>
+                      <td><%= log.gate || '—' %></td>
+                      <td><%= log.ok ? 'Oui' : 'Non' %></td>
+                      <td><%= log.reason || '—' %></td>
+                    </tr>
+                  <% }) %>
+                </table>
+              </div>
+            <% } else { %>
+              <div class="empty-state">Aucun scan enregistré.</div>
+            <% } %>
+          </section>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Sélectionnez un événement pour afficher les détails.</div>
+      <% } %>
+    </div>
+    <div class="monitoring-panel <%= monitorTab === 'partners' ? 'active' : '' %>" data-monitor-panel="partners">
+      <h3>Partenaires</h3>
+      <% const partnerList = monitoring.lists.partners || []; %>
+      <% if (partnerList.length) { %>
+        <div class="scroll-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Slug</th>
+                <th>Nom</th>
+                <th>Mode</th>
+                <th>Tarifs publics</th>
+                <th>Vue lieu</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% for (const p of partnerList) { %>
+                <tr>
+                  <td><code><%= p.slug %></code></td>
+                  <td><%= p.name || '—' %></td>
+                  <td><%= p.paymentMode || '—' %></td>
+                  <td><%= p.allowPublicTariffs ? 'Oui' : 'Non' %></td>
+                  <td><%= p.venueView || '—' %></td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun partenaire configuré.</div>
+      <% } %>
+    </div>
+
+  <div class="modal hidden" data-attendance-modal>
+    <div class="modal-backdrop" data-attendance-close></div>
+    <div class="modal-dialog">
+      <header class="modal-header">
+        <h3>Ajuster la présence</h3>
+        <button type="button" class="modal-close" data-attendance-close>&times;</button>
+      </header>
+      <div class="modal-body" data-attendance-body>
+        <div class="empty-state">Chargement…</div>
+      </div>
+      <footer class="modal-footer">
+        <div class="modal-summary" data-attendance-summary></div>
+        <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
+        <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
+      </footer>
+    </div>
+  </div>
+
+  <% } %>
+
+  <script>
+    const SCRIPT_FORMS = <%- JSON.stringify(scriptForms || {}).replace(/</g, '\\u003c') %>;
+    const AUTOMATION_JOBS_STATE = <%- JSON.stringify(automationJobs || {}).replace(/</g, '\\u003c') %>;
+    const PLAN_VIEW_DATA = <%- JSON.stringify(planView || null).replace(/</g, '\\u003c') %>;
+    const CURRENT_VIEW_MODE = <%- JSON.stringify(viewMode || '') %>;
+    (() => {
+      const monitorTabs = document.querySelectorAll('[data-monitor-button]');
+      const monitorPanels = document.querySelectorAll('[data-monitor-panel]');
+      if (monitorTabs.length) {
+        const active = '<%= monitorTab %>';
+        const activate = (tab) => {
+          monitorTabs.forEach(btn => btn.classList.toggle('active', btn.dataset.monitorButton === tab));
+          monitorPanels.forEach(panel => panel.classList.toggle('active', panel.dataset.monitorPanel === tab));
+        };
+        monitorTabs.forEach(btn => {
+          btn.addEventListener('click', () => activate(btn.dataset.monitorButton));
+        });
+        activate(active);
+      }
+
+      document.querySelectorAll('[data-auto-submit]').forEach(el => {
+        el.addEventListener('change', () => {
+          const form = el.closest('form');
+          if (form) form.submit();
+        });
+      });
+
+      document.querySelectorAll('[data-table-filter]').forEach((input) => {
+        const targetId = input.getAttribute('data-table-target') || '';
+        if (!targetId) return;
+        const tbody = document.getElementById(targetId);
+        if (!tbody) return;
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        if (!rows.length) return;
+        const normalize = (value) => String(value || '').trim().toLowerCase();
+        const applyFilter = () => {
+          const needle = normalize(input.value || '');
+          rows.forEach((row) => {
+            if (!needle) {
+              row.style.display = '';
+              return;
+            }
+            const hay = normalize(row.getAttribute('data-search') || '');
+            row.style.display = hay.includes(needle) ? '' : 'none';
+          });
+        };
+        input.addEventListener('input', applyFilter);
+      });
+
+      const collectScriptArgs = (form, argLine) => {
+        const scriptId = form.dataset.scriptId;
+        if (!scriptId) return { args: [], values: {}, anyFieldValue: false };
+        const schema = SCRIPT_FORMS?.[scriptId];
+        if (!schema?.fields?.length) return { args: [], values: {}, anyFieldValue: false };
+
+        const hasManualArgs = typeof argLine === 'string' && argLine.trim().length > 0;
+        const values = {};
+        let anyFieldValue = false;
+        const missing = [];
+
+        schema.fields.forEach(field => {
+          const selector = `[data-role="${scriptId}:${field.name}"]`;
+          const el = form.querySelector(selector);
+          if (!el) return;
+          const fieldType = field.type || 'text';
+          let value;
+          let hasValue = false;
+
+          if (fieldType === 'checkbox') {
+            value = !!el.checked;
+            hasValue = value === true;
+          } else if (el.multiple) {
+            const selected = Array.from(el.selectedOptions || [])
+              .map(opt => (opt.value || '').trim())
+              .filter(Boolean);
+            const joiner = el.dataset?.join ?? ',';
+            value = selected.join(joiner || ',');
+            hasValue = selected.length > 0;
+          } else {
+            value = (el.value || '').trim();
+            hasValue = value !== '';
+          }
+
+          if (hasValue) anyFieldValue = true;
+          if (field.required && !hasValue) missing.push(field.label || field.name);
+
+          if (fieldType === 'checkbox') {
+            values[field.name] = value;
+          } else {
+            values[field.name] = Array.isArray(value) ? value.join(',') : value;
+          }
+        });
+
+        if (!anyFieldValue) {
+          return { args: [], values, anyFieldValue: false, missing };
+        }
+
+        if (missing.length) {
+          if (hasManualArgs) {
+            return { args: [], values, anyFieldValue, missing };
+          }
+          return { error: `Champs requis : ${missing.join(', ')}`, values, anyFieldValue, missing };
+        }
+
+        const positional = [];
+        const trailing = [];
+
+        schema.fields.forEach((field, index) => {
+          const rule = field.arg;
+          if (!rule) return;
+          const value = values[field.name];
+          const fieldType = field.type || 'text';
+          const hasValue = fieldType === 'checkbox' ? !!value : value !== undefined && value !== null && value !== '';
+
+          switch (rule.type) {
+            case 'positional': {
+              if (!hasValue) {
+                if (!rule.optional) return;
+              } else {
+                positional.push({ order: rule.index ?? index, value });
+              }
+              break;
+            }
+            case 'option': {
+              if (!hasValue) return;
+              let rendered = rule.template || '';
+              if (rendered.includes('${value}')) {
+                rendered = rendered.replace(/\$\{value\}/g, value);
+              } else if (rendered) {
+                rendered = `${rendered}${value}`;
+              } else {
+                rendered = `--${field.name}=${value}`;
+              }
+              trailing.push({ order: rule.order ?? index, value: rendered });
+              break;
+            }
+            case 'flag': {
+              if (!hasValue) return;
+              trailing.push({ order: rule.order ?? index, value: rule.flag || `--${field.name}` });
+              break;
+            }
+            default:
+              break;
+          }
+        });
+
+        positional.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        trailing.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+        const args = [
+          ...positional.map(item => item.value),
+          ...trailing.map(item => item.value)
+        ];
+
+        return { args, values, anyFieldValue: true, missing: [] };
+      };
+
+      const escapeHtml = (value) => {
+        if (value == null) return '';
+        return String(value).replace(/[&<>"']/g, (char) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        }[char] || char));
+      };
+
+      const escapeSelector = (value) => String(value).replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+
+      const normalizePlanSeatStatus = (raw = '') => {
+        const val = String(raw || '').trim().toLowerCase();
+        if (!val) return 'available';
+        if (val === 'booked' || val === 'sold') return 'booked';
+        if (['busy', 'provisioned', 'blocked', 'held', 'hold'].includes(val)) return 'busy';
+        return 'available';
+      };
+
+      const extractPlanSeatId = (node) => {
+        if (!node || typeof node.getAttribute !== 'function') return '';
+        const fromData = String(node.getAttribute('data-seat-id') || node.getAttribute('data-seat') || '').trim();
+        if (fromData) return fromData;
+        const fromId = String(node.id || '').trim();
+        if (!fromId) return '';
+        if (fromId.startsWith('seat_')) return fromId.slice(5).trim();
+        return '';
+      };
+
+      const findPlanSeatElement = (svgDoc, seatId) => {
+        if (!svgDoc || !seatId) return null;
+        const escaped = escapeSelector(seatId);
+        const selectors = [
+          `[data-seat-id="${seatId}"]`,
+          `[data-seat="${seatId}"]`,
+          `#${escaped}`,
+          `#seat_${escaped}`
+        ];
+        for (const selector of selectors) {
+          const node = svgDoc.querySelector(selector);
+          if (node) return node;
+        }
+        return null;
+      };
+
+      const initAdminPlanView = () => {
+        if (CURRENT_VIEW_MODE !== 'plan') return;
+        const planObject = document.querySelector('[data-admin-plan-object]');
+        if (!planObject || !PLAN_VIEW_DATA) return;
+
+        const seatPanel = document.querySelector('[data-plan-seat-panel]');
+        const seatTitle = document.querySelector('[data-plan-seat-title]');
+        const beneficiaryEl = document.querySelector('[data-plan-seat-beneficiary]');
+        const payerEl = document.querySelector('[data-plan-seat-payer]');
+        const tariffEl = document.querySelector('[data-plan-seat-tariff]');
+        const orderIdEl = document.querySelector('[data-plan-seat-order-id]');
+
+        const seatStatusById = new Map(
+          (Array.isArray(PLAN_VIEW_DATA.seats) ? PLAN_VIEW_DATA.seats : [])
+            .map((entry) => [String(entry?.seatId || '').trim(), normalizePlanSeatStatus(entry?.status)])
+            .filter(([seatId]) => Boolean(seatId))
+        );
+        const seatDetailsById = (PLAN_VIEW_DATA && typeof PLAN_VIEW_DATA.seatDetailsById === 'object' && PLAN_VIEW_DATA.seatDetailsById)
+          ? PLAN_VIEW_DATA.seatDetailsById
+          : {};
+
+        let selectedSeatId = '';
+        let selectedNode = null;
+        let planInitialized = false;
+
+        const clearSelected = () => {
+          if (selectedNode) selectedNode.classList.remove('seat-selected');
+          selectedSeatId = '';
+          selectedNode = null;
+        };
+
+        const hidePanel = () => {
+          if (!seatPanel) return;
+          seatPanel.classList.remove('active');
+        };
+
+        const showSeatPanel = (seatId) => {
+          if (!seatPanel) return;
+          const details = seatDetailsById[seatId] || {};
+          if (seatTitle) seatTitle.textContent = `Allocation siège ${seatId}`;
+          if (beneficiaryEl) beneficiaryEl.textContent = details.beneficiary || '—';
+          if (payerEl) payerEl.textContent = details.payer || '—';
+          if (tariffEl) tariffEl.textContent = details.tariff || '—';
+          if (orderIdEl) orderIdEl.textContent = details.orderId || '—';
+          seatPanel.classList.add('active');
+        };
+
+        const applySeatStatuses = (svgDoc) => {
+          seatStatusById.forEach((status, seatId) => {
+            const node = findPlanSeatElement(svgDoc, seatId);
+            if (!node) return;
+            node.classList.remove('seat-available', 'seat-booked', 'seat-busy');
+            if (status === 'booked') node.classList.add('seat-booked');
+            else if (status === 'busy') node.classList.add('seat-busy');
+            else node.classList.add('seat-available');
+          });
+        };
+
+        const enablePlanPanZoom = (svgDoc) => {
+          const svg = svgDoc?.querySelector('svg');
+          if (!svg) return () => false;
+
+          let host = svg.querySelector('#zoomHost');
+          if (!host) {
+            host = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+            host.setAttribute('id', 'zoomHost');
+            while (svg.firstChild) host.appendChild(svg.firstChild);
+            svg.appendChild(host);
+          }
+
+          try {
+            const style = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'style');
+            style.textContent = 'text, .zone-label, .seat-label, [data-label] { pointer-events: none; }';
+            svg.insertBefore(style, svg.firstChild);
+          } catch (_) {}
+
+          let scale = 1;
+          let tx = 0;
+          let ty = 0;
+          let dragging = false;
+          let moved = false;
+          let suppressNextClick = false;
+          let last = { x: 0, y: 0 };
+
+          const apply = () => host.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+          const svgPoint = (evt) => {
+            const pt = svg.createSVGPoint();
+            pt.x = evt.clientX;
+            pt.y = evt.clientY;
+            const ctm = svg.getScreenCTM();
+            if (!ctm) return { x: pt.x, y: pt.y };
+            return pt.matrixTransform(ctm.inverse());
+          };
+
+          svg.style.cursor = 'grab';
+
+          svg.addEventListener('wheel', (evt) => {
+            evt.preventDefault();
+            const delta = -(evt.deltaY || evt.wheelDelta || 0);
+            const factor = Math.exp(delta * 0.0015);
+            const p = svgPoint(evt);
+            const newScale = Math.min(10, Math.max(0.25, scale * factor));
+            const k = newScale / scale;
+            tx = p.x - (p.x - tx) * k;
+            ty = p.y - (p.y - ty) * k;
+            scale = newScale;
+            apply();
+          }, { passive: false });
+
+          const onDown = (evt) => {
+            dragging = true;
+            moved = false;
+            last = svgPoint(evt);
+            svg.style.cursor = 'grabbing';
+          };
+          const onMove = (evt) => {
+            if (!dragging) return;
+            const p = svgPoint(evt);
+            const dx = p.x - last.x;
+            const dy = p.y - last.y;
+            if (Math.abs(dx) > 0.2 || Math.abs(dy) > 0.2) moved = true;
+            tx += dx;
+            ty += dy;
+            last = p;
+            apply();
+          };
+          const onUp = () => {
+            if (!dragging) return;
+            if (moved) suppressNextClick = true;
+            dragging = false;
+            svg.style.cursor = 'grab';
+          };
+
+          svg.addEventListener('mousedown', onDown);
+          svg.addEventListener('mousemove', onMove);
+          svg.addEventListener('mouseup', onUp);
+          svg.addEventListener('mouseleave', onUp);
+
+          return () => {
+            if (!suppressNextClick) return false;
+            suppressNextClick = false;
+            return true;
+          };
+        };
+
+        const bindPlanClicks = (svgDoc, shouldIgnoreClick = () => false) => {
+          const clickable = svgDoc.querySelectorAll('[data-seat-id],[data-seat],[id^="seat_"]');
+          clickable.forEach((node) => { node.style.cursor = 'pointer'; });
+
+          svgDoc.addEventListener('click', (event) => {
+            if (shouldIgnoreClick()) return;
+            const targetNode = event.target?.closest?.('[data-seat-id],[data-seat],[id^="seat_"]');
+            if (!targetNode) return;
+            const seatId = extractPlanSeatId(targetNode);
+            if (!seatId) return;
+
+            if (seatId === selectedSeatId) {
+              clearSelected();
+              hidePanel();
+              return;
+            }
+
+            clearSelected();
+            selectedSeatId = seatId;
+            selectedNode = targetNode;
+            selectedNode.classList.add('seat-selected');
+            showSeatPanel(seatId);
+          });
+        };
+
+        const onReady = () => {
+          if (planInitialized) return;
+          const svgDoc = planObject.contentDocument;
+          if (!svgDoc) return;
+          planInitialized = true;
+          const shouldIgnoreClick = enablePlanPanZoom(svgDoc);
+          applySeatStatuses(svgDoc);
+          bindPlanClicks(svgDoc, shouldIgnoreClick);
+        };
+
+        if (planObject.contentDocument) onReady();
+        planObject.addEventListener('load', onReady, { once: true });
+      };
+
+      initAdminPlanView();
+
+      const isReturnUrl = (value) => {
+        if (value == null) return false;
+        const s = String(value);
+        return s.startsWith('/') || s.startsWith('http://') || s.startsWith('https://');
+      };
+
+      const sanitizeParams = (input = {}) => {
+        const out = {};
+        Object.entries(input).forEach(([key, value]) => {
+          if (value === '' || value === undefined || value === null) return;
+          out[key] = value;
+        });
+        return out;
+      };
+
+      const renderAutomationJobs = (scriptId) => {
+        const container = document.querySelector(`[data-automation-jobs="${scriptId}"]`);
+        if (!container) return;
+        const jobs = AUTOMATION_JOBS_STATE[scriptId] || [];
+        const table = container.querySelector('table[data-jobs-table]');
+        const tbody = table ? table.querySelector('tbody') : null;
+        const empty = container.querySelector('.automation-jobs-empty');
+        if (!jobs.length) {
+          if (tbody) tbody.innerHTML = '';
+          if (table) table.style.display = 'none';
+          if (empty) empty.style.display = 'block';
+          return;
+        }
+        if (table) table.style.display = '';
+        if (empty) empty.style.display = 'none';
+        if (!tbody) return;
+        tbody.innerHTML = jobs.map(job => {
+          const summary = job?.result?.summary || job?.error?.message || '';
+          const createdLabel = job?.createdAt ? new Date(job.createdAt).toLocaleString() : '—';
+          const status = job?.status || 'unknown';
+          const modeLabel = job?.dryRun ? 'dry-run' : 'envoi';
+          return `<tr data-job-id="${escapeHtml(job.id)}"><td class="mono">${escapeHtml((job.id || '').slice(-6))}</td><td class="automation-job-status">${escapeHtml(status)}</td><td>${escapeHtml(modeLabel)}</td><td>${escapeHtml(summary || '—')}</td><td>${escapeHtml(createdLabel)}</td></tr>`;
+        }).join('');
+      };
+
+      const refreshAutomationJobs = async (scriptId, { highlightJobId } = {}) => {
+        const container = document.querySelector(`[data-automation-jobs="${scriptId}"]`);
+        if (!container) return;
+        const jobsUrl = container.dataset.jobsUrl || '';
+        if (!jobsUrl) return;
+        try {
+          const response = await fetch(jobsUrl);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          AUTOMATION_JOBS_STATE[scriptId] = Array.isArray(data.jobs) ? data.jobs : [];
+          renderAutomationJobs(scriptId);
+          if (highlightJobId) {
+            const row = container.querySelector(`tr[data-job-id="${escapeSelector(highlightJobId)}"]`);
+            if (row) {
+              row.classList.add('highlight');
+              setTimeout(() => row.classList.remove('highlight'), 1800);
+            }
+          }
+        } catch (error) {
+          console.error('⚠️ Impossible de rafraîchir les jobs automation', error);
+        }
+      };
+
+      const setupCliForm = (form) => {
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const output = form.querySelector('[data-output]');
+          const button = form.querySelector('button[type="submit"]');
+          const argLine = form.querySelector('input[name="argLine"]')?.value || '';
+          const confirm = form.querySelector('input[name="confirm"]')?.value || '';
+          const collected = collectScriptArgs(form, argLine);
+          if (collected.error) {
+            output.textContent = `✖ ${collected.error}`;
+            return;
+          }
+          const presetArgs = Array.isArray(collected.args) ? collected.args : [];
+          output.textContent = '⏳ Exécution en cours…';
+          button.disabled = true;
+          try {
+            const response = await fetch(form.dataset.action, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                argLine,
+                confirm,
+                ...(presetArgs.length ? { args: presetArgs } : {})
+              })
+            });
+            let data = {};
+            try { data = await response.json(); } catch (_) {}
+            if (!response.ok) {
+              output.textContent = `✖ ${data.error || response.statusText}`;
+            } else {
+              let text = `✔ exit ${data.exitCode}\n`;
+              if (data.stdout) text += data.stdout.trim() + '\n';
+              if (data.stderr) text += '\n[stderr]\n' + data.stderr.trim();
+              output.textContent = text.trim();
+              if (data.returnUrl && (data.ok !== false) && isReturnUrl(data.returnUrl)) {
+                const linkWrap = document.createElement('div');
+                linkWrap.style.marginTop = '6px';
+                const link = document.createElement('a');
+                link.href = data.returnUrl;
+                link.textContent = 'Télécharger le PDF';
+                link.target = '_blank';
+                link.rel = 'noreferrer';
+                linkWrap.appendChild(link);
+                output.appendChild(linkWrap);
+              }
+            }
+          } catch (err) {
+            output.textContent = `✖ ${err && err.message ? err.message : err}`;
+          } finally {
+            button.disabled = false;
+          }
+        });
+      };
+
+      const setupAutomationForm = (form) => {
+        const scriptId = form.dataset.scriptId;
+        const defaultDryRun = form.dataset.defaultDryRun === 'true';
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const output = form.querySelector('[data-output]');
+          const button = form.querySelector('button[type="submit"]');
+          const confirm = form.querySelector('input[name="confirm"]')?.value || '';
+          const collected = collectScriptArgs(form, '');
+          if (collected.error) {
+            output.textContent = `✖ ${collected.error}`;
+            return;
+          }
+          const paramsRaw = { ...collected.values };
+          let dryRun = defaultDryRun;
+          if (Object.prototype.hasOwnProperty.call(paramsRaw, 'dryRun')) {
+            dryRun = Boolean(paramsRaw.dryRun);
+            delete paramsRaw.dryRun;
+          }
+          if (Object.prototype.hasOwnProperty.call(paramsRaw, 'dry')) {
+            dryRun = Boolean(paramsRaw.dry);
+            delete paramsRaw.dry;
+          }
+          const params = sanitizeParams(paramsRaw);
+          output.textContent = '⏳ Job en file…';
+          button.disabled = true;
+          try {
+            const response = await fetch(form.dataset.action, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                params,
+                dryRun,
+                confirm: confirm || undefined,
+                metadata: { source: 'admin-ui' }
+              })
+            });
+            let data = {};
+            try { data = await response.json(); } catch (_) {}
+            if (!response.ok) {
+              output.textContent = `✖ ${data.error || response.statusText}`;
+            } else {
+              const job = data.job || {};
+              output.textContent = `✔ Job ${job.id || '—'} (${job.status || 'queued'})`;
+              refreshAutomationJobs(scriptId, { highlightJobId: job.id });
+              setTimeout(() => refreshAutomationJobs(scriptId), 4000);
+            }
+          } catch (err) {
+            output.textContent = `✖ ${err && err.message ? err.message : err}`;
+          } finally {
+            button.disabled = false;
+          }
+        });
+      };
+
+      document.querySelectorAll('[data-script-form]').forEach(form => {
+        const mode = form.dataset.mode || 'cli';
+        if (mode === 'automation') {
+          setupAutomationForm(form);
+        } else {
+          setupCliForm(form);
+        }
+      });
+
+      document.querySelectorAll('[data-refresh-jobs]').forEach(btn => {
+        const scriptId = btn.dataset.refreshJobs;
+        btn.addEventListener('click', () => refreshAutomationJobs(scriptId));
+      });
+
+      Object.keys(AUTOMATION_JOBS_STATE || {}).forEach(scriptId => {
+        renderAutomationJobs(scriptId);
+      });
+
+      document.querySelectorAll('[data-upload-form]').forEach(form => {
+        form.addEventListener('submit', event => event.preventDefault());
+        const trigger = form.querySelector('[data-upload-trigger]');
+        const fileInput = form.querySelector('[data-upload-input]');
+        const targetInput = form.querySelector('[data-upload-target]');
+        const status = form.querySelector('[data-upload-status]');
+
+        const resetStatus = () => { if (status) status.textContent = ''; };
+
+        trigger?.addEventListener('click', () => {
+          resetStatus();
+          fileInput?.click();
+        });
+
+        fileInput?.addEventListener('change', () => {
+          if (!fileInput.files || !fileInput.files.length) return;
+          const file = fileInput.files[0];
+          const desired = targetInput?.value?.trim() || file.name;
+          if (status) status.textContent = '⏳ Upload en cours…';
+          const reader = new FileReader();
+          reader.onerror = () => {
+            if (status) status.textContent = '✖ Lecture du fichier impossible';
+            fileInput.value = '';
+          };
+          reader.onload = async () => {
+            try {
+              const dataUrl = reader.result;
+              const base64 = typeof dataUrl === 'string' ? dataUrl.split(',').pop() : null;
+              if (!base64) throw new Error('Encodage base64 invalide');
+              const payload = {
+                filename: desired,
+                contentBase64: base64,
+                subdir: form.dataset.uploadDir || ''
+              };
+              const response = await fetch(form.action, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              let data;
+              try {
+                data = await response.json();
+              } catch (parseErr) {
+                data = {};
+              }
+              if (!response.ok || data.ok === false) {
+                if (status) status.textContent = `✖ ${data.error || response.statusText}`;
+              } else {
+                if (status) status.textContent = `✔ Déposé sous ${data.filename || desired}`;
+              }
+            } catch (err) {
+              if (status) status.textContent = `✖ ${err && err.message ? err.message : err}`;
+            } finally {
+              fileInput.value = '';
+            }
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+
+      const bindDeleteButtons = () => {
+        document.querySelectorAll('[data-delete-button]').forEach(button => {
+          if (button.dataset.deleteBound === '1') return;
+          button.dataset.deleteBound = '1';
+          const originalLabel = button.dataset.label || button.textContent || 'Supprimer';
+          button.addEventListener('click', async () => {
+            const file = button.dataset.file || '';
+            const url = button.dataset.deleteUrl || '';
+            if (!file || !url) return;
+            const confirmDelete = window.confirm(`Supprimer ${file} ?`);
+            if (!confirmDelete) return;
+            button.disabled = true;
+            button.textContent = '…';
+            try {
+              const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file })
+              });
+              let data = {};
+              try { data = await response.json(); } catch (_) {}
+              if (!response.ok || data.ok === false) {
+                alert(data.error || response.statusText);
+              } else {
+                const parent = button.closest('li');
+                if (parent) parent.remove();
+              }
+            } catch (err) {
+              alert(err && err.message ? err.message : err);
+            } finally {
+              button.disabled = false;
+              button.textContent = originalLabel;
+            }
+          });
+        });
+      };
+      bindDeleteButtons();
+
+      /* ----- Attendance modal wiring ----- */
+      const defaultEventSlug = <%- JSON.stringify((locals.monitoring && locals.monitoring.event && locals.monitoring.event.selectedEvent && locals.monitoring.event.selectedEvent.slug) ? locals.monitoring.event.selectedEvent.slug : '') %>;
+      const attendanceBase = <%- JSON.stringify(urlFor('/admin/events')) %>;
+      const attendanceSuffix = <%- JSON.stringify(tokenSuffix || '') %>;
+
+      const buildAttendanceUrl = (eventSlug, orderId) => {
+        const base = attendanceBase || '';
+        const suffix = attendanceSuffix || '';
+        return `${base}/${encodeURIComponent(eventSlug)}/orders/${encodeURIComponent(orderId)}/attendance${suffix}`;
+      };
+
+      const attendanceModal = document.querySelector('[data-attendance-modal]');
+      const attendanceBody = attendanceModal?.querySelector('[data-attendance-body]') || null;
+      const attendanceSubmit = attendanceModal?.querySelector('[data-attendance-submit]') || null;
+      let attendanceState = {
+        eventSlug: null,
+        orderId: null,
+        lineIndex: null,
+        order: null
+      };
+
+      const closeAttendance = () => {
+        if (!attendanceModal) return;
+        attendanceModal.classList.add('hidden');
+        if (attendanceBody) attendanceBody.innerHTML = '<div class="empty-state">Chargement…</div>';
+        attendanceState = { eventSlug: null, orderId: null, lineIndex: null, order: null };
+        if (attendanceSubmit) {
+          attendanceSubmit.disabled = false;
+          attendanceSubmit.textContent = 'Enregistrer';
+        }
+      };
+
+      const openAttendance = () => {
+        if (!attendanceModal) return;
+        attendanceModal.classList.remove('hidden');
+      };
+
+      document.querySelectorAll('[data-attendance-close]').forEach(btn => {
+        btn.addEventListener('click', closeAttendance);
+      });
+
+      const renderAttendanceForm = (order) => {
+        if (!attendanceBody) return;
+        if (!order?.lines?.length) {
+          attendanceBody.innerHTML = '<div class="empty-state">Commande vide.</div>';
+          return;
+        }
+
+        attendanceState.order = order;
+        const options = order.lines.map(line => {
+          const label = line.seatId || line.placement?.seatId || line.zoneKey || `Ligne ${line.index + 1}`;
+          return `<option value="${line.index}">${escapeHtml(label)}</option>`;
+        }).join('');
+
+        const getLine = (idx) => order.lines[idx] || order.lines[0];
+        const current = getLine(order.lines[0]?.index ?? 0);
+        const currentStatus = current?.attendance?.status || 'kept';
+        const currentSeat = current?.attendance?.overrideSeatId || '';
+        const currentZone = current?.attendance?.overrideZoneKey || '';
+        const currentNote = current?.attendance?.note || '';
+
+        attendanceBody.innerHTML = `
+          <form data-attendance-form>
+            <div class="form-group">
+              <label>Ligne</label>
+              <select name="lineIndex" data-attendance-line>
+                ${options}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Statut</label>
+              <select name="status" data-attendance-status>
+                <option value="kept" ${currentStatus === 'kept' ? 'selected' : ''}>Conserver</option>
+                <option value="released" ${currentStatus === 'released' ? 'selected' : ''}>Libérer</option>
+                <option value="moved" ${currentStatus === 'moved' ? 'selected' : ''}>Déplacer</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Siège alternatif</label>
+              <input type="text" name="overrideSeatId" data-attendance-seat value="${escapeHtml(currentSeat)}" placeholder="ex: N5-J-057" />
+            </div>
+            <div class="form-group">
+              <label>Zone alternative</label>
+              <input type="text" name="overrideZoneKey" data-attendance-zone value="${escapeHtml(currentZone)}" placeholder="Zone (optionnel)" />
+            </div>
+            <div class="form-group">
+              <label>Note</label>
+              <textarea name="note" data-attendance-note rows="2">${escapeHtml(currentNote)}</textarea>
+            </div>
+            <div class="form-help">Déplacer &rarr; indiquer siège ou zone. Libérer peut laisser vide.</div>
+          </form>
+        `;
+
+        const lineSelect = attendanceBody.querySelector('[data-attendance-line]');
+        if (lineSelect) {
+          lineSelect.value = String(current?.index ?? order.lines[0].index);
+          attendanceState.lineIndex = Number(lineSelect.value);
+          lineSelect.addEventListener('change', () => {
+            const idx = Number(lineSelect.value);
+            const line = getLine(idx);
+            const st = line?.attendance?.status || 'kept';
+            const seat = line?.attendance?.overrideSeatId || '';
+            const zone = line?.attendance?.overrideZoneKey || '';
+            const note = line?.attendance?.note || '';
+            attendanceBody.querySelector('[data-attendance-status]').value = st;
+            attendanceBody.querySelector('[data-attendance-seat]').value = seat;
+            attendanceBody.querySelector('[data-attendance-zone]').value = zone;
+            attendanceBody.querySelector('[data-attendance-note]').value = note;
+            attendanceState.lineIndex = idx;
+          });
+        }
+      };
+
+      const fetchAttendance = async () => {
+        if (!attendanceState.eventSlug || !attendanceState.orderId) return;
+        try {
+          const endpoint = buildAttendanceUrl(attendanceState.eventSlug, attendanceState.orderId);
+          const res = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+          if (!res.ok) throw new Error('Chargement impossible');
+          const data = await res.json();
+          if (!data?.ok) throw new Error(data?.error || 'Erreur API');
+          renderAttendanceForm(data.order);
+          const totals = data.attendanceSummary || null;
+          const summaryTarget = document.querySelector('[data-attendance-summary]');
+          if (totals && summaryTarget) {
+            summaryTarget.innerHTML = `Gardées: ${totals.kept || 0} — Libérées: ${totals.released || 0} — Déplacées: ${totals.moved || 0}`;
+          }
+        } catch (err) {
+          if (attendanceBody) attendanceBody.innerHTML = `<div class="error">${escapeHtml(err.message || 'Erreur inconnue')}</div>`;
+        }
+      };
+
+      const submitAttendance = async () => {
+        if (!attendanceState.eventSlug || !attendanceState.orderId) return;
+        if (!attendanceBody) return;
+        const form = attendanceBody.querySelector('[data-attendance-form]');
+        if (!form) return;
+        const lineIndex = attendanceState.lineIndex ?? Number(form.querySelector('[data-attendance-line]')?.value || 0);
+        const status = form.querySelector('[data-attendance-status]')?.value || 'kept';
+        const seat = form.querySelector('[data-attendance-seat]')?.value || '';
+        const zone = form.querySelector('[data-attendance-zone]')?.value || '';
+        const note = form.querySelector('[data-attendance-note]')?.value || '';
+
+        const endpoint = buildAttendanceUrl(attendanceState.eventSlug, attendanceState.orderId);
+        if (attendanceSubmit) attendanceSubmit.disabled = true;
+        try {
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json'
+            },
+            body: JSON.stringify({ lineIndex, status, overrideSeatId: seat, overrideZoneKey: zone, note })
+          });
+          const data = await res.json();
+          if (!res.ok || !data?.ok) {
+            throw new Error(data?.error || 'Enregistrement impossible');
+          }
+          renderAttendanceForm(data.order);
+          const totals = data.attendanceSummary || null;
+          const summaryTarget = document.querySelector('[data-attendance-summary]');
+          if (totals && summaryTarget) {
+            summaryTarget.innerHTML = `Gardées: ${totals.kept || 0} — Libérées: ${totals.released || 0} — Déplacées: ${totals.moved || 0}`;
+          }
+          attendanceState.order = data.order;
+          if (attendanceSubmit) {
+            attendanceSubmit.disabled = false;
+            attendanceSubmit.textContent = 'Enregistré';
+            setTimeout(() => { attendanceSubmit.textContent = 'Enregistrer'; }, 1200);
+          }
+          const block = document.querySelector('[data-event-orders-block]');
+          if (block) block.setAttribute('data-needs-refresh', '1');
+        } catch (err) {
+          if (attendanceSubmit) {
+            attendanceSubmit.disabled = false;
+            attendanceSubmit.textContent = 'Réessayer';
+          }
+          const alert = document.createElement('div');
+          alert.className = 'error';
+          alert.textContent = err.message || 'Erreur inconnue';
+          attendanceBody?.prepend(alert);
+        }
+      };
+
+      if (attendanceSubmit) {
+        attendanceSubmit.addEventListener('click', submitAttendance);
+      }
+
+      document.querySelectorAll('[data-attendance-edit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const orderId = btn.dataset.orderId;
+          const container = btn.closest('[data-event-orders-block]');
+          const eventSlug = container?.dataset.eventSlug || defaultEventSlug;
+          if (!orderId || !eventSlug) return;
+          attendanceState = { eventSlug, orderId, lineIndex: null, order: null };
+          openAttendance();
+          fetchAttendance();
+        });
+      });
+
+      document.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Escape' && attendanceModal && !attendanceModal.classList.contains('hidden')) {
+          closeAttendance();
+        }
+      });
+
+      attendanceModal?.addEventListener('click', (evt) => {
+        if (evt.target === attendanceModal) {
+          closeAttendance();
+        }
+      });
+
+    })();
+  </script>
+</body>
+</html>

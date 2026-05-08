@@ -1,0 +1,5 @@
+action,seatId,seatPattern,zoneKey,reason,expiresAt
+block,S1-A-101,,,"Media filming",2025-09-01T18:00:00Z
+block,,^S1-(A|B)-0*(00[1-9]|0[1-2][0-9]),,Partner allocation,
+free,,/^(S1|S2)-A-0*(98|99)$/i,,Campaign cleanup,
+free,S1-A-101,,,,

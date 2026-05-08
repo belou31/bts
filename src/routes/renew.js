@@ -1,244 +1,309 @@
 // src/routes/renew.js
-const path = require('path');
-const express = require('express');
-const jwt = require('jsonwebtoken');
+import express from 'express';
+import jwt from 'jsonwebtoken';
 
-const Season = require('../models/Season');
-const Subscriber = require('../models/Subscriber');
-const Seat = require('../models/Seat');
+import { Subscriber }  from '../models/Subscriber.js';
+import { Seat }        from '../models/Seat.js';
+import { Tariff }      from '../models/Tariff.js';
+import { TariffPrice } from '../models/TariffPrice.js';
+import { Order }       from '../models/Order.js';
 
-const {
-  getTariffCatalog,
-  getZonePriceTable,
-  computeSubscriptionPriceCents,
-  requiresJustifFromCatalog
-} = require('../utils/pricing');
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
+import { makeTokenHash } from '../utils/ha-token.js';
+import { findSingleGaps }      from '../utils/no-single-gap.js';
 
 const router = express.Router();
 
-function getBasePath() {
-  try {
-    const u = new URL(process.env.APP_URL || 'http://localhost:8080');
-    const p = u.pathname || '/';
-    return p === '/' ? '' : p.replace(/\/$/, '');
-  } catch { return ''; }
+const JWT_SECRET = process.env.JWT_SECRET;
+const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
+
+// ---------- Helpers ----------
+function zoneKeyFromSeatId(seatId) {
+  const s = String(seatId || '');
+  const i = s.indexOf('-');
+  return i > 0 ? s.slice(0, i) : s;
 }
-function wantsJson(req) {
-  const a = (req.headers['accept'] || '').toLowerCase();
-  return a.includes('application/json') || req.xhr;
+function decodeToken(id) {
+  if (!id || !JWT_SECRET) return null;
+  try { return jwt.verify(id, JWT_SECRET); }
+  catch { return null; }
 }
+function normSeatId(s) { return String(s || '').trim(); }
 
-/** GET /s/renew?id=<JWT>[&seat=<prefSeatId>] */
-router.get('/s/renew', async (req, res, next) => {
-  const asJson = wantsJson(req);
-  try {
-    const token = req.query.id;
-    if (!token) return asJson ? res.status(400).json({ error: 'missing_token' }) : sendRenewHtml(res);
-
-    let payload;
-    try {
-      payload = jwt.verify(token, process.env.JWT_SECRET);
-    } catch {
-      return asJson ? res.status(401).json({ error: 'invalid_or_expired_token' }) : sendRenewHtml(res);
-    }
-    if (payload.phase !== 'renewal') return asJson ? res.status(400).json({ error: 'wrong_phase' }) : sendRenewHtml(res);
-
-    const season = await Season.findOne({ code: payload.seasonCode }).lean();
-    if (!season) return asJson ? res.status(404).json({ error: 'season_not_found' }) : sendRenewHtml(res);
-
-    // groupKey
-    let groupKey = payload.groupKey || null;
-    if (!groupKey) {
-      if (!payload.subscriberId) return asJson ? res.status(400).json({ error: 'missing_subscriber_or_group' }) : sendRenewHtml(res);
-      const sub = await Subscriber.findById(payload.subscriberId, { email:1, groupKey:1 }).lean();
-      if (!sub) return asJson ? res.status(404).json({ error: 'subscriber_not_found' }) : sendRenewHtml(res);
-      groupKey = sub.groupKey || sub.email;
-    }
-
-    // Membres + sièges N-1
-    const members = await Subscriber.find(
-      { $or: [ { groupKey }, { $and: [{ groupKey: null }, { email: groupKey }] } ] },
-      { firstName:1, lastName:1, email:1, previousSeasonSeats:1 }
-    ).lean();
-
-    const seatOwner = new Map();
-    const seatIds = [];
-    for (const m of members) {
-      for (const sid of (m.previousSeasonSeats || [])) {
-        const id = String(sid).trim().toUpperCase();
-        if (!seatOwner.has(id)) seatOwner.set(id, m.email);
-        seatIds.push(id);
-      }
-    }
-    const uniqSeatIds = Array.from(new Set(seatIds));
-
-    const q = { seasonCode: season.code };
-    if (uniqSeatIds.length) q.seatId = { $in: uniqSeatIds };
-    if (season.venueSlug) q.venueSlug = season.venueSlug;
-    const seatDocs = uniqSeatIds.length
-      ? await Seat.find(q, { seatId:1, zoneKey:1, status:1, provisionedFor:1 }).lean()
-      : [];
-    const byId = new Map(seatDocs.map(s => [s.seatId, s]));
-    const seatsView = uniqSeatIds.map(seatId => {
-      const s = byId.get(seatId);
-      return {
-        seatId,
-        ownerEmail: seatOwner.get(seatId) || null,
-        exists: !!s,
-        status: s ? s.status : 'missing',
-        provisioned: !!(s && s.status === 'provisioned'),
-        zoneKey: s?.zoneKey || null,
-        provisionedFor: s?.provisionedFor || null
-      };
-    });
-
-    const basePath = getBasePath();
-    const venuePlanUrl = season.venueSlug ? `${basePath}/venues/${season.venueSlug}/plan.svg` : null;
-
-    // 🔎 Catalogue + table des prix (DB si présents, sinon fallback)
-    const tariffs = await getTariffCatalog();
-    const prices = await getZonePriceTable({ seasonCode: season.code, venueSlug: season.venueSlug || null });
-
-    const response = {
-      seasonCode: season.code,
-      venueSlug: season.venueSlug || null,
-      venuePlanUrl,
-      groupKey,
-      members: members.map(m => ({ firstName: m.firstName || '', lastName: m.lastName || '', email: m.email })),
-      seats: seatsView,
-      prefSeatId: req.query.seat ? String(req.query.seat).trim().toUpperCase() : null,
-      tariffs,
-      prices,
-      token
-    };
-
-    return asJson ? res.json(response) : sendRenewHtml(res);
-  } catch (err) {
-    return next(err);
-  }
-});
-
-/** POST /s/renew?id=<JWT> */
-router.post('/s/renew', async (req, res, next) => {
-  try {
-    const token = req.query.id || req.body?.id;
-    if (!token) return res.status(400).json({ error: 'missing_token' });
-
-    let payload;
-    try {
-      payload = jwt.verify(token, process.env.JWT_SECRET);
-    } catch {
-      return res.status(401).json({ error: 'invalid_or_expired_token' });
-    }
-    if (payload.phase !== 'renewal') return res.status(400).json({ error: 'wrong_phase' });
-
-    const season = await Season.findOne({ code: payload.seasonCode }).lean();
-    if (!season) return res.status(404).json({ error: 'season_not_found' });
-
-    let groupKey = payload.groupKey || null;
-    let sub = null;
-    if (!groupKey) {
-      if (!payload.subscriberId) return res.status(400).json({ error: 'missing_subscriber_or_group' });
-      sub = await Subscriber.findById(payload.subscriberId, { email:1, groupKey:1 }).lean();
-      if (!sub) return res.status(404).json({ error: 'subscriber_not_found' });
-      groupKey = sub.groupKey || sub.email;
-    }
-
-    const members = await Subscriber.find(
-      { $or: [ { groupKey }, { $and: [ { groupKey: null }, { email: groupKey } ] } ] },
-      { _id:1, email:1, previousSeasonSeats:1 }
-    ).lean();
-    const memberIds = new Set(members.map(m => String(m._id)));
-    const allowedSeatIds = new Set(members.flatMap(m => (m.previousSeasonSeats || []).map(s => String(s).trim().toUpperCase())));
-
-    const linesIn = Array.isArray(req.body?.lines) ? req.body.lines : [];
-    if (!linesIn.length) return res.status(400).json({ error: 'empty_lines' });
-
-    const reqSeatIds = Array.from(new Set(linesIn.map(l => String(l.seatId || '').trim().toUpperCase()).filter(Boolean)));
-    const seatDocs = await Seat.find(
-      {
-        seasonCode: season.code,
-        seatId: { $in: reqSeatIds },
-        ...(season.venueSlug ? { venueSlug: season.venueSlug } : {})
-      },
-      { seatId:1, zoneKey:1, status:1, provisionedFor:1 }
-    ).lean();
-    const seatsById = new Map(seatDocs.map(s => [s.seatId, s]));
-
-    const invalid = [];
-    for (const sid of reqSeatIds) {
-      const s = seatsById.get(sid);
-      if (!s) { invalid.push({ seatId: sid, reason: 'missing_in_season' }); continue; }
-      if (!allowedSeatIds.has(sid)) { invalid.push({ seatId: sid, reason: 'not_in_group' }); continue; }
-      if (s.status !== 'provisioned') { invalid.push({ seatId: sid, reason: `status_${s.status}` }); continue; }
-      if (!s.provisionedFor || !memberIds.has(String(s.provisionedFor))) {
-        invalid.push({ seatId: sid, reason: 'provisioned_for_other' }); continue;
-      }
-    }
-    if (invalid.length) return res.status(400).json({ error: 'invalid_seats', details: invalid });
-
-    const pricedLines = linesIn.map(l => {
-      const sid = String(l.seatId || '').trim().toUpperCase();
-      const s = seatsById.get(sid);
-      return {
-        seatId: sid,
-        zoneKey: s?.zoneKey || null,
-        tariffCode: String(l.tariffCode || '').trim(),
-        justification: (l.justification || '').trim()
-      };
-    });
-
-    // ✅ justification selon le catalogue DB
-    const catalog = await getTariffCatalog();
-    for (const ln of pricedLines) {
-      if (requiresJustifFromCatalog(catalog, ln.tariffCode) && !ln.justification) {
-        return res.status(400).json({ error: 'justification_required', seatId: ln.seatId, tariffCode: ln.tariffCode });
-      }
-    }
-
-    const totalCents = await computeSubscriptionPriceCents(
-      pricedLines,
-      { seasonCode: season.code, venueSlug: season.venueSlug }
+function buildSeatSubscribersFromSeats(seats, existing = {}) {
+  const out = { ...existing };
+  for (const s of seats || []) {
+    const sid = normSeatId(
+      (typeof s === 'string') ? s : (s.seatId || s.id || s.label || '')
     );
+    if (!sid) continue;
 
-    const installments = Math.max(1, Math.min(3, Number(req.body?.installments || 1)));
-    const payerEmail =
-      (req.body?.payer && String(req.body.payer.email || '').trim()) ||
-      (sub?.email) ||
-      (members[0]?.email) ||
-      null;
-    if (!payerEmail) return res.status(400).json({ error: 'missing_payer_email' });
-
-    const apiBase = process.env.SELF_API_BASE || 'http://127.0.0.1:8080';
-    const resp = await fetch(`${apiBase.replace(/\/$/,'')}/api/payments/helloasso/checkout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        subscriberId: sub?._id || null,
-        seasonCode: season.code,
-        totalCents,
-        itemName: 'Renouvellement abonnement (groupe)',
-        installments,
-        payer: { email: payerEmail },
-        meta: {
-          groupKey,
-          seats: pricedLines.map(x => ({ seatId: x.seatId, zoneKey: x.zoneKey, tariffCode: x.tariffCode }))
-        }
-      })
-    });
-
-    if (!resp.ok) {
-      const t = await resp.text().catch(() => '');
-      return res.status(502).json({ error: 'helloasso_error', status: resp.status, body: t.slice(0, 500) });
+    if (!out[sid]) {
+      // essaie différentes conventions de champs
+      const firstName = s.holderFirstName || s.firstName || s.subscriber?.firstName || '';
+      const lastName  = s.holderLastName  || s.lastName  || s.subscriber?.lastName  || '';
+      const email     = s.holderEmail     || s.email     || s.subscriber?.email     || '';
+      if (firstName || lastName || email) {
+        out[sid] = { firstName, lastName, email };
+      }
     }
-    const data = await resp.json();
-    return res.json({ checkoutUrl: data.redirectUrl, checkoutIntentId: data.checkoutIntentId, totalCents });
-  } catch (err) {
-    return next(err);
+  }
+  return out;
+}
+
+// Construit un index (zoneKey|tariffCode -> priceCents)
+function buildPricesIndex(prices) {
+  const idx = new Map();
+  for (const p of prices || []) {
+    const z = String(p.zoneKey || p.zone || '').toUpperCase();
+    const t = String(p.tariffCode || p.tariff || '').toUpperCase();
+    if (!z || !t) continue;
+    idx.set(`${z}|${t}`, Number(p.priceCents || 0));
+  }
+  return idx;
+}
+function getPriceCents(pricesIdx, zoneKey, tariffCode) {
+  const z = String(zoneKey || '').toUpperCase();
+  const t = String(tariffCode || '').toUpperCase();
+  return pricesIdx.get(`${z}|${t}`) ?? 0;
+}
+
+// ---------- GET /s/renew?id=<jwt> ----------
+/**
+ * Répond au front avec les données nécessaires pour l’écran Renew.
+ * Sortie: { season, seasonCode, venue, venueSlug, tariffs, prices, seats, tokenSeats, seatSubscribers, payer, blockedAny, blockedSeats }
+ */
+router.get('/renew', async (req, res) => {
+  try {
+    const id  = req.query.id || '';
+    const tok = decodeToken(id);
+    if (!tok || !tok.seasonCode || !tok.venueSlug || !tok.seatIds?.length) {
+      return res.status(400).json({ error: 'missing_or_invalid_token' });
+    }
+    const { seasonCode, venueSlug, seatIds } = tok;
+    const tokenSet = new Set(seatIds.map(normSeatId));
+
+    // Tarifs & prix
+    const tariffs = await Tariff.find({ seasonCode, venueSlug, isActive: true }).lean();
+    const prices  = await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean();
+
+    // Sièges du token (dans la salle)
+    const seats = await Seat.find({ seasonCode, venueSlug, seatId: { $in: seatIds } }).lean();
+
+    // Abonnés liés aux sièges du token
+    // (NB: pas de champ seatId dans le modèle; on matche sur prefSeatId et previousSeasonSeats)
+    const subs = await Subscriber.find(
+      {
+        seasonCode, venueSlug,
+        $or: [
+          { prefSeatId: { $in: seatIds } },
+          { previousSeasonSeats: { $in: seatIds } }
+        ]
+      },
+      // projection minimale utile
+      'firstName lastName email prefSeatId previousSeasonSeats'
+    ).lean();
+
+    // Map { seatIdDuToken -> {firstName,lastName,email} }
+    const seatSubscribersRaw = {};
+    for (const s of subs || []) {
+      const pref = normSeatId(s.prefSeatId);
+      let match = pref && tokenSet.has(pref) ? pref : null;
+      if (!match && Array.isArray(s.previousSeasonSeats)) {
+        match = s.previousSeasonSeats.map(normSeatId).find(x => tokenSet.has(x)) || null;
+      }
+      if (!match) continue;
+      seatSubscribersRaw[match] = {
+        firstName: s.firstName || '',
+        lastName:  s.lastName  || '',
+        email:     s.email     || ''
+      };
+    }
+
+    // Compléter depuis seats (au cas où certains holders seraient recopiés côté Seat)
+    const seatSubscribers = buildSeatSubscribersFromSeats(seats, seatSubscribersRaw);
+
+    // Payer par défaut : d'abord celui du premier seatId du token, sinon le premier dispo, sinon vide
+    let payer = {
+      firstName: seatSubscribers?.[seatIds[0]]?.firstName || '',
+      lastName : seatSubscribers?.[seatIds[0]]?.lastName  || '',
+      email    : seatSubscribers?.[seatIds[0]]?.email     || ''
+    };
+    if (!(payer.firstName || payer.lastName || payer.email)) {
+      const any = Object.values(seatSubscribers)[0];
+      if (any) {
+        payer = {
+          firstName: any.firstName || '',
+          lastName : any.lastName  || '',
+          email    : any.email     || ''
+        };
+      }
+    }
+
+    // Statuts bloqués (info UI)
+    const blockedSeats = seats
+      .filter(s => s.status && String(s.status).toLowerCase() !== 'available')
+      .map(s => s.seatId);
+    const blockedAny = blockedSeats.length > 0;
+
+    return res.json({
+      season: seasonCode, seasonCode,
+      venue : venueSlug,  venueSlug,
+      tariffs, prices, seats,
+      tokenSeats: seatIds,
+      seatSubscribers,   // ← rempli à partir de prefSeatId / previousSeasonSeats
+      payer,             // ← renseigné si possible
+      blockedAny,
+      blockedSeats
+    });
+  } catch (e) {
+    console.error('[GET /s/renew] error:', e);
+    res.status(500).json({ error: 'internal_error' });
   }
 });
 
-function sendRenewHtml(res) {
-  res.sendFile(path.join(__dirname, '..', 'public', 'renew.html'));
-}
-module.exports = router;
+
+// ---------- POST /s/renew?id=<jwt> ----------
+/**
+ * Reçoit le panier Renew et crée l’Order + intent chez le prestataire de paiement.
+ * Body: { items:[{seatId, lastName, firstName, tariffCode, justif?, info?}, ...], payer:{firstName,lastName,email}, schedule:1|2|3 }
+ * Réponse: { ok:true, orderId, totalCents, redirectUrl }
+ */
+router.post('/renew', async (req, res) => {
+  try {
+    const id  = req.query.id || '';
+    const tok = decodeToken(id);
+    if (!tok || !tok.seasonCode || !tok.venueSlug || !tok.seatIds?.length) {
+      return res.status(400).json({ error: 'missing_or_invalid_token' });
+    }
+
+    const { seasonCode, venueSlug, seatIds: allowedSeatIds } = tok;
+    const items    = Array.isArray(req.body.items) ? req.body.items : [];
+    const payer    = req.body.payer || {};
+    const schedule = Number(req.body.schedule || 1);
+
+    if (!items.length)        return res.status(400).json({ error: 'empty_items' });
+    if (!payer?.email)        return res.status(400).json({ error: 'payer_email_required' });
+    if (![1,2,3].includes(schedule)) return res.status(400).json({ error: 'invalid_schedule' });
+
+    // Sièges vraiment demandés
+    const seatIdsAsked = [...new Set(items.map(i => normSeatId(i.seatId)))];
+    // Chaque siège demandé doit être dans le token
+    for (const sid of seatIdsAsked) {
+      if (!allowedSeatIds.includes(sid)) {
+        return res.status(403).json({ error: 'seat_not_in_token', seatId: sid });
+      }
+    }
+
+    // Prix (index)
+    const prices   = await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean();
+    const pricesIx = buildPricesIndex(prices);
+
+    // Construire les lignes + total
+    const lines = [];
+    let totalCents = 0;
+    for (const it of items) {
+      const seatId = normSeatId(it.seatId);
+      const zoneKey = zoneKeyFromSeatId(seatId);
+      const tariffCode = String(it.tariffCode || '').toUpperCase();
+      const priceCents = getPriceCents(pricesIx, zoneKey, tariffCode);
+
+      lines.push({
+        seatId,
+        zoneKey,
+        holderFirstName: String(it.firstName || ''),
+        holderLastName:  String(it.lastName  || ''),
+        tariffCode,
+        priceCents,
+        justif: String(it.justif || ''),
+        info:   String(it.info   || '')
+      });
+      totalCents += Number(priceCents || 0);
+    }
+
+
+    // 🚫 RÈGLE ANTI-TROU (serveur) — contrôle avant création de l'order
+    //    Ne considère que les lignes "siège" (les zones virtuelles n'existent pas en Renew)
+    /*{
+      const seatIdsAsked = lines.map(l => l.seatId).filter(Boolean);
+      const gaps = await findSingleGaps({ seasonCode, venueSlug, selectedSeatIds: seatIdsAsked });
+      if (gaps.length) {
+        const g = gaps[0];
+        return res.status(409).json({
+          error: 'no_single_gap',
+          message: `Votre sélection créerait un siège isolé en rangée ${g.row} (zone ${g.zoneKey}).`,
+          problems: gaps
+        });
+      }
+    }*/
+
+
+    // Créer la commande (pending)
+    const order = await Order.create({
+      itemName:`RENEW_${seasonCode}`,
+      seasonCode,
+      venueSlug,
+      phase: 'renew',
+      groupKey: `RENEW-${seasonCode}`, // regroupement fonctionnel
+      payerFirstName: String(payer.firstName || ''),
+      payerLastName:  String(payer.lastName  || ''),
+      payerEmail:     String(payer.email     || ''),
+      paymentSplit:   schedule,
+      lines,
+      totalCents,
+      status: 'pending',
+      paymentProvider: PAYMENT_PROVIDER_ID,
+      paymentProviderMeta: {},
+      origin: {
+        flow:   'renew',
+        uiPath: '/renew',
+        apiPath:`${req.baseUrl || ''}${req.path}`
+      },
+      mailTemplateKind: 'renew'
+    });
+
+    const urls = buildReturnUrls(order);
+    const intent = await createCheckoutIntent({
+      order,
+      returnUrl: urls.returnUrl,
+      backUrl: urls.backUrl,
+      errorUrl: urls.errorUrl
+    });
+    const { redirectUrl, raw, error } = intent;
+
+    if (error || !redirectUrl) {
+      console.error('[renew] createCheckoutIntent failed:', error);
+      return res.status(502).json({ error: 'payment_unavailable' });
+    }
+
+    // Persist intent + tokenHash pour le retour /pay/return
+    const checkoutId = String(intent?.id || intent?.checkoutReference || raw?.id || raw?.checkout_reference || '');
+    if (checkoutId) {
+      const checkoutReference = raw?.checkout_reference || intent?.checkoutReference || checkoutId;
+      const tokenHash = makeTokenHash({ orderId: order._id, checkoutIntentId: checkoutId });
+      order.paymentProviderMeta = {
+        ...(order.paymentProviderMeta || {}),
+        name: PAYMENT_PROVIDER_ID,
+        checkoutIntentId: checkoutId,
+        checkoutReference,
+        providerOrderId:
+          intent.providerOrderId ||
+          raw?.order?.id ||
+          raw?.orderId ||
+          raw?.transaction_code ||
+          raw?.transaction_id ||
+          raw?.id ||
+          null,
+        tokenHash
+      };
+      await order.save();
+    }
+
+    return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
+  } catch (e) {
+    console.error('[POST /s/renew] error:', e);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+export default router;

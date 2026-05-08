@@ -1,0 +1,10 @@
+# zoneKey,tariffCode,priceCents,partnerPriceCents,currency,channels
+S1,NORMAL,18000,,EUR,public
+S1,REDUCED,14000,,EUR,public
+S1,CHILD,9000,,EUR,public
+S2,NORMAL,15000,,EUR,public
+S2,REDUCED,12000,,EUR,public
+S2,CHILD,7500,,EUR,public
+DEBOUT,NORMAL,8000,,EUR,public
+DEBOUT,REDUCED,6000,,EUR,public
+ZONE_S3,CS_PARTNER,11000,9500,EUR,"partner:csebla"

@@ -1,14 +1,17 @@
-const mongoose = require('mongoose');
+// src/models/PaymentIntent.js
+import mongoose from 'mongoose';
 
-const schema = new mongoose.Schema({
-  subscriberId: { type: mongoose.Schema.Types.ObjectId, ref: 'Subscriber' },
+const PaymentIntentSchema = new mongoose.Schema({
   seasonCode: { type: String, index: true },
-  checkoutIntentId: { type: Number, index: true },
-  status: { type: String, enum: ['created', 'succeeded', 'failed', 'pending'], default: 'created' },
-  orderId: { type: Number },
-  totalAmount: { type: Number, required: true }, // centimes
-  installments: [{ amount: Number, date: String }],
-  metadata: mongoose.Schema.Types.Mixed,
+  venueSlug:  { type: String, index: true },
+  groupKey:   { type: String, index: true },
+  payerEmail: String,
+  lines: [{ type: Object }],
+  totalCents: Number,
+  provider: { type: String, default: process.env.PAYMENT_PROVIDER || 'helloasso' },
+  installments: { type: Number, default: 1 },
+  status: { type: String, default: 'created' },
+  providerRef: String
 }, { timestamps: true });
 
-module.exports = mongoose.model('PaymentIntent', schema);
+export const PaymentIntent = mongoose.models.PaymentIntent || mongoose.model('PaymentIntent', PaymentIntentSchema);

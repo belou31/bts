@@ -1,5 +1,12 @@
 // src/models/Seat.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
+
+// Sous-document pour gérer un "hold" (blocage temporaire pendant un checkout)
+const HoldSchema = new mongoose.Schema({
+  orderId: { type: mongoose.Schema.Types.Mixed }, // ObjectId (string) ou autre identifiant
+  until:   { type: Date, index: true },           // date d’expiration du hold
+  reason:  { type: String }                       // ex: 'checkout'
+}, { _id: false });
 
 const SeatSchema = new mongoose.Schema({
   // Identifiant fonctionnel du siège, ex: "A1-001"
@@ -17,9 +24,18 @@ const SeatSchema = new mongoose.Schema({
   // État de réservation pour la saison
   status: {
     type: String,
-    enum: ['available', 'held', 'booked', 'provisioned'],
+    // 'busy' = blocage temporaire (hold) pendant un checkout
+    enum: ['available', 'busy', 'held', 'booked', 'provisioned'],
     default: 'available',
     index: true
+  },
+
+  // Métadonnées extensibles (dont le hold temporaire)
+  meta: {
+    hold: { type: HoldSchema, default: undefined },
+    // déjà utilisés par certains exports/outils d’admin :
+    provisionTags: { type: [String], default: undefined },
+    provisionNote: { type: String, default: undefined }
   },
 
   // Siège provisionné pour un abonné (renouvellement)
@@ -44,5 +60,8 @@ SeatSchema.index(
 // Index utiles pour les filtres fréquents
 SeatSchema.index({ seasonCode: 1, zoneKey: 1 });
 SeatSchema.index({ seasonCode: 1, status: 1 });
+// Index pour le ménage automatique des holds
+SeatSchema.index({ 'meta.hold.until': 1 }, { name: 'idx_hold_until', sparse: true });
+SeatSchema.index({ 'meta.hold.orderId': 1 }, { name: 'idx_hold_order', sparse: true });
 
-module.exports = mongoose.model('Seat', SeatSchema);
+export const Seat = mongoose.models.Seat || mongoose.model('Seat', SeatSchema);

@@ -1,0 +1,63 @@
+<%
+  const localsObj = (typeof locals === 'object' && locals) ? locals : {};
+  const incomingPartnerOptions =
+    (typeof partnerOptions === 'object' && partnerOptions)
+      ? partnerOptions
+      : (typeof localsObj.partnerOptions === 'object' ? localsObj.partnerOptions : {});
+  const resolvedPartnerOptions = incomingPartnerOptions || {};
+
+  const incomingBodyClass = (typeof localsObj.bodyClass !== 'undefined')
+    ? localsObj.bodyClass
+    : (typeof bodyClass !== 'undefined' ? bodyClass : null);
+  const mergedBodyClass = Array.isArray(incomingBodyClass)
+    ? incomingBodyClass.slice()
+    : (incomingBodyClass ? [incomingBodyClass] : []);
+  if (!mergedBodyClass.includes('partner-order')) mergedBodyClass.push('partner-order');
+
+  const baseConfig = (typeof localsObj.config === 'object' && localsObj.config)
+    ? localsObj.config
+    : (typeof config === 'object' && config ? config : {});
+  const mergedConfig = Object.assign({}, baseConfig);
+  mergedConfig.partner = Object.assign({}, mergedConfig.partner || {}, resolvedPartnerOptions);
+
+  const normalizeBase = (value, fallback) => {
+    if (!value) return fallback;
+    const val = String(value);
+    return val.endsWith('/') ? val : `${val}/`;
+  };
+  const staticBase = normalizeBase(
+    (assets && typeof assets === 'object' && assets.static) ? assets.static : (typeof assets === 'string' ? assets : null),
+    'static/'
+  );
+  const dynamicBase = normalizeBase(
+    (assets && typeof assets === 'object' && assets.base) ? assets.base : null,
+    'dynamic/'
+  );
+  const mediaBase = normalizeBase(
+    (assets && typeof assets === 'object' && assets.media) ? assets.media : null,
+    `${dynamicBase}assets/`
+  );
+  const defaultVenuesBase = staticBase.endsWith('static/')
+    ? staticBase.replace(/static\/$/, 'venues/')
+    : `${dynamicBase}venues/`;
+  const venuesBase = normalizeBase(
+    (assets && typeof assets === 'object' && assets.venues) ? assets.venues : null,
+    defaultVenuesBase
+  );
+  const assetsPayload = { static: staticBase, media: mediaBase, venues: venuesBase, base: dynamicBase };
+  const incomingCustomJs = Array.isArray(localsObj.customJs)
+    ? localsObj.customJs
+    : (Array.isArray(customJs) ? customJs : []);
+  const mergedCustomJs = incomingCustomJs.slice();
+  if (!mergedCustomJs.includes(staticBase + 'js/partner.js')) {
+    mergedCustomJs.push(staticBase + 'js/partner.js');
+  }
+
+  const viewData = Object.assign({}, localsObj, {
+    bodyClass: mergedBodyClass,
+    config: mergedConfig,
+    customJs: mergedCustomJs,
+    assets: assetsPayload
+  });
+%>
+<%- include('../order/index', viewData) %>

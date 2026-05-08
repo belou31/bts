@@ -1,42 +1,48 @@
 // src/models/Subscriber.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const SubscriberSchema = new mongoose.Schema({
-  // N° d'abonné (attribué après paiement/attestation)
-  // ⚠️ pas "unique" au niveau du champ; on gère via un index partiel ci-dessous
+  // numéro d'abonné final (attribué après paiement/attestation)
   subscriberNo: { type: String },
 
+  // identité de la personne pour CE siège
   firstName: String,
   lastName: String,
-  email: { type: String, index: true }, // index simple
+
+  // contact
+  email: { type: String, index: true },
   phone: String,
 
-  // Clé de regroupement "commande/famille". Par défaut = email (voir migration/import).
+  // regroupement (famille, commande…) — clé logique
   groupKey: { type: String, index: true, default: null },
 
-  // Appartenance TBH7 (fan club) — distinct de groupKey
-  group: { type: String, enum: [null, 'TBH7'], default: null },
+  // (legacy) ancien champ "group" — conservé pour compat éventuelle
+  group: { type: String, default: null, select: false },
 
-  // Places N-1
-  previousSeasonSeats: [String],
+  // siège “préféré” / ciblé sur la ligne (renouvellement)
+  prefSeatId: { type: String, index: true },
+
+  // historique sièges
+  previousSeasonSeats: { type: [String], default: [] },
+
+  // contexte
+  seasonCode: { type: String, index: true },
+  venueSlug:  { type: String, index: true },
 
   status: {
     type: String,
     enum: ['none', 'invited', 'pending', 'active', 'partial', 'canceled'],
     default: 'none'
   }
-}, { timestamps: true });
+}, {
+  timestamps: true,
+  strict: true
+});
 
-// Index partiel: subscriberNo unique seulement s'il est présent (string)
+// subscriberNo unique seulement s'il est présent
 SubscriberSchema.index(
   { subscriberNo: 1 },
   { unique: true, partialFilterExpression: { subscriberNo: { $exists: true, $type: 'string' } } }
 );
 
-// ⚠️ NE PAS redéclarer groupKey ici (ça doublonne)
-// SubscriberSchema.index({ groupKey: 1 });
-
-// Index utile pour certaines vues/exports
-SubscriberSchema.index({ email: 1, status: 1 });
-
-module.exports = mongoose.model('Subscriber', SubscriberSchema);
+export const Subscriber = mongoose.models.Subscriber || mongoose.model('Subscriber', SubscriberSchema);

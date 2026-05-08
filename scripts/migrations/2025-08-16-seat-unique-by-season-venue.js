@@ -3,7 +3,8 @@
  * - Ajoute venueSlug aux documents Seat existants à partir des saisons
  * - Remplace l'index unique seatId_1 par l'index composé uniq_seat_per_season_venue
  */
-require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
+require('dotenv').config();
+
 const mongoose = require('mongoose');
 const Season = require('../../src/models/Season');
 
