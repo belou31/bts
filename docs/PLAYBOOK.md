@@ -1,3 +1,10 @@
+---
+title: Legacy VPS Playbook
+nav_exclude: true
+---
+
+> Legacy reference page. The canonical operations entry point is now [operations-runbook.md](operations-runbook.md).
+
 # Billetterie BTS — Playbook d’installation (VPS INT & PROD)
 
 Ce guide décrit **une installation propre** de BTS (Belougas Ticketing System) sur **Ubuntu 22.04 (Jammy)**, avec :

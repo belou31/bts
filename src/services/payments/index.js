@@ -7,6 +7,8 @@ const providers = {
   sumup: sumupProvider
 };
 
+export const paymentProviders = providers;
+
 let cachedProvider = null;
 let cachedKey = null;
 
