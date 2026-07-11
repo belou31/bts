@@ -7,13 +7,14 @@ const SeatHoldSchema = new mongoose.Schema({
   seatId:     { type: String, index: true },
   zoneKey:    { type: String, uppercase: true, trim: true, index: true },
   orderId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
+  sessionToken: { type: String, index: true, default: '' },
   reason:     { type: String, default: '' },
   forced:     { type: Boolean, default: false },
   // IMPORTANT: pas d'index inline ici pour éviter le doublon
   expiresAt:  { type: Date }
 }, { timestamps: true });
 
-SeatHoldSchema.index({ eventId: 1, seatId: 1 }, { name: 'idx_event_seat' });
+SeatHoldSchema.index({ eventId: 1, seatId: 1 }, { unique: true, name: 'idx_event_seat' });
 SeatHoldSchema.index({ eventId: 1, zoneKey: 1 }, { name: 'idx_event_zone' });
 
 // Index TTL unique (supprime le doc quand expiresAt est atteint)

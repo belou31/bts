@@ -4,6 +4,136 @@
   const VIEW_CONFIG = window.BTS_VIEW_CONFIG || {};
   const IS_PARTNER_VIEW = !!VIEW_CONFIG.partner;
 
+  // ── Gestion des holds pre-checkout ─────────────────────────────────────────
+
+  function getOrCreateSessionToken() {
+    const key = 'bts_session_token';
+    let token = sessionStorage.getItem(key);
+    if (!token) {
+      token = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2) + Date.now().toString(36);
+      sessionStorage.setItem(key, token);
+    }
+    return token;
+  }
+
+  const SESSION_TOKEN = getOrCreateSessionToken();
+
+  // Dérive l'URL hold à partir de l'URL status (remplace /status par /hold)
+  const holdBase = (VIEW_CONFIG.api?.status || '').replace(/\/status(\?.*)?$/, '/hold');
+
+  // Injecte sessionToken dans les appels status et checkout
+  if (VIEW_CONFIG.api?.status) {
+    const sep = VIEW_CONFIG.api.status.includes('?') ? '&' : '?';
+    VIEW_CONFIG.api.status += `${sep}sessionToken=${encodeURIComponent(SESSION_TOKEN)}`;
+  }
+  if (VIEW_CONFIG.api?.checkout) {
+    const sep = VIEW_CONFIG.api.checkout.includes('?') ? '&' : '?';
+    VIEW_CONFIG.api.checkout += `${sep}sessionToken=${encodeURIComponent(SESSION_TOKEN)}`;
+  }
+
+  const heldSeats = new Set();
+  let holdTtlSec = 3 * 60;
+  let holdExpiryTime = null;
+  let holdTimerInterval = null;
+  const WARN_THRESHOLD_SEC = 60;
+
+  // Dérive l'URL seats à partir de l'URL status (remplace /status par /seats)
+  const seatsUrl = (VIEW_CONFIG.api?.status || '').replace(/\/status(\?|$)/, '/seats$1');
+
+  async function holdSeats(seatIds) {
+    const ids = seatIds.filter(Boolean);
+    if (!ids.length || !holdBase) return { held: [], conflicts: [] };
+    try {
+      const res = await fetch(holdBase, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ seatIds: ids, sessionToken: SESSION_TOKEN })
+      });
+      const data = await res.json();
+      if (data.held) data.held.forEach(id => heldSeats.add(id));
+      if (data.holdTtlSec) holdTtlSec = data.holdTtlSec;
+      if (data.held?.length) resetHoldTimer();
+      return data;
+    } catch (e) {
+      console.warn('[BTS hold] POST failed:', e?.message);
+      return { held: [], conflicts: [] };
+    }
+  }
+
+  async function releaseSeats(seatIds) {
+    const ids = seatIds.filter(Boolean);
+    if (!ids.length || !holdBase) return;
+    try {
+      await fetch(holdBase, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ seatIds: ids, sessionToken: SESSION_TOKEN })
+      });
+      ids.forEach(id => heldSeats.delete(id));
+    } catch (e) {
+      console.warn('[BTS hold] DELETE failed:', e?.message);
+    }
+  }
+
+  // ── Timer de réservation ────────────────────────────────────────────────
+
+  function resetHoldTimer() {
+    if (!heldSeats.size) { stopHoldTimer(); return; }
+    holdExpiryTime = Date.now() + holdTtlSec * 1000;
+    if (!holdTimerInterval) holdTimerInterval = setInterval(updateTimerDisplay, 1000);
+    updateTimerDisplay();
+  }
+
+  function stopHoldTimer() {
+    if (holdTimerInterval) clearInterval(holdTimerInterval);
+    holdTimerInterval = null;
+    holdExpiryTime = null;
+    const el = document.querySelector('#holdTimer');
+    if (el) el.hidden = true;
+  }
+
+  function updateTimerDisplay() {
+    const el = document.querySelector('#holdTimer');
+    if (!el) return;
+    if (!holdExpiryTime || !heldSeats.size) { el.hidden = true; return; }
+
+    const remainSec = Math.max(0, Math.ceil((holdExpiryTime - Date.now()) / 1000));
+    const min = Math.floor(remainSec / 60);
+    const sec = remainSec % 60;
+    const display = `${min}:${String(sec).padStart(2, '0')}`;
+
+    el.hidden = false;
+    const txt = el.querySelector('.timer-text');
+    if (txt) txt.textContent = display;
+
+    const warning = remainSec <= WARN_THRESHOLD_SEC && remainSec > 0;
+    el.classList.toggle('timer-warning', warning);
+    const btn = el.querySelector('#holdExtendBtn');
+    if (btn) btn.hidden = !warning;
+
+    if (remainSec <= 0) handleHoldExpiry();
+  }
+
+  async function handleHoldExpiry() {
+    stopHoldTimer();
+    const allSeats = Array.from(heldSeats);
+    if (allSeats.length) await releaseSeats(allSeats);
+    document.querySelectorAll('#cartRows .cart-row').forEach(row => row.remove());
+    api.recomputeTotals?.();
+    showFeedback(false, 'Votre sélection a expiré. Les places ont été libérées.');
+  }
+
+  function extendHold() {
+    const allSeats = Array.from(heldSeats);
+    if (allSeats.length) holdSeats(allSeats);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+
   const cssEscape = (s) => (window.CSS?.escape ? CSS.escape(String(s)) : String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&'));
   const normZoneKey = (key) => String(key || '').trim().toUpperCase(); // trim to avoid duplicates like "DEBOUT "
 
@@ -205,7 +335,15 @@
     const svgDoc = state.svgDoc;
     const seats = Array.isArray(state.lastData?.seats) ? state.lastData.seats : [];
 
-    seats.forEach(s => api.setSeatState(s.seatId, s.status));
+    // Ne pas écraser l'état visuel des sièges déjà dans le panier (sélectionnés par cet utilisateur)
+    const cartSeatIds = new Set(
+      Array.from(document.querySelectorAll('#cartRows .cart-row[data-seat-id]'))
+        .map(row => String(row.dataset.seatId || '').trim()).filter(Boolean)
+    );
+    seats.forEach(s => {
+      if (cartSeatIds.has(String(s.seatId))) return;
+      api.setSeatState(s.seatId, s.status);
+    });
     seats.forEach(s => {
       const el = api.findSeatElement?.(s.seatId) || svgDoc.getElementById(String(s.seatId));
       if (!el) return;
@@ -214,7 +352,7 @@
 
     if (!svgDoc.__btsClickBound) {
       svgDoc.__btsClickBound = true;
-      svgDoc.addEventListener('click', (e) => {
+      svgDoc.addEventListener('click', async (e) => {
         const el = e.target?.closest?.('[data-zone-key],[data-zone-id],[data-seat-id]');
         if (!el) return;
 
@@ -236,11 +374,23 @@
         if (el.classList?.contains?.('seat-booked') || el.classList?.contains?.('seat-busy')) return;
 
         const existing = document.querySelector(`#cartRows [data-seat-id="${cssEscape(sid)}"]`);
-        if (existing) existing.remove();
-        else api.addRowForSeat({ seatId: sid, zoneKey: rec.zoneKey });
-        api.recomputeTotals();
-        recomputeRemainingFromCart();
-        applyFallbackLabels();
+        if (existing) {
+          existing.remove();
+          api.recomputeTotals();
+          recomputeRemainingFromCart();
+          applyFallbackLabels();
+        } else {
+          const result = await holdSeats([sid]);
+          if (result.conflicts?.includes(sid)) {
+            api.setSeatState(sid, 'busy');
+            showFeedback(false, `Place ${sid} déjà sélectionnée par un autre utilisateur.`);
+            return;
+          }
+          api.addRowForSeat({ seatId: sid, zoneKey: rec.zoneKey });
+          api.recomputeTotals();
+          recomputeRemainingFromCart();
+          applyFallbackLabels();
+        }
       });
     }
   }
@@ -346,6 +496,8 @@
       if (!IS_PARTNER_VIEW) document.title = `${evtTitle} — BTS`;
     }
 
+    if (data.holdTtlSec) holdTtlSec = data.holdTtlSec;
+
     updateSaleStatusBadge(data?.event || data);
   });
 
@@ -361,6 +513,19 @@
     const items = document.querySelectorAll('#cartRows .cart-row');
     const payBtn = document.querySelector('#payBtn');
     if (payBtn) payBtn.disabled = items.length === 0;
+
+    // Sync holds: re-hold ALL cart seats (renew TTL), release removed
+    if (holdBase) {
+      const cartSeatIds = new Set(
+        Array.from(document.querySelectorAll('#cartRows .cart-row[data-seat-id]'))
+          .map(row => String(row.dataset.seatId || '').trim()).filter(Boolean)
+      );
+      const toRelease = [...heldSeats].filter(id => !cartSeatIds.has(id));
+      if (toRelease.length) releaseSeats(toRelease);
+      const allCart = [...cartSeatIds];
+      if (allCart.length) holdSeats(allCart);
+      if (!cartSeatIds.size) stopHoldTimer();
+    }
 
     items.forEach(row => {
       const zone = normZoneKey(row.dataset.zoneKey);
@@ -416,5 +581,52 @@
     // focus payer email par défaut
     if (payerEmail && !payerEmail.value) payerEmail.focus();
     if (payerLast && !payerLast.value && payerFirst && payerFirst.value) payerLast.focus();
+
+    // Polling léger : rafraîchit uniquement les seat states (pas tarifs/prix/zones)
+    const pollMs = Number(VIEW_CONFIG.seatPollIntervalMs) || 5000;
+    let pollActive = true;
+    const doPoll = async () => {
+      if (!pollActive || !seatsUrl) return;
+      try {
+        const res = await fetch(seatsUrl, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data.seats)) return;
+        const cartSeatIds = new Set(
+          Array.from(document.querySelectorAll('#cartRows .cart-row[data-seat-id]'))
+            .map(row => String(row.dataset.seatId || '').trim()).filter(Boolean)
+        );
+        data.seats.forEach(s => {
+          const sid = String(s.seatId || '').trim();
+          state.seatsById.set(sid, { ...state.seatsById.get(sid), ...s });
+          if (cartSeatIds.has(sid)) return;
+          api.setSeatState(sid, s.status);
+        });
+      } catch { /* silencieux */ }
+    };
+    const pollTimer = setInterval(doPoll, pollMs);
+    document.querySelector('#payBtn')?.addEventListener('click', () => {
+      pollActive = false;
+      clearInterval(pollTimer);
+      stopHoldTimer();
+    }, { once: true });
+
+    // Bouton "Prolonger"
+    document.querySelector('#holdExtendBtn')?.addEventListener('click', extendHold);
+
+    // Libère tous les holds à la fermeture de l'onglet
+    if (holdBase) {
+      window.addEventListener('beforeunload', () => {
+        if (!heldSeats.size) return;
+        const body = JSON.stringify({ seatIds: [], sessionToken: SESSION_TOKEN });
+        fetch(holdBase, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body,
+          keepalive: true
+        }).catch(() => {});
+      });
+    }
   });
 })();

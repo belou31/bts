@@ -238,6 +238,12 @@
     </section>
 
     <section class="col form-col">
+      <% if (hasEventJs) { %>
+      <div id="holdTimer" class="hold-timer" hidden>
+        <span class="timer-text">--:--</span>
+        <button id="holdExtendBtn" type="button" class="hold-extend-btn" hidden>Prolonger</button>
+      </div>
+      <% } %>
       <div id="order" class="panel">
         <div id="linesPanel" class="block">
           <h2><%= cartTitleText %></h2>

@@ -5,6 +5,7 @@ import mongoose, { isValidObjectId } from 'mongoose';
 
 import { Event } from '../models/Event.js';
 import { Seat } from '../models/Seat.js';
+import { SeatHold } from '../models/SeatHold.js';
 import { Order } from '../models/Order.js';
 import { Tariff } from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
@@ -17,6 +18,7 @@ import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
+const SEAT_HOLD_TTL_MIN = Number(process.env.SEAT_HOLD_TTL_MIN || '3');
 
 // Helper: reconnaît un ID virtuel de zone (ex: DEBOUT-Z001)
 const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid || ''));
@@ -176,7 +178,7 @@ function buildAllowedFromPrices(prices) {
   };
 }
 
-async function computeSeatStates(ev) {
+async function computeSeatStates(ev, sessionToken = '') {
   // Base: états des sièges pour la saison/lieu (provisions/holds abonnements, VIP, etc.)
   const base = await Seat.find(
     { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug },
@@ -207,6 +209,24 @@ async function computeSeatStates(ev) {
       if (!byId.has(sid)) continue;       // ⛔ ne crée PAS de siège fantôme
       const rec = byId.get(sid);
       rec.status = 'booked';
+      byId.set(sid, rec);
+    }
+  }
+
+  // Surcouche: SeatHold actifs (sélections en cours d'autres sessions) -> busy
+  const holds = await SeatHold.find(
+    { eventId: ev._id, expiresAt: { $gt: new Date() } },
+    { seatId: 1, sessionToken: 1, _id: 0 }
+  ).lean();
+
+  for (const hold of holds) {
+    const sid = String(hold.seatId || '').trim();
+    if (!sid) continue;
+    if (sessionToken && hold.sessionToken === sessionToken) continue; // propre sélection → reste available
+    if (!byId.has(sid)) continue;
+    const rec = byId.get(sid);
+    if (rec.status === 'available') {
+      rec.status = 'busy';
       byId.set(sid, rec);
     }
   }
@@ -338,6 +358,7 @@ export function createEventFlowRouter({
   // GET /:eventId/status
   router.get('/:eventId/status', async (req, res) => {
     try {
+      const sessionToken = String(req.query.sessionToken || '').trim().slice(0, 64);
       const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
       const presaleRemaining = await getPartnerPresaleRemaining(ev, channelCtx);
@@ -354,7 +375,7 @@ export function createEventFlowRouter({
       })();
       const resolvedVenueView = resolveVenueViewForEvent(ev, channelCtx);
       const [seatsBase, { tariffs, prices, scope }] = await Promise.all([
-        computeSeatStates(ev),
+        computeSeatStates(ev, sessionToken),
         loadTariffsAndPrices(ev, channelCtx)
       ]);
 
@@ -519,12 +540,112 @@ export function createEventFlowRouter({
           ? { allowed: true, remaining: presaleRemaining ?? null, quota: presaleQuota }
           : { allowed: false },
         saleStatus,
+        holdTtlSec: SEAT_HOLD_TTL_MIN * 60,
         channel: channelCtx?.kind === 'partner'
           ? `partner:${channelCtx.partnerSlug || ''}`
           : (channelCtx?.kind || 'public')
       });
     } catch (e) {
       res.status(404).json({ ok: false, error: e.message || 'Not found' });
+    }
+  });
+
+  // GET /:eventId/seats — seat states only (lightweight polling)
+  router.get('/:eventId/seats', async (req, res) => {
+    try {
+      const sessionToken = String(req.query.sessionToken || '').trim().slice(0, 64);
+      const ev = await loadEvent(req.params.eventId);
+      const seats = await computeSeatStates(ev, sessionToken);
+      res.json({ ok: true, seats, ts: Date.now() });
+    } catch (e) {
+      res.status(404).json({ ok: false, error: e.message || 'Not found' });
+    }
+  });
+
+  // POST /:eventId/hold — réserve temporaire de sièges (atomic hold-or-conflict)
+  router.post('/:eventId/hold', async (req, res) => {
+    try {
+      const ev = await loadEvent(req.params.eventId);
+      const sessionToken = String(req.body?.sessionToken || '').trim().slice(0, 64);
+      if (!sessionToken) return res.status(400).json({ ok: false, error: 'sessionToken required' });
+
+      const seatIds = (Array.isArray(req.body?.seatIds) ? req.body.seatIds : [])
+        .map(s => String(s || '').trim()).filter(Boolean).slice(0, 30);
+      if (!seatIds.length) return res.json({ ok: true, held: [], conflicts: [], holdTtlSec: SEAT_HOLD_TTL_MIN * 60 });
+
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + SEAT_HOLD_TTL_MIN * 60 * 1000);
+      const held = [];
+      const conflicts = [];
+
+      const results = await Promise.allSettled(seatIds.map(async (seatId) => {
+        // 1) Renouvelle si c'est notre hold ou un hold expiré
+        const updated = await SeatHold.findOneAndUpdate(
+          {
+            eventId: ev._id,
+            seatId,
+            $or: [
+              { sessionToken },
+              { expiresAt: { $lte: now } }
+            ]
+          },
+          { $set: { sessionToken, expiresAt, seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, reason: 'selection' } },
+          { new: true }
+        );
+        if (updated) return { seatId, status: 'held' };
+
+        // 2) Vérifie si un hold actif d'une autre session existe
+        const activeHold = await SeatHold.findOne(
+          { eventId: ev._id, seatId, expiresAt: { $gt: now } },
+          { _id: 1 }
+        ).lean();
+        if (activeHold) return { seatId, status: 'conflict' };
+
+        // 3) Aucun hold → crée (catch 11000 si index unique actif)
+        try {
+          await SeatHold.create({
+            eventId: ev._id, seatId, sessionToken, expiresAt,
+            seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, reason: 'selection'
+          });
+          return { seatId, status: 'held' };
+        } catch (err) {
+          if (err.code === 11000) return { seatId, status: 'conflict' };
+          throw err;
+        }
+      }));
+
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          if (r.value.status === 'held') held.push(r.value.seatId);
+          else conflicts.push(r.value.seatId);
+        }
+      }
+
+      const ok = conflicts.length === 0 && held.length > 0;
+      res.json({ ok, held, conflicts, heldUntil: expiresAt.toISOString(), holdTtlSec: SEAT_HOLD_TTL_MIN * 60 });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // DELETE /:eventId/hold — libère les holds d'une session (seatIds précis ou tous)
+  router.delete('/:eventId/hold', async (req, res) => {
+    try {
+      const ev = await loadEvent(req.params.eventId);
+      const sessionToken = String(req.body?.sessionToken || '').trim().slice(0, 64);
+      if (!sessionToken) return res.status(400).json({ ok: false, error: 'sessionToken required' });
+
+      const seatIds = (Array.isArray(req.body?.seatIds) ? req.body.seatIds : [])
+        .map(s => String(s || '').trim()).filter(Boolean);
+
+      const filter = seatIds.length
+        ? { eventId: ev._id, sessionToken, seatId: { $in: seatIds } }
+        : { eventId: ev._id, sessionToken };
+
+      await SeatHold.deleteMany(filter);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 
@@ -604,6 +725,12 @@ export function createEventFlowRouter({
         mailTemplateKind,
         hold: { until }
       });
+
+      // Libère les SeatHolds pre-checkout de cette session (remplacés par le hold Order)
+      const checkoutSessionToken = String(req.query.sessionToken || req.body?.sessionToken || '').trim().slice(0, 64);
+      if (checkoutSessionToken) {
+        SeatHold.deleteMany({ eventId: ev._id, sessionToken: checkoutSessionToken }).catch(() => {});
+      }
 
       // Pose des holds uniquement pour les VRAIS sièges (présents dans statusIdx)
       if (ctxData.holdable.length) {
