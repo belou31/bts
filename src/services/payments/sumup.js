@@ -14,8 +14,10 @@ function tokenUrl() {
 
 function assertEnv() {
   const miss = [];
-  if (!process.env.SUMUP_CLIENT_ID) miss.push('SUMUP_CLIENT_ID');
-  if (!process.env.SUMUP_CLIENT_SECRET) miss.push('SUMUP_CLIENT_SECRET');
+  if (!process.env.SUMUP_API_KEY) {
+    if (!process.env.SUMUP_CLIENT_ID) miss.push('SUMUP_CLIENT_ID');
+    if (!process.env.SUMUP_CLIENT_SECRET) miss.push('SUMUP_CLIENT_SECRET');
+  }
   if (!process.env.SUMUP_MERCHANT_CODE && !process.env.SUMUP_PAY_TO_EMAIL) {
     miss.push('SUMUP_MERCHANT_CODE or SUMUP_PAY_TO_EMAIL');
   }
@@ -24,6 +26,11 @@ function assertEnv() {
 
 async function getAccessToken() {
   assertEnv();
+  // API Key auth: use directly as Bearer token (no OAuth step)
+  if (process.env.SUMUP_API_KEY) {
+    return process.env.SUMUP_API_KEY;
+  }
+  // OAuth client_credentials flow
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: process.env.SUMUP_CLIENT_ID,
