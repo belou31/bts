@@ -18,7 +18,6 @@ nav_order: 120
 | `Counter` | Audience / opérations | 4 | 1 |
 | `Event` | Événements et contrôle | 11 | 3 |
 | `Order` | Runtime saison / vente | 20 | 18 |
-| `PaymentIntent` | Runtime saison / vente | 12 | 3 |
 | `Season` | Runtime saison / vente | 7 | 1 |
 | `Seat` | Runtime saison / vente | 8 | 11 |
 | `SeatCatalog` | Catalogue | 9 | 2 |
@@ -181,27 +180,6 @@ nav_order: 120
 #### Indexes
 
 `seasonCode:1`<br>`venueSlug:1`<br>`eventId:1`<br>`parentOrderId:1`<br>`groupKey:1`<br>`itemName:1`<br>`payerEmail:1`<br>`lines.tariffCode:1`<br>`status:1`<br>`origin.flow:1`<br>`mailTemplateKind:1`<br>`seasonCode:1, venueSlug:1, groupKey:1, status:1` (name=idx_group_status)<br>`seasonCode:1, venueSlug:1, groupKey:1, payerEmail:1, status:1` (name=uniq_paid_per_payer, unique)<br>`eventId:1, parentOrderId:1, status:1` (name=idx_event_parent_status)<br>`paymentProviderMeta.checkoutIntentId:1` (name=idx_provider_intent, sparse)<br>`paymentProviderMeta.tokenHash:1` (name=idx_provider_tokenhash, sparse)<br>`meta.checkoutIntentId:1` (name=idx_legacy_intent, sparse)<br>`meta.tokenHash:1` (name=idx_legacy_tokenhash, sparse)
-
-### PaymentIntent
-
-#### Top-level fields
-
-- `createdAt`: `Date`
-- `groupKey`: `String`
-- `installments`: `Number`
-- `lines`: `Array<Mixed>`
-- `payerEmail`: `String`
-- `provider`: `String`
-- `providerRef`: `String`
-- `seasonCode`: `String`
-- `status`: `String`
-- `totalCents`: `Number`
-- `updatedAt`: `Date`
-- `venueSlug`: `String`
-
-#### Indexes
-
-`seasonCode:1`<br>`venueSlug:1`<br>`groupKey:1`
 
 ### Season
 

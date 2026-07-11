@@ -1036,9 +1036,10 @@ if (Array.isArray(CTX.seatSubscribers)) {
   $planObj.addEventListener('load', () => { try { onPlanReady($planObj); } catch(e){ console.warn('plan init failed:', e); } }, { once:true });
 
 // Lignes (renew = sièges connus) — activable/désactivable par config
-const $rows = $('#cartRows'); $rows.innerHTML = '';
+const $rows = $('#cartRows');
 const BUILD_ROWS = (CONFIG.buildRowsFromData !== false);
 if (BUILD_ROWS) {
+  $rows.innerHTML = ''; // uniquement quand on reconstruit depuis les données (ex: renew)
   // Ne pas remettre dans le panier les sièges déjà "booked" (ou "sold")
   const initialSeats = Array.isArray(CTX.seats) ? CTX.seats : [];
   for (const seat of initialSeats) {
@@ -1048,10 +1049,10 @@ if (BUILD_ROWS) {
   }
 }
 
-  // Payer
-  $('#payerFirst').value = CTX.payer.firstName || '';
-  $('#payerLast').value  = CTX.payer.lastName  || '';
-  $('#payerEmail').value = CTX.payer.email     || '';
+  // Payer — ne pas écraser ce que l'utilisateur a déjà saisi
+  if (!$('#payerFirst').value) $('#payerFirst').value = CTX.payer.firstName || '';
+  if (!$('#payerLast').value)  $('#payerLast').value  = CTX.payer.lastName  || '';
+  if (!$('#payerEmail').value) $('#payerEmail').value = CTX.payer.email     || '';
 
 dlog('payer inputs after set:', {
   first: $('#payerFirst').value, last: $('#payerLast').value, email: $('#payerEmail').value
@@ -1094,6 +1095,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   
   window.addEventListener('resize', () => { if (!layoutLock) applyLayout(); });
+
+  window.BTS_VIEW.refresh = loadData;
 
   try { await loadData(); }
   catch (e) {

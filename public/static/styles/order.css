@@ -211,3 +211,40 @@ body.order-view {
     justify-content: center;
   }
 }
+
+/* ── Hold timer ───────────────────────────────────────────────── */
+.hold-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(59, 160, 255, 0.08);
+  border: 1px solid rgba(59, 160, 255, 0.25);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  color: #cde5ff;
+}
+.hold-timer .timer-text {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.hold-timer.timer-warning {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f3b4b4;
+}
+.hold-extend-btn {
+  margin-left: auto;
+  padding: 3px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(59, 160, 255, 0.5);
+  background: rgba(59, 160, 255, 0.15);
+  color: #3ba0ff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hold-extend-btn:hover {
+  background: rgba(59, 160, 255, 0.25);
+}
