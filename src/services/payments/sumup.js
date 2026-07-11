@@ -151,13 +151,28 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   }
   console.log('[sumup] checkout response:', JSON.stringify(j));
 
-  const hostedUrl = j.id ? `https://pay.sumup.com/b2c/${encodeURIComponent(j.id)}` : '';
+  // SumUp sometimes only returns links on GET, not POST — fetch to get the real checkout URL
+  let jGet = j;
+  if (j.id && !j.checkout_url && !j.links?.length) {
+    try {
+      const rGet = await fetch(`${apiBase()}/checkouts/${encodeURIComponent(j.id)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (rGet.ok) {
+        jGet = await rGet.json().catch(() => j);
+        console.log('[sumup] checkout GET response:', JSON.stringify(jGet));
+      }
+    } catch { /* ignore, fall back to POST response */ }
+  }
+
+  const resolvedCheckout = { ...j, ...jGet };
+  const hostedUrl = resolvedCheckout.id ? `https://pay.sumup.com/b2c/${encodeURIComponent(resolvedCheckout.id)}` : '';
   return {
-    redirectUrl: j.checkout_url || j.checkout_redirect_url || (j.links && j.links.find(l => l.rel === 'checkout')?.href) || hostedUrl,
-    id: j.id || j.checkout_reference || payload.checkout_reference,
-    raw: j,
-    checkoutReference: j.checkout_reference || payload.checkout_reference,
-    providerOrderId: j.transaction_code || j.transaction_id || j.id || j.checkout_reference || payload.checkout_reference
+    redirectUrl: resolvedCheckout.checkout_url || resolvedCheckout.checkout_redirect_url || (resolvedCheckout.links && resolvedCheckout.links.find(l => l.rel === 'checkout')?.href) || hostedUrl,
+    id: resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference,
+    raw: resolvedCheckout,
+    checkoutReference: resolvedCheckout.checkout_reference || payload.checkout_reference,
+    providerOrderId: resolvedCheckout.transaction_code || resolvedCheckout.transaction_id || resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference
   };
 }
 
