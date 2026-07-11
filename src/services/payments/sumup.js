@@ -132,7 +132,8 @@ function buildCheckoutPayload({ order, urls }) {
 
 async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const token = await getAccessToken();
-  const urls = buildReturnUrls(order, { returnUrl, backUrl, errorUrl });
+  // URLs are already built (with oid) by the caller — pass them through directly
+  const urls = { returnUrl: returnUrl || '', backUrl: backUrl || '', errorUrl: errorUrl || '' };
   const payload = buildCheckoutPayload({ order, urls });
 
   const r = await fetch(`${apiBase()}/checkouts`, {
@@ -150,8 +151,9 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   }
   console.log('[sumup] checkout response:', JSON.stringify(j));
 
+  const hostedUrl = j.id ? `https://pay.sumup.com/b2c/${encodeURIComponent(j.id)}` : '';
   return {
-    redirectUrl: j.checkout_url || j.checkout_redirect_url || (j.links && j.links.find(l => l.rel === 'checkout')?.href) || '',
+    redirectUrl: j.checkout_url || j.checkout_redirect_url || (j.links && j.links.find(l => l.rel === 'checkout')?.href) || hostedUrl,
     id: j.id || j.checkout_reference || payload.checkout_reference,
     raw: j,
     checkoutReference: j.checkout_reference || payload.checkout_reference,
