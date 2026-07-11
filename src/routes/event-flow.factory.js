@@ -270,7 +270,8 @@ export function createEventFlowRouter({
     const { payer, items, schedule } = req.body || {};
     assert(Array.isArray(items) && items.length > 0, 'Panier vide');
 
-    const seats = await computeSeatStates(ev);
+    const sessionToken = String(req.query?.sessionToken || req.body?.sessionToken || '').trim().slice(0, 64);
+    const seats = await computeSeatStates(ev, sessionToken);
     const statusIdx = new Map(seats.map(s => [String(s.seatId), s.status]));
     for (const it of items) {
       const sidRaw = String(it.seatId || '').trim();
