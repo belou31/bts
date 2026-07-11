@@ -148,6 +148,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
     console.error('[sumup] payload sent:', JSON.stringify(payload));
     throw new Error(`SumUp checkout ${r.status} ${JSON.stringify(j)}`);
   }
+  console.log('[sumup] checkout response:', JSON.stringify(j));
 
   return {
     redirectUrl: j.checkout_url || j.checkout_redirect_url || (j.links && j.links.find(l => l.rel === 'checkout')?.href) || '',
