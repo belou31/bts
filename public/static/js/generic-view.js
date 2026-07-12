@@ -760,7 +760,8 @@ async function submitPayment() {
 
   // Open a blank window NOW, while we still have the user gesture context.
   // After any await the browser popup-blocker would reject window.open().
-  const preWin = window.open('', '_blank', 'noopener,noreferrer');
+  // Do NOT use noopener here — it causes browsers to return null, losing the reference.
+  const preWin = window.open('about:blank', '_blank');
 
   $('#payBtn').disabled = true;
 
