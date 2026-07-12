@@ -159,7 +159,6 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
       });
       if (rGet.ok) {
         jGet = await rGet.json().catch(() => j);
-        console.log('[sumup] checkout GET response:', JSON.stringify(jGet));
       }
     } catch { /* ignore, fall back to POST response */ }
   }

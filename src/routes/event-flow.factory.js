@@ -21,9 +21,9 @@ const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
 const SEAT_HOLD_TTL_MIN = Number(process.env.SEAT_HOLD_TTL_MIN || '3');
 
 function buildPayStartUrl(orderId) {
+  // APP_URL already contains BASE_PATH in deployed envs (same as SUMUP_RETURN_URL convention)
   const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
-  const base = String(process.env.BASE_PATH || '').trim().replace(/\/+$/, '');
-  return `${app}${base}/pay/start?orderId=${encodeURIComponent(String(orderId))}`;
+  return `${app}/pay/start?orderId=${encodeURIComponent(String(orderId))}`;
 }
 
 // Helper: reconnaît un ID virtuel de zone (ex: DEBOUT-Z001)
