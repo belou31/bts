@@ -63,6 +63,24 @@
       vertical-align: middle; margin-right: 8px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .pay-open-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      background: #2563eb; color: #fff;
+      padding: 13px 28px; border-radius: 999px;
+      font-size: 1rem; font-weight: 600; text-decoration: none;
+      transition: background .15s;
+    }
+    .pay-open-btn:hover { background: #1d4ed8; }
+    .pay-open-btn:active { background: #1e40af; }
+    .pay-poll-status {
+      margin-top: 14px; font-size: 0.88rem;
+      color: rgba(255,255,255,0.5); text-align: center;
+    }
+    .pay-poll-status .spinner { display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.2); border-top-color: #3ba0ff;
+      border-radius: 50%; animation: spin .8s linear infinite;
+      vertical-align: middle; margin-right: 6px; }
+    .pay-poll-success { color: #4ade80; font-weight: 600; }
     .pay-back {
       padding: 0 24px 20px;
       text-align: center;
@@ -115,9 +133,13 @@
         <div id="sumup-card"></div>
         <div id="pay-error" class="pay-error"></div>
       <% } else { %>
-        <div class="pay-redirect-msg">
-          <span class="spinner"></span>
-          Redirection vers <%= providerLabel %>…
+        <div style="text-align:center; padding: 8px 0;">
+          <a id="payBtn" class="pay-open-btn" href="<%- providerRedirectUrl %>" target="_blank" rel="noopener noreferrer">
+            Payer avec <%= providerLabel %>
+          </a>
+          <div id="pollStatus" class="pay-poll-status" hidden>
+            <span class="spinner"></span>Vérification du paiement…
+          </div>
         </div>
       <% } %>
     </div>
@@ -171,10 +193,43 @@
   <% } else { %>
   <script>
   (function () {
-    const target = '<%= providerRedirectUrl %>';
-    if (target) {
-      setTimeout(function () { window.location.href = target; }, 800);
+    const statusUrl = '<%- statusUrl %>';
+    const returnUrl = '<%- returnUrl %>';
+    const btn       = document.getElementById('payBtn');
+    const pollEl    = document.getElementById('pollStatus');
+    if (!btn) return;
+
+    let pollTimer = null;
+
+    function startPolling() {
+      if (pollTimer) return;
+      pollEl.hidden = false;
+      let attempts = 0;
+      const maxAttempts = 144; // ~12 min at 5 s intervals
+      pollTimer = setInterval(async function () {
+        attempts++;
+        if (attempts > maxAttempts) {
+          clearInterval(pollTimer);
+          pollEl.innerHTML = 'Vérification expirée. <a href="' + returnUrl + '" style="color:#3ba0ff">Vérifier manuellement</a>';
+          return;
+        }
+        try {
+          const r = await fetch(statusUrl, { cache: 'no-store' });
+          if (!r.ok) return;
+          const d = await r.json();
+          if (d.paid) {
+            clearInterval(pollTimer);
+            pollEl.innerHTML = '<span class="pay-poll-success">Paiement confirmé ✓</span> — redirection…';
+            setTimeout(function () { window.location.href = returnUrl; }, 800);
+          }
+        } catch {}
+      }, 5000);
     }
+
+    btn.addEventListener('click', function () {
+      // Start polling 3 s after click (give user time to reach SumUp page)
+      setTimeout(startPolling, 3000);
+    });
   })();
   </script>
   <% } %>

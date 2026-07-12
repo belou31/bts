@@ -187,15 +187,15 @@ function renderPaymentReturn({
     title = 'Paiement confirmé ✅';
     intro = `
       <p>Bravo&nbsp;! Le paiement a été validé et vos places sont désormais <strong>confirmées</strong>.</p>
-      <p class="muted">Vous allez recevoir un email de confirmation accompagné de vos billets${safeEmail ? ` à l’adresse <strong>${safeEmail}</strong>` : ''}.</p>
+      <p class="muted">Vous allez recevoir un email de confirmation accompagné de vos billets${safeEmail ? ` à l'adresse <strong>${safeEmail}</strong>` : ''}.</p>
       ${safeTicketsUrl ? `<p>Vous pouvez télécharger vos billets directement ici&nbsp;: <a href="${safeTicketsUrl}">billets-${safeOrderId}.pdf</a></p>` : ''}
       ${supportLine}
     `;
   } else if (state === 'failure') {
     title = 'Paiement non confirmé ❌';
     intro = `
-      <p>Le prestataire de paiement signale un échec ou une annulation. Aucun siège n’a été réservé.</p>
-      <p class="muted">Si vous pensez qu’il s’agit d’une erreur, contactez notre équipe en précisant la référence ci-dessous.</p>
+      <p>Le prestataire de paiement signale un échec ou une annulation. Aucun siège n'a été réservé.</p>
+      <p class="muted">Si vous pensez qu'il s'agit d'une erreur, contactez notre équipe en précisant la référence ci-dessous.</p>
       ${supportLine}
     `;
   } else {
@@ -314,8 +314,21 @@ function renderPaymentReturn({
 
 
 /**
+ * GET /pay/status?orderId=<id>
+ * Lightweight JSON status probe — clients poll this to detect webhook confirmation.
+ */
+router.get('/status', async (req, res) => {
+  const orderId = String(req.query.orderId || '').trim();
+  if (!orderId) return res.status(400).json({ error: 'missing_orderId' });
+  let order = null;
+  try { order = await Order.findById(orderId).select('status').lean(); } catch {}
+  if (!order) return res.json({ status: 'not_found', paid: false });
+  return res.json({ status: order.status, paid: order.status === 'paid' });
+});
+
+/**
  * GET /pay/start?orderId=<id>
- * Intermediate payment page: mounts widget (SumUp) or auto-redirects (HelloAsso).
+ * Intermediate payment page: mounts widget (SumUp) or opens redirect in new tab with polling.
  */
 router.get('/start', async (req, res) => {
   const orderId = String(req.query.orderId || '').trim();
@@ -334,6 +347,7 @@ router.get('/start', async (req, res) => {
   const uxMode = (currentPaymentUxMode() === 'widget' && isStub) ? 'redirect' : currentPaymentUxMode();
 
   const returnUrl = urlFor(`/pay/return?oid=${encodeURIComponent(orderId)}&ci=${encodeURIComponent(checkoutId)}`);
+  const statusUrl = urlFor(`/pay/status?orderId=${encodeURIComponent(orderId)}`);
   const backUrl = urlFor('/pay/back');
 
   const totalEur = ((Number(order.totalCents) || 0) / 100).toFixed(2);
@@ -347,6 +361,7 @@ router.get('/start', async (req, res) => {
     checkoutId,
     providerRedirectUrl,
     returnUrl,
+    statusUrl,
     backUrl,
     orderId,
     totalEur,
@@ -395,10 +410,10 @@ router.get('/return', async (req, res) => {
   if (orderIdParam) {
     try {
       order = await Order.findById(orderIdParam);
-      if (!order) orderLookupWarning = "Commande introuvable. Si le paiement est confirmé, contactez l’assistance.";
+      if (!order) orderLookupWarning = "Commande introuvable. Si le paiement est confirmé, contactez l'assistance.";
     } catch (e) {
       console.warn('[pay/return] lookup failed:', e?.message || e);
-      orderLookupWarning = "Commande introuvable. Si le paiement est confirmé, contactez l’assistance.";
+      orderLookupWarning = "Commande introuvable. Si le paiement est confirmé, contactez l'assistance.";
     }
   }
 
@@ -430,14 +445,20 @@ router.get('/return', async (req, res) => {
     providerOrderId: providerOrderIdParam || order?.paymentProviderMeta?.providerOrderId || null
   });
 
-  if (checkoutIntentId) {
+  // Trust DB state first: if the webhook already confirmed the payment, no API call needed.
+  if (order?.status === 'paid') {
+    providerStatus = 'paid';
+  } else if (order?.status === 'refunded') {
+    providerStatus = 'refunded';
+  } else if (checkoutIntentId) {
+    // Not confirmed yet in DB — verify with the payment provider API.
     try {
       const statusFromProvider = await getCheckoutStatus(checkoutIntentId);
       const normalized = normalizePaymentStatus(statusFromProvider);
       if (normalized) providerStatus = normalized;
     } catch (err) {
       console.warn('[pay/return] getCheckoutStatus failed:', err?.message || err);
-      warnings.push('Le prestataire n’a pas encore confirmé le paiement. Veuillez réessayer dans quelques secondes.');
+      warnings.push('Le prestataire n\'a pas encore confirmé le paiement. Veuillez réessayer dans quelques secondes.');
     }
   }
   if (!providerStatus && statusFromQuery) {
@@ -448,7 +469,7 @@ router.get('/return', async (req, res) => {
     warnings.push('Le paiement a été remboursé. Les places associées seront libérées sous peu.');
   } else if (/^(failure|failed|canceled)$/i.test(providerStatus || '')) {
     state = 'failure';
-    warnings.push('Le prestataire a signalé un échec : aucune place n’a été confirmée.');
+    warnings.push('Le prestataire a signalé un échec : aucune place n\'a pas été confirmée.');
   }
 
   if (order) {
@@ -499,7 +520,7 @@ router.get('/return', async (req, res) => {
               await sendOrderAttestationIfNeeded(order, { source: 'return' });
             } catch (err) {
               console.warn('[pay/return] mail send failed:', err?.message || err);
-              warnings.push('Le courriel de confirmation n’a pas pu être envoyé automatiquement.');
+              warnings.push('Le courriel de confirmation n\'a pas pu être envoyé automatiquement.');
             }
           }
         } else {
@@ -595,7 +616,7 @@ router.get('/back', (_req, res) => {
   res.send(`<!doctype html><meta charset="utf-8">
     <link rel="icon" href="${urlFor('/dynamic/assets/favicon.ico')}">
     <h1>Paiement abandonné</h1>
-    <p>Aucun débit n’a été effectué et vos places restent disponibles tant que la commande n’est pas confirmée.</p>
+    <p>Aucun débit n'a été effectué et vos places restent disponibles tant que la commande n'est pas confirmée.</p>
     <p><a href="/">Revenir à la billetterie</a></p>`);
 });
 
@@ -674,7 +695,7 @@ try {
     }
     console.log('[pay/webhook] processing', isSumUpCallback ? 'SumUp' : 'HelloAsso', 'payment event');
 
-    // Corrélation PRIORITAIRE par metadata/custom_id (l’_id BTS passé à PSP)
+    // Corrélation PRIORITAIRE par metadata/custom_id (l'_id BTS passé à PSP)
     // SumUp: custom_id is at payload top-level; fallback: parse checkout_reference ("bts-{orderId}")
     const checkoutRefRaw = String(payload?.checkout_reference || data?.checkout_reference || '').trim();
     const checkoutRefPrefix = (process.env.SUMUP_CHECKOUT_PREFIX || 'bts') + '-';
@@ -713,7 +734,7 @@ try {
       ''
     ).trim() || null;
 
-    // Vérification côté HA via l’intent : on utilise celui stocké en base ;
+    // Vérification côté HA via l'intent : on utilise celui stocké en base ;
     // fallback sur data.checkoutIntentId si présent.
     // SumUp: checkout UUID is at payload.id; HA: in data.checkoutIntentId or metadata
     const checkoutIntentIdFromPayload =
@@ -738,7 +759,7 @@ try {
       }
     }
 
-    // Fallback très limité : on lit l’état brut du Payment (utile pour traces)
+    // Fallback très limité : on lit l'état brut du Payment (utile pour traces)
     // SumUp: status at top-level payload; HA: in data.state / data.status
     const rawState = String(payload?.status || data?.state || data?.status || '').toLowerCase();
     const status   = statusFromApi || normalizePaymentStatus(rawState);
@@ -891,7 +912,7 @@ try {
           return res.status(200).send('blocked');
         }
         await sendConflictEmail(order);
-        // on renvoie 200: le webhook a été traité (même s’il mène à failed)
+        // on renvoie 200: le webhook a été traité (même s'il mène à failed)
         return res.status(200).send('conflict');
       }
     } else {
