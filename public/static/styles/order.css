@@ -251,9 +251,7 @@ body.order-view {
 
 /* ── Payment status panel (inline, revealed after Pay click) ── */
 .payment-panel {
-  max-width: 960px;
-  margin: 0 auto 2rem;
-  padding: 0 1rem;
+  margin: 1rem 0 0;
 }
 .payment-panel-inner {
   border: 1px solid rgba(255,255,255,0.1);
