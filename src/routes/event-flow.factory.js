@@ -26,6 +26,18 @@ function buildPayStartUrl(orderId) {
   return `${app}/pay/start?orderId=${encodeURIComponent(String(orderId))}`;
 }
 
+function buildPayStatusUrl(orderId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  return `${app}/pay/status?orderId=${encodeURIComponent(String(orderId))}`;
+}
+
+function buildPayReturnUrl(orderId, checkoutId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  const oid = encodeURIComponent(String(orderId));
+  const ci  = checkoutId ? `&ci=${encodeURIComponent(String(checkoutId))}` : '';
+  return `${app}/pay/return?oid=${oid}${ci}`;
+}
+
 // Helper: reconnaît un ID virtuel de zone (ex: DEBOUT-Z001)
 const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid || ''));
 async function loadEvent(eventIdOrSlug) {
@@ -785,7 +797,16 @@ export function createEventFlowRouter({
       }
 
       const redirectUrl = buildPayStartUrl(ord._id);
-      res.json({ ok: true, orderId: String(ord._id), redirectUrl, checkout: intent });
+      const checkoutId  = String(ord.paymentProviderMeta?.checkoutIntentId || '');
+      res.json({
+        ok: true,
+        orderId:     String(ord._id),
+        redirectUrl,                                              // /pay/start (legacy fallback)
+        providerUrl: intent.redirectUrl || intent.url || null,   // direct provider URL (SumUp hosted checkout)
+        statusUrl:   buildPayStatusUrl(ord._id),                 // polling endpoint
+        returnUrl:   buildPayReturnUrl(ord._id, checkoutId),     // final confirmation page
+        checkout:    intent
+      });
     } catch (e) {
       console.error(`[${flowKey}/checkout] error:`, e?.message || e);
       res.status(400).json({ ok: false, error: e.message || 'Checkout error' });
