@@ -150,6 +150,10 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
     console.error('[sumup] payload sent:', JSON.stringify(payload));
     throw new Error(`SumUp checkout ${r.status} ${JSON.stringify(j)}`);
   }
+  console.log('[sumup:debug] POST response keys:', Object.keys(j));
+  console.log('[sumup:debug] hosted_checkout field:', JSON.stringify(j.hosted_checkout ?? null));
+  console.log('[sumup:debug] checkout_url field:', j.checkout_url ?? null);
+  console.log('[sumup:debug] links field:', JSON.stringify(j.links ?? null));
 
   // SumUp sometimes only returns links on GET, not POST — fetch to get the real checkout URL
   let jGet = j;
@@ -166,16 +170,19 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
 
   const resolvedCheckout = { ...j, ...jGet };
   const hostedUrl = resolvedCheckout.id ? `https://pay.sumup.com/b2c/${encodeURIComponent(resolvedCheckout.id)}` : '';
+  const resolvedRedirectUrl =
+    resolvedCheckout.hosted_checkout?.url ||
+    resolvedCheckout.checkout_url ||
+    resolvedCheckout.checkout_redirect_url ||
+    (resolvedCheckout.links && resolvedCheckout.links.find(l => l.rel === 'checkout')?.href) ||
+    hostedUrl;
+  console.log('[sumup:debug] resolved redirectUrl:', resolvedRedirectUrl);
+  console.log('[sumup:debug] source:', resolvedCheckout.hosted_checkout?.url ? 'hosted_checkout.url' : resolvedCheckout.checkout_url ? 'checkout_url' : resolvedCheckout.links?.length ? 'links' : 'fallback hostedUrl');
   const base = apiBase();
   const isStub = base.includes('127.0.0.1') || base.includes('localhost');
   return {
     isStub,
-    redirectUrl:
-      resolvedCheckout.hosted_checkout?.url ||
-      resolvedCheckout.checkout_url ||
-      resolvedCheckout.checkout_redirect_url ||
-      (resolvedCheckout.links && resolvedCheckout.links.find(l => l.rel === 'checkout')?.href) ||
-      hostedUrl,
+    redirectUrl: resolvedRedirectUrl,
     id: resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference,
     raw: resolvedCheckout,
     checkoutReference: resolvedCheckout.checkout_reference || payload.checkout_reference,
