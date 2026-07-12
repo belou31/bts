@@ -150,8 +150,6 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
     console.error('[sumup] payload sent:', JSON.stringify(payload));
     throw new Error(`SumUp checkout ${r.status} ${JSON.stringify(j)}`);
   }
-  console.log('[sumup:debug] hosted_checkout_url:', j.hosted_checkout_url ?? null);
-
   // SumUp sometimes only returns links on GET, not POST — fetch to get the real checkout URL
   let jGet = j;
   if (j.id && !j.checkout_url && !j.links?.length) {
@@ -189,10 +187,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
 async function getCheckoutIntent(intentId) {
   const token = await getAccessToken();
   const ref = encodeURIComponent(intentId);
-  const params = new URLSearchParams();
-  if (process.env.SUMUP_MERCHANT_CODE) params.set('merchant_code', process.env.SUMUP_MERCHANT_CODE);
-  const suffix = params.toString() ? `?${params.toString()}` : '';
-  const r = await fetch(`${apiBase()}/checkouts/${ref}${suffix}`, {
+  const r = await fetch(`${apiBase()}/checkouts/${ref}`, {
     headers: {
       'Authorization': `Bearer ${token}`
     }
