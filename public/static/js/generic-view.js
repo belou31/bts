@@ -758,6 +758,10 @@ async function submitPayment() {
   if (!payload) return;
   const { items, payer, schedule, totalAmount } = payload;
 
+  // Open a blank window NOW, while we still have the user gesture context.
+  // After any await the browser popup-blocker would reject window.open().
+  const preWin = window.open('', '_blank', 'noopener,noreferrer');
+
   $('#payBtn').disabled = true;
 
   try {
@@ -869,12 +873,13 @@ async function submitPayment() {
       } catch {
         title = 'Un problème technique est survenu. Réessayez dans quelques instants.';
       }
+      try { if (preWin && !preWin.closed) preWin.close(); } catch {}
       setFeedback('error', title, details);
       $('#payBtn').disabled = false;
       return;
     }
-    
-    
+
+
     const out = await res.json();
     const orderId     = out.orderId || '';
     const providerUrl = out.providerUrl || null;
@@ -884,37 +889,44 @@ async function submitPayment() {
     const fallbackUrl = out.redirectUrl || out?.checkout?.redirectUrl || out?.checkout?.url;
 
     if (providerUrl && statusUrl) {
-      // ── New flow: open provider in new tab, show inline status panel ──
-      openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl: returnUrl || fallbackUrl });
+      // ── New flow: navigate the pre-opened window to the provider, show inline status panel ──
+      openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl: returnUrl || fallbackUrl, win: preWin });
     } else if (fallbackUrl) {
       // ── Legacy flow: navigate to /pay/start ──
-      setFeedback('ok', 'Redirection vers le paiement…');
-      location.href = fallbackUrl;
+      if (preWin && !preWin.closed) {
+        preWin.location.href = fallbackUrl;
+      } else {
+        setFeedback('ok', 'Redirection vers le paiement…');
+        location.href = fallbackUrl;
+      }
     } else {
+      try { if (preWin && !preWin.closed) preWin.close(); } catch {}
       throw new Error('Réponse inattendue du serveur.');
     }
   } catch (e) {
     console.error('pay error:', e);
+    try { if (preWin && !preWin.closed) preWin.close(); } catch {}
     setFeedback('error', 'Impossible de démarrer le paiement. Réessayez dans quelques instants.');
     $('#payBtn').disabled = false;
   }
 }
 
-function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl }) {
+function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win }) {
+  // Navigate the pre-opened window (or fall back to current tab if it was blocked)
+  if (win && !win.closed) {
+    try { win.location.href = providerUrl; } catch {}
+  } else {
+    // Popup was blocked — navigate current tab; /pay/return will confirm via DB
+    window.location.href = providerUrl;
+    return;
+  }
+
   // Reveal the panel
   const panel = document.getElementById('paymentPanel');
   const body  = document.getElementById('paymentPanelBody');
   if (panel) {
     panel.hidden = false;
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-
-  // Try to open provider in a new tab
-  const win = window.open(providerUrl, '_blank', 'noopener,noreferrer');
-  if (!win) {
-    // Popup blocked — navigate current tab (lose polling, but /pay/return checks DB)
-    window.location.href = providerUrl;
-    return;
   }
 
   setFeedback('ok', 'Paiement ouvert dans un nouvel onglet. Cette page se mettra à jour automatiquement.');
