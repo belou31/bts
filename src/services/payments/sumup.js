@@ -149,7 +149,6 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
     console.error('[sumup] payload sent:', JSON.stringify(payload));
     throw new Error(`SumUp checkout ${r.status} ${JSON.stringify(j)}`);
   }
-  console.log('[sumup] checkout response:', JSON.stringify(j));
 
   // SumUp sometimes only returns links on GET, not POST — fetch to get the real checkout URL
   let jGet = j;
@@ -167,7 +166,10 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
 
   const resolvedCheckout = { ...j, ...jGet };
   const hostedUrl = resolvedCheckout.id ? `https://pay.sumup.com/b2c/${encodeURIComponent(resolvedCheckout.id)}` : '';
+  const base = apiBase();
+  const isStub = base.includes('127.0.0.1') || base.includes('localhost');
   return {
+    isStub,
     redirectUrl: resolvedCheckout.checkout_url || resolvedCheckout.checkout_redirect_url || (resolvedCheckout.links && resolvedCheckout.links.find(l => l.rel === 'checkout')?.href) || hostedUrl,
     id: resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference,
     raw: resolvedCheckout,
@@ -206,6 +208,7 @@ async function getCheckoutStatus(intentId) {
 const provider = {
   id: 'sumup',
   label: 'SumUp',
+  uxCapabilities: ['widget', 'redirect'],
   docs: {
     env: [
       'PAYMENT_PROVIDER',

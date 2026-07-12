@@ -223,6 +223,7 @@ async function getCheckoutStatus(intentId) {
 const provider = {
   id: 'helloasso',
   label: 'HelloAsso',
+  uxCapabilities: ['redirect'],
   docs: {
     env: [
       'PAYMENT_PROVIDER',

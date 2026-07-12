@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paiement — BTS</title>
+  <link rel="icon" href="<%= assets.media %>favicon.ico">
+  <style>
+    :root { color-scheme: dark; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      background: #0b0f14; color: #e8eef5;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 32px 16px;
+    }
+    .pay-card {
+      width: 100%; max-width: 480px;
+      background: #111b28;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .pay-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    .pay-header img { height: 40px; width: auto; }
+    .pay-title {
+      margin: 10px 0 0;
+      font-size: 1.1rem; font-weight: 600; color: #fff;
+    }
+    .pay-recap {
+      padding: 16px 24px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      font-size: 0.9rem;
+    }
+    .pay-recap .desc { color: rgba(255,255,255,0.7); margin-bottom: 8px; }
+    .pay-recap .lines { display: flex; flex-direction: column; gap: 4px; }
+    .pay-recap .line  { display: flex; justify-content: space-between; color: #e8eef5; }
+    .pay-recap .total {
+      display: flex; justify-content: space-between;
+      margin-top: 10px; padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,0.07);
+      font-weight: 700; font-size: 1rem; color: #fff;
+    }
+    .pay-zone {
+      padding: 24px;
+    }
+    /* SumUp widget override to fit dark background */
+    #sumup-card { width: 100%; min-height: 220px; }
+    .pay-redirect-msg {
+      text-align: center; color: rgba(255,255,255,0.6);
+      font-size: 0.9rem; padding: 12px 0 4px;
+    }
+    .pay-redirect-msg .spinner {
+      display: inline-block; width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: #3ba0ff;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      vertical-align: middle; margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .pay-back {
+      padding: 0 24px 20px;
+      text-align: center;
+    }
+    .pay-back a {
+      font-size: 0.82rem; color: rgba(255,255,255,0.35);
+      text-decoration: none;
+    }
+    .pay-back a:hover { color: rgba(255,255,255,0.6); }
+    .pay-error {
+      padding: 16px 24px;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 8px;
+      color: #f3b4b4;
+      font-size: 0.88rem;
+      margin: 0 24px 16px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="pay-card">
+
+    <div class="pay-header">
+      <img src="<%= assets.media %>logo.svg" alt="BTS" onerror="this.style.display='none'">
+      <p class="pay-title">Finaliser le paiement</p>
+    </div>
+
+    <div class="pay-recap">
+      <div class="desc"><%= description %></div>
+      <% if (lines.length) { %>
+      <div class="lines">
+        <% lines.forEach(function(ln) { %>
+        <div class="line">
+          <span><%= ln.zoneKey %><% if (ln.seatId) { %> · <%= ln.seatId %><% } %> — <%= ln.tariffCode %></span>
+          <span><%= ((Number(ln.priceCents)||0)/100).toFixed(2) %> €</span>
+        </div>
+        <% }); %>
+      </div>
+      <% } %>
+      <div class="total">
+        <span>Total</span>
+        <span><%= totalEur %> €</span>
+      </div>
+    </div>
+
+    <div class="pay-zone">
+      <% if (uxMode === 'widget' && providerId === 'sumup') { %>
+        <div id="sumup-card"></div>
+        <div id="pay-error" class="pay-error"></div>
+      <% } else { %>
+        <div class="pay-redirect-msg">
+          <span class="spinner"></span>
+          Redirection vers <%= providerLabel %>…
+        </div>
+      <% } %>
+    </div>
+
+    <div class="pay-back">
+      <a href="<%= backUrl %>">← Annuler et revenir</a>
+    </div>
+
+  </div>
+
+  <% if (uxMode === 'widget' && providerId === 'sumup') { %>
+  <script src="https://gateway.sumup.com/gateway/ecom/v1/sdk.js"></script>
+  <script>
+  (function () {
+    const checkoutId   = '<%= checkoutId %>';
+    const returnUrl    = '<%= returnUrl %>';
+    const errEl        = document.getElementById('pay-error');
+
+    function showError(msg) {
+      if (!errEl) return;
+      errEl.textContent = msg || 'Une erreur est survenue. Réessayez.';
+      errEl.style.display = 'block';
+    }
+
+    SumUpCard.mount({
+      id: 'sumup-card',
+      checkoutId: checkoutId,
+      onResponse: function (type, body) {
+        if (type === 'success') {
+          window.location.href = returnUrl + '&status=PAID';
+        } else if (type === 'error') {
+          showError('Le paiement a échoué. Vérifiez vos informations et réessayez.');
+        }
+        // 'sent' = submitted, waiting for webhook — stay on page
+      }
+    });
+  })();
+  </script>
+  <% } else { %>
+  <script>
+  (function () {
+    const target = '<%= providerRedirectUrl %>';
+    if (target) {
+      setTimeout(function () { window.location.href = target; }, 800);
+    }
+  })();
+  </script>
+  <% } %>
+
+</body>
+</html>

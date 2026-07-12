@@ -10,7 +10,7 @@ import { Order } from '../models/Order.js';
 import { Tariff } from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Zone } from '../models/Zone.js';
-import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId, currentPaymentUxMode } from '../services/payments/index.js';
 import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { finalizePaidIfNoConflict, sendOrderAttestationIfNeeded } from '../services/order-finalization.js';
 import { matchesChannel } from '../utils/channel-scopes.js';
@@ -19,6 +19,12 @@ import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
 const SEAT_HOLD_TTL_MIN = Number(process.env.SEAT_HOLD_TTL_MIN || '3');
+
+function buildPayStartUrl(orderId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  const base = String(process.env.BASE_PATH || '').trim().replace(/\/+$/, '');
+  return `${app}${base}/pay/start?orderId=${encodeURIComponent(String(orderId))}`;
+}
 
 // Helper: reconnaît un ID virtuel de zone (ex: DEBOUT-Z001)
 const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid || ''));
@@ -761,6 +767,8 @@ export function createEventFlowRouter({
             name: PAYMENT_PROVIDER_ID,
             checkoutIntentId: checkoutId,
             checkoutReference: intent.checkoutReference || intent.raw?.checkout_reference || checkoutId,
+            providerRedirectUrl: intent.redirectUrl || intent.url || null,
+            isStub: intent.isStub === true,
             providerOrderId:
               intent.providerOrderId ||
               intent.raw?.order?.id ||
@@ -776,7 +784,7 @@ export function createEventFlowRouter({
         throw new Error(`Payment provider unavailable: ${err.message || err}`);
       }
 
-      const redirectUrl = intent?.redirectUrl || intent?.url || null;
+      const redirectUrl = buildPayStartUrl(ord._id);
       res.json({ ok: true, orderId: String(ord._id), redirectUrl, checkout: intent });
     } catch (e) {
       console.error(`[${flowKey}/checkout] error:`, e?.message || e);

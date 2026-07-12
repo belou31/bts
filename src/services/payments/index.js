@@ -88,6 +88,13 @@ export function normalizeStatus(input, fallback) {
   return raw;
 }
 
+export function currentPaymentUxMode() {
+  const preferred = String(process.env.PAYMENT_UX || 'redirect').trim().toLowerCase();
+  const provider = currentPaymentProvider();
+  const capabilities = Array.isArray(provider.uxCapabilities) ? provider.uxCapabilities : ['redirect'];
+  return capabilities.includes(preferred) ? preferred : 'redirect';
+}
+
 export function resetPaymentProviderCache() {
   cachedProvider = null;
   cachedKey = null;
