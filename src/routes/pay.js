@@ -330,6 +330,7 @@ router.get('/start', async (req, res) => {
   const checkoutId = String(order.paymentProviderMeta?.checkoutIntentId || '');
   const providerRedirectUrl = String(order.paymentProviderMeta?.providerRedirectUrl || '');
   const isStub = order.paymentProviderMeta?.isStub === true;
+  console.log('[pay/start:debug] orderId:', orderId, '| checkoutId:', checkoutId, '| isStub:', isStub, '| providerRedirectUrl:', providerRedirectUrl);
 
   // Widget SDK can't reach stub checkouts — fall back to redirect when stub reported itself
   const uxMode = (currentPaymentUxMode() === 'widget' && isStub) ? 'redirect' : currentPaymentUxMode();
