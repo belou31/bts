@@ -119,7 +119,8 @@ function buildCheckoutPayload({ order, urls }) {
     failure_url: urls.errorUrl || undefined,
     callback_url: process.env.SUMUP_CALLBACK_URL || process.env.SUMUP_WEBHOOK_URL || process.env.HELLOASSO_WEBHOOK_URL || undefined,
     payment_type: process.env.SUMUP_PAYMENT_TYPE || undefined,
-    custom_id: String(order._id || '')
+    custom_id: String(order._id || ''),
+    hosted_checkout: { enabled: true }
   };
   // Remove undefined keys
   for (const key of Object.keys(payload)) {
@@ -169,7 +170,12 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const isStub = base.includes('127.0.0.1') || base.includes('localhost');
   return {
     isStub,
-    redirectUrl: resolvedCheckout.checkout_url || resolvedCheckout.checkout_redirect_url || (resolvedCheckout.links && resolvedCheckout.links.find(l => l.rel === 'checkout')?.href) || hostedUrl,
+    redirectUrl:
+      resolvedCheckout.hosted_checkout?.url ||
+      resolvedCheckout.checkout_url ||
+      resolvedCheckout.checkout_redirect_url ||
+      (resolvedCheckout.links && resolvedCheckout.links.find(l => l.rel === 'checkout')?.href) ||
+      hostedUrl,
     id: resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference,
     raw: resolvedCheckout,
     checkoutReference: resolvedCheckout.checkout_reference || payload.checkout_reference,

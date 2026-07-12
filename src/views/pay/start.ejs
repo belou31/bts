@@ -129,17 +129,29 @@
   </div>
 
   <% if (uxMode === 'widget' && providerId === 'sumup') { %>
-  <script src="https://gateway.sumup.com/gateway/ecom/v1/sdk.js"></script>
+  <script crossorigin="anonymous" src="https://gateway.sumup.com/gateway/ecom/v1/sdk.js"
+          onerror="window.__sumupSdkFailed=true"></script>
   <script>
   (function () {
-    const checkoutId   = '<%= checkoutId %>';
-    const returnUrl    = '<%= returnUrl %>';
-    const errEl        = document.getElementById('pay-error');
+    const checkoutId      = '<%- checkoutId %>';
+    const returnUrl       = '<%- returnUrl %>';
+    const providerRedirect = '<%- providerRedirectUrl %>';
+    const errEl           = document.getElementById('pay-error');
 
     function showError(msg) {
       if (!errEl) return;
       errEl.textContent = msg || 'Une erreur est survenue. Réessayez.';
       errEl.style.display = 'block';
+    }
+
+    // SDK failed to load (ORB / CORS / sandbox restriction) — fall back to redirect
+    if (window.__sumupSdkFailed || typeof SumUpCard === 'undefined') {
+      if (providerRedirect) {
+        window.location.href = providerRedirect;
+      } else {
+        showError('Impossible de charger le formulaire de paiement. Vérifiez votre connexion.');
+      }
+      return;
     }
 
     SumUpCard.mount({
