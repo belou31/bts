@@ -958,11 +958,13 @@ function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win }) {
       if (d.paid) {
         clearInterval(timer);
         try { win.close(); } catch {}
+        panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         body.innerHTML = `
-          <div class="pay-status-row">
+          <div class="pay-status-row pay-status-confirmed">
             <span class="pay-status-success">✓ Paiement confirmé !</span>
+            <a href="${returnUrl}" class="pay-status-open-link" target="_blank">Ouvrir en plein écran ↗</a>
           </div>
-          <p class="pay-status-hint"><a href="${returnUrl}" class="pay-status-success">Voir la confirmation et vos billets →</a></p>
+          <iframe src="${returnUrl}" class="pay-return-iframe" title="Confirmation de commande"></iframe>
         `;
       }
     } catch {}
