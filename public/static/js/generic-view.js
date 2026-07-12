@@ -876,21 +876,84 @@ async function submitPayment() {
     
     
     const out = await res.json();
-    // ⬅️ tolérance: racine ou dans { checkout:{ redirectUrl } }
-    const redirectUrl = out.redirectUrl || out?.checkout?.redirectUrl || out?.checkout?.url;
-    if (redirectUrl) {
+    const orderId     = out.orderId || '';
+    const providerUrl = out.providerUrl || null;
+    const statusUrl   = out.statusUrl   || null;
+    const returnUrl   = out.returnUrl   || null;
+    // Legacy fallback: /pay/start or checkout-embedded redirect
+    const fallbackUrl = out.redirectUrl || out?.checkout?.redirectUrl || out?.checkout?.url;
 
-    setFeedback('ok', 'Redirection vers le paiement…');
-      location.href = redirectUrl;
-  } else {
+    if (providerUrl && statusUrl) {
+      // ── New flow: open provider in new tab, show inline status panel ──
+      openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl: returnUrl || fallbackUrl });
+    } else if (fallbackUrl) {
+      // ── Legacy flow: navigate to /pay/start ──
+      setFeedback('ok', 'Redirection vers le paiement…');
+      location.href = fallbackUrl;
+    } else {
       throw new Error('Réponse inattendue du serveur.');
     }
   } catch (e) {
     console.error('pay error:', e);
     setFeedback('error', 'Impossible de démarrer le paiement. Réessayez dans quelques instants.');
-
     $('#payBtn').disabled = false;
   }
+}
+
+function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl }) {
+  // Reveal the panel
+  const panel = document.getElementById('paymentPanel');
+  const body  = document.getElementById('paymentPanelBody');
+  if (panel) {
+    panel.hidden = false;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // Try to open provider in a new tab
+  const win = window.open(providerUrl, '_blank', 'noopener,noreferrer');
+  if (!win) {
+    // Popup blocked — navigate current tab (lose polling, but /pay/return checks DB)
+    window.location.href = providerUrl;
+    return;
+  }
+
+  setFeedback('ok', 'Paiement ouvert dans un nouvel onglet. Cette page se mettra à jour automatiquement.');
+
+  if (!body) return;
+  body.innerHTML = `
+    <div class="pay-status-row">
+      <span class="pay-spinner"></span>
+      En attente de confirmation du paiement SumUp…
+    </div>
+    <p class="pay-status-hint">Complétez le paiement dans l\'onglet qui vient de s\'ouvrir. Cette section se mettra à jour automatiquement.</p>
+  `;
+
+  // Poll /pay/status until the webhook confirms
+  let attempts = 0;
+  const maxAttempts = 144; // ~12 min at 5 s intervals
+  const timer = setInterval(async function () {
+    attempts++;
+    if (attempts > maxAttempts) {
+      clearInterval(timer);
+      body.innerHTML = `<div class="pay-status-timeout">Vérification expirée. <a href="${returnUrl}">Vérifier le statut de la commande</a></div>`;
+      return;
+    }
+    try {
+      const r = await fetch(statusUrl, { cache: 'no-store', credentials: 'same-origin' });
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d.paid) {
+        clearInterval(timer);
+        try { win.close(); } catch {}
+        body.innerHTML = `
+          <div class="pay-status-row">
+            <span class="pay-status-success">✓ Paiement confirmé !</span>
+          </div>
+          <p class="pay-status-hint"><a href="${returnUrl}" class="pay-status-success">Voir la confirmation et vos billets →</a></p>
+        `;
+      }
+    } catch {}
+  }, 5000);
 }
 
 /* ========= Chargement ========= */

@@ -248,3 +248,64 @@ body.order-view {
 .hold-extend-btn:hover {
   background: rgba(59, 160, 255, 0.25);
 }
+
+/* ── Payment status panel (inline, revealed after Pay click) ── */
+.payment-panel {
+  max-width: 960px;
+  margin: 0 auto 2rem;
+  padding: 0 1rem;
+}
+.payment-panel-inner {
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  background: #111b28;
+  overflow: hidden;
+}
+.payment-panel-title {
+  margin: 0;
+  padding: 14px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e8eef5;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.03);
+}
+.payment-panel-body {
+  padding: 20px;
+  font-size: 0.92rem;
+  color: #c9d5e0;
+}
+.pay-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+@keyframes bts-spin { to { transform: rotate(360deg); } }
+.pay-spinner {
+  flex-shrink: 0;
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid rgba(255,255,255,0.15);
+  border-top-color: #3ba0ff;
+  border-radius: 50%;
+  animation: bts-spin 0.8s linear infinite;
+}
+.pay-status-success {
+  color: #4ade80;
+  font-weight: 600;
+}
+.pay-status-success a {
+  color: #4ade80;
+  text-decoration: underline;
+}
+.pay-status-timeout {
+  color: rgba(255,255,255,0.5);
+}
+.pay-status-timeout a {
+  color: #3ba0ff;
+}
+.pay-status-hint {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  color: rgba(255,255,255,0.4);
+}
