@@ -330,15 +330,52 @@ function renderPaymentReturn({
 
 /**
  * GET /pay/status?orderId=<id>
- * Lightweight JSON status probe — clients poll this to detect webhook confirmation.
+ * Polls order status. If still pending and enough time has passed since the last
+ * provider check, actively queries the payment provider API and finalizes the order
+ * — so the frontend doesn't need the webhook or browser redirect to detect payment.
  */
 router.get('/status', async (req, res) => {
   const orderId = String(req.query.orderId || '').trim();
   if (!orderId) return res.status(400).json({ error: 'missing_orderId' });
+
   let order = null;
-  try { order = await Order.findById(orderId).select('status').lean(); } catch {}
+  try {
+    order = await Order.findById(orderId).lean();
+  } catch {}
   if (!order) return res.json({ status: 'not_found', paid: false });
-  return res.json({ status: order.status, paid: order.status === 'paid' });
+  if (order.status === 'paid') return res.json({ status: 'paid', paid: true });
+
+  // Order still pending — check with the provider (rate-limited: once every 15 s per order)
+  const checkoutIntentId = String(order.paymentProviderMeta?.checkoutIntentId || '').trim();
+  if (checkoutIntentId) {
+    const lastChecked = order.paymentProviderMeta?.lastStatusCheckedAt;
+    const msSince = lastChecked ? Date.now() - new Date(lastChecked).getTime() : Infinity;
+    if (msSince > 15_000) {
+      try {
+        const statusFromProvider = await getCheckoutStatus(checkoutIntentId);
+        const normalized = normalizePaymentStatus(statusFromProvider);
+        // Record the check time regardless of outcome
+        await Order.updateOne({ _id: order._id }, {
+          $set: { 'paymentProviderMeta.lastStatusCheckedAt': new Date() }
+        });
+        if (isPaidLike(normalized)) {
+          // Re-fetch with a full Mongoose doc so finalize can save
+          const liveOrder = await Order.findById(order._id);
+          if (liveOrder && liveOrder.status !== 'paid') {
+            const finalizeInfo = await finalizePaidIfNoConflict(liveOrder);
+            if (finalizeInfo.ok && !finalizeInfo.alreadyFinalized) {
+              try { await sendOrderAttestationIfNeeded(liveOrder, { source: 'status-poll' }); } catch {}
+            }
+          }
+          return res.json({ status: 'paid', paid: true });
+        }
+      } catch (err) {
+        console.warn('[pay/status] provider check failed:', err?.message || err);
+      }
+    }
+  }
+
+  return res.json({ status: order.status, paid: false });
 });
 
 /**
