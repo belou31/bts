@@ -936,39 +936,67 @@ function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win }) {
   body.innerHTML = `
     <div class="pay-status-row">
       <span class="pay-spinner"></span>
-      En attente de confirmation du paiement SumUp…
+      En attente de confirmation du paiement…
     </div>
     <p class="pay-status-hint">Complétez le paiement dans l\'onglet qui vient de s\'ouvrir. Cette section se mettra à jour automatiquement.</p>
   `;
 
-  // Poll /pay/status until the webhook confirms
+  function showConfirmed() {
+    panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    body.innerHTML = `
+      <div class="pay-status-row pay-status-confirmed">
+        <span class="pay-status-success">✓ Paiement confirmé !</span>
+        <a href="${returnUrl}" class="pay-status-open-link" target="_blank">Ouvrir en plein écran ↗</a>
+      </div>
+      <iframe src="${returnUrl}" class="pay-return-iframe" title="Confirmation de commande"></iframe>
+    `;
+  }
+
+  let confirmed = false;
+  function onConfirmed() {
+    if (confirmed) return;
+    confirmed = true;
+    clearInterval(timer);
+    try { bc.close(); } catch {}
+    window.removeEventListener('message', onMessage);
+    try { win.close(); } catch {}
+    showConfirmed();
+  }
+
+  // Fast path 1: BroadcastChannel — /pay/return posts this when state=success
+  let bc;
+  try {
+    bc = new BroadcastChannel('bts_payment');
+    bc.onmessage = function(evt) {
+      if (evt.data?.type === 'paid') onConfirmed();
+    };
+  } catch(e) {}
+
+  // Fast path 2: postMessage from the new tab (opener scenario)
+  function onMessage(evt) {
+    if (evt.data?.type === 'bts_paid') onConfirmed();
+  }
+  window.addEventListener('message', onMessage);
+
+  // Fallback: poll /pay/status every 3 s in case the tab was closed before broadcasting
   let attempts = 0;
-  const maxAttempts = 144; // ~12 min at 5 s intervals
+  const maxAttempts = 240; // ~12 min at 3 s intervals
   const timer = setInterval(async function () {
     attempts++;
     if (attempts > maxAttempts) {
       clearInterval(timer);
+      try { bc.close(); } catch {}
+      window.removeEventListener('message', onMessage);
       body.innerHTML = `<div class="pay-status-timeout">Vérification expirée. <a href="${returnUrl}">Vérifier le statut de la commande</a></div>`;
       return;
     }
     try {
       const r = await fetch(statusUrl, { cache: 'no-store', credentials: 'same-origin' });
-      if (!r.ok) return;
+      if (!r.ok) { console.warn('[bts/poll] status fetch non-ok:', r.status); return; }
       const d = await r.json();
-      if (d.paid) {
-        clearInterval(timer);
-        try { win.close(); } catch {}
-        panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        body.innerHTML = `
-          <div class="pay-status-row pay-status-confirmed">
-            <span class="pay-status-success">✓ Paiement confirmé !</span>
-            <a href="${returnUrl}" class="pay-status-open-link" target="_blank">Ouvrir en plein écran ↗</a>
-          </div>
-          <iframe src="${returnUrl}" class="pay-return-iframe" title="Confirmation de commande"></iframe>
-        `;
-      }
-    } catch {}
-  }, 5000);
+      if (d.paid) onConfirmed();
+    } catch (e) { console.warn('[bts/poll] fetch error:', e?.message || e); }
+  }, 3000);
 }
 
 /* ========= Chargement ========= */

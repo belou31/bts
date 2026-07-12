@@ -307,6 +307,21 @@ function renderPaymentReturn({
       });
     });
     ${state === 'pending' ? 'setTimeout(triggerRefresh, 8000);' : ''}
+    // Notify the ordering page (if still open) that payment is confirmed.
+    // Works whether this page is in a new tab or an iframe.
+    ${state === 'success' ? `
+    try {
+      var bc = new BroadcastChannel('bts_payment');
+      bc.postMessage({ type: 'paid', orderId: '${safeOrderId}' });
+      setTimeout(function() { try { bc.close(); } catch(e) {} }, 1000);
+    } catch(e) {}
+    // Also try postMessage to opener (covers popup / new tab opened with window.open)
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage({ type: 'bts_paid', orderId: '${safeOrderId}' }, '*');
+      }
+    } catch(e) {}
+    ` : ''}
   })();
   </script>`;
 }
