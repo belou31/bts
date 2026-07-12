@@ -676,11 +676,11 @@ try {
 
     // Corrélation PRIORITAIRE par metadata/custom_id (l’_id BTS passé à PSP)
     // SumUp: custom_id is at payload top-level; fallback: parse checkout_reference ("bts-{orderId}")
-    const checkoutRefRaw = String(payload?.checkout_reference || data?.checkout_reference || ‘’).trim();
-    const checkoutRefPrefix = (process.env.SUMUP_CHECKOUT_PREFIX || ‘bts’) + ‘-’;
+    const checkoutRefRaw = String(payload?.checkout_reference || data?.checkout_reference || '').trim();
+    const checkoutRefPrefix = (process.env.SUMUP_CHECKOUT_PREFIX || 'bts') + '-';
     const orderIdFromRef = checkoutRefRaw.startsWith(checkoutRefPrefix)
       ? checkoutRefRaw.slice(checkoutRefPrefix.length)
-      : ‘’;
+      : '';
     const btsOrderId = String(
       payload?.metadata?.orderId ||
       payload?.metadata?.orderNo ||
@@ -689,7 +689,7 @@ try {
       data?.custom_id ||
       payload?.custom_id ||
       orderIdFromRef ||
-      ‘’
+      ''
     ).trim();
     if (!btsOrderId) {
       console.warn('[pay/webhook] missing order id metadata on payment event');
@@ -740,7 +740,7 @@ try {
 
     // Fallback très limité : on lit l’état brut du Payment (utile pour traces)
     // SumUp: status at top-level payload; HA: in data.state / data.status
-    const rawState = String(payload?.status || data?.state || data?.status || ‘’).toLowerCase();
+    const rawState = String(payload?.status || data?.state || data?.status || '').toLowerCase();
     const status   = statusFromApi || normalizePaymentStatus(rawState);
 
     // Journalise + persiste les métadonnées HA (haOrderId, lastWebhook*)
