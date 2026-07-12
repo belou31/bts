@@ -330,8 +330,6 @@ router.get('/start', async (req, res) => {
   const checkoutId = String(order.paymentProviderMeta?.checkoutIntentId || '');
   const providerRedirectUrl = String(order.paymentProviderMeta?.providerRedirectUrl || '');
   const isStub = order.paymentProviderMeta?.isStub === true;
-  console.log('[pay/start:debug] orderId:', orderId, '| checkoutId:', checkoutId, '| isStub:', isStub, '| providerRedirectUrl:', providerRedirectUrl);
-
   // Widget SDK can't reach stub checkouts — fall back to redirect when stub reported itself
   const uxMode = (currentPaymentUxMode() === 'widget' && isStub) ? 'redirect' : currentPaymentUxMode();
 
@@ -642,21 +640,47 @@ try {
     if (payload?.postData?.contents) { try { payload = JSON.parse(payload.postData.contents); } catch {} }
 
     const data = payload?.data || {};
-    const eventType = String(payload?.eventType || data?.eventType || '').toLowerCase();
-    const orgSlug   = String(data?.organizationSlug || '').toLowerCase();
 
-    // Filtre org
-    if (ORG_SLUG && orgSlug && ORG_SLUG.toLowerCase() !== orgSlug) {
+    // SumUp callback: flat payload with custom_id / checkout_reference, no eventType wrapper.
+    // HelloAsso callback: nested payload with camelCase eventType.
+    const isSumUpCallback = !!(
+      !payload?.eventType && !data?.eventType &&
+      (payload?.custom_id || payload?.checkout_reference || payload?.id)
+    );
+
+    // Normalise event type across providers.
+    // SumUp uses snake_case event_type (CHECKOUT_COMPLETED) or no event_type at all (status-change callback).
+    const rawEventType = isSumUpCallback
+      ? String(payload?.event_type || '').toUpperCase()
+      : String(payload?.eventType || data?.eventType || '').toLowerCase();
+
+    // Map to canonical value; treat missing type on SumUp callbacks as 'payment'.
+    const eventType = isSumUpCallback
+      ? (rawEventType === '' || rawEventType === 'CHECKOUT_COMPLETED' || rawEventType === 'PAID' ? 'payment' : rawEventType.toLowerCase())
+      : rawEventType;
+
+    const orgSlug = String(data?.organizationSlug || '').toLowerCase();
+
+    // Filtre org (HelloAsso only — SumUp callbacks carry no org slug)
+    if (!isSumUpCallback && ORG_SLUG && orgSlug && ORG_SLUG.toLowerCase() !== orgSlug) {
       console.warn('[pay/webhook] ignored (org mismatch)', { orgSlug, ORG_SLUG });
       return res.status(202).send('ignored');
     }
 
     // On ne TRAITE que Payment. Les autres events (Order, ...) sont ignorés (mais repostés).
     if (eventType !== 'payment') {
+      console.log('[pay/webhook] ignored event_type:', rawEventType || '(empty)', { isSumUpCallback });
       return res.status(202).send('ignored-non-payment');
     }
+    console.log('[pay/webhook] processing', isSumUpCallback ? 'SumUp' : 'HelloAsso', 'payment event');
 
     // Corrélation PRIORITAIRE par metadata/custom_id (l’_id BTS passé à PSP)
+    // SumUp: custom_id is at payload top-level; fallback: parse checkout_reference ("bts-{orderId}")
+    const checkoutRefRaw = String(payload?.checkout_reference || data?.checkout_reference || ‘’).trim();
+    const checkoutRefPrefix = (process.env.SUMUP_CHECKOUT_PREFIX || ‘bts’) + ‘-’;
+    const orderIdFromRef = checkoutRefRaw.startsWith(checkoutRefPrefix)
+      ? checkoutRefRaw.slice(checkoutRefPrefix.length)
+      : ‘’;
     const btsOrderId = String(
       payload?.metadata?.orderId ||
       payload?.metadata?.orderNo ||
@@ -664,7 +688,8 @@ try {
       data?.metadata?.orderNo ||
       data?.custom_id ||
       payload?.custom_id ||
-      ''
+      orderIdFromRef ||
+      ‘’
     ).trim();
     if (!btsOrderId) {
       console.warn('[pay/webhook] missing order id metadata on payment event');
@@ -678,17 +703,21 @@ try {
     }
 
     // Provider order id (utile pour rapprochements futurs)
+    // SumUp: transaction_code / transaction_id at top level
     const providerOrderId = String(
       data?.order?.id ||
       data?.transaction_code ||
       data?.transaction_id ||
+      payload?.transaction_code ||
       payload?.transaction_id ||
       ''
     ).trim() || null;
 
     // Vérification côté HA via l’intent : on utilise celui stocké en base ;
     // fallback sur data.checkoutIntentId si présent.
+    // SumUp: checkout UUID is at payload.id; HA: in data.checkoutIntentId or metadata
     const checkoutIntentIdFromPayload =
+      String(payload?.id || '').trim() ||              // SumUp top-level UUID
       String(data?.checkoutIntentId || '').trim() ||
       String(payload?.metadata?.checkoutIntentId || '').trim() ||
       String(data?.checkout_reference || '').trim() ||
@@ -710,7 +739,8 @@ try {
     }
 
     // Fallback très limité : on lit l’état brut du Payment (utile pour traces)
-    const rawState = String(data?.state || data?.status || '').toLowerCase();
+    // SumUp: status at top-level payload; HA: in data.state / data.status
+    const rawState = String(payload?.status || data?.state || data?.status || ‘’).toLowerCase();
     const status   = statusFromApi || normalizePaymentStatus(rawState);
 
     // Journalise + persiste les métadonnées HA (haOrderId, lastWebhook*)
