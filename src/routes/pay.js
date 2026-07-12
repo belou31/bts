@@ -5,8 +5,14 @@ import http from 'node:http';
 import https from 'node:https';
 import { URL as NodeURL } from 'node:url';
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Order } from '../models/index.js';
-import { getCheckoutStatus, currentPaymentProviderId, currentPaymentProviderLabel } from '../services/payments/index.js';
+import { getCheckoutStatus, currentPaymentProviderId, currentPaymentProviderLabel, currentPaymentUxMode } from '../services/payments/index.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const VIEWS_DIR  = path.resolve(__dirname, '..', 'views');
 import { normalizePaymentStatus, isPaidLike, isRefundedLike,
          finalizePaidIfNoConflict,
          sendOrderAttestationIfNeeded,
@@ -306,6 +312,53 @@ function renderPaymentReturn({
 }
 
 
+
+/**
+ * GET /pay/start?orderId=<id>
+ * Intermediate payment page: mounts widget (SumUp) or auto-redirects (HelloAsso).
+ */
+router.get('/start', async (req, res) => {
+  const orderId = String(req.query.orderId || '').trim();
+  if (!orderId) return res.status(400).send('Missing orderId');
+
+  let order = null;
+  try { order = await Order.findById(orderId).lean(); } catch {}
+  if (!order) return res.status(404).send('Order not found');
+
+  const providerId = currentPaymentProviderId();
+  const providerLabel = currentPaymentProviderLabel();
+  const checkoutId = String(order.paymentProviderMeta?.checkoutIntentId || '');
+  const providerRedirectUrl = String(order.paymentProviderMeta?.providerRedirectUrl || '');
+  const isStub = order.paymentProviderMeta?.isStub === true;
+
+  // Widget SDK can't reach stub checkouts — fall back to redirect when stub reported itself
+  const uxMode = (currentPaymentUxMode() === 'widget' && isStub) ? 'redirect' : currentPaymentUxMode();
+
+  const returnUrl = urlFor(`/pay/return?oid=${encodeURIComponent(orderId)}&ci=${encodeURIComponent(checkoutId)}`);
+  const backUrl = urlFor('/pay/back');
+
+  const totalEur = ((Number(order.totalCents) || 0) / 100).toFixed(2);
+  const description = order.meta?.eventName || order.itemName || String(order._id);
+  const lines = Array.isArray(order.lines) ? order.lines : [];
+
+  res.render(path.resolve(VIEWS_DIR, 'pay', 'start'), {
+    uxMode,
+    providerId,
+    providerLabel,
+    checkoutId,
+    providerRedirectUrl,
+    returnUrl,
+    backUrl,
+    orderId,
+    totalEur,
+    description,
+    lines,
+    assets: {
+      static: urlFor('/static/'),
+      media: urlFor('/dynamic/assets/')
+    }
+  });
+});
 
 /**
  * GET /pay/return
