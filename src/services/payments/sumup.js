@@ -56,24 +56,26 @@ function addOrderIdParam(url, orderId) {
   return url.includes('?') ? `${url}&${param}` : `${url}?${param}`;
 }
 
+function appBase() {
+  return String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+}
+
 function defaultReturnUrl() {
-  return process.env.SUMUP_RETURN_URL ||
-         process.env.HELLOASSO_RETURN_URL ||
-         (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, '')}/pay/return` : '');
+  if (process.env.SUMUP_RETURN_URL) return process.env.SUMUP_RETURN_URL;
+  const base = appBase();
+  return base ? `${base}/pay/return` : '';
 }
 
 function defaultCancelUrl() {
-  const fallback = defaultReturnUrl().replace(/\/pay\/return(?:\/)?$/, '/pay/back');
-  return process.env.SUMUP_CANCEL_URL ||
-         process.env.HELLOASSO_BACK_URL ||
-         fallback;
+  if (process.env.SUMUP_CANCEL_URL) return process.env.SUMUP_CANCEL_URL;
+  const base = appBase();
+  return base ? `${base}/pay/back` : '';
 }
 
 function defaultErrorUrl() {
-  const fallback = defaultReturnUrl().replace(/\/pay\/return(?:\/)?$/, '/pay/error');
-  return process.env.SUMUP_ERROR_URL ||
-         process.env.HELLOASSO_ERROR_URL ||
-         fallback;
+  if (process.env.SUMUP_ERROR_URL) return process.env.SUMUP_ERROR_URL;
+  const base = appBase();
+  return base ? `${base}/pay/error` : '';
 }
 
 function buildReturnUrls(order, overrides = {}) {
@@ -137,6 +139,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const urls = { returnUrl: returnUrl || '', backUrl: backUrl || '', errorUrl: errorUrl || '' };
   const payload = buildCheckoutPayload({ order, urls });
 
+  console.log('[sumup] checkout return_url:', payload.return_url || '(not set)');
   const r = await fetch(`${apiBase()}/checkouts`, {
     method: 'POST',
     headers: {
