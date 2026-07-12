@@ -307,3 +307,22 @@ body.order-view {
   font-size: 0.82rem;
   color: rgba(255,255,255,0.4);
 }
+.pay-status-confirmed {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.pay-status-open-link {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.4);
+  text-decoration: none;
+}
+.pay-status-open-link:hover { color: #3ba0ff; }
+.pay-return-iframe {
+  display: block;
+  width: 100%;
+  min-height: 520px;
+  border: none;
+  border-radius: 8px;
+}
