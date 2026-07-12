@@ -45,24 +45,10 @@
       border-top: 1px solid rgba(255,255,255,0.07);
       font-weight: 700; font-size: 1rem; color: #fff;
     }
-    .pay-zone {
-      padding: 24px;
-    }
-    /* SumUp widget override to fit dark background */
+    .pay-zone { padding: 24px; }
     #sumup-card { width: 100%; min-height: 220px; }
-    .pay-redirect-msg {
-      text-align: center; color: rgba(255,255,255,0.6);
-      font-size: 0.9rem; padding: 12px 0 4px;
-    }
-    .pay-redirect-msg .spinner {
-      display: inline-block; width: 18px; height: 18px;
-      border: 2px solid rgba(255,255,255,0.2);
-      border-top-color: #3ba0ff;
-      border-radius: 50%;
-      animation: spin .8s linear infinite;
-      vertical-align: middle; margin-right: 8px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    /* Button shown in redirect mode and as SDK-failure fallback */
+    .pay-btn-zone { text-align: center; padding: 8px 0; }
     .pay-open-btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 8px;
       background: #2563eb; color: #fff;
@@ -76,29 +62,22 @@
       margin-top: 14px; font-size: 0.88rem;
       color: rgba(255,255,255,0.5); text-align: center;
     }
-    .pay-poll-status .spinner { display: inline-block; width: 14px; height: 14px;
+    .pay-poll-success { color: #4ade80; font-weight: 600; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
       border: 2px solid rgba(255,255,255,0.2); border-top-color: #3ba0ff;
       border-radius: 50%; animation: spin .8s linear infinite;
-      vertical-align: middle; margin-right: 6px; }
-    .pay-poll-success { color: #4ade80; font-weight: 600; }
-    .pay-back {
-      padding: 0 24px 20px;
-      text-align: center;
+      vertical-align: middle; margin-right: 6px;
     }
-    .pay-back a {
-      font-size: 0.82rem; color: rgba(255,255,255,0.35);
-      text-decoration: none;
-    }
+    .pay-back { padding: 0 24px 20px; text-align: center; }
+    .pay-back a { font-size: 0.82rem; color: rgba(255,255,255,0.35); text-decoration: none; }
     .pay-back a:hover { color: rgba(255,255,255,0.6); }
     .pay-error {
       padding: 16px 24px;
-      background: rgba(239,68,68,0.1);
-      border: 1px solid rgba(239,68,68,0.3);
-      border-radius: 8px;
-      color: #f3b4b4;
-      font-size: 0.88rem;
-      margin: 0 24px 16px;
-      display: none;
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 8px; color: #f3b4b4; font-size: 0.88rem;
+      margin: 0 0 16px; display: none;
     }
   </style>
 </head>
@@ -130,15 +109,25 @@
 
     <div class="pay-zone">
       <% if (uxMode === 'widget' && providerId === 'sumup') { %>
+        <%# Widget mode: show the embedded card; fallback button is hidden until SDK fails %>
         <div id="sumup-card"></div>
         <div id="pay-error" class="pay-error"></div>
-      <% } else { %>
-        <div style="text-align:center; padding: 8px 0;">
-          <a id="payBtn" class="pay-open-btn" href="<%- providerRedirectUrl %>" target="_blank" rel="noopener noreferrer">
+        <div id="payBtnZone" class="pay-btn-zone" hidden>
+          <a id="payBtn" class="pay-open-btn" href="<%- providerRedirectUrl %>">
             Payer avec <%= providerLabel %>
           </a>
           <div id="pollStatus" class="pay-poll-status" hidden>
-            <span class="spinner"></span>Vérification du paiement…
+            <span class="spinner"></span>En attente de confirmation…
+          </div>
+        </div>
+      <% } else { %>
+        <%# Redirect mode: button always visible %>
+        <div class="pay-btn-zone">
+          <a id="payBtn" class="pay-open-btn" href="<%- providerRedirectUrl %>">
+            Payer avec <%= providerLabel %>
+          </a>
+          <div id="pollStatus" class="pay-poll-status" hidden>
+            <span class="spinner"></span>En attente de confirmation…
           </div>
         </div>
       <% } %>
@@ -150,15 +139,84 @@
 
   </div>
 
+  <%# Shared polling logic — runs for redirect mode and as SDK-failure fallback %>
+  <script>
+  (function () {
+    var statusUrl = '<%- statusUrl %>';
+    var returnUrl = '<%- returnUrl %>';
+    var pollTimer = null;
+
+    function startPolling() {
+      if (pollTimer) return;
+      var pollEl = document.getElementById('pollStatus');
+      if (pollEl) pollEl.hidden = false;
+      var attempts = 0;
+      var maxAttempts = 144; // ~12 min at 5 s intervals
+      pollTimer = setInterval(function () {
+        attempts++;
+        if (attempts > maxAttempts) {
+          clearInterval(pollTimer);
+          if (pollEl) {
+            pollEl.innerHTML = 'Vérification expirée. <a href="' + returnUrl + '" style="color:#3ba0ff">Vérifier le statut</a>';
+          }
+          return;
+        }
+        fetch(statusUrl, { cache: 'no-store' })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (d && d.paid) {
+              clearInterval(pollTimer);
+              if (pollEl) {
+                pollEl.innerHTML = '<span class="pay-poll-success">Paiement confirmé ✓</span> — redirection…';
+              }
+              setTimeout(function () { window.location.href = returnUrl; }, 800);
+            }
+          })
+          .catch(function () {});
+      }, 5000);
+    }
+
+    // Wire up the pay button — click opens SumUp in a new tab and starts polling
+    function setupPayButton() {
+      var btn = document.getElementById('payBtn');
+      if (!btn) return;
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        var url = btn.getAttribute('href');
+        if (!url) return;
+        // Try to open in a new tab; some browsers may block window.open —
+        // in that case the user is redirected in the same tab (they lose polling,
+        // but the webhook will have confirmed the order and /pay/return will show success).
+        var win = window.open(url, '_blank', 'noopener,noreferrer');
+        if (win) {
+          // New tab opened — poll in the background until webhook confirms
+          setTimeout(startPolling, 3000);
+        } else {
+          // Popup blocked — navigate current tab; /pay/return checks DB on return
+          window.location.href = url;
+        }
+      });
+    }
+
+    // Expose for widget-mode SDK failure
+    window.__btsPay = { startPolling: startPolling, setupPayButton: setupPayButton };
+
+    // Auto-wire if not in widget mode (redirect mode button is always visible)
+    <% if (!(uxMode === 'widget' && providerId === 'sumup')) { %>
+    setupPayButton();
+    <% } %>
+  })();
+  </script>
+
   <% if (uxMode === 'widget' && providerId === 'sumup') { %>
   <script crossorigin="anonymous" src="https://gateway.sumup.com/gateway/ecom/v1/sdk.js"
           onerror="window.__sumupSdkFailed=true"></script>
   <script>
   (function () {
-    const checkoutId      = '<%- checkoutId %>';
-    const returnUrl       = '<%- returnUrl %>';
-    const providerRedirect = '<%- providerRedirectUrl %>';
-    const errEl           = document.getElementById('pay-error');
+    var checkoutId       = '<%- checkoutId %>';
+    var returnUrl        = '<%- returnUrl %>';
+    var errEl            = document.getElementById('pay-error');
+    var payBtnZone       = document.getElementById('payBtnZone');
 
     function showError(msg) {
       if (!errEl) return;
@@ -166,12 +224,12 @@
       errEl.style.display = 'block';
     }
 
-    // SDK failed to load (ORB / CORS / sandbox restriction) — fall back to redirect
+    // SDK failed to load (ORB / CORS / sandbox restriction)
+    // Reveal the fallback button and start polling instead of navigating away.
     if (window.__sumupSdkFailed || typeof SumUpCard === 'undefined') {
-      if (providerRedirect) {
-        window.location.href = providerRedirect;
-      } else {
-        showError('Impossible de charger le formulaire de paiement. Vérifiez votre connexion.');
+      if (payBtnZone) payBtnZone.hidden = false;
+      if (window.__btsPay) {
+        window.__btsPay.setupPayButton();
       }
       return;
     }
@@ -181,54 +239,13 @@
       checkoutId: checkoutId,
       onResponse: function (type, body) {
         if (type === 'success') {
+          // Widget confirmed payment inline — redirect directly to return page
           window.location.href = returnUrl + '&status=PAID';
         } else if (type === 'error') {
           showError('Le paiement a échoué. Vérifiez vos informations et réessayez.');
         }
         // 'sent' = submitted, waiting for webhook — stay on page
       }
-    });
-  })();
-  </script>
-  <% } else { %>
-  <script>
-  (function () {
-    const statusUrl = '<%- statusUrl %>';
-    const returnUrl = '<%- returnUrl %>';
-    const btn       = document.getElementById('payBtn');
-    const pollEl    = document.getElementById('pollStatus');
-    if (!btn) return;
-
-    let pollTimer = null;
-
-    function startPolling() {
-      if (pollTimer) return;
-      pollEl.hidden = false;
-      let attempts = 0;
-      const maxAttempts = 144; // ~12 min at 5 s intervals
-      pollTimer = setInterval(async function () {
-        attempts++;
-        if (attempts > maxAttempts) {
-          clearInterval(pollTimer);
-          pollEl.innerHTML = 'Vérification expirée. <a href="' + returnUrl + '" style="color:#3ba0ff">Vérifier manuellement</a>';
-          return;
-        }
-        try {
-          const r = await fetch(statusUrl, { cache: 'no-store' });
-          if (!r.ok) return;
-          const d = await r.json();
-          if (d.paid) {
-            clearInterval(pollTimer);
-            pollEl.innerHTML = '<span class="pay-poll-success">Paiement confirmé ✓</span> — redirection…';
-            setTimeout(function () { window.location.href = returnUrl; }, 800);
-          }
-        } catch {}
-      }, 5000);
-    }
-
-    btn.addEventListener('click', function () {
-      // Start polling 3 s after click (give user time to reach SumUp page)
-      setTimeout(startPolling, 3000);
     });
   })();
   </script>
