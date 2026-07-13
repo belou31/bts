@@ -139,7 +139,6 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const urls = { returnUrl: returnUrl || '', backUrl: backUrl || '', errorUrl: errorUrl || '' };
   const payload = buildCheckoutPayload({ order, urls });
 
-  console.log('[sumup] checkout return_url:', payload.return_url || '(not set)');
   const r = await fetch(`${apiBase()}/checkouts`, {
     method: 'POST',
     headers: {

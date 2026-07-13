@@ -922,13 +922,14 @@ function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win }) {
     return;
   }
 
-  // Reveal the panel
-  const panel = document.getElementById('paymentPanel');
+  // Reveal the booking status panel and its payment section
+  const panel = document.getElementById('bookingStatus');
   const body  = document.getElementById('paymentPanelBody');
   if (panel) {
     panel.hidden = false;
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
+  if (body) body.hidden = false;
 
   setFeedback('ok', 'Paiement ouvert dans un nouvel onglet. Cette page se mettra à jour automatiquement.');
 
