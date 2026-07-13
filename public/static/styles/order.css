@@ -212,27 +212,48 @@ body.order-view {
   }
 }
 
-/* ── Hold timer ───────────────────────────────────────────────── */
+/* ── Booking status panel (timer + payment confirmation) ── */
+.booking-status {
+  margin: 1rem 0 0;
+}
+.booking-status-inner {
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  background: #111b28;
+  overflow: hidden;
+}
+.booking-status-title {
+  margin: 0;
+  padding: 14px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e8eef5;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.03);
+}
+/* ── Hold timer (inside booking-status) ── */
 .hold-timer {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
-  background: rgba(59, 160, 255, 0.08);
-  border: 1px solid rgba(59, 160, 255, 0.25);
-  border-radius: 8px;
-  margin-bottom: 10px;
-  font-size: 0.85rem;
+  padding: 12px 20px;
+  font-size: 0.88rem;
   color: #cde5ff;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.hold-timer-label {
+  color: rgba(255,255,255,0.5);
 }
 .hold-timer .timer-text {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .hold-timer.timer-warning {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.07);
   color: #f3b4b4;
+}
+.hold-timer.timer-warning .hold-timer-label {
+  color: rgba(243,180,180,0.6);
 }
 .hold-extend-btn {
   margin-left: auto;
@@ -248,26 +269,7 @@ body.order-view {
 .hold-extend-btn:hover {
   background: rgba(59, 160, 255, 0.25);
 }
-
-/* ── Payment status panel (inline, revealed after Pay click) ── */
-.payment-panel {
-  margin: 1rem 0 0;
-}
-.payment-panel-inner {
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 12px;
-  background: #111b28;
-  overflow: hidden;
-}
-.payment-panel-title {
-  margin: 0;
-  padding: 14px 20px;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #e8eef5;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  background: rgba(255,255,255,0.03);
-}
+/* ── Payment body (inside booking-status) ── */
 .payment-panel-body {
   padding: 20px;
   font-size: 0.92rem;

@@ -238,12 +238,6 @@
     </section>
 
     <section class="col form-col">
-      <% if (hasEventJs) { %>
-      <div id="holdTimer" class="hold-timer" hidden>
-        <span class="timer-text">--:--</span>
-        <button id="holdExtendBtn" type="button" class="hold-extend-btn" hidden>Prolonger</button>
-      </div>
-      <% } %>
       <div id="order" class="panel">
         <div id="linesPanel" class="block">
           <h2><%= cartTitleText %></h2>
@@ -319,11 +313,18 @@
           <% } %>
         </div>
       </div>
-      <%# Payment status panel — revealed inline when user clicks Pay %>
-      <section id="paymentPanel" class="payment-panel" hidden aria-live="polite">
-        <div class="payment-panel-inner">
-          <h2 class="payment-panel-title">Statut du paiement</h2>
-          <div id="paymentPanelBody" class="payment-panel-body">
+      <%# Booking status — timer + payment confirmation, revealed by either %>
+      <section id="bookingStatus" class="booking-status" hidden aria-live="polite">
+        <div class="booking-status-inner">
+          <h2 class="booking-status-title">Statut de la réservation</h2>
+          <% if (hasEventJs) { %>
+          <div id="holdTimer" class="hold-timer" hidden>
+            <span class="hold-timer-label">Places réservées pendant&nbsp;:</span>
+            <span class="timer-text">--:--</span>
+            <button id="holdExtendBtn" type="button" class="hold-extend-btn" hidden>Prolonger</button>
+          </div>
+          <% } %>
+          <div id="paymentPanelBody" class="payment-panel-body" hidden>
             <div class="pay-status-row">
               <span class="pay-spinner"></span>
               En attente de confirmation…

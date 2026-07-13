@@ -107,6 +107,8 @@
     const display = `${min}:${String(sec).padStart(2, '0')}`;
 
     el.hidden = false;
+    const bookingPanel = document.getElementById('bookingStatus');
+    if (bookingPanel) bookingPanel.hidden = false;
     const txt = el.querySelector('.timer-text');
     if (txt) txt.textContent = display;
 
