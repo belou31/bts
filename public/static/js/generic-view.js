@@ -758,6 +758,11 @@ async function submitPayment() {
   if (!payload) return;
   const { items, payer, schedule, totalAmount } = payload;
 
+  // Open a blank window NOW, while we still have the user gesture context.
+  // After any await the browser popup-blocker would reject window.open().
+  // Do NOT use noopener here — it causes browsers to return null, losing the reference.
+  const preWin = window.open('about:blank', '_blank');
+
   $('#payBtn').disabled = true;
 
   try {
@@ -869,28 +874,130 @@ async function submitPayment() {
       } catch {
         title = 'Un problème technique est survenu. Réessayez dans quelques instants.';
       }
+      try { if (preWin && !preWin.closed) preWin.close(); } catch {}
       setFeedback('error', title, details);
       $('#payBtn').disabled = false;
       return;
     }
-    
-    
-    const out = await res.json();
-    // ⬅️ tolérance: racine ou dans { checkout:{ redirectUrl } }
-    const redirectUrl = out.redirectUrl || out?.checkout?.redirectUrl || out?.checkout?.url;
-    if (redirectUrl) {
 
-    setFeedback('ok', 'Redirection vers le paiement…');
-      location.href = redirectUrl;
-  } else {
+
+    const out = await res.json();
+    const orderId     = out.orderId || '';
+    const providerUrl = out.providerUrl || null;
+    const statusUrl   = out.statusUrl   || null;
+    const returnUrl   = out.returnUrl   || null;
+    // Legacy fallback: /pay/start or checkout-embedded redirect
+    const fallbackUrl = out.redirectUrl || out?.checkout?.redirectUrl || out?.checkout?.url;
+
+    if (providerUrl && statusUrl) {
+      // ── New flow: navigate the pre-opened window to the provider, show inline status panel ──
+      openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl: returnUrl || fallbackUrl, win: preWin });
+    } else if (fallbackUrl) {
+      // ── Legacy flow: navigate to /pay/start ──
+      if (preWin && !preWin.closed) {
+        preWin.location.href = fallbackUrl;
+      } else {
+        setFeedback('ok', 'Redirection vers le paiement…');
+        location.href = fallbackUrl;
+      }
+    } else {
+      try { if (preWin && !preWin.closed) preWin.close(); } catch {}
       throw new Error('Réponse inattendue du serveur.');
     }
   } catch (e) {
     console.error('pay error:', e);
+    try { if (preWin && !preWin.closed) preWin.close(); } catch {}
     setFeedback('error', 'Impossible de démarrer le paiement. Réessayez dans quelques instants.');
-
     $('#payBtn').disabled = false;
   }
+}
+
+function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win }) {
+  // Navigate the pre-opened window (or fall back to current tab if it was blocked)
+  if (win && !win.closed) {
+    try { win.location.href = providerUrl; } catch {}
+  } else {
+    // Popup was blocked — navigate current tab; /pay/return will confirm via DB
+    window.location.href = providerUrl;
+    return;
+  }
+
+  // Reveal the booking status panel and its payment section
+  const panel = document.getElementById('bookingStatus');
+  const body  = document.getElementById('paymentPanelBody');
+  if (panel) {
+    panel.hidden = false;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  if (body) body.hidden = false;
+
+  setFeedback('ok', 'Paiement ouvert dans un nouvel onglet. Cette page se mettra à jour automatiquement.');
+
+  if (!body) return;
+  body.innerHTML = `
+    <div class="pay-status-row">
+      <span class="pay-spinner"></span>
+      En attente de confirmation du paiement…
+    </div>
+    <p class="pay-status-hint">Complétez le paiement dans l\'onglet qui vient de s\'ouvrir. Cette section se mettra à jour automatiquement.</p>
+  `;
+
+  function showConfirmed() {
+    panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    body.innerHTML = `
+      <div class="pay-status-row pay-status-confirmed">
+        <span class="pay-status-success">✓ Paiement confirmé !</span>
+        <a href="${returnUrl}" class="pay-status-open-link" target="_blank">Ouvrir en plein écran ↗</a>
+      </div>
+      <iframe src="${returnUrl}" class="pay-return-iframe" title="Confirmation de commande"></iframe>
+    `;
+  }
+
+  let confirmed = false;
+  function onConfirmed() {
+    if (confirmed) return;
+    confirmed = true;
+    clearInterval(timer);
+    try { bc.close(); } catch {}
+    window.removeEventListener('message', onMessage);
+    try { win.close(); } catch {}
+    showConfirmed();
+  }
+
+  // Fast path 1: BroadcastChannel — /pay/return posts this when state=success
+  let bc;
+  try {
+    bc = new BroadcastChannel('bts_payment');
+    bc.onmessage = function(evt) {
+      if (evt.data?.type === 'paid') onConfirmed();
+    };
+  } catch(e) {}
+
+  // Fast path 2: postMessage from the new tab (opener scenario)
+  function onMessage(evt) {
+    if (evt.data?.type === 'bts_paid') onConfirmed();
+  }
+  window.addEventListener('message', onMessage);
+
+  // Fallback: poll /pay/status every 3 s in case the tab was closed before broadcasting
+  let attempts = 0;
+  const maxAttempts = 240; // ~12 min at 3 s intervals
+  const timer = setInterval(async function () {
+    attempts++;
+    if (attempts > maxAttempts) {
+      clearInterval(timer);
+      try { bc.close(); } catch {}
+      window.removeEventListener('message', onMessage);
+      body.innerHTML = `<div class="pay-status-timeout">Vérification expirée. <a href="${returnUrl}">Vérifier le statut de la commande</a></div>`;
+      return;
+    }
+    try {
+      const r = await fetch(statusUrl, { cache: 'no-store', credentials: 'same-origin' });
+      if (!r.ok) { console.warn('[bts/poll] status fetch non-ok:', r.status); return; }
+      const d = await r.json();
+      if (d.paid) onConfirmed();
+    } catch (e) { console.warn('[bts/poll] fetch error:', e?.message || e); }
+  }, 3000);
 }
 
 /* ========= Chargement ========= */
@@ -1036,9 +1143,10 @@ if (Array.isArray(CTX.seatSubscribers)) {
   $planObj.addEventListener('load', () => { try { onPlanReady($planObj); } catch(e){ console.warn('plan init failed:', e); } }, { once:true });
 
 // Lignes (renew = sièges connus) — activable/désactivable par config
-const $rows = $('#cartRows'); $rows.innerHTML = '';
+const $rows = $('#cartRows');
 const BUILD_ROWS = (CONFIG.buildRowsFromData !== false);
 if (BUILD_ROWS) {
+  $rows.innerHTML = ''; // uniquement quand on reconstruit depuis les données (ex: renew)
   // Ne pas remettre dans le panier les sièges déjà "booked" (ou "sold")
   const initialSeats = Array.isArray(CTX.seats) ? CTX.seats : [];
   for (const seat of initialSeats) {
@@ -1048,10 +1156,10 @@ if (BUILD_ROWS) {
   }
 }
 
-  // Payer
-  $('#payerFirst').value = CTX.payer.firstName || '';
-  $('#payerLast').value  = CTX.payer.lastName  || '';
-  $('#payerEmail').value = CTX.payer.email     || '';
+  // Payer — ne pas écraser ce que l'utilisateur a déjà saisi
+  if (!$('#payerFirst').value) $('#payerFirst').value = CTX.payer.firstName || '';
+  if (!$('#payerLast').value)  $('#payerLast').value  = CTX.payer.lastName  || '';
+  if (!$('#payerEmail').value) $('#payerEmail').value = CTX.payer.email     || '';
 
 dlog('payer inputs after set:', {
   first: $('#payerFirst').value, last: $('#payerLast').value, email: $('#payerEmail').value
@@ -1094,6 +1202,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   
   window.addEventListener('resize', () => { if (!layoutLock) applyLayout(); });
+
+  window.BTS_VIEW.refresh = loadData;
 
   try { await loadData(); }
   catch (e) {

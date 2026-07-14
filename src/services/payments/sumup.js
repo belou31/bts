@@ -14,8 +14,10 @@ function tokenUrl() {
 
 function assertEnv() {
   const miss = [];
-  if (!process.env.SUMUP_CLIENT_ID) miss.push('SUMUP_CLIENT_ID');
-  if (!process.env.SUMUP_CLIENT_SECRET) miss.push('SUMUP_CLIENT_SECRET');
+  if (!process.env.SUMUP_API_KEY) {
+    if (!process.env.SUMUP_CLIENT_ID) miss.push('SUMUP_CLIENT_ID');
+    if (!process.env.SUMUP_CLIENT_SECRET) miss.push('SUMUP_CLIENT_SECRET');
+  }
   if (!process.env.SUMUP_MERCHANT_CODE && !process.env.SUMUP_PAY_TO_EMAIL) {
     miss.push('SUMUP_MERCHANT_CODE or SUMUP_PAY_TO_EMAIL');
   }
@@ -24,6 +26,11 @@ function assertEnv() {
 
 async function getAccessToken() {
   assertEnv();
+  // API Key auth: use directly as Bearer token (no OAuth step)
+  if (process.env.SUMUP_API_KEY) {
+    return process.env.SUMUP_API_KEY;
+  }
+  // OAuth client_credentials flow
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: process.env.SUMUP_CLIENT_ID,
@@ -49,24 +56,26 @@ function addOrderIdParam(url, orderId) {
   return url.includes('?') ? `${url}&${param}` : `${url}?${param}`;
 }
 
+function appBase() {
+  return String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+}
+
 function defaultReturnUrl() {
-  return process.env.SUMUP_RETURN_URL ||
-         process.env.HELLOASSO_RETURN_URL ||
-         (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, '')}/pay/return` : '');
+  if (process.env.SUMUP_RETURN_URL) return process.env.SUMUP_RETURN_URL;
+  const base = appBase();
+  return base ? `${base}/pay/return` : '';
 }
 
 function defaultCancelUrl() {
-  const fallback = defaultReturnUrl().replace(/\/pay\/return(?:\/)?$/, '/pay/back');
-  return process.env.SUMUP_CANCEL_URL ||
-         process.env.HELLOASSO_BACK_URL ||
-         fallback;
+  if (process.env.SUMUP_CANCEL_URL) return process.env.SUMUP_CANCEL_URL;
+  const base = appBase();
+  return base ? `${base}/pay/back` : '';
 }
 
 function defaultErrorUrl() {
-  const fallback = defaultReturnUrl().replace(/\/pay\/return(?:\/)?$/, '/pay/error');
-  return process.env.SUMUP_ERROR_URL ||
-         process.env.HELLOASSO_ERROR_URL ||
-         fallback;
+  if (process.env.SUMUP_ERROR_URL) return process.env.SUMUP_ERROR_URL;
+  const base = appBase();
+  return base ? `${base}/pay/error` : '';
 }
 
 function buildReturnUrls(order, overrides = {}) {
@@ -112,7 +121,8 @@ function buildCheckoutPayload({ order, urls }) {
     failure_url: urls.errorUrl || undefined,
     callback_url: process.env.SUMUP_CALLBACK_URL || process.env.SUMUP_WEBHOOK_URL || process.env.HELLOASSO_WEBHOOK_URL || undefined,
     payment_type: process.env.SUMUP_PAYMENT_TYPE || undefined,
-    custom_id: String(order._id || '')
+    custom_id: String(order._id || ''),
+    hosted_checkout: { enabled: true }
   };
   // Remove undefined keys
   for (const key of Object.keys(payload)) {
@@ -125,7 +135,8 @@ function buildCheckoutPayload({ order, urls }) {
 
 async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const token = await getAccessToken();
-  const urls = buildReturnUrls(order, { returnUrl, backUrl, errorUrl });
+  // URLs are already built (with oid) by the caller — pass them through directly
+  const urls = { returnUrl: returnUrl || '', backUrl: backUrl || '', errorUrl: errorUrl || '' };
   const payload = buildCheckoutPayload({ order, urls });
 
   const r = await fetch(`${apiBase()}/checkouts`, {
@@ -141,23 +152,41 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
     console.error('[sumup] payload sent:', JSON.stringify(payload));
     throw new Error(`SumUp checkout ${r.status} ${JSON.stringify(j)}`);
   }
+  // SumUp sometimes only returns links on GET, not POST — fetch to get the real checkout URL
+  let jGet = j;
+  if (j.id && !j.checkout_url && !j.links?.length) {
+    try {
+      const rGet = await fetch(`${apiBase()}/checkouts/${encodeURIComponent(j.id)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (rGet.ok) {
+        jGet = await rGet.json().catch(() => j);
+      }
+    } catch { /* ignore, fall back to POST response */ }
+  }
 
+  const resolvedCheckout = { ...j, ...jGet };
+  const hostedUrl = resolvedCheckout.id ? `https://pay.sumup.com/b2c/${encodeURIComponent(resolvedCheckout.id)}` : '';
+  const resolvedRedirectUrl =
+    resolvedCheckout.hosted_checkout_url ||
+    resolvedCheckout.hosted_checkout?.url ||
+    resolvedCheckout.checkout_url ||
+    resolvedCheckout.checkout_redirect_url ||
+    (resolvedCheckout.links && resolvedCheckout.links.find(l => l.rel === 'checkout')?.href) ||
+    hostedUrl;
   return {
-    redirectUrl: j.checkout_url || j.checkout_redirect_url || (j.links && j.links.find(l => l.rel === 'checkout')?.href) || '',
-    id: j.id || j.checkout_reference || payload.checkout_reference,
-    raw: j,
-    checkoutReference: j.checkout_reference || payload.checkout_reference,
-    providerOrderId: j.transaction_code || j.transaction_id || j.id || j.checkout_reference || payload.checkout_reference
+    redirectUrl: resolvedRedirectUrl,
+    id: resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference,
+    raw: resolvedCheckout,
+    checkoutReference: resolvedCheckout.checkout_reference || payload.checkout_reference,
+    providerOrderId: resolvedCheckout.transaction_code || resolvedCheckout.transaction_id || resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference
   };
 }
 
 async function getCheckoutIntent(intentId) {
   const token = await getAccessToken();
   const ref = encodeURIComponent(intentId);
-  const params = new URLSearchParams();
-  if (process.env.SUMUP_MERCHANT_CODE) params.set('merchant_code', process.env.SUMUP_MERCHANT_CODE);
-  const suffix = params.toString() ? `?${params.toString()}` : '';
-  const r = await fetch(`${apiBase()}/checkouts/${ref}${suffix}`, {
+  const r = await fetch(`${apiBase()}/checkouts/${ref}`, {
     headers: {
       'Authorization': `Bearer ${token}`
     }
@@ -181,6 +210,7 @@ async function getCheckoutStatus(intentId) {
 const provider = {
   id: 'sumup',
   label: 'SumUp',
+  uxCapabilities: ['widget', 'redirect'],
   docs: {
     env: [
       'PAYMENT_PROVIDER',

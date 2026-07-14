@@ -1,10 +1,12 @@
 // src/services/payments/index.js
 import helloassoProvider from './helloasso.js';
+import mollieProvider from './mollie.js';
 import sumupProvider from './sumup.js';
 
 const providers = {
   helloasso: helloassoProvider,
-  sumup: sumupProvider
+  mollie:    mollieProvider,
+  sumup:     sumupProvider
 };
 
 export const paymentProviders = providers;
@@ -86,6 +88,13 @@ export function normalizeStatus(input, fallback) {
   if (raw === 'failure' || raw === 'failed' || raw === 'canceled') return 'failed';
   if (raw === 'refunded' || raw === 'refund') return 'refunded';
   return raw;
+}
+
+export function currentPaymentUxMode() {
+  const preferred = String(process.env.PAYMENT_UX || 'redirect').trim().toLowerCase();
+  const provider = currentPaymentProvider();
+  const capabilities = Array.isArray(provider.uxCapabilities) ? provider.uxCapabilities : ['redirect'];
+  return capabilities.includes(preferred) ? preferred : 'redirect';
 }
 
 export function resetPaymentProviderCache() {

@@ -33,7 +33,6 @@ src/
     TariffPrice.js  # prix par zone/saison/lieu
     TariffPriceCatalog.js # catalogue de prix réutilisable (zone × tarif)
     Order.js        # commandes (paid/failed)
-    PaymentIntent.js# intents checkout
   routes/
     index.js        # router principal
     renew.js        # GET/POST renouvellement
