@@ -24,8 +24,8 @@ const router = express.Router();
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const PAYMENT_PROVIDER_LABEL = currentPaymentProviderLabel();
 const ORG_SLUG = process.env.HELLOASSO_ORG_SLUG || '';
-const REPOST_URL = process.env.HELLOASSO_REPOST_URL || '';
-const REPOST_TIMEOUT_MS = Number(process.env.HELLOASSO_REPOST_TIMEOUT_MS || 1000);
+const REPOST_URL = process.env.PAYMENT_REPOST_URL || '';
+const REPOST_TIMEOUT_MS = Number(process.env.PAYMENT_REPOST_TIMEOUT_MS || 1000);
 const BASE_PATH = (process.env.BASE_PATH || '').trim().replace(/\/+$/, '');
 
 const urlFor = (p = '') => {
@@ -394,9 +394,7 @@ router.get('/start', async (req, res) => {
   const providerLabel = currentPaymentProviderLabel();
   const checkoutId = String(order.paymentProviderMeta?.checkoutIntentId || '');
   const providerRedirectUrl = String(order.paymentProviderMeta?.providerRedirectUrl || '');
-  const isStub = order.paymentProviderMeta?.isStub === true;
-  // Widget SDK can't reach stub checkouts — fall back to redirect when stub reported itself
-  const uxMode = (currentPaymentUxMode() === 'widget' && isStub) ? 'redirect' : currentPaymentUxMode();
+  const uxMode = currentPaymentUxMode();
 
   const returnUrl = urlFor(`/pay/return?oid=${encodeURIComponent(orderId)}&ci=${encodeURIComponent(checkoutId)}`);
   const statusUrl = urlFor(`/pay/status?orderId=${encodeURIComponent(orderId)}`);
@@ -712,11 +710,30 @@ try {
     try { if ((req.headers['content-type']||'').includes('json')) payload = JSON.parse(rawTxt); } catch {}
     if (payload?.postData?.contents) { try { payload = JSON.parse(payload.postData.contents); } catch {} }
 
+    // Mollie webhook: form-urlencoded body "id=tr_xxxx" — fetch payment to get metadata
+    let isMollieCallback = false;
+    if (!payload && rawTxt) {
+      try {
+        const form = new URLSearchParams(rawTxt);
+        const mid = String(form.get('id') || '');
+        if (mid.startsWith('tr_')) {
+          isMollieCallback = true;
+          try {
+            const intent = await currentPaymentProvider().getCheckoutIntent(mid);
+            payload = { _provider: 'mollie', id: mid, status: intent.raw?.status || '', metadata: intent.metadata || {} };
+          } catch (e) {
+            console.warn('[pay/webhook] Mollie getCheckoutIntent failed:', e?.message || e);
+            return res.status(202).send('ignored-mollie-fetch-failed');
+          }
+        }
+      } catch {}
+    }
+
     const data = payload?.data || {};
 
     // SumUp callback: flat payload with custom_id / checkout_reference, no eventType wrapper.
     // HelloAsso callback: nested payload with camelCase eventType.
-    const isSumUpCallback = !!(
+    const isSumUpCallback = !isMollieCallback && !!(
       !payload?.eventType && !data?.eventType &&
       (payload?.custom_id || payload?.checkout_reference || payload?.id)
     );
@@ -728,14 +745,16 @@ try {
       : String(payload?.eventType || data?.eventType || '').toLowerCase();
 
     // Map to canonical value; treat missing type on SumUp callbacks as 'payment'.
-    const eventType = isSumUpCallback
-      ? (rawEventType === '' || rawEventType === 'CHECKOUT_COMPLETED' || rawEventType === 'PAID' ? 'payment' : rawEventType.toLowerCase())
-      : rawEventType;
+    const eventType = isMollieCallback
+      ? 'payment'
+      : isSumUpCallback
+        ? (rawEventType === '' || rawEventType === 'CHECKOUT_COMPLETED' || rawEventType === 'PAID' ? 'payment' : rawEventType.toLowerCase())
+        : rawEventType;
 
     const orgSlug = String(data?.organizationSlug || '').toLowerCase();
 
-    // Filtre org (HelloAsso only — SumUp callbacks carry no org slug)
-    if (!isSumUpCallback && ORG_SLUG && orgSlug && ORG_SLUG.toLowerCase() !== orgSlug) {
+    // Filtre org (HelloAsso only — SumUp and Mollie callbacks carry no org slug)
+    if (!isSumUpCallback && !isMollieCallback && ORG_SLUG && orgSlug && ORG_SLUG.toLowerCase() !== orgSlug) {
       console.warn('[pay/webhook] ignored (org mismatch)', { orgSlug, ORG_SLUG });
       return res.status(202).send('ignored');
     }
@@ -745,7 +764,7 @@ try {
       console.log('[pay/webhook] ignored event_type:', rawEventType || '(empty)', { isSumUpCallback });
       return res.status(202).send('ignored-non-payment');
     }
-    console.log('[pay/webhook] processing', isSumUpCallback ? 'SumUp' : 'HelloAsso', 'payment event');
+    console.log('[pay/webhook] processing', isMollieCallback ? 'Mollie' : isSumUpCallback ? 'SumUp' : 'HelloAsso', 'payment event');
 
     // Corrélation PRIORITAIRE par metadata/custom_id (l'_id BTS passé à PSP)
     // SumUp: custom_id is at payload top-level; fallback: parse checkout_reference ("bts-{orderId}")

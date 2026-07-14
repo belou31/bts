@@ -37,6 +37,7 @@
   let holdTtlSec = 3 * 60;
   let holdExpiryTime = null;
   let holdTimerInterval = null;
+  let paymentStarted = false;
   const WARN_THRESHOLD_SEC = 60;
 
   // Dérive l'URL seats à partir de l'URL status (remplace /status par /seats)
@@ -82,6 +83,7 @@
   // ── Timer de réservation ────────────────────────────────────────────────
 
   function resetHoldTimer() {
+    if (paymentStarted) return;
     if (!heldSeats.size) { stopHoldTimer(); return; }
     holdExpiryTime = Date.now() + holdTtlSec * 1000;
     if (!holdTimerInterval) holdTimerInterval = setInterval(updateTimerDisplay, 1000);
@@ -608,6 +610,7 @@
     };
     const pollTimer = setInterval(doPoll, pollMs);
     document.querySelector('#payBtn')?.addEventListener('click', () => {
+      paymentStarted = true;
       pollActive = false;
       clearInterval(pollTimer);
       stopHoldTimer();

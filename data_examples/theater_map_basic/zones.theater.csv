@@ -1,0 +1,7 @@
+key,name,type,access,capacity,quota,svgSelector,isActive
+ORCH,"Orchestra","seated","PUBLIC",52,52,"#zone_ORCH",true
+MEZZ,"Mezzanine","seated","PUBLIC",28,28,"#zone_MEZZ",true
+BALC,"Balcony","seated","PUBLIC",22,22,"#zone_BALC",true
+LOGE_L,"Box Left","seated","PUBLIC",6,6,"#zone_LOGE_L",true
+LOGE_R,"Box Right","seated","PUBLIC",6,6,"#zone_LOGE_R",true
+STANDING,"Standing Room","standing","PUBLIC",40,40,"#standing-zone",true
