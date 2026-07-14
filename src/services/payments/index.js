@@ -1,10 +1,12 @@
 // src/services/payments/index.js
 import helloassoProvider from './helloasso.js';
+import mollieProvider from './mollie.js';
 import sumupProvider from './sumup.js';
 
 const providers = {
   helloasso: helloassoProvider,
-  sumup: sumupProvider
+  mollie:    mollieProvider,
+  sumup:     sumupProvider
 };
 
 export const paymentProviders = providers;

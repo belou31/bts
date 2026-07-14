@@ -174,10 +174,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
     resolvedCheckout.checkout_redirect_url ||
     (resolvedCheckout.links && resolvedCheckout.links.find(l => l.rel === 'checkout')?.href) ||
     hostedUrl;
-  const base = apiBase();
-  const isStub = base.includes('127.0.0.1') || base.includes('localhost');
   return {
-    isStub,
     redirectUrl: resolvedRedirectUrl,
     id: resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference,
     raw: resolvedCheckout,

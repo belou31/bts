@@ -475,7 +475,7 @@ export function createEventFlowRouter({
         const zoneSold = new Map();
         const eventOrders = await Order.find(
           {
-            status: { $nin: ['canceled', 'failed'] },
+            status: { $in: ['paid', 'tobepaid'] },
             $or: [
               { eventId: ev._id },
               { 'meta.eventId': String(ev._id) }
@@ -492,7 +492,7 @@ export function createEventFlowRouter({
               phase: 'subscription',
               seasonCode: ev.seasonCode,
               venueSlug: ev.venueSlug,
-              status: { $nin: ['canceled', 'failed'] }
+              status: { $in: ['paid', 'tobepaid'] }
             },
             { lines: 1 }
           ).lean();
@@ -780,7 +780,6 @@ export function createEventFlowRouter({
             checkoutIntentId: checkoutId,
             checkoutReference: intent.checkoutReference || intent.raw?.checkout_reference || checkoutId,
             providerRedirectUrl: intent.redirectUrl || intent.url || null,
-            isStub: intent.isStub === true,
             providerOrderId:
               intent.providerOrderId ||
               intent.raw?.order?.id ||

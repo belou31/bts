@@ -287,10 +287,76 @@ Utiliser `/admin` pour :
 - les exports
 - les vues de monitoring abonnement / événement / partenaires
 
-### Vérifier les commandes en attente
+### Vérifier les commandes en attente (exécution ponctuelle)
 
 ```bash
 node scripts/sentinels/pending-orders.js
+```
+
+### Sentinel `bts-sentinel` (INT/PROD)
+
+Sur INT et PROD, `pending-orders.js` tourne en continu sous pm2, relancé toutes les 2 minutes
+via `cron_restart` (le script est one-shot : il fait un passage puis `process.exit(0)`).
+Ces réglages (`--cron`, `--no-autorestart`) sont définis une fois pour toutes dans
+[`ecosystem.config.cjs`](../ecosystem.config.cjs) à la racine du repo — ne pas relancer le
+sentinel avec un simple `pm2 start scripts/sentinels/pending-orders.js --name bts-sentinel`
+sans passer par ce fichier, sinon il repart avec les valeurs par défaut pm2 (autorestart
+continu, pas de cron) et diverge silencieusement de la config de référence.
+
+```bash
+# démarrage / (re)lecture de la config versionnée
+pm2 start ecosystem.config.cjs --only bts-sentinel
+pm2 save   # persiste dans ~/.pm2/dump.pm2 pour ce host (pm2 resurrect / pm2 startup)
+
+# ou via le wrapper du repo (fait restart puis fallback start) :
+node scripts/00-system-management/pm2-control.js --name=bts-sentinel --action=restart
+```
+
+`pm2 save` n'écrit que sur la machine locale (`~/.pm2/dump.pm2`, hors dépôt git) — c'est un
+instantané du process list de CE host, pas une sauvegarde de la commande elle-même. Après un
+`pm2 kill` / redémarrage machine sans `pm2 save` préalable (ou sans `pm2 startup` configuré),
+rien ne redémarre automatiquement : vérifier `pm2 list` après toute intervention sur l'hôte.
+
+#### Survivre à un reboot machine (`pm2 startup`)
+
+`pm2 save` seul ne suffit pas à survivre à un redémarrage de la machine : il faut en plus
+qu'un service d'init (systemd sur INT/PROD) relance le démon pm2 au boot, qui ensuite exécute
+`pm2 resurrect` pour relire `dump.pm2`. C'est ce que configure `pm2 startup` — **à faire une
+seule fois par host**, pas par déploiement :
+
+```bash
+# 1) démarrer les process de référence
+pm2 start ecosystem.config.cjs
+pm2 save
+
+# 2) générer + activer le service systemd (imprime une commande à copier-coller en sudo,
+#    sauf si pm2 est déjà enregistré comme service sur cet host — vérifier avant de relancer)
+pm2 startup
+# → exécuter la ligne "sudo env PATH=... pm2 startup systemd -u <user> --hp <home>" affichée
+
+# 3) reconfirmer l'état à sauvegarder (indispensable après toute évolution de la liste de
+#    process : ajout, suppression, changement de ecosystem.config.cjs)
+pm2 save
+```
+
+Vérification après coup :
+
+```bash
+systemctl status pm2-<user>       # actif et enabled au boot
+pm2 status                         # bts + bts-sentinel présents après un `sudo reboot` de test
+```
+
+À refaire : `pm2 save` après **chaque** changement durable de la liste de process (nouvel
+app, retrait d'un app, édition de `ecosystem.config.cjs`) — sinon le prochain boot resurrect
+l'ancien état. `pm2 startup` lui-même (l'enregistrement systemd) n'a besoin d'être relancé que
+si l'utilisateur système, le chemin `node`, ou l'OS changent. Pour désactiver : `pm2 unstartup systemd`.
+
+Historique/diagnostic :
+
+```bash
+pm2 describe bts-sentinel                 # restart_time, cron_restart, status
+tail -n 500 ~/.pm2/logs/bts-sentinel-out.log
+grep -i sentinel ~/.pm2/pm2.log           # évènements démon (start/stop/crash)
 ```
 
 ### Vérifier les modèles et index

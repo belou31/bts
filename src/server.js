@@ -1,10 +1,15 @@
 // src/server.js
 import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { connectDB } from './loaders/mongoose.js';
 import { buildApp } from './loaders/express.js';
+
+// Load provider-specific env after base (doesn't override vars already set by .env or system)
+const _provider = process.env.PAYMENT_PROVIDER;
+if (_provider) dotenvConfig({ path: `.env.${_provider}` });
 
 await connectDB();
 
