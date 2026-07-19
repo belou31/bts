@@ -16,3 +16,4 @@ tests/
 .eslint*
 grep_*
 *.log
+*.toto
