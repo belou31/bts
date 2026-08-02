@@ -16,3 +16,7 @@ tests/
 .eslint*
 grep_*
 *.log
+
+# Python bytecode cache
+__pycache__/
+*.pyc

@@ -171,6 +171,7 @@ export const sendRenewInvitesTask = {
   id: 'season.send-renew-invites',
   version: '1.0.0',
   summary: 'Envoie les invitations de renouvellement par e-mail à partir d’un CSV exporté.',
+  chapter: '03 — Season Management',
   tags: ['renewal', 'email', 'season'],
   scopes: ['automation:jobs:write', 'automation:jobs:run', 'automation:renewals:write'],
   allowDryRun: true,
