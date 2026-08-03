@@ -1,8 +1,9 @@
 {
-  "partner.title": "{{partnerName}}",
-  "partner.lead": "{{partnerName}} — accès privilégié",
-  "partner.help": "Choisissez votre zone dédiée pour {{partnerName}}.",
-  "partner.payButton": "Valider ma commande partenaire",
-  "partner.emailConfirmation": "Un email de confirmation sera envoyé à l'adresse indiquée.",
-  "partner.ticket": "Billets partenaires disponibles après paiement."
+  "_comment": "A partner file has no dedicated 'partner.*' key namespace — that was tried once and never wired up (routes/index.js's resolveCusto() never actually reached it), so it was removed. To brand a partner's pages, override the SAME event.*/subscription.* keys used at the event/season level — this file wins over them for that partner (see data_references/README.md > Customization files for the full layer order). Copy ONLY the keys you actually want to override into data/customization/partners/<slug>.json — do not paste the whole file.",
+  "event.title": { "fr": "{{partnerName}} — Billetterie — {{eventName}}", "en": "{{partnerName}} — Tickets — {{eventName}}" },
+  "event.lead": { "fr": "Billetterie réservée aux ayants-droits de {{partnerName}} — Date : {{eventStartsAtFormatted}} · Lieu : {{venueName}}", "en": "Ticketing reserved for {{partnerName}} rights holders — Date: {{eventStartsAtFormatted}} · Venue: {{venueName}}" },
+  "event.payButton": { "fr": "Valider ma commande partenaire", "en": "Confirm my partner order" },
+  "subscription.title": { "fr": "{{partnerName}} — Abonnement {{seasonCode}}", "en": "{{partnerName}} — Season Pass {{seasonCode}}" },
+  "subscription.lead": { "fr": "Billetterie réservée aux ayants-droits de {{partnerName}} — l'abonnement donne accès à tous les matchs à domicile pour {{seasonCode}}.", "en": "Ticketing reserved for {{partnerName}} rights holders — the season pass grants access to all home matches for {{seasonCode}}." },
+  "subscription.payButton": { "fr": "Valider ma commande partenaire", "en": "Confirm my partner order" }
 }

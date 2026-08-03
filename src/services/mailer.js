@@ -6,6 +6,10 @@ import { Tariff } from '../models/Tariff.js';
 import { hexToQrSvg } from './qr.js';
 import { currentPaymentProviderLabel } from './payments/index.js';
 import { buildTicketsPdfBuffer as buildTicketsPdfBufferFromService } from './tickets-pdf.js';
+import { isZoneUnit } from '../utils/seat-id.js';
+import { formatCurrency, formatCurrencyPlain, formatDate } from '../utils/format.js';
+import { t, getCatalog, DEFAULT_LOCALE } from '../utils/i18n.js';
+import { resolveThemeForOrder } from './customization.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -14,17 +18,17 @@ const EMAIL_ROOT_RUNTIME = path.resolve(process.cwd(), 'data', 'templates');
 const EMAIL_CONFIG_CUSTOM     = path.resolve(process.cwd(), 'data', 'templates', 'templates.json');
 const EMAIL_DIR_RUNTIME = path.join(EMAIL_ROOT_RUNTIME, 'email'); // user-provided HTML files
 
-function fmtEuroWithSymbol(cents) {
-  return (Number(cents || 0) / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+function fmtEuroWithSymbol(cents, locale) {
+  return formatCurrency(cents, locale);
 }
-function fmtEuroPlain(cents) {
-  // Nombre formaté FR sans symbole (ex: "110,60")
-  return (Number(cents || 0) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function fmtEuroPlain(cents, locale) {
+  // Nombre formaté sans symbole (ex: "110,60" en fr, "110.60" en en)
+  return formatCurrencyPlain(cents, locale);
 }
-function humanInstallments(n) {
+function humanInstallments(n, locale) {
   n = Number(n || 1);
-  if (n <= 1) return 'Règlement en une fois.';
-  return `Règlement en ${n} échéances.`;
+  if (n <= 1) return t('email.paymentOnce', locale);
+  return t('email.paymentInstallments', locale, { n });
 }
 
 function resolveOrderKind(order) {
@@ -45,19 +49,29 @@ function resolveOrderKind(order) {
 }
 
 
+// Subject env overrides are kept separate from DEFAULT_TEMPLATE_CONFIG (unlike
+// before) so the code-default subject can be resolved per-locale at request
+// time instead of being frozen into a single language at module load.
+const EMAIL_SUBJECT_ENV = {
+  renew: process.env.EMAIL_SUBJECT_RENEW_CONFIRM || null,
+  subscription: process.env.EMAIL_SUBJECT_SUBSCRIPTION_CONFIRM || null,
+  event: process.env.EMAIL_SUBJECT_EVENT_CONFIRM || null
+};
+
+const SUBJECT_KEY_BY_KIND = {
+  renew: 'email.subjectRenew',
+  subscription: 'email.subjectSubscription',
+  event: 'email.subjectEvent'
+};
+
+function defaultSubjectForKind(kind, locale) {
+  return t(SUBJECT_KEY_BY_KIND[kind] || SUBJECT_KEY_BY_KIND.renew, locale);
+}
+
 const DEFAULT_TEMPLATE_CONFIG = {
-  renew: {
-    file: 'renew-confirmation.html',
-    subject: process.env.EMAIL_SUBJECT_RENEW_CONFIRM || 'Confirmation – Abonnement (Renouvellement)'
-  },
-  subscription: {
-    file: 'subscription-confirmation.html',
-    subject: process.env.EMAIL_SUBJECT_SUBSCRIPTION_CONFIRM || 'Confirmation – Abonnement'
-  },
-  event: {
-    file: 'event-confirmation.html',
-    subject: process.env.EMAIL_SUBJECT_EVENT_CONFIRM || 'Confirmation – Billetterie'
-  }
+  renew: { file: 'renew-confirmation.html' },
+  subscription: { file: 'subscription-confirmation.html' },
+  event: { file: 'event-confirmation.html' }
 };
 
 let EMAIL_CONFIG_PROMISE = null;
@@ -98,13 +112,18 @@ async function getEmailConfig() {
   return EMAIL_CONFIG_PROMISE;
 }
 
-async function loadTemplateHtml(nameOrPath) {
+// theme (optional): tries "<name>.<theme>.html" first, falls back to the
+// plain "<name>.html" if that themed variant doesn't exist yet — see
+// resolveThemeForOrder() in ./customization.js.
+async function loadTemplateHtml(nameOrPath, theme) {
   const fname = nameOrPath.endsWith('.html') ? nameOrPath : `${nameOrPath}.html`;
-  const paths = [
-    path.join(EMAIL_DIR_RUNTIME, fname),
-    path.resolve(EMAIL_ROOT_RUNTIME, fname)
-  ];
-  for (const p of paths) {
+  const candidates = [];
+  if (theme) {
+    const themedName = `${fname.slice(0, -'.html'.length)}.${theme}.html`;
+    candidates.push(path.join(EMAIL_DIR_RUNTIME, themedName), path.resolve(EMAIL_ROOT_RUNTIME, themedName));
+  }
+  candidates.push(path.join(EMAIL_DIR_RUNTIME, fname), path.resolve(EMAIL_ROOT_RUNTIME, fname));
+  for (const p of candidates) {
     try {
       return await fs.readFile(p, 'utf8');
     } catch (err) {
@@ -131,43 +150,48 @@ function getTariffLabel(code, map) {
 }
 
 // ——— Normalisation d'une ligne, utilisée pour un rendu unique (4 colonnes)
-function normalizeLine(l, tariffsMap) {
+function normalizeLine(l, tariffsMap, locale) {
   const seat = lineSeatOrZone(l);
   const beneficiary = [l.holderFirstName, l.holderLastName].filter(Boolean).join(' ').trim();
   const tariff = getTariffLabel(l.tariffCode, tariffsMap);
   const priceCents = Number(l.priceCents)||0;
   return {
     seat, beneficiary, tariff,
-    pricePlain: fmtEuroPlain(priceCents), priceRich: fmtEuroWithSymbol(priceCents)
+    pricePlain: fmtEuroPlain(priceCents, locale), priceRich: fmtEuroWithSymbol(priceCents, locale)
   };
 }
 
 
-// ultra simple “mustache-like” replacer supporting dotted paths (e.g. payer.fullName)
+// ultra simple “mustache-like” replacer supporting dotted paths (e.g. payer.fullName).
+// Runs a few passes so a substituted value that itself contains {{...}}
+// tokens — e.g. a t.email.* catalog string like "...saison {{seasonCode}}..."
+// — gets those resolved too, not left as literal text. Bounded at 3 passes
+// and stops early once stable, so this can't loop on a pathological value.
 function applyVars(html, ctx) {
-  return html.replace(/\{\{\s*([.\w]+)\s*\}\}/g, (_m, key) => {
-    const parts = key.split('.');
-    let v = ctx;
-    for (const p of parts) v = (v && typeof v === 'object') ? v[p] : undefined;
-    return (v === undefined || v === null) ? '' : String(v);
-  });
+  let result = html;
+  for (let i = 0; i < 3; i++) {
+    const before = result;
+    result = result.replace(/\{\{\s*([.\w]+)\s*\}\}/g, (_m, key) => {
+      const parts = key.split('.');
+      let v = ctx;
+      for (const p of parts) v = (v && typeof v === 'object') ? v[p] : undefined;
+      return (v === undefined || v === null) ? '' : String(v);
+    });
+    if (result === before) break;
+  }
+  return result;
 }
 
-const VIRT_RE = /^.+-Z\d{3,}$/i;
 function lineSeatOrZone(l) {
-  // Si ID virtuel (ex: DEBOUT-Z001), on affiche la zone (DEBOUT)
+  // Ligne "zone" (standing/GA) : on affiche la zone plutôt que le seatId
+  // (réel ou synthétique — voir src/utils/seat-id.js).
   const sid = String(l.seatId||'');
-  if (sid && VIRT_RE.test(sid)) return String(l.zoneKey||'');
+  if (sid && isZoneUnit({ unitType: l.unitType, seatId: sid })) return String(l.zoneKey||'');
   return sid || String(l.zoneKey||'');
 }
 
-function formatDateFR(d) {
-  try {
-    const dt = (d instanceof Date) ? d : new Date(d);
-    return dt.toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' });
-  } catch {
-    return '';
-  }
+function formatDateFR(d, locale) {
+  return formatDate(d, locale, { dateStyle: 'long', timeStyle: 'short' });
 }
 
 // -- Helpers "tickets / QR" ---------------------------------------------------
@@ -177,22 +201,23 @@ function shortHex(h) {
 }
 
 async function buildTicketsHtml(order) {
+  const locale = order?.locale || DEFAULT_LOCALE;
   // tickets attendus en: order.meta.tickets = [{ seatId, tariff, hex }, ...]
   const ticketsRaw = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
-  const tickets = ticketsRaw.filter(t => t && t.hex);
+  const tickets = ticketsRaw.filter(tk => tk && tk.hex);
   if (!tickets.length) {
     throw new Error('No QR codes available for tickets');
   }
 
   // Génère les SVG en parallèle
   const svgs = await Promise.all(
-    tickets.map(t => hexToQrSvg(t.hex, { ecl:'M', margin:1 }))
+    tickets.map(tk => hexToQrSvg(tk.hex, { ecl:'M', margin:1 }))
   );
 
-  const rows = tickets.map((t, i) => {
-    const seat = t.seatId || t.zoneKey || '';
-    const tarif = String(t.tariff||'').toUpperCase();
-    const hex = t.hex || '';
+  const rows = tickets.map((tk, i) => {
+    const seat = tk.seatId || tk.zoneKey || '';
+    const tarif = String(tk.tariff||'').toUpperCase();
+    const hex = tk.hex || '';
     const svg = svgs[i] || '';
     return `
       <tr>
@@ -207,19 +232,19 @@ async function buildTicketsHtml(order) {
 
   return `
     <div class="tickets" style="margin-top:24px">
-      <h2 style="margin:0 0 12px">Billets</h2>
+      <h2 style="margin:0 0 12px">${t('email.tickets', locale)}</h2>
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">
         <thead>
           <tr>
-            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">Place</th>
-            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">Tarif</th>
-            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">Code</th>
-            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">QR</th>
+            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">${t('common.seat', locale)}</th>
+            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">${t('common.tariff', locale)}</th>
+            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">${t('common.code', locale)}</th>
+            <th align="left" style="text-align:left;padding:6px 6px;border-bottom:1px solid #e5e7eb">${t('email.qrColumn', locale)}</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
-      <p style="margin-top:8px;color:#6b7280;font-size:12px">Conservez ces QR et présentez-les à l’entrée.</p>
+      <p style="margin-top:8px;color:#6b7280;font-size:12px">${t('email.keepQrNote', locale)}</p>
     </div>`;
 }
 
@@ -243,13 +268,14 @@ function injectTicketsHtml(html, ticketsHtml) {
 export async function subjectForOrder(order) {
   await getEmailConfig().catch(() => {}); // best effort to hydrate cache
   const kind = resolveOrderKind(order);
+  const locale = order?.locale || DEFAULT_LOCALE;
   if (kind === 'event') {
-    const ename = order?.meta?.eventName || order?.meta?.eventSlug || 'Match';
-    const base  = EMAIL_TEMPLATE_CACHE.event?.subject || DEFAULT_TEMPLATE_CONFIG.event.subject;
+    const ename = order?.meta?.eventName || order?.meta?.eventSlug || t('common.match', locale);
+    const base  = EMAIL_SUBJECT_ENV.event || EMAIL_TEMPLATE_CACHE.event?.subject || defaultSubjectForKind('event', locale);
     return `${base} — ${ename}`;
   }
 
-  return EMAIL_TEMPLATE_CACHE[kind]?.subject || DEFAULT_TEMPLATE_CONFIG[kind]?.subject || DEFAULT_TEMPLATE_CONFIG.renew.subject;
+  return EMAIL_SUBJECT_ENV[kind] || EMAIL_TEMPLATE_CACHE[kind]?.subject || defaultSubjectForKind(kind, locale);
 }
 
 /**
@@ -264,7 +290,9 @@ export async function renderOrderEmail(order) {
   const kind = resolveOrderKind(order);
   const config = await getEmailConfig();
   const tplName = config[kind]?.file || config.renew.file;
+  const theme = resolveThemeForOrder(order);
   const includeTicketsInline = kind !== 'event';
+  const locale = order.locale || 'fr';
 
   const tariffsMap = await buildTariffsMap(order.seasonCode, order.venueSlug);
 
@@ -279,21 +307,21 @@ export async function renderOrderEmail(order) {
     null;
 
   const haOrderBlock = haOrderId
-    ? `<p>Référence ${currentPaymentProviderLabel()} : <b>${haOrderId}</b></p>`
+    ? `<p>${t('email.paymentReference', locale, { provider: currentPaymentProviderLabel() })} <b>${haOrderId}</b></p>`
     : '';
 
   // Rendu unique (4 colonnes) → LINES_HTML
   const _lines = Array.isArray(order.lines) ? order.lines : [];
-  const normalized = _lines.map(l => normalizeLine(l, tariffsMap));
+  const normalized = _lines.map(l => normalizeLine(l, tariffsMap, locale));
   const LINES_HTML = normalized.map(c =>
     `<tr><td>${c.seat}</td><td>${c.beneficiary}</td><td>${c.tariff}</td><td>${c.priceRich}</td></tr>`
   ).join('');
 
-  const htmlRaw = await loadTemplateHtml(tplName);
+  const htmlRaw = await loadTemplateHtml(tplName, theme);
   const ticketsHtml = includeTicketsInline ? await buildTicketsHtml(order) : '';
 
   if (kind === 'event') {
-    const ename = order?.meta?.eventName || order?.meta?.eventSlug || 'Match';
+    const ename = order?.meta?.eventName || order?.meta?.eventSlug || t('common.match', locale);
     // Contexte unifié (event)
     const ctx = {
       org: { clubName: (process.env.CLUB_NAME || 'Les Bélougas') },
@@ -305,21 +333,23 @@ export async function renderOrderEmail(order) {
         id: String(order._id),
         seasonCode: order.seasonCode || '',
         venueSlug: order.venueSlug || '',
-        totalEuro: fmtEuroWithSymbol(totalCents),
+        totalEuro: fmtEuroWithSymbol(totalCents, locale),
         split,
-        installmentsHuman: humanInstallments(split),
-        createdAt: formatDateFR(order.createdAt),
+        installmentsHuman: humanInstallments(split, locale),
+        createdAt: formatDateFR(order.createdAt, locale),
         eventName: ename
       },
       LINES_HTML,
       TICKETS_HTML: '',   // pas de QR inline pour les events (PDF joint)
+      t: getCatalog(locale),
       // compat héritée
       payerFirstName: order.payerFirstName || order?.payer?.firstName || '',
       payerLastName:  order.payerLastName  || order?.payer?.lastName  || '',
       payerEmail:     order.payerEmail     || order?.payer?.email     || '',
       orderId:        String(order._id),
-      totalEuroPlain: fmtEuroPlain(totalCents),
-      installmentsInfo: humanInstallments(split),
+      totalEuro:      fmtEuroWithSymbol(totalCents, locale),
+      totalEuroPlain: fmtEuroPlain(totalCents, locale),
+      installmentsInfo: humanInstallments(split, locale),
       haOrderBlock,
       clubName: (process.env.CLUB_NAME || 'Les Bélougas'),
       linesRows: LINES_HTML,
@@ -339,20 +369,22 @@ export async function renderOrderEmail(order) {
       id: String(order._id),
       seasonCode: order.seasonCode || '',
       venueSlug: order.venueSlug || '',
-      totalEuro: fmtEuroWithSymbol(totalCents),
+      totalEuro: fmtEuroWithSymbol(totalCents, locale),
       split,
-      installmentsHuman: humanInstallments(split),
-      createdAt: formatDateFR(order.createdAt)
+      installmentsHuman: humanInstallments(split, locale),
+      createdAt: formatDateFR(order.createdAt, locale)
     },
     LINES_HTML: LINES_HTML,
     TICKETS_HTML: ticketsHtml,
+    t: getCatalog(locale),
     // compat héritée
     payerFirstName: order.payerFirstName || order?.payer?.firstName || '',
     payerLastName:  order.payerLastName  || order?.payer?.lastName  || '',
     payerEmail:     order.payerEmail     || order?.payer?.email     || '',
     orderId:        String(order._id),
-    totalEuroPlain: fmtEuroPlain(totalCents),
-    installmentsInfo: humanInstallments(split),
+    totalEuro:      fmtEuroWithSymbol(totalCents, locale),
+    totalEuroPlain: fmtEuroPlain(totalCents, locale),
+    installmentsInfo: humanInstallments(split, locale),
     haOrderBlock,
     clubName: (process.env.CLUB_NAME || 'Les Bélougas'),
     linesRows: LINES_HTML,

@@ -8,6 +8,11 @@ import { Venue } from '../models/Venue.js';
 import { hexToQrSvg } from './qr.js';
 import { Tariff } from '../models/Tariff.js';
 import { isSubscriptionOrder } from '../utils/subscription.js';
+import { formatDate } from '../utils/format.js';
+// Aliased: this file already uses `t` as a local variable for the current
+// ticket object throughout buildTicketsPdfBuffer's loop.
+import { t as translate } from '../utils/i18n.js';
+import { resolveThemeForOrder } from './customization.js';
 
 // --- Emplacements / chemins par défaut
 const TICKET_ROOT_RUNTIME     = path.resolve(process.cwd(), 'data', 'templates');
@@ -74,12 +79,20 @@ async function loadTicketConfig() {
   return merged;
 }
 
-async function resolveTicketFile(name) {
+// theme (optional): tries "<name>.<theme>.svg" first, falls back to the
+// plain "<name>.svg" if that themed variant doesn't exist yet — see
+// resolveThemeForOrder() in ./customization.js.
+async function resolveTicketFile(name, theme) {
   const fname = name.endsWith('.svg') ? name : `${name}.svg`;
-  const runtimePath = path.resolve(TICKET_DIR_RUNTIME, fname);
-  if (await fs.stat(runtimePath).then(st => st.isFile()).catch(() => false)) return runtimePath;
-  const rootRuntimePath = path.resolve(TICKET_ROOT_RUNTIME, fname);
-  if (await fs.stat(rootRuntimePath).then(st => st.isFile()).catch(() => false)) return rootRuntimePath;
+  const candidates = [];
+  if (theme) {
+    const themedName = `${fname.slice(0, -'.svg'.length)}.${theme}.svg`;
+    candidates.push(path.resolve(TICKET_DIR_RUNTIME, themedName), path.resolve(TICKET_ROOT_RUNTIME, themedName));
+  }
+  candidates.push(path.resolve(TICKET_DIR_RUNTIME, fname), path.resolve(TICKET_ROOT_RUNTIME, fname));
+  for (const p of candidates) {
+    if (await fs.stat(p).then(st => st.isFile()).catch(() => false)) return p;
+  }
   // Absolute path provided
   if (path.isAbsolute(name) && await fs.stat(name).then(st => st.isFile()).catch(() => false)) return name;
   return null;
@@ -120,15 +133,12 @@ async function loadTariffLabelMap(ev) {
 // ---------- Helpers ----------
 const TICKET_TIMEZONE = process.env.TICKET_TIMEZONE || process.env.CLUB_TIMEZONE || 'Europe/Paris';
 
-function fmtDateFR(d) {
-  try {
-    const dt = d instanceof Date ? d : new Date(d);
-    return dt.toLocaleString('fr-FR', {
-      dateStyle: 'long',
-      timeStyle: 'short',
-      timeZone: TICKET_TIMEZONE
-    });
-  } catch { return ''; }
+function fmtDateFR(d, locale) {
+  return formatDate(d, locale, {
+    dateStyle: 'long',
+    timeStyle: 'short',
+    timeZone: TICKET_TIMEZONE
+  });
 }
 function seatOrZone(t) {
   // Pour les billets fallback on affiche la zone uniquement
@@ -287,6 +297,7 @@ export async function buildTicketsPdfBuffer(order) {
   const kind = ev ? 'event' : (subscriptionMode ? 'subscription' : 'public');
   const config = await loadTicketConfig();
   const tplEntry = config[kind] || config.default;
+  const theme = resolveThemeForOrder(order);
 
   // --- Charge le template & le logo (fichiers)
   const tplPathEnv = process.env.TICKET_SVG_TEMPLATE;
@@ -294,7 +305,7 @@ export async function buildTicketsPdfBuffer(order) {
   if (tplPathEnv && await fs.stat(tplPathEnv).then(st => st.isFile()).catch(()=>false)) {
     tplPath = tplPathEnv;
   } else {
-    tplPath = await resolveTicketFile(tplEntry?.file || 'ticket.svg');
+    tplPath = await resolveTicketFile(tplEntry?.file || 'ticket.svg', theme);
   }
   if (!tplPath) throw new Error('Ticket template not found (see data/templates/templates.json under tickets.templates)');
   console.info(`[tickets-pdf] using ticket template: ${tplPath}`);
@@ -322,7 +333,7 @@ export async function buildTicketsPdfBuffer(order) {
     doc.on('error', reject);
 
     const clubName = process.env.CLUB_NAME || 'Les Bélougas';
-    const eventName = ev?.name || order?.meta?.eventName || 'Match';
+    const eventName = ev?.name || order?.meta?.eventName || translate('common.match', order?.locale);
     const eventStartsAt = ev?.startsAt || order?.createdAt;
     let venueName = ev?.venueName || '';
     const venueSlug = ev?.venueSlug || order?.venueSlug || order?.meta?.venueSlug || '';
@@ -347,19 +358,25 @@ export async function buildTicketsPdfBuffer(order) {
       const tCode = String(t?.tariff || t?.tariffCode || 'NORMAL');
       const tLabel = tariffLabels[tCode] || tCode;
       const resolvedTariffLabel = tLabel;
-      const tariffTitle = subscriptionMode ? 'ABONNEMENT' : 'Tarif';
+      const tariffTitle = subscriptionMode
+        ? translate('common.subscription', order?.locale).toUpperCase()
+        : translate('common.tariff', order?.locale);
 
       // 1) Remplacement des placeholders texte
       const textSvg = applyVars(rawSvg, {
         CLUB_NAME: clubName,
         EVENT_NAME: eventName,
-        EVENT_DATE: fmtDateFR(eventStartsAt),
+        EVENT_DATE: fmtDateFR(eventStartsAt, order?.locale),
         VENUE_NAME: resolvedVenueName,
         ORDER_ID: String(order?._id || ''),
         SEAT: seatOrZone(t),
         BENEFICIARY: beneficiary,
         TARIFF_LABEL: resolvedTariffLabel,
-        TARIFF_TITLE: tariffTitle
+        TARIFF_TITLE: tariffTitle,
+        LABEL_VENUE: translate('common.venue', order?.locale),
+        LABEL_SEAT: translate('common.seat', order?.locale),
+        LABEL_BENEFICIARY: translate('common.beneficiary', order?.locale),
+        FOOTER_NOTE: translate('ticket.footerNote', order?.locale, { orderId: String(order?._id || '') })
       });
 
       // 2) On remplace les slots <rect id="qr|logo"> par des <svg x/y/w/h> embarquant le contenu

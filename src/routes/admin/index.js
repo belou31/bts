@@ -21,6 +21,7 @@ import { ScanLog } from '../../models/ScanLog.js';
 import { ZoneCatalog } from '../../models/ZoneCatalog.js';
 import { SeatCatalog } from '../../models/SeatCatalog.js';
 import { resolveLinePlacement, applyAttendancePatch, summarizeAttendance } from '../../utils/event-attendance.js';
+import { isVirtualZoneSeatId } from '../../utils/seat-id.js';
 import { exportOrdersCsv, exportSeatsCsv } from '../../services/exports.js';
 import {
   registerDefaultAutomationTasks,
@@ -33,6 +34,8 @@ import {
 } from '../../services/automation/index.js';
 import { serializeJob as serializeAutomationJob } from '../../services/automation/serializers.js';
 import { adminScriptGroups, getAdminScript } from '../../config/adminScripts.js';
+import { AutomationJob } from '../../models/AutomationJob.js';
+import { getRequestMetrics } from '../../services/requestMetrics.js';
 
 const router = express.Router();
 
@@ -415,8 +418,6 @@ const csvEscape = (v) => {
   const s = String(v);
   return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 };
-const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
-
 async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
   if (!eventDoc) return {};
   const seasonCode = eventDoc.seasonCode || null;
@@ -554,15 +555,15 @@ router.get('/', (req, res) => {
   const suffix = qs.toString();
   let target = urlFor('/admin/operate');
   if (view === 'monitor') target = urlFor('/admin/monitor');
-  if (view === 'io') target = urlFor('/admin/io');
-  if (view === 'templates') target = urlFor('/admin/templates');
+  if (view === 'io') target = urlFor('/admin/operate/io');
+  if (view === 'templates') target = urlFor('/admin/doc');
   if (view === 'plan') target = urlFor('/admin/plan');
   if (view === 'orders') target = urlFor('/admin/orders');
   if (view === 'tickets') target = urlFor('/admin/tickets');
   return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
 });
 
-router.get('/io', (req, res) => {
+router.get('/operate/io', (req, res) => {
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
@@ -597,6 +598,7 @@ router.get('/io', (req, res) => {
     },
     viewMode: 'io',
     monitorTab: 'tariffs',
+    docTab: 'references',
     monitoring: null,
     planView: null,
     ordersView: null,
@@ -604,13 +606,19 @@ router.get('/io', (req, res) => {
   });
 });
 
-router.get('/templates', (req, res) => {
+const DOC_TAB_OPTIONS = new Set(['references', 'examples', 'guides']);
+
+router.get('/doc', (req, res) => {
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
+  const docTab = DOC_TAB_OPTIONS.has((req.query.docTab || '').toString())
+    ? req.query.docTab.toString()
+    : 'guides';
 
   const emailTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'email'));
   const ticketTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'tickets'));
+  const assetTemplates  = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'assets'));
   const csvTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'csv'));
   const envTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'env'));
   const svgTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'svg'));
@@ -631,6 +639,7 @@ router.get('/templates', (req, res) => {
     inputsList: [],
     templatesEmail: emailTemplates,
     templatesTickets: ticketTemplates,
+    templatesAssets: assetTemplates,
     templatesCsv: csvTemplates,
     templatesEnv: envTemplates,
     templatesSvg: svgTemplates,
@@ -646,6 +655,7 @@ router.get('/templates', (req, res) => {
       venueViews: []
     },
     viewMode: 'templates',
+    docTab,
     monitorTab: 'tariffs',
     monitoring: null,
     planView: null,
@@ -788,6 +798,7 @@ router.get('/plan', async (req, res) => {
     },
     viewMode: 'plan',
     monitorTab: 'tariffs',
+    docTab: 'references',
     monitoring: null,
     ordersView: null,
     ticketsView: null,
@@ -937,6 +948,7 @@ router.get('/orders', async (req, res) => {
     },
     viewMode: 'orders',
     monitorTab: 'tariffs',
+    docTab: 'references',
     monitoring: null,
     planView: null,
     ticketsView: null,
@@ -1095,6 +1107,7 @@ router.get('/tickets', async (req, res) => {
     },
     viewMode: 'tickets',
     monitorTab: 'tariffs',
+    docTab: 'references',
     monitoring: null,
     planView: null,
     ordersView: null,
@@ -1132,7 +1145,7 @@ router.get('/operate', async (req, res) => {
     const qs = new URLSearchParams(req.query);
     qs.delete('view');
     const suffix = qs.toString();
-    const target = urlFor('/admin/io');
+    const target = urlFor('/admin/operate/io');
     return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
   }
 
@@ -1242,6 +1255,7 @@ router.get('/operate', async (req, res) => {
     operateOptions,
     viewMode: 'operate',
     monitorTab: 'tariffs',
+    docTab: 'references',
     monitoring: null,
     planView: null,
     ordersView: null,
@@ -1254,7 +1268,7 @@ router.get('/monitor', async (req, res) => {
     const qs = new URLSearchParams(req.query);
     qs.delete('view');
     const suffix = qs.toString();
-    const target = urlFor('/admin/io');
+    const target = urlFor('/admin/operate/io');
     return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
   }
   if (req.query.view === 'operate') {
@@ -1270,9 +1284,11 @@ router.get('/monitor', async (req, res) => {
   const mongoStateLabel = ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoState || 0];
 
   let pm2 = null;
+  let recentLogs = [];
   try {
     const out = childProcess.execSync('pm2 jlist', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    pm2 = JSON.parse(out).map(p => ({
+    const rawList = JSON.parse(out);
+    pm2 = rawList.map(p => ({
       name: p.name,
       pid: p.pid,
       status: p.pm2_env?.status,
@@ -1281,6 +1297,19 @@ router.get('/monitor', async (req, res) => {
       mem: p.monit?.memory ?? 0,
       cpu: p.monit?.cpu ?? 0
     }));
+
+    const target = rawList.find(p => p.name === 'bts') || rawList[0];
+    const tailFile = (filePath, stream) => {
+      if (!filePath || !fs.existsSync(filePath)) return [];
+      const content = fs.readFileSync(filePath, 'utf8');
+      return content.trim().split(/\n+/).filter(Boolean).slice(-15).map(line => ({ stream, line }));
+    };
+    if (target) {
+      recentLogs = [
+        ...tailFile(target.pm2_env?.pm_out_log_path, 'out'),
+        ...tailFile(target.pm2_env?.pm_err_log_path, 'error')
+      ];
+    }
   } catch { /* ignore */ }
 
   let diskUsage = null;
@@ -1301,22 +1330,52 @@ router.get('/monitor', async (req, res) => {
     }
   } catch { /* ignore */ }
 
-  const seatStatusAgg = await Seat.aggregate([
-    { $group: { _id: '$status', c: { $sum: 1 } } }
-  ]);
-  const seatCounts = Object.fromEntries(seatStatusAgg.map(x => [x._id || 'unknown', x.c]));
+  let mongoConnections = null;
+  let mongoOpCounters = null;
+  try {
+    const admin = mongoose.connection.db?.admin();
+    if (admin) {
+      const status = await admin.serverStatus();
+      mongoConnections = status.connections || null;
+      mongoOpCounters = status.opcounters || null;
+    }
+  } catch { /* ignore */ }
 
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const recentOrders = await Order.aggregate([
-    { $match: { createdAt: { $gte: since } } },
-    { $group: { _id: '$status', c: { $sum: 1 } } }
-  ]);
+  let activeAutomationJobs = null;
+  try {
+    activeAutomationJobs = await AutomationJob.countDocuments({ status: { $in: ['queued', 'running'] } });
+  } catch { /* ignore */ }
+
+  const requestActivity = getRequestMetrics();
+
+  let dbCollections = [];
+  try {
+    const db = mongoose.connection.db;
+    if (db) {
+      const collInfos = await db.listCollections().toArray();
+      for (const info of collInfos) {
+        try {
+          const statsAgg = await db.collection(info.name).aggregate([{ $collStats: { storageStats: {} } }]).toArray();
+          const stats = statsAgg[0]?.storageStats || {};
+          dbCollections.push({
+            name: info.name,
+            count: stats.count ?? 0,
+            sizeBytes: stats.size ?? 0,
+            storageSizeBytes: stats.storageSize ?? 0
+          });
+        } catch {
+          dbCollections.push({ name: info.name, count: null, sizeBytes: null, storageSizeBytes: null });
+        }
+      }
+      dbCollections.sort((a, b) => (b.sizeBytes || 0) - (a.sizeBytes || 0));
+    }
+  } catch { /* ignore */ }
 
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
-  const monitorTabOptions = new Set(['custo', 'system', 'tariffs', 'seasons', 'events', 'partners']);
+  const monitorTabOptions = new Set(['custo', 'system', 'venue', 'tariffs', 'seasons', 'events', 'partners']);
   const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : 'system';
 
   const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
@@ -1329,58 +1388,76 @@ router.get('/monitor', async (req, res) => {
     seasonsRaw,
     eventsRaw,
     tariffsRaw,
-    tariffPriceCountsAgg,
     venueZoneCountsAgg,
     seatCatalogCountsAgg,
-    partnersRaw
+    partnersRaw,
+    tariffPriceCatalogGroupsAgg
   ] = await Promise.all([
     Venue.find({}).sort({ slug: 1 }).lean(),
     Season.find({}).sort({ code: -1 }).lean(),
     Event.find({}).sort({ startsAt: -1 }).lean(),
     Tariff.find({}).sort({ priceTableKey: 1, sortOrder: 1, code: 1 }).lean(),
-    TariffPrice.aggregate([
-      { $group: { _id: '$priceTableKey', count: { $sum: 1 } } }
-    ]),
     ZoneCatalog.aggregate([
       { $group: { _id: '$venueSlug', count: { $sum: 1 } } }
     ]),
     SeatCatalog.aggregate([
       { $group: { _id: '$venueSlug', count: { $sum: 1 } } }
     ]),
-    Promise.resolve(listPartnerConfigs())
+    Promise.resolve(listPartnerConfigs()),
+    TariffPriceCatalog.aggregate([
+      {
+        $group: {
+          _id: { catalogSlug: '$catalogSlug', venueSlug: '$venueSlug' },
+          count: { $sum: 1 },
+          zoneKeys: { $addToSet: '$zoneKey' },
+          tariffCodes: { $addToSet: '$tariffCode' },
+          currency: { $first: '$currency' }
+        }
+      },
+      { $sort: { '_id.catalogSlug': 1, '_id.venueSlug': 1 } }
+    ])
   ]);
 
-  const priceEntriesMap = new Map(tariffPriceCountsAgg.map(item => [(item._id ?? 'global'), item.count]));
   const venueZoneCounts = new Map(venueZoneCountsAgg.map(entry => [entry._id || '', entry.count]));
   const seatCatalogCounts = new Map(seatCatalogCountsAgg.map(entry => [entry._id || '', entry.count]));
-
-  const tariffSummaryMap = new Map();
-  for (const tariff of tariffsRaw) {
-    const key = tariff.priceTableKey || 'global';
-    const entry = tariffSummaryMap.get(key) || { priceTableKey: key, total: 0, active: 0 };
-    entry.total += 1;
-    if (tariff.active) entry.active += 1;
-    tariffSummaryMap.set(key, entry);
-  }
-
-  const tariffSummary = Array.from(tariffSummaryMap.values())
-    .map(item => ({
-      ...item,
-      priceEntries: priceEntriesMap.get(item.priceTableKey) || 0
-    }))
-    .sort((a, b) => {
-      if (a.priceTableKey === 'global') return -1;
-      if (b.priceTableKey === 'global') return 1;
-      return (a.priceTableKey || '').localeCompare(b.priceTableKey || '');
-    });
+  const venueViewCounts = new Map((venueResources || []).map(v => [v.venueSlug, (v.views || []).length]));
+  const venueHasPlan = new Map((venueResources || []).map(v => [v.venueSlug, Boolean(v.plan)]));
 
   const venuesList = venuesRaw.map(v => ({
     slug: v.slug,
     name: v.name,
     zoneCount: venueZoneCounts.get(v.slug) || 0,
     seatCount: seatCatalogCounts.get(v.slug) || 0,
+    viewCount: venueViewCounts.get(v.slug) || 0,
+    hasPlan: venueHasPlan.get(v.slug) || false,
     svgPath: v.svgPath
   }));
+
+  const requestedMonitorVenueSlug = (req.query.monitorVenue || '').toString();
+  const selectedMonitorVenue = venuesList.find(v => v.slug === requestedMonitorVenueSlug) || venuesList[0] || null;
+  const selectedMonitorVenueSlug = selectedMonitorVenue ? selectedMonitorVenue.slug : '';
+
+  let venueZoneDetails = [];
+  if (selectedMonitorVenueSlug) {
+    const [zonesRaw, zoneSeatCountsAgg] = await Promise.all([
+      ZoneCatalog.find({ venueSlug: selectedMonitorVenueSlug }).sort({ key: 1 }).lean(),
+      SeatCatalog.aggregate([
+        { $match: { venueSlug: selectedMonitorVenueSlug } },
+        { $group: { _id: '$zoneKey', count: { $sum: 1 } } }
+      ])
+    ]);
+    const zoneSeatCounts = new Map(zoneSeatCountsAgg.map(entry => [entry._id || '', entry.count]));
+    venueZoneDetails = zonesRaw.map(z => ({
+      key: z.key,
+      name: z.name || '',
+      type: z.type,
+      access: z.access,
+      capacity: z.capacity || 0,
+      quota: z.quota || 0,
+      isActive: z.isActive,
+      seatCount: zoneSeatCounts.get(z.key) || 0
+    }));
+  }
 
   const seasonsList = seasonsRaw.map(s => ({
     code: s.code,
@@ -1408,7 +1485,7 @@ router.get('/monitor', async (req, res) => {
     venueView: p.venueView || null
   }));
 
-  const tariffsSample = tariffsRaw.slice(0, 50).map(t => ({
+  const tariffsFull = tariffsRaw.map(t => ({
     code: t.code,
     label: t.label,
     active: t.active,
@@ -1416,6 +1493,37 @@ router.get('/monitor', async (req, res) => {
     requiresField: t.requiresField,
     fieldLabel: t.fieldLabel
   }));
+
+  const tariffPriceCatalogGroups = tariffPriceCatalogGroupsAgg.map(g => ({
+    catalogSlug: g._id.catalogSlug,
+    venueSlug: g._id.venueSlug || null,
+    entryCount: g.count,
+    zoneCount: (g.zoneKeys || []).length,
+    tariffCount: (g.tariffCodes || []).length,
+    currency: g.currency || 'EUR',
+    key: `${g._id.catalogSlug}|${g._id.venueSlug || ''}`
+  }));
+
+  const requestedCatalogKey = (req.query.catalogKey || '').toString();
+  const selectedCatalogGroup = tariffPriceCatalogGroups.find(g => g.key === requestedCatalogKey)
+    || tariffPriceCatalogGroups[0]
+    || null;
+  const selectedCatalogKey = selectedCatalogGroup ? selectedCatalogGroup.key : '';
+
+  let tariffPriceCatalogEntries = [];
+  if (selectedCatalogGroup) {
+    const entriesRaw = await TariffPriceCatalog.find({
+      catalogSlug: selectedCatalogGroup.catalogSlug,
+      venueSlug: selectedCatalogGroup.venueSlug
+    }).sort({ zoneKey: 1, tariffCode: 1 }).lean();
+    tariffPriceCatalogEntries = entriesRaw.map(e => ({
+      zoneKey: e.zoneKey,
+      tariffCode: e.tariffCode,
+      priceCents: e.priceCents,
+      partnerPriceCents: e.partnerPriceCents,
+      currency: e.currency || 'EUR'
+    }));
+  }
 
   const defaultSeason = seasonsRaw.find(s => s.active) || seasonsRaw[0] || null;
   const selectedSeasonCode = typeof req.query.season === 'string' && req.query.season
@@ -1657,17 +1765,25 @@ router.get('/monitor', async (req, res) => {
     summary: {
       serverInfo,
       mongoState: mongoStateLabel,
-      seatCounts,
-      recentOrders,
+      mongoConnections,
+      mongoOpCounters,
+      dbCollections,
+      recentLogs,
       pm2,
-      diskUsage
+      diskUsage,
+      requestActivity,
+      activeAutomationJobs
     },
     lists: {
       venues: venuesList,
+      selectedMonitorVenueSlug,
+      venueZoneDetails,
       seasons: seasonsList,
       events: eventsList,
-      tariffs: tariffsSample,
-      tariffSummary,
+      tariffs: tariffsFull,
+      tariffPriceCatalogGroups,
+      selectedCatalogKey,
+      tariffPriceCatalogEntries,
       partners: partnersList
     },
     subscription: {
@@ -1737,6 +1853,7 @@ router.get('/monitor', async (req, res) => {
     inputsList: [],
     viewMode: 'monitor',
     monitorTab,
+    docTab: 'references',
     monitoring,
     planView: null,
     ordersView: null,

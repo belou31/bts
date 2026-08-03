@@ -1,4 +1,5 @@
 // src/services/payments/helloasso.js
+import { isZoneUnit } from '../../utils/seat-id.js';
 
 const API_DEFAULT = 'https://api.helloasso.com';
 
@@ -142,7 +143,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
       email: order.payerEmail || ''
     },
     items: Array.isArray(order.lines) ? order.lines.map(l => {
-      const isVirtual = /-Z\d{3,}$/i.test(String(l.seatId || ''));
+      const isVirtual = isZoneUnit({ unitType: l.unitType, seatId: l.seatId });
       const place = isVirtual ? (l.zoneKey || '') : (l.seatId || l.zoneKey || '');
       return {
         name: `${place} • ${l.tariffCode}`,

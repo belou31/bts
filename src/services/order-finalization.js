@@ -8,6 +8,8 @@ import { buildTicketsPdfBuffer } from './tickets-pdf.js';
 import { sendMail } from '../loaders/mailer.js';
 import { normalizeStatus as providerNormalizeStatus } from './payments/index.js';
 import { resolveLinePlacement } from '../utils/event-attendance.js';
+import { resolveUnitType, zoneKeyFromSeatId } from '../utils/seat-id.js';
+import { t } from '../utils/i18n.js';
 
 export function normalizePaymentStatus(input, fallback) {
   return providerNormalizeStatus(input, fallback);
@@ -21,16 +23,6 @@ export const isPaidLike = (s) =>
 export const isRefundedLike = (s) =>
   /^(refunded|refund|reimbursed|reversed|chargeback|payment_refunded)$/i.test(String(s||''));
 
-const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid||''));
-const isRealSeatId        = (sid) => /^[A-Z0-9]+-[A-Z]+-\d{1,4}$/i.test(String(sid||''));
-const zoneKeyFromSeatId   = (seatId) => {
-  const raw = String(seatId || '').trim();
-  if (!raw) return '';
-  const idx = raw.indexOf('-');
-  return (idx === -1 ? raw : raw.slice(0, idx)).toUpperCase();
-};
-
-
 export function realSeatIdsFromOrder(order) {
   const seats = [];
   for (const line of (order?.lines || [])) {
@@ -38,8 +30,11 @@ export function realSeatIdsFromOrder(order) {
     if (placement.released) continue;
     const seatId = String(placement.seatId || '').trim();
     if (!seatId) continue;
-    if (!isRealSeatId(seatId)) continue;
-    if (isVirtualZoneSeatId(seatId)) continue;
+    // A "moved" attendance override reassigns the physical seat after the
+    // fact, so its resolved seatId is the newer truth — classify it by
+    // shape rather than trusting the line's original (now stale) unitType.
+    const unitType = placement.moved ? undefined : line?.unitType;
+    if (resolveUnitType({ unitType, seatId }) !== 'seat') continue;
     seats.push(seatId);
   }
   return Array.from(new Set(seats));
@@ -237,6 +232,10 @@ export async function ensureTicketsForEventOrder(order) {
     const seatFromLine = String(line.seatId || '').trim();
     let seatId = seatFromMeta || seatFromLine;
     let usedPlaceholder = false;
+    // Computed from the pre-placeholder candidate so re-runs (e.g. resend)
+    // still classify correctly even once seatId already holds a synthesized
+    // GA-style id from a previous pass.
+    const unitType = resolveUnitType({ unitType: line.unitType, seatId });
 
     if (!seatId) {
       const suffix = String(orderId).slice(-6).toUpperCase();
@@ -260,6 +259,7 @@ export async function ensureTicketsForEventOrder(order) {
           eventId: String(eventIdRaw),
           orderId,
           seatId,
+          unitType,
           tariffCode,
           holder: {
             firstName: holderFirstName,
@@ -298,6 +298,10 @@ export async function ensureTicketsForEventOrder(order) {
       const seatIdTrimmed = String(ticketDoc.seatId || '').trim();
       if (seatIdTrimmed !== seatId) {
         ticketDoc.seatId = seatId;
+        docDirty = true;
+      }
+      if (ticketDoc.unitType !== unitType) {
+        ticketDoc.unitType = unitType;
         docDirty = true;
       }
       if (String(ticketDoc.tariffCode || '').toUpperCase() !== tariffCode) {
@@ -682,11 +686,12 @@ export async function sendOrderAttestationIfNeeded(order, options = {}) {
 export async function sendConflictEmail(order) {
   const to = order?.payerEmail;
   if (!to) return;
-  const subject = 'Votre commande n’a pas pu aboutir';
-  const html = `<p>Bonjour ${[order?.payerFirstName, order?.payerLastName].filter(Boolean).join(' ') || ''},</p>
-  <p>Votre commande n’a pas pu aboutir&nbsp;: votre paiement a dépassé le temps de blocage de vos sièges et une autre commande s’est insérée.</p>
-  <p><strong>Veuillez réessayer.</strong> Si votre paiement est passé, vous serez remboursé.</p>
-  <p>Référence commande&nbsp;: <strong>${order._id}</strong></p>`;
+  const locale = order?.locale;
+  const subject = t('email.conflictSubject', locale);
+  const html = `<p>${t('email.greeting', locale)} ${[order?.payerFirstName, order?.payerLastName].filter(Boolean).join(' ') || ''},</p>
+  <p>${t('email.conflictBody1', locale)}</p>
+  <p><strong>${t('email.conflictBody2', locale)}</strong></p>
+  <p>${t('email.conflictOrderRef', locale)} : <strong>${order._id}</strong></p>`;
   try { await sendMail({ to, subject, html }); }
   catch (e) { console.warn('[finalize] conflict mail failed:', e.message); }
 }

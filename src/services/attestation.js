@@ -1,5 +1,6 @@
 // src/services/attestation.js
 import { fmtEuros } from '../utils/money.js';
+import { isZoneUnit } from '../utils/seat-id.js';
 
 function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById }) {
   const logoPath = (process.env.APP_URL || '').replace(/https?:\/\/[^/]+/, '') + '/dynamic/assets/logo.png';
@@ -26,7 +27,7 @@ function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById 
           <div style="font-size:12px;color:#64748b">N° abonné: <b>${subNo}</b></div>
           <ul style="margin:8px 0 0 18px">
             ${arr.map(x => {
-              const isVirtual = /-Z\d{3,}$/i.test(String(x.seatId||''));
+              const isVirtual = isZoneUnit({ unitType: x.unitType, seatId: x.seatId });
               const place = isVirtual ? (x.zoneKey || '') : (x.seatId || '');
               return `<li>${place} — ${x.tariffCode || 'TARIF'} ${(x.priceCents!=null)?'('+fmtEuros(x.priceCents)+')':''}</li>`;
             }).join('')}
@@ -72,4 +73,4 @@ function renderAttestationHtml({ seasonCode, payerEmail, order, subscribersById 
   </div>`;
 }
 
-exports { renderAttestationHtml };
+export { renderAttestationHtml };

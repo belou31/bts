@@ -15,6 +15,7 @@ import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { finalizePaidIfNoConflict, sendOrderAttestationIfNeeded } from '../services/order-finalization.js';
 import { matchesChannel } from '../utils/channel-scopes.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
+import { isVirtualZoneSeatId } from '../utils/seat-id.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
@@ -38,8 +39,6 @@ function buildPayReturnUrl(orderId, checkoutId) {
   return `${app}/pay/return?oid=${oid}${ci}`;
 }
 
-// Helper: reconnaît un ID virtuel de zone (ex: DEBOUT-Z001)
-const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid || ''));
 async function loadEvent(eventIdOrSlug) {
   const q = isValidObjectId(eventIdOrSlug)
     ? { $or: [{ _id: new mongoose.Types.ObjectId(eventIdOrSlug) }, { slug: String(eventIdOrSlug) }] }
@@ -312,6 +311,19 @@ export function createEventFlowRouter({
       return [key, { display, partner }];
     }));
 
+    // zoneType (the zone's physical seating character) is independent of
+    // unitType (the allocation mechanism) — see src/utils/seat-id.js. A VIP
+    // zone can be Zone.type === 'seated' while still being zone-allocated.
+    const requestedZoneKeys = Array.from(new Set(items.map(it => String(it.zoneKey || '').trim().toUpperCase()).filter(Boolean)));
+    const zoneTypeByKey = new Map();
+    if (requestedZoneKeys.length) {
+      const zoneDocs = await Zone.find(
+        { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, key: { $in: requestedZoneKeys } },
+        { key: 1, type: 1, _id: 0 }
+      ).lean();
+      for (const z of zoneDocs) zoneTypeByKey.set(String(z.key || '').toUpperCase(), z.type || 'seated');
+    }
+
     const lines = items.map(it => {
       const z = String(it.zoneKey || '').toUpperCase();
       const t = String(it.tariffCode || '').toUpperCase();
@@ -329,6 +341,8 @@ export function createEventFlowRouter({
       return {
         seatId: sid,
         zoneKey: z,
+        unitType: sid ? 'seat' : 'zone',
+        zoneType: zoneTypeByKey.get(z) || null,
         tariffCode: t,
         priceCents: displayPrice,
         partnerPriceCents: partnerPrice,
@@ -691,12 +705,18 @@ export function createEventFlowRouter({
       }
       const payerInfo = ctxData.payer;
       const scheduleValue = ctxData.schedule;
-      const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
+      // slug is stamped for every partner-channel order (not just split-payment
+      // ones) so meta.partner.slug is reliable wherever it's queried: presale
+      // quota tracking (getPartnerPresaleRemaining above), the admin partner
+      // orders listing, and theme resolution (resolveThemeForOrder).
+      const partnerMeta = (channelCtx?.kind === 'partner')
         ? {
             slug: channelCtx.partnerSlug || null,
-            displayTotalCents: ctxData.partnerTotals.displayTotal,
-            partnerContributionCents: ctxData.partnerTotals.partnerContribution,
-            partnerTotalCents: ctxData.partnerTotals.partnerTotal
+            ...(ctxData.partnerTotals ? {
+              displayTotalCents: ctxData.partnerTotals.displayTotal,
+              partnerContributionCents: ctxData.partnerTotals.partnerContribution,
+              partnerTotalCents: ctxData.partnerTotals.partnerTotal
+            } : {})
           }
         : null;
 
@@ -742,6 +762,7 @@ export function createEventFlowRouter({
 
         origin: resolvedOrigin,
         mailTemplateKind,
+        locale: req.locale,
         hold: { until }
       });
 
@@ -845,12 +866,14 @@ export function createEventFlowRouter({
         const resolvedOrigin = typeof originResolver === 'function'
           ? originResolver(req, baseOrigin, channelCtx) || baseOrigin
           : baseOrigin;
-        const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
+        const partnerMeta = (channelCtx?.kind === 'partner')
           ? {
               slug: channelCtx.partnerSlug || null,
-              displayTotalCents: ctxData.partnerTotals.displayTotal,
-              partnerContributionCents: ctxData.partnerTotals.partnerContribution,
-              partnerTotalCents: ctxData.partnerTotals.partnerTotal
+              ...(ctxData.partnerTotals ? {
+                displayTotalCents: ctxData.partnerTotals.displayTotal,
+                partnerContributionCents: ctxData.partnerTotals.partnerContribution,
+                partnerTotalCents: ctxData.partnerTotals.partnerTotal
+              } : {})
             }
           : null;
 
@@ -891,6 +914,7 @@ export function createEventFlowRouter({
           },
           origin: resolvedOrigin,
           mailTemplateKind: invoiceOpts.mailTemplateKind || mailTemplateKind,
+          locale: req.locale,
           hold: { until }
         });
 

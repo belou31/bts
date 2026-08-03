@@ -128,7 +128,8 @@
     if (allSeats.length) await releaseSeats(allSeats);
     document.querySelectorAll('#cartRows .cart-row').forEach(row => row.remove());
     api.recomputeTotals?.();
-    showFeedback(false, 'Votre sélection a expiré. Les places ont été libérées.');
+    const t = window.t || ((key) => key);
+    showFeedback(false, t('event.holdExpired'));
   }
 
   function extendHold() {
@@ -404,13 +405,11 @@
     const dt = ev?.startsAt ? new Date(ev.startsAt) : null;
     let suffix = '';
     if (dt && !isNaN(dt.getTime())) {
-      try {
-        suffix = ` — ${dt.toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })}`;
-      } catch {
-        // ignore Intl failures
-      }
+      const formatted = (window.formatDate || (() => ''))(dt, { dateStyle: 'long', timeStyle: 'short' });
+      if (formatted) suffix = ` — ${formatted}`;
     }
-    return `Billetterie match — ${ev.name}${suffix}`;
+    const t = window.t || ((key, vars) => vars?.eventName || key);
+    return `${t('event.pageTitle', { eventName: ev.name })}${suffix}`;
   }
 
   function updateSaleStatusBadge(raw) {
@@ -426,44 +425,45 @@
     const presaleQuota = typeof presale?.quota === 'number' ? presale.quota : null;
     const presaleDepleted = presaleAllowed && presaleRemaining !== null && presaleRemaining <= 0;
 
-    let main = 'STATUT EN COURS';
-    let sub  = 'Chargement du statut…';
+    const t = window.t || ((key) => key);
+    let main = t('saleStatus.pending');
+    let sub  = t('saleStatus.pendingSub');
     let stateClass = 'pending';
 
     if (saleStatus === 'presale_quota_reached' || (presaleAllowed && !onSale && presaleDepleted)) {
-      main = 'PRESALE QUOTA REACHED';
-      sub  = `Quota utilisé (${presaleQuota ?? 0})`;
+      main = t('saleStatus.presaleQuotaReached');
+      sub  = t('saleStatus.presaleQuotaUsed', { n: presaleQuota ?? 0 });
       stateClass = 'quota';
     }
     else if (saleStatus === 'presale_opened' || (presaleAllowed && !onSale)) {
-      main = 'PRESALE OPENED';
-      sub  = presaleRemaining !== null ? `Places restantes : ${presaleRemaining}` : 'Prévente partenaire';
+      main = t('saleStatus.presale');
+      sub  = presaleRemaining !== null ? t('saleStatus.presaleRemaining', { n: presaleRemaining }) : t('saleStatus.presaleSub');
       stateClass = 'presale';
     }
     else if (saleStatus === 'sale_opened' || onSale) {
-      main = 'SALE OPENED';
-      sub  = 'Tickets on sale';
+      main = t('saleStatus.open');
+      sub  = t('saleStatus.openSub');
       stateClass = 'open';
     }
     else if (saleStatus === 'sale_closed' || offSale) {
-      main = 'SALE CLOSED';
-      sub  = 'Ventes fermées';
+      main = t('saleStatus.closed');
+      sub  = t('saleStatus.closedSub');
       stateClass = 'closed';
     }
     else if (presaleAllowed && !onSale) {
       if (presaleDepleted) {
-        main = 'PRESALE QUOTA REACHED';
-        sub  = `Quota utilisé (${presaleQuota ?? 0})`;
+        main = t('saleStatus.presaleQuotaReached');
+        sub  = t('saleStatus.presaleQuotaUsed', { n: presaleQuota ?? 0 });
         stateClass = 'quota';
       } else {
-        main = 'PRESALE OPENED';
-        sub  = presaleRemaining !== null ? `Places restantes : ${presaleRemaining}` : 'Prévente partenaire';
+        main = t('saleStatus.presale');
+        sub  = presaleRemaining !== null ? t('saleStatus.presaleRemaining', { n: presaleRemaining }) : t('saleStatus.presaleSub');
         stateClass = 'presale';
       }
     } else if (onSale || offSale) {
       const open = onSale && !offSale;
-      main = open ? 'SALE OPENED' : 'SALE CLOSED';
-      sub  = open ? 'Tickets on sale' : 'Ventes fermées';
+      main = open ? t('saleStatus.open') : t('saleStatus.closed');
+      sub  = open ? t('saleStatus.openSub') : t('saleStatus.closedSub');
       stateClass = open ? 'open' : 'closed';
     }
 

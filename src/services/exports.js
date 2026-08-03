@@ -4,6 +4,7 @@ import { Seat }   from '../models/Seat.js';
 import { Ticket } from '../models/Ticket.js';
 import { Event }  from '../models/Event.js';
 import { Tariff } from '../models/Tariff.js';
+import { isZoneUnit, resolveUnitType } from '../utils/seat-id.js';
 
 const csvEscape = (v) => {
   if (v == null) return '';
@@ -11,7 +12,6 @@ const csvEscape = (v) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 };
 
-const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 const normalizeTariffCode = (value) => String(value || '').trim().toUpperCase();
 
 function chooseTariffForEvent(tariffDocs = [], eventDoc = null) {
@@ -438,7 +438,7 @@ export async function exportEventTicketsCsv({
       csvEscape(ticket.venueSlug || ''),
       csvEscape(ticket.seatId || ''),
       csvEscape(zoneFromSeatId(ticket.seatId || '')),
-      csvEscape(isVirtualZoneSeatId(ticket.seatId || '') ? '1' : '0'),
+      csvEscape(isZoneUnit({ unitType: ticket.unitType, seatId: ticket.seatId }) ? '1' : '0'),
       csvEscape(tariffCode),
       csvEscape(requiresOut),
       csvEscape(holder.firstName || ''),
@@ -507,6 +507,7 @@ export async function exportEventTicketsCsv({
         return `${zone}-GA-${suffix}-${index}`;
       })();
       const seatId = seatCandidate || fallbackSeat;
+      const unitType = resolveUnitType({ unitType: line.unitType, seatId: seatCandidate });
       const tariffCode = normalizeTariffCode(line.tariffCode || metaTicket.tariff || metaTicket.tariffCode);
       const createdAtOut = metaTicket.createdAt ? new Date(metaTicket.createdAt).toISOString()
         : (orderDoc.createdAt ? new Date(orderDoc.createdAt).toISOString() : '');
@@ -536,7 +537,7 @@ export async function exportEventTicketsCsv({
         csvEscape(orderDoc.venueSlug || ''),
         csvEscape(seatId),
         csvEscape(zoneFromSeatId(seatId)),
-        csvEscape(isVirtualZoneSeatId(seatId) ? '1' : '0'),
+        csvEscape(unitType === 'zone' ? '1' : '0'),
         csvEscape(tariffCode),
         csvEscape(requiresOut),
         csvEscape(holderFirst),

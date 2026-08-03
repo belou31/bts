@@ -3,6 +3,10 @@
 /* ========= Util DOM ========= */
 const $  = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+// Named "translate", not "t" — this file already uses `t` extensively as a
+// local variable for tariff objects/codes; reusing it here would shadow
+// silently inside those functions instead of erroring.
+const translate = window.t || ((key) => key);
 
 /* ========= Contexte / Config ========= */
 const CONFIG = (window.BTS_VIEW_CONFIG || {
@@ -100,7 +104,7 @@ function mapSeatState(st) {
 }
 
 /* ========= Helpers prix/sièges ========= */
-const fmtEuro = cents => (Number(cents||0)/100).toLocaleString('fr-FR', { style:'currency', currency:'EUR' });
+const fmtEuro = cents => (window.formatCurrency || (c => `${(Number(c||0)/100).toFixed(2)} €`))(cents);
 const normSeatId = s => String(s||'').trim();
 const zoneKeyFromSeatId = seatId => String(seatId||'').split('-')[0] || '';
 
@@ -606,16 +610,18 @@ function attachNameAutofillButtons() {
     btn.className = 'auto-fill-btn';
     btn.textContent = '↳';
     btn.title = kind === 'first'
-      ? 'Copier ce prénom sur toutes les lignes vides'
-      : 'Copier ce nom sur toutes les lignes vides';
+      ? translate('generic.copyFirstNameTitle')
+      : translate('generic.copyLastNameTitle');
     btn.addEventListener('click', () => autoFillNames(kind));
     return btn;
   };
 
+  const lastNameLabel = translate('common.lastName').trim().toLowerCase();
+  const firstNameLabel = translate('common.firstName').trim().toLowerCase();
   Array.from(head.children).forEach(div => {
     const label = String(div.textContent || '').trim().toLowerCase();
-    if (label === 'nom') div.appendChild(makeBtn('last'));
-    if (label === 'prénom') div.appendChild(makeBtn('first'));
+    if (label === lastNameLabel) div.appendChild(makeBtn('last'));
+    if (label === firstNameLabel) div.appendChild(makeBtn('first'));
   });
 }
 
@@ -694,7 +700,7 @@ function collectCheckoutPayload() {
     const fn = $('.holder-first', row)?.value?.trim();
     const ln = $('.holder-last',  row)?.value?.trim();
     if (!fn && !ln) {
-      const label = $('.seat-label', row)?.textContent?.trim() || row.dataset.seatId || `Ligne`;
+      const label = $('.seat-label', row)?.textContent?.trim() || row.dataset.seatId || translate('generic.defaultRowLabel');
       missingNameRows.push(label);
       // marque les deux champs en erreur (accessibilité)
       $('.holder-first', row)?.setAttribute('aria-invalid','true');
@@ -703,7 +709,7 @@ function collectCheckoutPayload() {
     }
   });
   if (missingNameRows.length) {
-    setFeedback('error', 'Informations manquantes', missingNameRows.map(l => `« ${l} » : saisir un nom ou un prénom.`));
+    setFeedback('error', translate('generic.missingInfoTitle'), missingNameRows.map(l => translate('generic.missingNameDetail', { label: l })));
     try { firstBad?.focus(); } catch {}
     return;
   }
@@ -722,7 +728,7 @@ function collectCheckoutPayload() {
 });
 
   if (!items.length) {
-    setFeedback('error', 'Veuillez ajouter au moins une ligne.');
+    setFeedback('error', translate('generic.emptyCartError'));
     return;
   }
 
@@ -732,7 +738,7 @@ function collectCheckoutPayload() {
     email    : $('#payerEmail').value.trim()
   };
   if (!payer.email) {
-    setFeedback('error', 'Renseignez un email de contact.');
+    setFeedback('error', translate('generic.missingEmailError'));
     try { $('#payerEmail').focus(); } catch {}
     return;
   }
@@ -740,8 +746,8 @@ function collectCheckoutPayload() {
   // 💡 Vérification locale “no single gap” (fenêtre ±2 ; bords autorisés)
   const gap = checkLocalNoSingleGap(items);
   if (gap) {
-    setFeedback('error', 'Règle de placement', [
-      `Votre sélection créerait un siège isolé en rangée ${gap.row} (zone ${gap.zone}). Merci de choisir une autre combinaison.`
+    setFeedback('error', translate('generic.placementRuleTitle'), [
+      translate('generic.singleGapError', { location: translate('generic.singleGapLocation', { row: gap.row, zone: gap.zone }) })
     ]);
     return;
   }
@@ -774,7 +780,7 @@ async function submitPayment() {
     });
 
     if (!res.ok) {
-      let title = 'Une erreur est survenue.';
+      let title = translate('generic.genericErrorTitle');
       let details = [];
       try {
         const ct = (res.headers.get('content-type') || '').toLowerCase();
@@ -783,7 +789,7 @@ async function submitPayment() {
 
           // 🔹 Règle anti-trou (nouvelle clé renvoyée par l’API)
           if (err?.error === 'no_single_gap' || err?.code === 'no_single_gap' || err?.error === 'single_gap_rule') {
-            title = 'Règle de placement';
+            title = translate('generic.placementRuleTitle');
             if (err?.message) {
               details = [err.message];
             } else {
@@ -791,55 +797,56 @@ async function submitPayment() {
               const g = Array.isArray(err?.problems) && err.problems.length ? err.problems[0] : null;
               const row  = g?.row || err?.row || err?.rowKey || '';
               const zone = g?.zoneKey || err?.zoneKey || '';
-              details = [`Votre sélection créerait un siège isolé${row||zone ? ` en rangée ${row} (zone ${zone})` : ''}. Merci de choisir une autre combinaison.`];
+              const location = (row || zone) ? translate('generic.singleGapLocation', { row, zone }) : '';
+              details = [translate('generic.singleGapError', { location })];
             }
           }
           // 🔹 Siège indisponible
           else if (err?.error === 'seat_unavailable') {
-            title = 'Siège indisponible';
+            title = translate('generic.seatUnavailableTitle');
             const sid = err?.seatId || '';
             const st  = err?.status || '';
-            details = [`Le siège ${sid} n’est plus disponible (${st || 'indisponible'}).`];
+            details = [translate('generic.seatUnavailableDetail', { seatId: sid, status: st || translate('generic.statusUnavailable') })];
           }
           // 🔹 Quota dépassé (zones)
           else if (err?.error === 'quota_exceeded') {
-            title = 'Quota atteint';
+            title = translate('generic.quotaReachedTitle');
             const z = err?.zoneKey || '';
             const r = typeof err?.remaining === 'number' ? err.remaining : 0;
-            details = [`Le quota est atteint pour la zone ${z}. Places restantes: ${r}.`];
+            details = [translate('generic.quotaReachedDetail', { zone: z, remaining: r })];
           }
           // 🔹 Quota prévente partenaire
           else if (err?.error === 'partner_presale_quota_exceeded') {
-            title = 'Quota prévente atteint';
+            title = translate('saleStatus.presaleQuotaReached');
             const r = typeof err?.remaining === 'number' ? err.remaining : 0;
-            details = [`Plus de places disponibles en prévente partenaire (restant: ${r}).`];
+            details = [translate('generic.presaleQuotaDetail', { remaining: r })];
           }
           // 🔹 Zone invalide
           else if (err?.error === 'invalid_zone') {
-            title = 'Zone inconnue';
-            details = [`La zone demandée n’existe pas ou n’est pas éligible.`];
+            title = translate('generic.unknownZoneTitle');
+            details = [translate('generic.unknownZoneDetail')];
           }
           // 🔹 Billetterie fermée (évènement non ouvert)
           else if (
             err?.error === 'event_not_on_sale' ||
             (typeof err?.error === 'string' && err.error.toLowerCase().includes('vente ferm'))
           ) {
-            title = 'Billetterie fermée';
-            details = ['Les ventes sont closes pour cet événement.'];
+            title = translate('generic.boxOfficeClosedTitle');
+            details = [translate('saleStatus.closedSub')];
           }
           // 🔹 Panier vide / email manquant / échéancier invalide
           else if (err?.error === 'no_lines') {
-            title = 'Veuillez ajouter au moins une ligne.';
+            title = translate('generic.emptyCartError');
           } else if (err?.error === 'payer_email_required') {
-            title = 'Renseignez un email de contact.';
+            title = translate('generic.missingEmailError');
           } else if (err?.error === 'invalid_schedule') {
-            title = 'Échéancier invalide';
-            details = ['Choisissez 1, 2 ou 3 échéances.'];
+            title = translate('generic.invalidScheduleTitle');
+            details = [translate('generic.invalidScheduleDetail')];
           }
           // 🔹 Tableau d’erreurs ${currentPaymentProviderLabel()} structuré
           else if (Array.isArray(err?.errors) && err.errors.length) {
-            title = 'Veuillez corriger les éléments suivants :';
-            details = err.errors.map(e => e?.message || e?.code || 'Champ invalide');
+            title = translate('generic.fixFollowingTitle');
+            details = err.errors.map(e => e?.message || e?.code || translate('generic.invalidFieldFallback'));
           }
           // 🔹 Message “métier” direct
           else if (typeof err?.message === 'string' && err.message.trim()) {
@@ -849,10 +856,10 @@ async function submitPayment() {
           else {
             const msgs = extractHaMessages(err);
             if (msgs.length) {
-              title = 'Veuillez corriger les éléments suivants :';
+              title = translate('generic.fixFollowingTitle');
               details = msgs;
             } else {
-              title = 'Impossible de traiter votre demande. Réessayez.';
+              title = translate('generic.cannotProcessRetry');
             }
           }
         } else {
@@ -860,19 +867,19 @@ async function submitPayment() {
         const rawText = await res.text();
         const msgs = extractHaMessages(rawText);
         if (msgs.length) {
-          title = 'Veuillez corriger les éléments suivants :';
+          title = translate('generic.fixFollowingTitle');
           details = msgs;
         } else if (typeof rawText === 'string' && rawText.toLowerCase().includes('vente ferm')) {
-          title = 'Billetterie fermée';
-          details = ['Les ventes sont closes pour cet événement.'];
+          title = translate('generic.boxOfficeClosedTitle');
+          details = [translate('saleStatus.closedSub')];
         } else {
           title = (res.status >= 500)
-            ? 'Un problème technique est survenu. Réessayez dans quelques instants.'
-            : 'Impossible de traiter votre demande. Vérifiez vos informations puis réessayez.';
+            ? translate('generic.technicalIssue')
+            : translate('generic.cannotProcessCheckInfo');
         }
         }
       } catch {
-        title = 'Un problème technique est survenu. Réessayez dans quelques instants.';
+        title = translate('generic.technicalIssue');
       }
       try { if (preWin && !preWin.closed) preWin.close(); } catch {}
       setFeedback('error', title, details);
@@ -897,17 +904,17 @@ async function submitPayment() {
       if (preWin && !preWin.closed) {
         preWin.location.href = fallbackUrl;
       } else {
-        setFeedback('ok', 'Redirection vers le paiement…');
+        setFeedback('ok', translate('generic.redirectingToPayment'));
         location.href = fallbackUrl;
       }
     } else {
       try { if (preWin && !preWin.closed) preWin.close(); } catch {}
-      throw new Error('Réponse inattendue du serveur.');
+      throw new Error(translate('generic.unexpectedServerResponse'));
     }
   } catch (e) {
     console.error('pay error:', e);
     try { if (preWin && !preWin.closed) preWin.close(); } catch {}
-    setFeedback('error', 'Impossible de démarrer le paiement. Réessayez dans quelques instants.');
+    setFeedback('error', translate('generic.cannotStartPayment'));
     $('#payBtn').disabled = false;
   }
 }
@@ -931,7 +938,7 @@ function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win }) {
   }
   if (body) body.hidden = false;
 
-  setFeedback('ok', 'Paiement ouvert dans un nouvel onglet. Cette page se mettra à jour automatiquement.');
+  setFeedback('ok', translate('generic.paymentOpenedNewTab'));
 
   if (!body) return;
   body.innerHTML = `
@@ -1209,7 +1216,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   catch (e) {
     console.error('load error:', e);
     $('#feedback').classList.add('err');
-    $('#feedback').textContent = 'Impossible de charger les données. Vérifiez votre lien.';
+    $('#feedback').textContent = translate('generic.cannotLoadData');
   }
   attachNameAutofillButtons();
   $('#payBtn').addEventListener('click', submitPayment);

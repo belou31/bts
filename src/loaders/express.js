@@ -7,6 +7,8 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 
 import routes from '../routes/index.js';
+import { requestMetricsMiddleware } from '../services/requestMetrics.js';
+import { localeMiddleware } from '../middlewares/locale.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -20,10 +22,12 @@ export async function buildApp() {
 
   // Middlewares
   app.disable('x-powered-by');
+  app.use(requestMetricsMiddleware);
   app.use(compression());
   app.use(cors({ origin: '*', credentials: true }));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+  app.use(localeMiddleware);
 
   // Healthz
   app.get('/healthz', (_req, res) => res.json({ ok: true }));
