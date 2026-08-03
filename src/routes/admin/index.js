@@ -541,6 +541,11 @@ function prepareScriptCatalog() {
   return { scriptGroups, scriptForms, automationScripts };
 }
 
+// Static (config-derived, no I/O) — safe to compute once and reuse on every
+// route so the topbar's "Operation" chapter dropdown always lists all
+// chapters, not just on /operate (which builds its own copy for the page body).
+const NAV_SCRIPT_GROUPS = prepareScriptCatalog().scriptGroups;
+
 /* ===================== Page HTML ===================== */
 router.get('/', (req, res) => {
   const qs = new URLSearchParams(req.query);
@@ -564,10 +569,6 @@ router.get('/io', (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
-  const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
-  const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
-  const dataTemplatesList = listTemplatesRecursive(DATA_TEMPLATES_ROOT);
-  const venueResources = listVenueResources();
   const venueViews = listVenueViews();
 
   return res.render('admin/index', {
@@ -576,14 +577,13 @@ router.get('/io', (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts: [],
     automationJobs: {},
     activeGroupId: null,
     outputsList,
     inputsList,
-    customizationList,
     operateOptions: {
       venues: [],
       seasons: [],
@@ -600,10 +600,7 @@ router.get('/io', (req, res) => {
     monitoring: null,
     planView: null,
     ordersView: null,
-    ticketsView: null,
-    dynamicAssetsList,
-    venueResources,
-    dataTemplatesList
+    ticketsView: null
   });
 });
 
@@ -613,7 +610,7 @@ router.get('/templates', (req, res) => {
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
   const emailTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'email'));
-  const ticketTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'tickets'));
+  const ticketTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'tickets'));
   const csvTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'csv'));
   const envTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'env'));
   const svgTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'svg'));
@@ -625,7 +622,7 @@ router.get('/templates', (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts: [],
     automationJobs: {},
@@ -772,7 +769,7 @@ router.get('/plan', async (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts: [],
     automationJobs: {},
@@ -921,7 +918,7 @@ router.get('/orders', async (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts: [],
     automationJobs: {},
@@ -1079,7 +1076,7 @@ router.get('/tickets', async (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts: [],
     automationJobs: {},
@@ -1319,8 +1316,13 @@ router.get('/monitor', async (req, res) => {
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
-  const monitorTabOptions = new Set(['system', 'tariffs', 'seasons', 'events', 'partners']);
+  const monitorTabOptions = new Set(['custo', 'system', 'tariffs', 'seasons', 'events', 'partners']);
   const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : 'system';
+
+  const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
+  const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
+  const dataTemplatesList = listTemplatesRecursive(DATA_TEMPLATES_ROOT);
+  const venueResources = listVenueResources();
 
   const [
     venuesRaw,
@@ -1726,7 +1728,7 @@ router.get('/monitor', async (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts,
     automationJobs,
@@ -1738,7 +1740,11 @@ router.get('/monitor', async (req, res) => {
     monitoring,
     planView: null,
     ordersView: null,
-    ticketsView: null
+    ticketsView: null,
+    dynamicAssetsList,
+    venueResources,
+    dataTemplatesList,
+    customizationList
   });
 });
 

@@ -11,12 +11,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 const EMAIL_ROOT_RUNTIME = path.resolve(process.cwd(), 'data', 'templates');
-const EMAIL_ROOT_REF     = path.resolve(process.cwd(), 'data_references', 'templates');
-const EMAIL_DIR_CUSTOM_CONFIG = path.join(EMAIL_ROOT_RUNTIME, 'email');
 const EMAIL_CONFIG_CUSTOM     = path.resolve(process.cwd(), 'data', 'templates', 'templates.json');
-const EMAIL_CONFIG_TEMPLATE   = path.resolve(process.cwd(), 'data_references', 'templates', 'templates.json');
-const EMAIL_DIR_DATA   = path.join(EMAIL_ROOT_REF, 'email');      // reference
-const EMAIL_DIR_RUNTIME = EMAIL_DIR_CUSTOM_CONFIG; // user-provided HTML files
+const EMAIL_DIR_RUNTIME = path.join(EMAIL_ROOT_RUNTIME, 'email'); // user-provided HTML files
 
 function fmtEuroWithSymbol(cents) {
   return (Number(cents || 0) / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
@@ -77,9 +73,7 @@ async function readJsonIfExists(filePath) {
 async function getEmailConfig() {
   if (EMAIL_CONFIG_PROMISE) return EMAIL_CONFIG_PROMISE;
   EMAIL_CONFIG_PROMISE = (async () => {
-    const custom = await readJsonIfExists(EMAIL_CONFIG_CUSTOM);
-    const templ  = await readJsonIfExists(EMAIL_CONFIG_TEMPLATE);
-    const base = custom || templ || {};
+    const base = (await readJsonIfExists(EMAIL_CONFIG_CUSTOM)) || {};
     const section =
       (base.email && base.email.templates)
       || (base.templates && base.templates.email)
@@ -108,9 +102,7 @@ async function loadTemplateHtml(nameOrPath) {
   const fname = nameOrPath.endsWith('.html') ? nameOrPath : `${nameOrPath}.html`;
   const paths = [
     path.join(EMAIL_DIR_RUNTIME, fname),
-    path.join(EMAIL_DIR_DATA, fname),
-    path.resolve(EMAIL_ROOT_RUNTIME, fname),
-    path.resolve(EMAIL_ROOT_REF, fname)
+    path.resolve(EMAIL_ROOT_RUNTIME, fname)
   ];
   for (const p of paths) {
     try {
@@ -119,7 +111,7 @@ async function loadTemplateHtml(nameOrPath) {
       // continue
     }
   }
-  throw new Error(`Email template not found: ${nameOrPath} (searched in data/templates and data_references/templates)`);
+  throw new Error(`Email template not found: ${nameOrPath} (searched in data/templates)`);
 }
 
 async function buildTariffsMap(seasonCode, venueSlug) {

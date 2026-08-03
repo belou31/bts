@@ -11,11 +11,8 @@ import { isSubscriptionOrder } from '../utils/subscription.js';
 
 // --- Emplacements / chemins par défaut
 const TICKET_ROOT_RUNTIME     = path.resolve(process.cwd(), 'data', 'templates');
-const TICKET_ROOT_REF         = path.resolve(process.cwd(), 'data_references', 'templates');
 const TICKET_CONFIG_RUNTIME   = path.resolve(TICKET_ROOT_RUNTIME, 'templates.json');
-const TICKET_CONFIG_TEMPLATE  = path.resolve(TICKET_ROOT_REF, 'templates.json');
 const TICKET_DIR_RUNTIME      = path.join(TICKET_ROOT_RUNTIME, 'tickets');
-const TICKET_DIR_DATA         = path.join(TICKET_ROOT_REF, 'tickets');
 const DEFAULT_LOGO            = path.resolve(process.cwd(), 'public', 'dynamic', 'assets', 'logo.png');
 
 const DEFAULT_TICKET_CONFIG = {
@@ -52,9 +49,7 @@ async function readJsonIfExists(filePath) {
 
 async function loadTicketConfig() {
   if (TICKET_CONFIG_CACHE) return TICKET_CONFIG_CACHE;
-  const custom = await readJsonIfExists(TICKET_CONFIG_RUNTIME);
-  const templ  = await readJsonIfExists(TICKET_CONFIG_TEMPLATE);
-  const base = custom || templ || {};
+  const base = (await readJsonIfExists(TICKET_CONFIG_RUNTIME)) || {};
   const section =
     (base.tickets && base.tickets.templates)
     || (base.templates && base.templates.tickets)
@@ -83,12 +78,8 @@ async function resolveTicketFile(name) {
   const fname = name.endsWith('.svg') ? name : `${name}.svg`;
   const runtimePath = path.resolve(TICKET_DIR_RUNTIME, fname);
   if (await fs.stat(runtimePath).then(st => st.isFile()).catch(() => false)) return runtimePath;
-  const dataPath = path.resolve(TICKET_DIR_DATA, fname);
-  if (await fs.stat(dataPath).then(st => st.isFile()).catch(() => false)) return dataPath;
   const rootRuntimePath = path.resolve(TICKET_ROOT_RUNTIME, fname);
   if (await fs.stat(rootRuntimePath).then(st => st.isFile()).catch(() => false)) return rootRuntimePath;
-  const rootRefPath = path.resolve(TICKET_ROOT_REF, fname);
-  if (await fs.stat(rootRefPath).then(st => st.isFile()).catch(() => false)) return rootRefPath;
   // Absolute path provided
   if (path.isAbsolute(name) && await fs.stat(name).then(st => st.isFile()).catch(() => false)) return name;
   return null;
@@ -101,12 +92,8 @@ async function resolveLogoPath(logoRef) {
   } else if (candidate) {
     const runtime = path.resolve(TICKET_DIR_RUNTIME, candidate);
     if (await fs.stat(runtime).then(st => st.isFile()).catch(() => false)) return runtime;
-    const data = path.resolve(TICKET_DIR_DATA, candidate);
-    if (await fs.stat(data).then(st => st.isFile()).catch(() => false)) return data;
     const runtimeRoot = path.resolve(TICKET_ROOT_RUNTIME, candidate);
     if (await fs.stat(runtimeRoot).then(st => st.isFile()).catch(() => false)) return runtimeRoot;
-    const refRoot = path.resolve(TICKET_ROOT_REF, candidate);
-    if (await fs.stat(refRoot).then(st => st.isFile()).catch(() => false)) return refRoot;
     const absoluteFromRoot = path.resolve(process.cwd(), candidate);
     if (await fs.stat(absoluteFromRoot).then(st => st.isFile()).catch(() => false)) return absoluteFromRoot;
   }
