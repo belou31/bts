@@ -36,11 +36,16 @@ import { serializeJob as serializeAutomationJob } from '../../services/automatio
 import { adminScriptGroups, getAdminScript } from '../../config/adminScripts.js';
 import { AutomationJob } from '../../models/AutomationJob.js';
 import { getRequestMetrics } from '../../services/requestMetrics.js';
+import { marked } from 'marked';
 
 const router = express.Router();
 
 const ROOT_DIR = process.cwd();
 const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data_references');
+// docs/ is the app's documented single source of truth (see docs/index.md's own
+// "Cette arborescence docs/ est désormais la source de vérité"): the guides panel
+// reads its table of contents rather than duplicating content elsewhere.
+const GUIDES_ROOT = path.resolve(ROOT_DIR, 'docs');
 const DATA_EXAMPLES_ROOT = path.resolve(ROOT_DIR, 'data_examples');
 const CUSTOM_ROOT = path.resolve(ROOT_DIR, 'data/customization');
 const DATA_TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
@@ -219,6 +224,46 @@ function listTemplatesRecursive(root, prefix = '') {
     return out;
   }
   return out.sort((a, b) => b.mtime - a.mtime);
+}
+
+function parseFrontmatter(raw) {
+  const m = raw.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return { body: raw, title: null, navExclude: false };
+  const title = m[1].match(/^title:\s*(.+)$/m);
+  const navExclude = /^nav_exclude:\s*true\s*$/m.test(m[1]);
+  return { body: raw.slice(m[0].length), title: title ? title[1].trim() : null, navExclude };
+}
+
+// Guide list mirrors docs/index.md's own curated "Table des matières" (order and
+// labels), so the admin panel stays in sync with whatever the doc maintainers
+// list there without needing a parallel config. Falls back to a directory scan
+// (skipping index.md and nav_exclude:true pages, e.g. the legacy 0x-*.md files)
+// if that section can't be found.
+function listGuides() {
+  try {
+    const indexRaw = fs.readFileSync(path.join(GUIDES_ROOT, 'index.md'), 'utf8');
+    const tocSection = (indexRaw.split(/^##\s+Table des matières\s*$/m)[1] || '').split(/^##\s+/m)[0];
+    const entries = [...tocSection.matchAll(/\[([^\]]+)\]\(([\w-]+\.md)\)/g)]
+      .map(m => ({ title: m[1].trim(), rel: m[2] }));
+    if (entries.length) return entries;
+  } catch { /* fall through to directory scan */ }
+
+  try {
+    return fs.readdirSync(GUIDES_ROOT)
+      .filter(name => name.endsWith('.md') && name !== 'index.md')
+      .map(name => {
+        let raw = '';
+        try { raw = fs.readFileSync(path.join(GUIDES_ROOT, name), 'utf8'); } catch { return null; }
+        const { title, navExclude } = parseFrontmatter(raw);
+        if (navExclude) return null;
+        const heading = raw.match(/^#\s+(.+)$/m);
+        return { rel: name, title: title || (heading ? heading[1].trim() : name.replace(/\.md$/, '')) };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.rel.localeCompare(b.rel));
+  } catch {
+    return [];
+  }
 }
 
 function listCustomizationRecursive(root, prefix = '') {
@@ -664,6 +709,27 @@ router.get('/doc', (req, res) => {
   const customization  = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'customization'));
   const dataExamplesList = listTemplatesRecursive(DATA_EXAMPLES_ROOT);
 
+  const guidesList = docTab === 'guides' ? listGuides() : [];
+  let activeGuide = null;
+  if (docTab === 'guides') {
+    const requested = (req.query.guide || '').toString();
+    const match = guidesList.find(g => g.rel === requested) || guidesList[0] || null;
+    if (match) {
+      try {
+        const abs = resolveInside(GUIDES_ROOT, match.rel);
+        const raw = fs.readFileSync(abs, 'utf8');
+        const { body } = parseFrontmatter(raw);
+        // Rewrite relative links to sibling guides (e.g. "installation.md") into
+        // in-app guide links so cross-references stay inside the panel instead
+        // of 404ing (docs/*.md isn't served as static content).
+        const guideQuery = tokenQuery ? `&${tokenQuery}` : '';
+        const linked = body.replace(/\]\(([\w-]+\.md)(#[^)]*)?\)/g, (m, file, anchor) =>
+          `](${urlFor('/admin/doc')}?docTab=guides&guide=${encodeURIComponent(file)}${guideQuery}${anchor || ''})`);
+        activeGuide = { rel: match.rel, title: match.title, html: marked.parse(linked) };
+      } catch { /* guide unreadable — leave activeGuide null */ }
+    }
+  }
+
   return res.render('admin/index', {
     basePath: BASE_PATH || '',
     token,
@@ -685,6 +751,8 @@ router.get('/doc', (req, res) => {
     templatesSvg: svgTemplates,
     customizationList: customization,
     dataExamplesList,
+    guidesList,
+    activeGuide,
     operateOptions: {
       venues: [],
       seasons: [],
