@@ -273,6 +273,45 @@ export const adminScriptGroups = [
             }
           ]
         }
+      },
+      {
+        id: 'set-payment-provider',
+        label: 'Set Payment Provider',
+        order: 3,
+        path: 'scripts/00-system-management/set-payment-provider.js',
+        command: 'node scripts/00-system-management/set-payment-provider.js --provider=<helloasso|mollie|sumup> [--name="<Label>"]',
+        run: {
+          script: 'scripts/00-system-management/set-payment-provider.js',
+          args: []
+        },
+        description: 'Switches the active payment provider by updating PAYMENT_PROVIDER (and optionally PAYMENT_PROVIDER_NAME) in .env, leaving every other line — including other providers\' secrets — untouched.',
+        notes: [
+          'The provider list comes directly from src/services/payments/index.js, so it can never offer a provider the code doesn\'t actually support.',
+          'Each provider\'s own credentials live in its .env.<provider> file — this script only switches which provider is active, it does not edit credentials.',
+          'PAYMENT_PROVIDER is cached in memory at server start — restart the server for the change to take effect.',
+          'Use --dry-run to preview the .env diff without writing.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'provider',
+              label: 'Provider',
+              required: true,
+              arg: { type: 'option', template: '--provider=${value}' },
+              options: [
+                { label: 'HelloAsso', value: 'helloasso' },
+                { label: 'Mollie', value: 'mollie' },
+                { label: 'SumUp', value: 'sumup' }
+              ]
+            },
+            {
+              name: 'name',
+              label: 'Libellé affiché (optionnel)',
+              placeholder: 'SumUp',
+              arg: { type: 'option', template: '--name=${value}' }
+            }
+          ]
+        }
       }
     ]
   },
@@ -936,6 +975,40 @@ export const adminScriptGroups = [
             }
           ]
         }
+      },
+      {
+        id: 'remove-price-catalog',
+        label: 'Remove Price Catalog',
+        order: 99,
+        path: 'scripts/02-tariff-management/remove-price-catalog.js',
+        command: 'node scripts/02-tariff-management/remove-price-catalog.js --catalog=<slug> [--venue=<slug>] --force',
+        run: {
+          script: 'scripts/02-tariff-management/remove-price-catalog.js',
+          args: ['--force']
+        },
+        description: 'Deletes TariffPriceCatalog rows for a catalogSlug (+ optional venue). Safe by construction: instantiate-tariffs.js copies rows once and never links back, so this can never retroactively affect an event/season that already instantiated from it — only future instantiation from this slug fails until recreated.',
+        danger: true,
+        notes: [
+          'Leave venue blank to remove every venue scope for this catalogSlug (global + all venue-specific overrides); set it to remove just one venue\'s rows.',
+          'Run the equivalent CLI command with --dry-run first to see the exact rows/zones/tariffs/price range before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'catalog',
+              label: 'catalogSlug à supprimer',
+              placeholder: 'event_p01',
+              required: true,
+              arg: { type: 'option', template: '--catalog=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Lieu (optionnel — vide = toutes les portées)',
+              placeholder: 'stadium',
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
       }
     ]
   },
@@ -1280,6 +1353,41 @@ export const adminScriptGroups = [
           ]
         }
       },
+      {
+        id: 'remove-season-tariffs',
+        label: 'Remove Season Tariffs',
+        order: 99,
+        path: 'scripts/03-season-management/remove-season-tariffs.js',
+        command: 'node scripts/03-season-management/remove-season-tariffs.js --season=<code> --venue=<slug> --force',
+        run: {
+          script: 'scripts/03-season-management/remove-season-tariffs.js',
+          args: ['--force']
+        },
+        description: 'Deletes the instantiated season-scoped TariffPrice rows for a (season, venue) pair — subscription pricing. Refuses if the season is currently active unless explicitly overridden on the CLI (--allow-active-season, not exposed here) — deleting live subscription pricing needs a deliberate extra step, not just this confirmation.',
+        danger: true,
+        notes: [
+          'Existing paid subscription orders keep their own captured prices regardless — this only affects new purchases going forward.',
+          'Run the equivalent CLI command with --dry-run first to see row counts before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu',
+              placeholder: 'patinoire-blagnac',
+              required: true,
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
+      }
     ]
   },
   {
@@ -1337,6 +1445,63 @@ export const adminScriptGroups = [
               label: 'Description courte (optionnel)',
               placeholder: 'Match de saison régulière',
               arg: { type: 'option', template: '--desc=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-clone',
+        label: 'Clone Event',
+        order: 0.1,
+        path: 'scripts/04-event-management/clone-event.js',
+        command: 'node scripts/04-event-management/clone-event.js --from=<slug> --slug=<newSlug> --name="<New Name>" --date=YYYY-MM-DDThh:mm:ssZ',
+        run: {
+          script: 'scripts/04-event-management/clone-event.js',
+          args: []
+        },
+        description: 'Creates a new event from an existing one: copies venue (seats/zones instantiated for the new event\'s season+venue), tariffs (the source event\'s actual Tariff/TariffPrice rows, preserving any manual tweaks), and the event customization file. The new event always starts isOnSale=false with an empty QR bank.',
+        templates: ['data/customization/events/<slug>.json'],
+        notes: [
+          'venueSlug/venueView are copied from the source event; season defaults to the source\'s season unless overridden.',
+          'priceTableKey is always a fresh "ev:<newSlug>" — never shared with the source event.',
+          'QR bank codes are never copied (one-shot, event-specific) — the new event starts with an empty bank.',
+          'Review tariffs/customization and use Set Event On-sale when ready — cloning does not open sales.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'from',
+              label: 'Événement source (slug ou ID)',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--from=${value}' }
+            },
+            {
+              name: 'slug',
+              label: 'Slug du nouvel événement',
+              placeholder: 'match-2025-10-05-bts-vs-yyy',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            },
+            {
+              name: 'name',
+              label: 'Nom affiché',
+              placeholder: 'Bélougas vs Yankees',
+              required: true,
+              arg: { type: 'option', template: '--name=${value}' }
+            },
+            {
+              name: 'date',
+              label: 'Date ISO',
+              placeholder: '2025-10-05T16:00:00+02:00',
+              required: true,
+              arg: { type: 'option', template: '--date=${value}' }
+            },
+            {
+              name: 'season',
+              label: 'Code saison (optionnel — sinon celui de la source)',
+              placeholder: '2025-2026',
+              arg: { type: 'option', template: '--season=${value}' }
             }
           ]
         }
@@ -1437,6 +1602,34 @@ export const adminScriptGroups = [
               placeholder: 'season-game',
               required: true,
               arg: { type: 'option', template: '--catalog=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-remove-tariffs',
+        label: 'Remove Event Tariffs',
+        order: 1.5,
+        path: 'scripts/04-event-management/remove-event-tariffs.js',
+        command: 'node scripts/04-event-management/remove-event-tariffs.js --event=<slug> --force',
+        run: {
+          script: 'scripts/04-event-management/remove-event-tariffs.js',
+          args: ['--force']
+        },
+        description: 'Deletes the instantiated Tariff/TariffPrice rows for one event\'s priceTableKey — does not delete the event itself. Refuses if another event shares the same priceTableKey (a custom/shared table isn\'t this event\'s alone to remove).',
+        danger: true,
+        notes: [
+          'Existing paid orders keep their own captured prices regardless — this only means the event can\'t be purchased from until tariffs are re-instantiated.',
+          'Run the equivalent CLI command with --dry-run first to see the row counts before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
             }
           ]
         }
@@ -1892,6 +2085,35 @@ export const adminScriptGroups = [
               label: 'Fichier de sortie (optionnel)',
               placeholder: 'data/outputs/tickets-<order>.pdf',
               arg: { type: 'option', template: '--out=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-delete',
+        label: 'Delete Event',
+        order: 99,
+        path: 'scripts/04-event-management/delete-event.js',
+        command: 'node scripts/04-event-management/delete-event.js --event=<slug> --force',
+        run: {
+          script: 'scripts/04-event-management/delete-event.js',
+          args: ['--force']
+        },
+        description: 'Permanently deletes an event: Tickets, SeatHolds, ScanLog, Orders, its Tariff/TariffPrice (only if not shared with another event), the Event itself, and its customization file. Never touches Seat/Zone/SeatCatalog/ZoneCatalog/TariffPriceCatalog — those are shared venue infrastructure, not event-scoped.',
+        danger: true,
+        notes: [
+          'Refuses to run if the event has any paid/tobepaid/refunded orders or scanned tickets — that requires --allow-paid-orders on the command line, deliberately not exposed here, so a real financial/attendance record can never be wiped from the admin UI by accident.',
+          'Run the equivalent CLI command with --dry-run first to see exactly what would be deleted, with counts, before confirming here.',
+          'Tariff/TariffPrice are only deleted if no other event shares this event\'s priceTableKey (a custom/shared price table is left alone).'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Événement à supprimer (slug ou ID)',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
             }
           ]
         }

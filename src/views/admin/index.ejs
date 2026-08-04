@@ -853,8 +853,8 @@
       templates: [
         { id: 'overview', label: 'Overview', href: baseTemplates, active: showDocIntro },
         { id: 'guides', label: 'User guides', description: 'Step-by-step operator walkthroughs.', href: docHref('guides'), active: viewMode === 'templates' && docTab === 'guides' },
-        { id: 'references', label: 'Data references', description: 'Blank templates to copy before filling in real values (CSV, .env, customization JSON...).', href: docHref('references'), active: viewMode === 'templates' && docTab === 'references' },
-        { id: 'examples', label: 'Data examples', description: 'Filled-in example files (email/ticket templates) to use as a starting point.', href: docHref('examples'), active: viewMode === 'templates' && docTab === 'examples' }
+        { id: 'references', label: 'Data references', description: 'Everything under data_references: blank templates to copy (CSV, .env, customization JSON) plus example email/ticket templates and assets.', href: docHref('references'), active: viewMode === 'templates' && docTab === 'references' },
+        { id: 'examples', label: 'Data examples', description: 'Complete starter kits under data_examples — venue map, tariffs, and branding bundled per scenario.', href: docHref('examples'), active: viewMode === 'templates' && docTab === 'examples' }
       ],
       monitor: [
         { id: 'overview', label: 'Overview', href: baseMonitor, active: showMonitorIntro },
@@ -1107,11 +1107,7 @@
             </ul>
           <% } %>
         </section>
-      </div>
-    </div>
 
-    <div class="monitoring-panel <%= docTab === 'examples' ? 'active' : '' %>" data-doc-panel="examples">
-      <div class="operations-grid io-layout io-layout-2col">
         <section class="card io-card">
           <h2>Templates e-mail & Tickets</h2>
           <h3>E-mail (data_references/templates/email)</h3>
@@ -1172,6 +1168,70 @@
           <% } %>
         </section>
       </div>
+    </div>
+
+    <div class="monitoring-panel <%= docTab === 'examples' ? 'active' : '' %>" data-doc-panel="examples">
+      <%
+        // Local to this panel — mirrors the tree helper in the Custo files
+        // monitor panel, kept self-contained rather than shared across
+        // panels (EJS scriptlet functions defined inside one conditional
+        // block shouldn't be relied on from another).
+        function buildExampleFileTree(files) {
+          const root = { type: 'dir', name: '', children: new Map(), fileCount: 0 };
+          for (const file of (files || [])) {
+            const parts = file.rel.split('/');
+            let node = root;
+            for (let i = 0; i < parts.length - 1; i++) {
+              const part = parts[i];
+              if (!node.children.has(part)) {
+                node.children.set(part, { type: 'dir', name: part, children: new Map(), fileCount: 0 });
+              }
+              node = node.children.get(part);
+              node.fileCount += 1;
+            }
+            node.children.set(parts[parts.length - 1], { type: 'file', name: parts[parts.length - 1], rel: file.rel, size: file.size, mtime: file.mtime });
+          }
+          const toArray = (node) => Array.from(node.children.values())
+            .map(child => child.type === 'dir' ? Object.assign({}, child, { children: toArray(child) }) : child)
+            .sort((a, b) => a.type !== b.type ? (a.type === 'dir' ? -1 : 1) : a.name.localeCompare(b.name));
+          return toArray(root);
+        }
+        function renderExampleFileTree(nodes, downloadPrefix) {
+      %>
+        <ul class="custo-tree">
+        <% nodes.forEach(function (node) { %>
+          <% if (node.type === 'dir') { %>
+            <li class="custo-tree-dir">
+              <details open>
+                <summary><%= node.name %>/ <span class="file-meta">(<%= node.fileCount %>)</span></summary>
+                <% renderExampleFileTree(node.children, downloadPrefix); %>
+              </details>
+            </li>
+          <% } else {
+               const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent(downloadPrefix + node.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+          %>
+            <li class="custo-tree-file">
+              <code><%= node.name %></code>
+              <span class="file-meta"><%= (node.size/1024).toFixed(1) %> KB</span>
+              <span class="file-meta"><%= new Date(node.mtime).toLocaleString() %></span>
+              <a class="btn btn-small" href="<%= dlUrl %>" download="<%= node.name %>">Télécharger</a>
+            </li>
+          <% } %>
+        <% }); %>
+        </ul>
+      <% } %>
+
+      <section class="card io-card">
+        <h2>Example bundles (data_examples)</h2>
+        <p class="muted">Complete starter kits — venue map + zones/seats, tariff catalogs, and app branding — organized by scenario.</p>
+        <% if (!dataExamplesList || !dataExamplesList.length) { %>
+          <div class="muted">Aucun exemple détecté dans data_examples.</div>
+        <% } else { %>
+          <div class="scroll-limited">
+            <% renderExampleFileTree(buildExampleFileTree(dataExamplesList), 'data_examples/'); %>
+          </div>
+        <% } %>
+      </section>
     </div>
   <% } %>
 
@@ -1856,30 +1916,39 @@
             <% if (!venueResources || !venueResources.length) { %>
               <div class="muted">Aucun plan ou vue détecté.</div>
             <% } else { %>
-              <ul class="file-list scroll-limited">
-                <% for (const venue of venueResources) { %>
-                  <li>
-                    <div><strong><%= venue.venueSlug %></strong></div>
-                    <% if (venue.plan) { const planUrl = urlFor('/' + venue.plan.rel); %>
-                      <div class="file-meta">Plan (<%= (venue.plan.size/1024).toFixed(1) %> KB)
-                        <a class="btn btn-small" href="<%= planUrl %>" download="plan.svg">Télécharger</a>
-                      </div>
-                    <% } else { %>
-                      <div class="file-meta muted">Plan manquant</div>
-                    <% } %>
-                    <% if (venue.views && venue.views.length) { %>
-                      <div class="file-meta">Vues :</div>
-                      <div class="file-meta" style="display:flex;flex-wrap:wrap;gap:6px;">
-                        <% for (const view of venue.views) { const viewUrl = urlFor('/' + view.rel); %>
-                          <a class="btn btn-small" href="<%= viewUrl %>" download="<%= view.slug %>.svg"><%= view.slug %></a>
-                        <% } %>
-                      </div>
-                    <% } else { %>
-                      <div class="file-meta muted">Aucune vue</div>
-                    <% } %>
-                  </li>
-                <% } %>
-              </ul>
+              <div class="scroll-limited">
+                <ul class="custo-tree">
+                  <% for (const venue of venueResources) {
+                       const viewCount = (venue.views || []).length;
+                  %>
+                    <li class="custo-tree-dir">
+                      <details open>
+                        <summary><%= venue.venueSlug %>/ <span class="file-meta">(<%= venue.plan ? '1 plan' : '0 plan' %> + <%= viewCount %> vue<%= viewCount === 1 ? '' : 's' %>)</span></summary>
+                        <ul class="custo-tree">
+                          <% if (venue.plan) { const planUrl = urlFor('/' + venue.plan.rel); %>
+                            <li class="custo-tree-file">
+                              <code>plan.svg</code>
+                              <span class="file-meta"><%= (venue.plan.size/1024).toFixed(1) %> KB</span>
+                              <span class="file-meta"><%= new Date(venue.plan.mtime).toLocaleString() %></span>
+                              <a class="btn btn-small" href="<%= planUrl %>" download="plan.svg">Télécharger</a>
+                            </li>
+                          <% } else { %>
+                            <li class="custo-tree-file"><span class="file-meta muted">Plan manquant</span></li>
+                          <% } %>
+                          <% for (const view of (venue.views || [])) { const viewUrl = urlFor('/' + view.rel); %>
+                            <li class="custo-tree-file">
+                              <code><%= view.slug %>.svg</code>
+                              <span class="file-meta"><%= (view.size/1024).toFixed(1) %> KB</span>
+                              <span class="file-meta"><%= new Date(view.mtime).toLocaleString() %></span>
+                              <a class="btn btn-small" href="<%= viewUrl %>" download="<%= view.slug %>.svg">Télécharger</a>
+                            </li>
+                          <% } %>
+                        </ul>
+                      </details>
+                    </li>
+                  <% } %>
+                </ul>
+              </div>
             <% } %>
           </div>
         </section>

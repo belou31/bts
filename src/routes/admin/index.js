@@ -41,6 +41,7 @@ const router = express.Router();
 
 const ROOT_DIR = process.cwd();
 const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data_references');
+const DATA_EXAMPLES_ROOT = path.resolve(ROOT_DIR, 'data_examples');
 const CUSTOM_ROOT = path.resolve(ROOT_DIR, 'data/customization');
 const DATA_TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
 const DATA_ASSETS_ROOT = path.resolve(ROOT_DIR, 'data/assets');
@@ -661,6 +662,7 @@ router.get('/doc', (req, res) => {
   const envTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'env'));
   const svgTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'svg'));
   const customization  = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'customization'));
+  const dataExamplesList = listTemplatesRecursive(DATA_EXAMPLES_ROOT);
 
   return res.render('admin/index', {
     basePath: BASE_PATH || '',
@@ -682,6 +684,7 @@ router.get('/doc', (req, res) => {
     templatesEnv: envTemplates,
     templatesSvg: svgTemplates,
     customizationList: customization,
+    dataExamplesList,
     operateOptions: {
       venues: [],
       seasons: [],
@@ -2233,19 +2236,24 @@ router.get('/templates/download', (req, res) => {
     const isCustomization = rawPath.startsWith('data/customization');
     const isDataTemplates = rawPath.startsWith('data/templates');
     const isDataAssets = rawPath.startsWith('data/assets');
+    const isDataExamples = rawPath.startsWith('data_examples');
     const baseRoot = isCustomization
       ? CUSTOM_ROOT
       : isDataTemplates
         ? DATA_TEMPLATES_ROOT
         : isDataAssets
           ? DATA_ASSETS_ROOT
-          : TEMPLATES_ROOT;
+          : isDataExamples
+            ? DATA_EXAMPLES_ROOT
+            : TEMPLATES_ROOT;
     const relative = isCustomization
       ? rawPath.replace(/^data\/customization\/?/, '')
       : isDataTemplates
         ? rawPath.replace(/^data\/templates\/?/, '')
       : isDataAssets
         ? rawPath.replace(/^data\/assets\/?/, '')
+      : isDataExamples
+        ? rawPath.replace(/^data_examples\/?/, '')
       : rawPath
           .replace(/^data_references\/?/, '')
           .replace(/^data_templates\/?/, '')
