@@ -47,94 +47,6 @@ export const adminScriptGroups = [
         description: 'Verifies the consistency of APP_URL/BASE_PATH and payment provider configuration for the current APP_ENV.'
       },
       {
-        id: 'customize-app',
-        label: 'Customize Application',
-        order: 2,
-        path: 'scripts/00-system-management/customize-app.js',
-        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]',
-        run: {
-          script: 'scripts/00-system-management/customize-app.js',
-          args: []
-        },
-        description: 'Stages organization assets (favicon, logos, app icons) to public/dynamic/assets and saves metadata under data/customization.',
-        templates: ['data_references/customization/app.json'],
-        notes: [
-          'Input files can be referenced by absolute path or relative to data/inputs.',
-          'Use --dry-run to preview the configuration without writing files.',
-          'Run with --show to print the current customization metadata.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'name',
-              label: 'Nom complet de l’organisation',
-              placeholder: 'Belougas Ticketing System',
-              arg: { type: 'option', template: '--name=${value}' }
-            },
-            {
-              name: 'shortName',
-              label: 'Nom abrégé',
-              placeholder: 'BTS',
-              arg: { type: 'option', template: '--short-name=${value}' }
-            },
-            {
-              name: 'favicon',
-              label: 'Favicon (.ico)',
-              placeholder: 'public/dynamic/assets/favicon.ico',
-              arg: { type: 'option', template: '--favicon=${value}' }
-            },
-            {
-              name: 'logoSvg',
-              label: 'Logo vectoriel (.svg)',
-              placeholder: 'public/dynamic/assets/logo.svg',
-              arg: { type: 'option', template: '--logo-svg=${value}' }
-            },
-            {
-              name: 'logoPng',
-              label: 'Logo bitmap (.png)',
-              placeholder: 'public/dynamic/assets/logo.png',
-              arg: { type: 'option', template: '--logo-png=${value}' }
-            },
-            {
-              name: 'icon192',
-              label: 'Icône 192×192 (.png)',
-              placeholder: 'public/dynamic/assets/icon-192.png',
-              arg: { type: 'option', template: '--icon-192=${value}' }
-            },
-            {
-              name: 'icon512',
-              label: 'Icône 512×512 (.png)',
-              placeholder: 'public/dynamic/assets/icon-512.png',
-              arg: { type: 'option', template: '--icon-512=${value}' }
-            }
-          ]
-        }
-      },
-      {
-        id: 'set-default-custo',
-        label: 'Set Default Customization',
-        order: 3,
-        path: 'scripts/00-system-management/set-default-custo.js',
-        command: 'node scripts/00-system-management/set-default-custo.js --file=<customization.json>',
-        run: {
-          script: 'scripts/00-system-management/set-default-custo.js',
-          args: []
-        },
-        description: 'Writes default UI/email copy customizations to data/customization/default.json.',
-        templates: ['data/customization/default.json'],
-        form: {
-          fields: [
-            {
-              name: 'file',
-              label: 'JSON customization',
-              placeholder: 'data/customization/default.json',
-              required: true,
-              arg: { type: 'option', template: '--file=${value}' }
-            }
-          ]
-        }
-      },
-      {
         id: 'purge-logs',
         label: 'Purge Logs (Mongo)',
         order: 4,
@@ -201,6 +113,166 @@ export const adminScriptGroups = [
           'Nécessite pm2 installé et la config du process bts-logrotate disponible.',
           'Fait un restart, puis start en fallback.'
         ]
+      }
+    ]
+  },
+  {
+    id: '00-organization-management',
+    label: '00 — Organization Management',
+    // Between System (0) and Venue (1), without renumbering either — same
+    // technique as 03-season-management-renewal's 3.5. More scripts expected
+    // here later (payment provider setup, email account, ...), hence its own
+    // chapter rather than folding into System.
+    order: 0.5,
+    description: 'Organization-wide setup: branding and default customization today; payment provider, email account, and similar org-level configuration expected to land here too.',
+    scripts: [
+      {
+        id: 'customize-app',
+        label: 'Customize Application',
+        order: 0,
+        path: 'scripts/00-system-management/customize-app.js',
+        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]',
+        run: {
+          script: 'scripts/00-system-management/customize-app.js',
+          args: []
+        },
+        description: 'Stages organization assets (favicon, logos, app icons) to public/dynamic/assets and saves metadata under data/customization.',
+        templates: ['data_references/customization/app.json'],
+        notes: [
+          'Input files can be referenced by absolute path or relative to data/inputs.',
+          'Use --dry-run to preview the configuration without writing files.',
+          'Run with --show to print the current customization metadata.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'name',
+              label: 'Nom complet de l’organisation',
+              placeholder: 'Belougas Ticketing System',
+              arg: { type: 'option', template: '--name=${value}' }
+            },
+            {
+              name: 'shortName',
+              label: 'Nom abrégé',
+              placeholder: 'BTS',
+              arg: { type: 'option', template: '--short-name=${value}' }
+            },
+            {
+              name: 'favicon',
+              label: 'Favicon (.ico)',
+              placeholder: 'public/dynamic/assets/favicon.ico',
+              arg: { type: 'option', template: '--favicon=${value}' }
+            },
+            {
+              name: 'logoSvg',
+              label: 'Logo vectoriel (.svg)',
+              placeholder: 'public/dynamic/assets/logo.svg',
+              arg: { type: 'option', template: '--logo-svg=${value}' }
+            },
+            {
+              name: 'logoPng',
+              label: 'Logo bitmap (.png)',
+              placeholder: 'public/dynamic/assets/logo.png',
+              arg: { type: 'option', template: '--logo-png=${value}' }
+            },
+            {
+              name: 'icon192',
+              label: 'Icône 192×192 (.png)',
+              placeholder: 'public/dynamic/assets/icon-192.png',
+              arg: { type: 'option', template: '--icon-192=${value}' }
+            },
+            {
+              name: 'icon512',
+              label: 'Icône 512×512 (.png)',
+              placeholder: 'public/dynamic/assets/icon-512.png',
+              arg: { type: 'option', template: '--icon-512=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-default-custo',
+        label: 'Set Default Customization',
+        order: 1,
+        path: 'scripts/00-system-management/set-default-custo.js',
+        command: 'node scripts/00-system-management/set-default-custo.js --file=<customization.json>',
+        run: {
+          script: 'scripts/00-system-management/set-default-custo.js',
+          args: []
+        },
+        description: 'Writes default UI/email copy customizations to data/customization/default.json.',
+        templates: ['data/customization/default.json'],
+        form: {
+          fields: [
+            {
+              name: 'file',
+              label: 'JSON customization',
+              placeholder: 'data/customization/default.json',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'import-templates',
+        label: 'Import Email/Ticket Template',
+        order: 2,
+        path: 'scripts/00-system-management/import-templates.js',
+        command: 'node scripts/00-system-management/import-templates.js --resource=<email|ticket|logo> --file=<path> [--kind=<kind>] [--theme=<name>]',
+        run: {
+          script: 'scripts/00-system-management/import-templates.js',
+          args: []
+        },
+        description: 'Imports a single email or ticket template file (any filename — no naming convention required) as the given kind, with an optional theme variant — or stages a logo asset into data/assets/. Delegates to set-email-template.js / set-ticket-template.js, so the same validation/diff preview applies.',
+        templates: ['data_references/README.md'],
+        notes: [
+          'Email/Ticket: pick the resource, kind, and (optionally) theme explicitly; nothing is inferred from the filename.',
+          'kind options combine both resources\' known values; a kind that doesn\'t apply to the chosen resource (e.g. "renew" for a ticket) is still accepted but flagged as unreachable — same behavior as running set-*-template.js directly.',
+          'theme is free text — any name (e.g. halloween, partner01) — and must match a "theme" customization key for it to actually be selected at send time.',
+          'Logo: just copies the file into data/assets/ — kind/theme are ignored. Staging the file alone changes nothing; set the "logo" customization key (e.g. via set-partner-custo.js) to "assets/<filename>" so a ticket actually picks it up, same mechanism as "theme".',
+          'Use --dry-run to preview without writing files.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'resource',
+              label: 'Type',
+              required: true,
+              arg: { type: 'option', template: '--resource=${value}' },
+              options: [
+                { label: 'Email', value: 'email' },
+                { label: 'Ticket', value: 'ticket' },
+                { label: 'Logo (ticket asset)', value: 'logo' }
+              ]
+            },
+            {
+              name: 'kind',
+              label: 'Kind (ignoré pour Logo)',
+              arg: { type: 'option', template: '--kind=${value}' },
+              options: [
+                { label: 'renew', value: 'renew' },
+                { label: 'subscription', value: 'subscription' },
+                { label: 'event', value: 'event' },
+                { label: 'public', value: 'public' },
+                { label: 'default (ticket only)', value: 'default' }
+              ]
+            },
+            {
+              name: 'file',
+              label: 'Fichier source',
+              placeholder: 'data/inputs/mon-fichier.html',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
+              name: 'theme',
+              label: 'Thème (optionnel, texte libre, ignoré pour Logo)',
+              placeholder: 'halloween, partner01...',
+              arg: { type: 'option', template: '--theme=${value}' }
+            }
+          ]
+        }
       }
     ]
   },

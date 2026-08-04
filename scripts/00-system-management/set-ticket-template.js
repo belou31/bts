@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Promotes an SVG file into data/templates/tickets/ (and optionally a logo
-// into data/templates/assets/) and registers it in data/templates/templates.json
+// into data/assets/) and registers it in data/templates/templates.json
 // under tickets.templates.<kind>.
 //
 // "kind" is what buildTicketsPdfBuffer() in src/services/tickets-pdf.js
@@ -66,11 +66,11 @@ if (dryRun) {
 let logoPatch = {};
 if (args.logo && !theme) {
   const logoTargetName = path.basename(args.logo);
-  const logoTargetPath = path.resolve(process.cwd(), 'data', 'templates', 'assets', logoTargetName);
+  const logoTargetPath = path.resolve(process.cwd(), 'data', 'assets', logoTargetName);
   const logoResult = copyTemplateFile({ sourcePath: args.logo, targetPath: logoTargetPath });
   console.log(logoResult.existed
-    ? (logoResult.changed ? `  ~ assets/${logoTargetName} (logo) will be overwritten` : `  (logo unchanged: assets/${logoTargetName})`)
-    : `  (new logo file: assets/${logoTargetName})`);
+    ? (logoResult.changed ? `  ~ data/assets/${logoTargetName} (logo) will be overwritten` : `  (logo unchanged: data/assets/${logoTargetName})`)
+    : `  (new logo file: data/assets/${logoTargetName})`);
   if (dryRun) {
     console.log(`🧪 Dry-run — would write ${logoTargetPath} (nothing written).`);
   } else if (logoResult.changed) {

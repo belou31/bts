@@ -89,6 +89,16 @@
     .scripts-card {
       margin-top: 24px;
     }
+    .intro-card { margin-top: 24px; }
+    .intro-group { margin-top: 20px; }
+    .intro-group:first-of-type { margin-top: 12px; }
+    .intro-group h3 { margin: 0 0 2px 0; font-size: 15px; }
+    .intro-group-desc { margin: 0 0 8px 0; font-size: 13px; }
+    .intro-list { list-style: none; margin: 0; padding: 0; }
+    .intro-list li { padding: 5px 0; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+    .intro-list li:last-child { border-bottom: none; }
+    .intro-list a { font-weight: 500; }
+    .intro-item-desc { color: var(--muted); font-size: 13px; }
     .tab-stack {
       display: flex;
       flex-direction: column;
@@ -519,6 +529,9 @@
       margin-top: 0;
       margin-bottom: 6px;
     }
+    .muted {
+      color: var(--muted);
+    }
     .io-subsection .muted {
       margin-bottom: 8px;
       display: block;
@@ -820,8 +833,15 @@
     ];
     const monitorHref = (tab) => `${baseMonitor}${baseMonitor.includes('?') ? '&' : '?'}monitorTab=${tab}`;
     const docHref = (tab) => `${baseTemplates}${baseTemplates.includes('?') ? '&' : '?'}docTab=${tab}`;
+    // "Overview" lands each category on its intro/index page (see the
+    // "showXxxIntro" blocks below) instead of jumping straight into the
+    // first chapter — that's what the "BTS Admin" pulldown links to.
+    const showOperateIntro = viewMode === 'operate' && !activeGroupId;
+    const showDocIntro = viewMode === 'templates' && !docTab;
+    const showMonitorIntro = viewMode === 'monitor' && !monitorTab;
     const categoryChapters = {
       operate: [
+        { id: 'overview', label: 'Overview', href: baseOperate, active: showOperateIntro },
         { id: 'io', label: 'I/O', href: baseIo, active: viewMode === 'io' },
         ...(scriptGroups || []).map((g) => ({
           id: g.id,
@@ -831,21 +851,23 @@
         }))
       ],
       templates: [
-        { id: 'guides', label: 'User guides', href: docHref('guides'), active: viewMode === 'templates' && docTab === 'guides' },
-        { id: 'references', label: 'Data references', href: docHref('references'), active: viewMode === 'templates' && docTab === 'references' },
-        { id: 'examples', label: 'Data examples', href: docHref('examples'), active: viewMode === 'templates' && docTab === 'examples' }
+        { id: 'overview', label: 'Overview', href: baseTemplates, active: showDocIntro },
+        { id: 'guides', label: 'User guides', description: 'Step-by-step operator walkthroughs.', href: docHref('guides'), active: viewMode === 'templates' && docTab === 'guides' },
+        { id: 'references', label: 'Data references', description: 'Blank templates to copy before filling in real values (CSV, .env, customization JSON...).', href: docHref('references'), active: viewMode === 'templates' && docTab === 'references' },
+        { id: 'examples', label: 'Data examples', description: 'Filled-in example files (email/ticket templates) to use as a starting point.', href: docHref('examples'), active: viewMode === 'templates' && docTab === 'examples' }
       ],
       monitor: [
-        { id: 'custo', label: 'Custo files', href: monitorHref('custo'), active: viewMode === 'monitor' && monitorTab === 'custo' },
-        { id: 'system', label: 'Système', href: monitorHref('system'), active: viewMode === 'monitor' && monitorTab === 'system' },
-        { id: 'venue', label: 'Lieux', href: monitorHref('venue'), active: viewMode === 'monitor' && monitorTab === 'venue' },
-        { id: 'tariffs', label: 'Tarifs', href: monitorHref('tariffs'), active: viewMode === 'monitor' && monitorTab === 'tariffs' },
-        { id: 'seasons', label: 'Saisons', href: monitorHref('seasons'), active: viewMode === 'monitor' && monitorTab === 'seasons' },
-        { id: 'events', label: 'Événements', href: monitorHref('events'), active: viewMode === 'monitor' && monitorTab === 'events' },
-        { id: 'partners', label: 'Partenaires', href: monitorHref('partners'), active: viewMode === 'monitor' && monitorTab === 'partners' },
-        { id: 'plan', label: 'Plan', href: basePlan, active: viewMode === 'plan' },
-        { id: 'orders', label: 'Orders', href: baseOrders, active: viewMode === 'orders' },
-        { id: 'tickets', label: 'Tickets', href: baseTickets, active: viewMode === 'tickets' }
+        { id: 'overview', label: 'Overview', href: baseMonitor, active: showMonitorIntro },
+        { id: 'custo', label: 'Custo files', description: 'Parcourt data/customization et data/templates sous forme d’arborescence.', href: monitorHref('custo'), active: viewMode === 'monitor' && monitorTab === 'custo' },
+        { id: 'system', label: 'Système', description: 'État serveur, MongoDB, connexions actives.', href: monitorHref('system'), active: viewMode === 'monitor' && monitorTab === 'system' },
+        { id: 'venue', label: 'Lieux', description: 'Lieux enregistrés, zones, plans associés.', href: monitorHref('venue'), active: viewMode === 'monitor' && monitorTab === 'venue' },
+        { id: 'tariffs', label: 'Tarifs', description: 'Catalogues et grilles tarifaires par lieu/saison.', href: monitorHref('tariffs'), active: viewMode === 'monitor' && monitorTab === 'tariffs' },
+        { id: 'seasons', label: 'Saisons', description: 'Saisons enregistrées et leur statut.', href: monitorHref('seasons'), active: viewMode === 'monitor' && monitorTab === 'seasons' },
+        { id: 'events', label: 'Événements', description: 'Événements enregistrés et leur statut de vente.', href: monitorHref('events'), active: viewMode === 'monitor' && monitorTab === 'events' },
+        { id: 'partners', label: 'Partenaires', description: 'Partenaires configurés, mode de paiement, tarifs publics.', href: monitorHref('partners'), active: viewMode === 'monitor' && monitorTab === 'partners' },
+        { id: 'plan', label: 'Plan', description: 'Visualisation du plan de salle et de l’occupation des sièges.', href: basePlan, active: viewMode === 'plan' },
+        { id: 'orders', label: 'Orders', description: 'Recherche et détail des commandes.', href: baseOrders, active: viewMode === 'orders' },
+        { id: 'tickets', label: 'Tickets', description: 'Recherche et détail des billets émis.', href: baseTickets, active: viewMode === 'tickets' }
       ]
     };
     const activeCategory = navCategories.find((c) => c.id === activeCategoryId);
@@ -960,7 +982,43 @@
     </div>
   <% } %>
 
-  <% if (viewMode === 'templates') { %>
+  <% if (viewMode === 'home') { %>
+    <section class="card intro-card">
+      <h2>BTS — Administration</h2>
+      <p class="muted">Choose a section below.</p>
+      <ul class="intro-list">
+        <li>
+          <a href="<%= baseOperate %>">Operation</a>
+          <span class="intro-item-desc">Run setup, import, and export scripts — organized by chapter.</span>
+        </li>
+        <li>
+          <a href="<%= baseMonitor %>">Monitoring</a>
+          <span class="intro-item-desc">Inspect current system state: files, orders, tickets, seating plan.</span>
+        </li>
+        <li>
+          <a href="<%= baseTemplates %>">Documentation</a>
+          <span class="intro-item-desc">Guides, reference templates, and example files.</span>
+        </li>
+      </ul>
+    </section>
+  <% } %>
+
+  <% if (showDocIntro) { %>
+    <section class="card intro-card">
+      <h2>Documentation — Overview</h2>
+      <p class="muted">Pick a chapter below, or use the dropdown above.</p>
+      <ul class="intro-list">
+        <% for (const ch of categoryChapters.templates) { if (ch.id === 'overview') continue; %>
+          <li>
+            <a href="<%= ch.href %>"><%= ch.label %></a>
+            <% if (ch.description) { %><span class="intro-item-desc"><%= ch.description %></span><% } %>
+          </li>
+        <% } %>
+      </ul>
+    </section>
+  <% } %>
+
+  <% if (viewMode === 'templates' && docTab) { %>
     <div class="monitoring-panel <%= docTab === 'guides' ? 'active' : '' %>" data-doc-panel="guides">
       <div class="operations-grid io-layout">
         <section class="card io-card">
@@ -1095,13 +1153,13 @@
 
         <section class="card io-card">
           <h2>Assets</h2>
-          <h3>Assets (data_references/templates/assets)</h3>
+          <h3>Assets (data_references/assets)</h3>
           <% if (!templatesAssets || !templatesAssets.length) { %>
-            <div class="muted">Aucun asset détecté dans data_references/templates/assets.</div>
+            <div class="muted">Aucun asset détecté dans data_references/assets.</div>
           <% } else { %>
             <ul class="file-list scroll-limited">
               <% for (const file of templatesAssets || []) {
-                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/assets/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/assets/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
               %>
                 <li>
                   <code><%= file.rel %></code>
@@ -1394,7 +1452,36 @@
     </div>
   <% } %>
 
-  <% if (viewMode === 'operate') { %>
+  <% if (showOperateIntro) { %>
+    <section class="card intro-card">
+      <h2>Operation — Overview</h2>
+      <p class="muted">Pick a script below, or use the chapter dropdown above to jump straight to one.</p>
+      <ul class="intro-list">
+        <li>
+          <a href="<%= baseIo %>">I/O</a>
+          <span class="intro-item-desc">Upload/download data files (inputs, outputs) — not a script.</span>
+        </li>
+      </ul>
+      <% for (const group of scriptGroups || []) { %>
+        <div class="intro-group">
+          <h3><%= group.label %></h3>
+          <% if (group.description) { %><p class="muted intro-group-desc"><%= group.description %></p><% } %>
+          <ul class="intro-list">
+            <% for (const script of group.scripts || []) {
+                 const scriptHref = `${baseOperate}${baseOperate.includes('?') ? '&' : '?'}group=${encodeURIComponent(group.id)}#script-${encodeURIComponent(script.id)}`;
+            %>
+              <li>
+                <a href="<%= scriptHref %>"><%= script.label %></a>
+                <span class="intro-item-desc"><%= script.description %></span>
+              </li>
+            <% } %>
+          </ul>
+        </div>
+      <% } %>
+    </section>
+  <% } %>
+
+  <% if (viewMode === 'operate' && activeGroupId) { %>
     <section class="card scripts-card">
       <h2>Scripts opérationnels</h2>
       <p style="color: var(--muted); margin-bottom: 16px;">
@@ -1411,7 +1498,7 @@
                const automationJobList = (automationJobs && automationJobs[script.id]) || [];
                const defaultDryRun = script.automation && script.automation.defaultDryRun ? 'true' : 'false';
           %>
-            <article class="script-item <%= script.danger ? 'danger' : '' %>">
+            <article class="script-item <%= script.danger ? 'danger' : '' %>" id="script-<%= script.id %>">
               <header>
                 <div class="title"><%= script.label %></div>
                 <div class="badge">#<%= script.order != null ? script.order.toString().padStart(2,'0') : '—' %></div>
@@ -1631,7 +1718,22 @@
     </section>
   <% } %>
 
-  <% if (viewMode === 'monitor' && monitoring) { %>
+  <% if (viewMode === 'monitor' && monitoring && !monitorTab) { %>
+    <section class="card intro-card">
+      <h2>Monitoring — Overview</h2>
+      <p class="muted">Pick a view below, or use the dropdown above.</p>
+      <ul class="intro-list">
+        <% for (const ch of categoryChapters.monitor) { if (ch.id === 'overview') continue; %>
+          <li>
+            <a href="<%= ch.href %>"><%= ch.label %></a>
+            <% if (ch.description) { %><span class="intro-item-desc"><%= ch.description %></span><% } %>
+          </li>
+        <% } %>
+      </ul>
+    </section>
+  <% } %>
+
+  <% if (viewMode === 'monitor' && monitoring && monitorTab) { %>
 
     <div class="monitoring-panel <%= monitorTab === 'custo' ? 'active' : '' %>" data-monitor-panel="custo">
       <div class="operations-grid io-layout io-layout-2col">
@@ -1708,6 +1810,17 @@
             <% } else { %>
               <div class="scroll-limited">
                 <% renderFileTree(buildFileTree(dataTemplatesList), 'data/templates/'); %>
+              </div>
+            <% } %>
+          </div>
+
+          <div class="io-subsection">
+            <h3>Assets (data/assets)</h3>
+            <% if (!dataAssetsList || !dataAssetsList.length) { %>
+              <div class="muted">Aucun asset détecté.</div>
+            <% } else { %>
+              <div class="scroll-limited">
+                <% renderFileTree(buildFileTree(dataAssetsList), 'data/assets/'); %>
               </div>
             <% } %>
           </div>

@@ -43,6 +43,7 @@ const ROOT_DIR = process.cwd();
 const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data_references');
 const CUSTOM_ROOT = path.resolve(ROOT_DIR, 'data/customization');
 const DATA_TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
+const DATA_ASSETS_ROOT = path.resolve(ROOT_DIR, 'data/assets');
 const DYNAMIC_ROOT = path.resolve(ROOT_DIR, 'public/dynamic');
 const DYNAMIC_ASSETS_ROOT = path.resolve(DYNAMIC_ROOT, 'assets');
 const DYNAMIC_VENUES_ROOT = path.resolve(DYNAMIC_ROOT, 'venues');
@@ -549,8 +550,43 @@ const NAV_SCRIPT_GROUPS = prepareScriptCatalog().scriptGroups;
 
 /* ===================== Page HTML ===================== */
 router.get('/', (req, res) => {
-  const qs = new URLSearchParams(req.query);
   const view = (req.query.view || '').toString();
+
+  // No ?view= → render the admin home page (intro + the three sections)
+  // instead of redirecting into Operation. An explicit ?view= keeps the
+  // old direct-redirect behavior for any bookmarked/typed links.
+  if (!view) {
+    const token = (req.query.token || '').toString();
+    const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+    const tokenSuffix = token ? `?${tokenQuery}` : '';
+    return res.render('admin/index', {
+      basePath: BASE_PATH || '',
+      token,
+      tokenQuery,
+      tokenSuffix,
+      urlFor,
+      scriptGroups: NAV_SCRIPT_GROUPS,
+      scriptForms: {},
+      automationScripts: [],
+      automationJobs: {},
+      activeGroupId: null,
+      outputsList: [],
+      inputsList: [],
+      operateOptions: {
+        venues: [], seasons: [], events: [], partners: [], tariffCatalogs: [],
+        inputFiles: [], assetFiles: [], customizationFiles: [], venueViews: []
+      },
+      viewMode: 'home',
+      monitorTab: null,
+      docTab: null,
+      monitoring: null,
+      planView: null,
+      ordersView: null,
+      ticketsView: null
+    });
+  }
+
+  const qs = new URLSearchParams(req.query);
   qs.delete('view');
   const suffix = qs.toString();
   let target = urlFor('/admin/operate');
@@ -612,13 +648,15 @@ router.get('/doc', (req, res) => {
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
+  // No ?docTab= → show the Documentation overview page instead of
+  // defaulting to "guides" (see the "!docTab" intro block in the view).
   const docTab = DOC_TAB_OPTIONS.has((req.query.docTab || '').toString())
     ? req.query.docTab.toString()
-    : 'guides';
+    : null;
 
   const emailTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'email'));
   const ticketTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'tickets'));
-  const assetTemplates  = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'assets'));
+  const assetTemplates  = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'assets'));
   const csvTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'csv'));
   const envTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'env'));
   const svgTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'svg'));
@@ -1155,9 +1193,11 @@ router.get('/operate', async (req, res) => {
 
   const { scriptGroups, scriptForms, automationScripts } = prepareScriptCatalog();
 
+  // No ?group= → show the Operation overview page instead of defaulting to
+  // the first chapter (see the "!activeGroupId" intro block in the view).
   const activeGroupId = typeof req.query.group === 'string' && req.query.group
     ? req.query.group
-    : (scriptGroups[0]?.id || null);
+    : null;
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
@@ -1376,11 +1416,14 @@ router.get('/monitor', async (req, res) => {
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
   const monitorTabOptions = new Set(['custo', 'system', 'venue', 'tariffs', 'seasons', 'events', 'partners']);
-  const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : 'system';
+  // No ?monitorTab= → show the Monitoring overview page instead of
+  // defaulting to "system" (see the "!monitorTab" intro block in the view).
+  const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : null;
 
   const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
   const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
   const dataTemplatesList = listTemplatesRecursive(DATA_TEMPLATES_ROOT);
+  const dataAssetsList = listTemplatesRecursive(DATA_ASSETS_ROOT);
   const venueResources = listVenueResources();
 
   const [
@@ -1861,6 +1904,7 @@ router.get('/monitor', async (req, res) => {
     dynamicAssetsList,
     venueResources,
     dataTemplatesList,
+    dataAssetsList,
     customizationList
   });
 });
@@ -2188,15 +2232,20 @@ router.get('/templates/download', (req, res) => {
   try {
     const isCustomization = rawPath.startsWith('data/customization');
     const isDataTemplates = rawPath.startsWith('data/templates');
+    const isDataAssets = rawPath.startsWith('data/assets');
     const baseRoot = isCustomization
       ? CUSTOM_ROOT
       : isDataTemplates
         ? DATA_TEMPLATES_ROOT
-        : TEMPLATES_ROOT;
+        : isDataAssets
+          ? DATA_ASSETS_ROOT
+          : TEMPLATES_ROOT;
     const relative = isCustomization
       ? rawPath.replace(/^data\/customization\/?/, '')
       : isDataTemplates
         ? rawPath.replace(/^data\/templates\/?/, '')
+      : isDataAssets
+        ? rawPath.replace(/^data\/assets\/?/, '')
       : rawPath
           .replace(/^data_references\/?/, '')
           .replace(/^data_templates\/?/, '')

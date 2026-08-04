@@ -9,7 +9,7 @@ import { buildTicketsPdfBuffer as buildTicketsPdfBufferFromService } from './tic
 import { isZoneUnit } from '../utils/seat-id.js';
 import { formatCurrency, formatCurrencyPlain, formatDate } from '../utils/format.js';
 import { t, getCatalog, DEFAULT_LOCALE } from '../utils/i18n.js';
-import { resolveThemeForOrder } from './customization.js';
+import { resolveThemeForOrder, resolveCustomizationForOrder } from './customization.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -58,12 +58,34 @@ const EMAIL_SUBJECT_ENV = {
   event: process.env.EMAIL_SUBJECT_EVENT_CONFIRM || null
 };
 
+// Subject text lives in data/customization (default.json baseline, overridable
+// per season/event/partner) rather than data/templates/templates.json — it's
+// genuine translatable content, not file routing, so it belongs with every
+// other piece of copy and gets the same layering (e.g. an event-specific or
+// partner-specific subject line, which templates.json could never express).
+const SUBJECT_CUSTOMIZATION_KEY_BY_KIND = {
+  renew: 'renew.emailSubject',
+  subscription: 'subscription.emailSubject',
+  event: 'event.emailSubject',
+  public: 'public.emailSubject'
+};
+
+function customSubjectForOrder(order, kind) {
+  const key = SUBJECT_CUSTOMIZATION_KEY_BY_KIND[kind];
+  if (!key) return null;
+  const value = resolveCustomizationForOrder(order)[key];
+  return (typeof value === 'string' && value.trim()) ? value.trim() : null;
+}
+
 const SUBJECT_KEY_BY_KIND = {
   renew: 'email.subjectRenew',
   subscription: 'email.subjectSubscription',
   event: 'email.subjectEvent'
 };
 
+// Last-resort fallback if default.json's own customization key is ever
+// missing (e.g. a corrupted/fresh install) — normally unreachable, since
+// SUBJECT_CUSTOMIZATION_KEY_BY_KIND's default.json values always exist.
 function defaultSubjectForKind(kind, locale) {
   return t(SUBJECT_KEY_BY_KIND[kind] || SUBJECT_KEY_BY_KIND.renew, locale);
 }
@@ -100,10 +122,7 @@ async function getEmailConfig() {
         if (!entry || typeof entry !== 'object') continue;
         const file = entry.file || entry.template || entry.name;
         if (!file) continue;
-        merged[kind] = {
-          file,
-          subject: entry.subject || merged[kind]?.subject || null
-        };
+        merged[kind] = { file }; // subject: see SUBJECT_CUSTOMIZATION_KEY_BY_KIND above
       }
     }
     EMAIL_TEMPLATE_CACHE = merged;
@@ -263,19 +282,22 @@ function injectTicketsHtml(html, ticketsHtml) {
 
 
 /**
- * Subject builder (keeps env overrides).
+ * Subject builder. Precedence: env var (ops override) > customization key
+ * (season/event/partner-scoped, see SUBJECT_CUSTOMIZATION_KEY_BY_KIND) >
+ * i18n code default (last-resort fallback).
  */
 export async function subjectForOrder(order) {
   await getEmailConfig().catch(() => {}); // best effort to hydrate cache
   const kind = resolveOrderKind(order);
   const locale = order?.locale || DEFAULT_LOCALE;
+  const customSubject = customSubjectForOrder(order, kind);
   if (kind === 'event') {
     const ename = order?.meta?.eventName || order?.meta?.eventSlug || t('common.match', locale);
-    const base  = EMAIL_SUBJECT_ENV.event || EMAIL_TEMPLATE_CACHE.event?.subject || defaultSubjectForKind('event', locale);
+    const base  = EMAIL_SUBJECT_ENV.event || customSubject || defaultSubjectForKind('event', locale);
     return `${base} — ${ename}`;
   }
 
-  return EMAIL_SUBJECT_ENV[kind] || EMAIL_TEMPLATE_CACHE[kind]?.subject || defaultSubjectForKind(kind, locale);
+  return EMAIL_SUBJECT_ENV[kind] || customSubject || defaultSubjectForKind(kind, locale);
 }
 
 /**

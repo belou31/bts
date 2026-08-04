@@ -74,6 +74,18 @@ export function loadCustomizationDebug({ seasonCode = '', eventSlug = '', partne
   return { layers, merged, provenance, byLocale };
 }
 
+// Shared context extraction: which season/event/partner/locale an Order
+// belongs to, for any code that needs to resolve customization at send time
+// (theme selection, email subject overrides — see below).
+export function resolveCustomizationForOrder(order) {
+  return loadCustomization({
+    seasonCode: order?.seasonCode || '',
+    eventSlug: order?.meta?.eventSlug || '',
+    partnerSlug: order?.meta?.partner?.slug || '',
+    locale: order?.locale || DEFAULT_LOCALE
+  });
+}
+
 // The "theme" customization key selects an email/ticket template variant
 // (see src/services/mailer.js and src/services/tickets-pdf.js) — resolved
 // through the exact same season/event/partner layering as any other
@@ -81,12 +93,16 @@ export function loadCustomizationDebug({ seasonCode = '', eventSlug = '', partne
 // partner's own branding is just a customization file setting "theme",
 // with no separate mechanism. Plain string only — not locale-dependent.
 export function resolveThemeForOrder(order) {
-  const customization = loadCustomization({
-    seasonCode: order?.seasonCode || '',
-    eventSlug: order?.meta?.eventSlug || '',
-    partnerSlug: order?.meta?.partner?.slug || '',
-    locale: order?.locale || DEFAULT_LOCALE
-  });
-  const theme = customization.theme;
+  const theme = resolveCustomizationForOrder(order).theme;
   return typeof theme === 'string' ? theme.trim() : '';
+}
+
+// The "logo" customization key names a file under data/assets/ to embed in
+// a ticket's logo slot — same layering as theme, so a partner's own badge is
+// a customization file setting "logo", with no separate per-kind mechanism.
+// Falls back to data/templates/templates.json's per-kind logo (see
+// src/services/tickets-pdf.js) when unset. Plain string only.
+export function resolveLogoRefForOrder(order) {
+  const logo = resolveCustomizationForOrder(order).logo;
+  return typeof logo === 'string' ? logo.trim() : '';
 }

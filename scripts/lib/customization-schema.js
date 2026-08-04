@@ -22,6 +22,12 @@ export const CUSTOMIZATION_KEYS = {
   'event.payButton':                { status: 'active', usedIn: 'src/routes/index.js (event page + partner/event page)' },
 
   'theme':                           { status: 'active', usedIn: 'src/services/mailer.js + src/services/tickets-pdf.js (resolveThemeForOrder) — selects an email/ticket template variant, e.g. "halloween" tries <kind>-confirmation.halloween.html before falling back to the base file. Plain string only, not a {fr,en} object.' },
+  'logo':                            { status: 'active', usedIn: 'src/services/tickets-pdf.js (resolveLogoRefForOrder) — names a file under data/assets/ (e.g. "assets/partner01-badge.svg") to embed in a ticket\'s logo slot, ahead of the per-kind default in templates.json. Plain string only, not a {fr,en} object.' },
+
+  'renew.emailSubject':              { status: 'active', usedIn: 'src/services/mailer.js (subjectForOrder) — email subject for "renew" kind orders. Loses to EMAIL_SUBJECT_RENEW_CONFIRM env var if set.' },
+  'subscription.emailSubject':       { status: 'active', usedIn: 'src/services/mailer.js (subjectForOrder) — email subject for "subscription" kind orders. Loses to EMAIL_SUBJECT_SUBSCRIPTION_CONFIRM env var if set.' },
+  'event.emailSubject':              { status: 'active', usedIn: 'src/services/mailer.js (subjectForOrder) — email subject prefix for "event" kind orders (event name is appended). Loses to EMAIL_SUBJECT_EVENT_CONFIRM env var if set.' },
+  'public.emailSubject':             { status: 'active', usedIn: 'src/services/mailer.js (subjectForOrder) — email subject for "public" kind orders. No env var override exists for this kind.' },
 
   'subscription.emailConfirmation': { status: 'unused' },
   'subscription.ticket':            { status: 'unused' },

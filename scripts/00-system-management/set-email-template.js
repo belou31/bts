@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 // Promotes an HTML file into data/templates/email/ and registers it in
-// data/templates/templates.json under email.templates.<kind>.
+// data/templates/templates.json under email.templates.<kind> (file path only —
+// see below for subject text).
 //
 // "kind" is what src/services/mailer.js's resolveOrderKind() resolves an
 // Order to (renew/subscription/event/public) — see data_references/README.md
 // > Email & ticket templates for the full flow.
+//
+// Subject text is NOT set here — it's a customization key (<kind>.emailSubject
+// in data/customization/default.json, or scoped per season/event/partner),
+// set with the usual set-*-custo.js scripts, since it's translatable content,
+// not file routing. See SUBJECT_CUSTOMIZATION_KEY_BY_KIND in src/services/mailer.js.
 //
 // --theme=<name> writes a theme variant instead (<kind>-confirmation.<theme>.html)
 // and does NOT touch templates.json — theme variants are picked up purely by
@@ -17,7 +23,7 @@ dotenv.config();
 import { parseArgs, copyTemplateFile, updateTemplatesConfig, printRestartReminder, readTemplatesConfig, KNOWN_EMAIL_KINDS } from '../lib/template-write.js';
 
 function usage() {
-  console.error(`Usage: node scripts/00-system-management/set-email-template.js --kind=<${KNOWN_EMAIL_KINDS.join('|')}|...> --file=<path.html> [--subject="..."] [--theme=<name>] [--target-file=<name.html>] [--dry-run]`);
+  console.error(`Usage: node scripts/00-system-management/set-email-template.js --kind=<${KNOWN_EMAIL_KINDS.join('|')}|...> --file=<path.html> [--theme=<name>] [--target-file=<name.html>] [--dry-run]`);
   process.exit(1);
 }
 
@@ -60,17 +66,15 @@ if (dryRun) {
 }
 
 if (theme) {
-  if (args.subject) {
-    console.log(`ℹ --subject is ignored with --theme: subject text isn't theme-specific — it's still the "${kind}" kind's subject in templates.json. Use set-email-template.js --kind=${kind} --subject=... (no --theme) to change it.`);
-  }
   console.log(`\nℹ No templates.json change needed — "${targetFile}" is picked up automatically whenever a resolved "theme" customization value equals "${theme}" for the order's season/event/partner context.`);
 } else {
   updateTemplatesConfig({
     section: 'email',
     kind,
-    patch: { file: `email/${targetFile}`, ...(args.subject ? { subject: args.subject } : {}) },
+    patch: { file: `email/${targetFile}` },
     dryRun
   });
+  console.log(`ℹ To change this kind's subject line, use a set-*-custo.js script to set the "${kind}.emailSubject" customization key instead (e.g. node scripts/00-system-management/set-default-custo.js --file=... with "${kind}.emailSubject" in it).`);
 }
 
 if (!dryRun) printRestartReminder();

@@ -11,5 +11,9 @@
   "event.payButton": { "fr": "Valider et payer", "en": "Confirm and pay" },
   "event.emailConfirmation": { "fr": "Un email de confirmation sera envoyé après paiement.", "en": "A confirmation email will be sent after payment." },
   "event.ticket": { "fr": "Billets disponibles immédiatement après confirmation.", "en": "Tickets available immediately after confirmation." },
-  "event.confirmation.footer": { "fr": "{{clubName}} — Merci pour votre soutien.", "en": "{{clubName}} — Thank you for your support." }
+  "event.confirmation.footer": { "fr": "{{clubName}} — Merci pour votre soutien.", "en": "{{clubName}} — Thank you for your support." },
+  "renew.emailSubject": { "fr": "Confirmation – Abonnement (Renouvellement)", "en": "Confirmation – Season Pass (Renewal)" },
+  "subscription.emailSubject": { "fr": "Confirmation – Abonnement", "en": "Confirmation – Season Pass" },
+  "event.emailSubject": { "fr": "Confirmation – Billetterie", "en": "Confirmation – Tickets" },
+  "public.emailSubject": { "fr": "Confirmation", "en": "Confirmation" }
 }

@@ -12,12 +12,13 @@ import { formatDate } from '../utils/format.js';
 // Aliased: this file already uses `t` as a local variable for the current
 // ticket object throughout buildTicketsPdfBuffer's loop.
 import { t as translate } from '../utils/i18n.js';
-import { resolveThemeForOrder } from './customization.js';
+import { resolveThemeForOrder, resolveLogoRefForOrder } from './customization.js';
 
 // --- Emplacements / chemins par défaut
 const TICKET_ROOT_RUNTIME     = path.resolve(process.cwd(), 'data', 'templates');
 const TICKET_CONFIG_RUNTIME   = path.resolve(TICKET_ROOT_RUNTIME, 'templates.json');
 const TICKET_DIR_RUNTIME      = path.join(TICKET_ROOT_RUNTIME, 'tickets');
+const DATA_ROOT_RUNTIME       = path.resolve(process.cwd(), 'data'); // data/assets/... — assets live alongside templates/, not inside it
 const DEFAULT_LOGO            = path.resolve(process.cwd(), 'public', 'dynamic', 'assets', 'logo.png');
 
 const DEFAULT_TICKET_CONFIG = {
@@ -105,6 +106,8 @@ async function resolveLogoPath(logoRef) {
   } else if (candidate) {
     const runtime = path.resolve(TICKET_DIR_RUNTIME, candidate);
     if (await fs.stat(runtime).then(st => st.isFile()).catch(() => false)) return runtime;
+    const dataAsset = path.resolve(DATA_ROOT_RUNTIME, candidate);
+    if (await fs.stat(dataAsset).then(st => st.isFile()).catch(() => false)) return dataAsset;
     const runtimeRoot = path.resolve(TICKET_ROOT_RUNTIME, candidate);
     if (await fs.stat(runtimeRoot).then(st => st.isFile()).catch(() => false)) return runtimeRoot;
     const absoluteFromRoot = path.resolve(process.cwd(), candidate);
@@ -312,7 +315,8 @@ export async function buildTicketsPdfBuffer(order) {
   const rawSvg   = sanitizeInlineSvg(await fs.readFile(tplPath, 'utf8'));
 
   const logoPathEnv = process.env.CLUB_LOGO_SVG_PATH;
-  const logoPath = logoPathEnv || (tplEntry?.logo ?? null);
+  const customLogo = resolveLogoRefForOrder(order);
+  const logoPath = logoPathEnv || customLogo || (tplEntry?.logo ?? null);
   let logoSvg  = '';
   const resolvedLogo = await resolveLogoPath(logoPath);
   if (resolvedLogo) {
