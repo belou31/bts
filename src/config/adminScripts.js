@@ -12,7 +12,7 @@
 export const adminScriptGroups = [
   {
     id: '00-system-management',
-    label: '00 — System Management',
+    label: '00 — System',
     order: 0,
     description: 'Initialization tasks that prepare the environment, validate configuration, and stage tenant-specific assets.',
     scripts: [
@@ -117,13 +117,127 @@ export const adminScriptGroups = [
     ]
   },
   {
+    id: '00-client-management',
+    label: '00 — Client',
+    // Same "00 -" insertion technique as the season-renewal chapter (order
+    // 3.5): a new chapter between System (0) and Organization (0.6), no
+    // renumbering. Sorts before Organization: 00 System > 00 Client >
+    // 01 Organization > 01 Venue > 02 Tariff ...
+    order: 0.3,
+    description: 'Deployment tooling for what runs on an operator/client\'s own side: the downloadable BTS Desktop bundle, and the Google Sheets integration (shared library + per-event spreadsheet).',
+    guide: {
+      title: 'Google Auth — clasp step-by-step',
+      // Rendered between these two script cards (not above the whole chapter)
+      // since it's specifically about the two Google-script cards that follow,
+      // not the desktop bundle download above it.
+      afterScriptId: 'download-desktop-bundle',
+      steps: [
+        'Required once per server host, before either Google script below will work — <code>clasp</code> is a project dependency (<code>npm install</code>), not a global command, so it must be authenticated from inside the repo.',
+        '<code>ssh &lt;server&gt;</code> — connect to the server.',
+        '<code>sudo -iu &lt;user&gt;</code> — become the OS user the BTS server runs as (e.g. <code>belou</code>).',
+        '<code>cd bts</code> — the repo root (adjust if it lives elsewhere).',
+        '<code>npx clasp login --no-localhost</code> — authenticate clasp for THIS user.',
+        'Open the printed URL in any browser (your own laptop\'s is fine) and complete Google\'s consent screen.',
+        'It redirects to a broken <code>http://localhost:.../</code> page — that\'s expected, nothing is meant to be listening there. Copy the <strong>entire</strong> address bar URL (not just the <code>code=</code> value) and paste that whole thing back into the terminal, which is waiting for it.',
+        'One-time per Google account, separate from clasp login: visit <a href="https://script.google.com/home/usersettings" target="_blank" rel="noopener">script.google.com/home/usersettings</a> and enable the "Google Apps Script API" toggle. Wait a minute or two for it to propagate, then retry the script below if it just failed with "User has not enabled the Apps Script API."',
+'"Install/Update Google App BTS Library" prints the credential values ready to paste, but doesn\'t write them for you (an automatic path via <code>clasp run</code> was tried and dropped — unreliable regardless of executionApi access level). Paste them once into the <strong>library</strong> project itself (the standalone one deployed as a library, not a spreadsheet\'s bound script — Script Properties are isolated per project) in script.google.com → Project settings → Script properties.'
+      ]
+    },
+    scripts: [
+      {
+        id: 'download-desktop-bundle',
+        label: 'Download BTS Desktop',
+        order: 0,
+        command: 'Téléchargement direct — voir le lien ci-dessous',
+        description: 'Downloads a zip of scripts_desktop/ (LibreOffice macros, CLI, GUI credentials installer, Excel/Numbers stubs) plus automation_client/, the shared Python package they all depend on — everything needed to run the desktop installer (scripts_desktop/gui/installer.py) on an operator\'s own machine.',
+        templates: ['scripts_desktop.zip'],
+        notes: [
+          'This entry has no CLI command — use the download link below, not "Exécuter".',
+          'The zip is generated on the fly from the current checkout, so it always matches what this BTS instance is actually running.',
+          'After extracting: python3 scripts_desktop/gui/installer.py (see scripts_desktop/README.md for per-surface details).'
+        ]
+      },
+      {
+        id: 'install-google-library',
+        label: 'Install/Update Google App BTS Library',
+        order: 1,
+        path: 'scripts_online/google/install/install-library.js',
+        command: 'node scripts_online/google/install/install-library.js [--script-id=<id>] [--feed-credentials]',
+        run: {
+          script: 'scripts_online/google/install/install-library.js',
+          args: []
+        },
+        description: 'Deploys (or redeploys) the shared BtsApp Apps Script library that every spreadsheet\'s BTS menu attaches to. Leave "Script ID" blank the first time to create it; fill it in on later runs to push updates to the same project. "Feed credentials" reads BASE_URL/secret straight from this server\'s own .env and prints them ready to paste, instead of hunting them down by hand.',
+        notes: [
+          'clasp needs authenticating once per server host before this works — see the "Google Auth — clasp step-by-step" box above.',
+          'First run: leave "Script ID" blank. Note the printed Script ID + version afterwards — needed by "Install Google Sheet BTS Menu" below (as BTS_GOOGLE_LIBRARY_ID / BTS_GOOGLE_LIBRARY_VERSION in .env, or pasted per run).',
+          'Later runs (pushing an updated BtsApp.gs): fill in the same Script ID so it updates the existing project instead of creating a new one.',
+          '"Feed credentials" reads APP_URL+BASE_PATH and AUTOMATION_JWT_SECRET from THIS server\'s own .env — the same secret already used to validate incoming automation JWTs — and prints them. Paste them once into script.google.com → this project → Project settings → Script properties. (An earlier version tried writing them automatically via the Apps Script Execution API — dropped after real-world testing failed regardless of executionApi access level; not worth the added complexity/attack surface for one manual paste.)'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'scriptId',
+              label: 'Script ID (optionnel — vide = nouveau projet)',
+              arg: { type: 'option', template: '--script-id=${value}' }
+            },
+            {
+              name: 'feedCredentials',
+              label: 'Afficher les identifiants de ce serveur (.env), prêts à coller',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--feed-credentials' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'install-google-sheet-menu',
+        label: 'Install Google Sheet BTS Menu',
+        order: 2,
+        path: 'scripts_online/google/install/install-sheet-menu.js',
+        command: 'node scripts_online/google/install/install-sheet-menu.js [--spreadsheet=<URL>] --library=<scriptId>:<version>',
+        run: {
+          script: 'scripts_online/google/install/install-sheet-menu.js',
+          args: []
+        },
+        description: 'Binds a new Apps Script project to a Google Sheet and pushes the BTS menu — not limited to event spreadsheets, whatever chapters BtsApp.gs exposes (tariffs, seasons, events, ...) come along. Leave the Google Sheet field blank to create a brand-new spreadsheet instead of binding to an existing one. No credentials are written — the new project inherits everything from the BtsLib library\'s own Script Properties (see scripts_online/google/README.md).',
+        notes: [
+          'clasp needs authenticating once per server host before this works — see the "Google Auth — clasp step-by-step" box above. Without it, every run fails with "No credentials found."',
+          'Requires the library to be deployed first — see "Install/Update Google App BTS Library" above, which registers it here for selection.',
+          'Library not listed? It hasn\'t been deployed via "Install/Update Google App BTS Library" yet (only libraries deployed that way are tracked in data/google-library-deployments.json) — deploy it there first, or use the CLI directly with --library-id/--library-version.',
+          'Leaving "Google Sheet" blank creates a new spreadsheet (clasp create --type sheets) and prints its URL at the end — check the run output for the link.',
+          'After a successful run, reload the target spreadsheet — the BTS menu appears; run 00 — Diagnostics → Vérifier configuration from it to confirm credentials resolved from the library.',
+          'See scripts_online/google/install/README.md for troubleshooting.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'spreadsheet',
+              label: 'Google Sheet (URL ou ID) — vide = créer un nouveau classeur',
+              placeholder: 'https://docs.google.com/spreadsheets/d/…',
+              arg: { type: 'option', template: '--spreadsheet=${value}' }
+            },
+            {
+              name: 'library',
+              label: 'Bibliothèque Google (déployée via "Install/Update Google App BTS Library")',
+              required: true,
+              arg: { type: 'option', template: '--library=${value}' }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     id: '00-organization-management',
-    label: '00 — Organization Management',
-    // Between System (0) and Venue (1), without renumbering either — same
+    label: '01 — Organization',
+    // Between Client (0.3) and Venue (1), without renumbering either — same
     // technique as 03-season-management-renewal's 3.5. More scripts expected
     // here later (payment provider setup, email account, ...), hence its own
-    // chapter rather than folding into System.
-    order: 0.5,
+    // chapter rather than folding into System. Labeled "01" (shares the
+    // number with Venue) rather than "00": 00 System > 00 Client >
+    // 01 Organization > 01 Venue > 02 Tariff ...
+    order: 0.6,
     description: 'Organization-wide setup: branding and default customization today; payment provider, email account, and similar org-level configuration expected to land here too.',
     scripts: [
       {
@@ -317,7 +431,7 @@ export const adminScriptGroups = [
   },
   {
     id: '03-season-management-renewal',
-    label: '03 — Season Management · Renewal',
+    label: '03 — Season · Renewal',
     order: 3.5,
     description: 'Renewal-focused tooling: import legacy subscribers, provision their seats, publish renewal links, and close the campaign.',
     scripts: [
@@ -587,7 +701,7 @@ export const adminScriptGroups = [
   },
   {
     id: '01-venue-management',
-    label: '01 — Venue Management',
+    label: '01 — Venue',
     order: 1,
     description: 'Register venues and keep their seating layout in sync with the database.',
     scripts: [
@@ -747,7 +861,7 @@ export const adminScriptGroups = [
   },
   {
     id: '02-tariff-management',
-    label: '02 — Tariff Management',
+    label: '02 — Tariff',
     order: 2,
     description: 'Maintain the tariff catalog and zone-specific pricing matrices.',
     scripts: [
@@ -1014,7 +1128,7 @@ export const adminScriptGroups = [
   },
   {
     id: '03-season-management',
-    label: '03 — Season Management',
+    label: '03 — Season',
     order: 3,
     description: 'Season setup tasks (data seeding, subscriber imports, seat provisioning).',
     scripts: [
@@ -1392,7 +1506,7 @@ export const adminScriptGroups = [
   },
   {
     id: '04-event-management',
-    label: '04 — Event Management',
+    label: '04 — Event',
     order: 4,
     description: 'Create events, configure their sales windows, and manage ancillary assets (QR banks, PDFs…).',
     scripts: [
@@ -2122,7 +2236,7 @@ export const adminScriptGroups = [
   },
   {
     id: '05-partner-management',
-    label: '05 — Partner Management',
+    label: '05 — Partner',
     order: 5,
     description: 'Manage partner-specific access, iframe restrictions, and payment modes backed by data/customization/partners.json.',
     scripts: [

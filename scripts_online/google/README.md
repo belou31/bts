@@ -8,26 +8,67 @@ Apps Script implementations aligned with BTS operational themes:
 
 ## Installation
 
-There are two pieces:
+There are two pieces. Both can be done by hand (below) or automated — see "Installer" further down, which covers both steps including feeding the library its credentials.
 
-1. **Library project** (publish once, reuse everywhere).  
-   - Create a standalone Apps Script project and paste the contents of `library/BtsApp.gs`.  
-   - Deploy it as a library (Resources → Libraries…) and note the Script ID.  
+1. **Library project** (publish once, reuse everywhere — every spreadsheet's BTS menu attaches this same library).
+   - Create a standalone Apps Script project and paste the contents of `library/BtsApp.gs`.
+   - Deploy it as a library (Resources → Libraries…) and note the Script ID.
    - Suggested identifier: `BtsLib` (the spreadsheet code expects `BtsLib.BtsApp`).
-2. **Spreadsheet-bound project** (per sheet).  
-   - Open the target spreadsheet → Extensions → Apps Script.  
-   - Add the library using the Script ID (identifier `BtsLib`; adjust the code if you pick another name).  
-  - Create a single script file with the content of `btsMenu.gs` (auto-detects the first attached library exposing `createMenu`).
-  - Save and reload the spreadsheet; a **BTS** menu appears with the 02/03/04 sections.
+   - **Set credentials here** — see Configuration below. This is the one place they need to be entered; every spreadsheet that attaches the library inherits them automatically.
+2. **Spreadsheet-bound project** (one per spreadsheet).
+   - Open the target spreadsheet → Extensions → Apps Script.
+   - Add the library using the Script ID (identifier `BtsLib`; adjust the code if you pick another name).
+   - Create a single script file with the content of `btsMenu.gs` (auto-detects the first attached library exposing `createMenu`).
+   - Save and reload the spreadsheet; a **BTS** menu appears with the Diagnostics/02/03/04 sections.
+   - **No credential setup needed here** in the common case — see Configuration below. `install/install-sheet-menu.js` automates this entire step (see "Installer" below).
 
 ## Configuration
 
-- Open the Apps Script editor → Project settings → Script properties to set the base URL (`BTS_AUTOMATION_BASE_URL`), automation secret (`BTS_AUTOMATION_SECRET` — same shared key as `AUTOMATION_JWT_SECRET`), issuer (`BTS_AUTOMATION_ISS`), audience (`BTS_AUTOMATION_AUD`), scopes (`BTS_AUTOMATION_SCOPES`), and sheet names (`BTS_AUTOMATION_SHEET_INVITES`, `BTS_AUTOMATION_SHEET_EVENT_ORDERS`, `BTS_AUTOMATION_SHEET_TARIFF_CATALOG`, `BTS_AUTOMATION_SHEET_TARIFF_PRICES`, `BTS_AUTOMATION_SHEET_CONFIG`). This is the recommended, secure path (no secrets in the spreadsheet).
-- At runtime, values resolve with the following precedence:
-  1. Script properties (recommended for production, secret never stored in the sheet).
-  2. Keys inside the `BTS_Config` worksheet (see below) for rapid DEV setup.
-  3. Library defaults.
-- Scripts sign JWTs client-side and call `/api/automation`. Keep the secret aligned with your BTS instance configuration.
+**Set credentials once, on the library project — not per spreadsheet.** Open the *library's own* Apps Script editor (the standalone project from step 1, not any individual spreadsheet's bound script) → Project settings → Script properties, and set the base URL (`BTS_AUTOMATION_BASE_URL`), automation secret (`BTS_AUTOMATION_SECRET` — same shared key as `AUTOMATION_JWT_SECRET`), issuer (`BTS_AUTOMATION_ISS`), audience (`BTS_AUTOMATION_AUD`), and scopes (`BTS_AUTOMATION_SCOPES`).
+
+This isn't just a convention — it's how Apps Script actually behaves: `PropertiesService.getScriptProperties()`, called from code that lives in the library project (which is all of `BtsApp.gs`), always resolves to *that library's own* property store, completely isolated from whatever spreadsheet is calling it ([Apps Script Properties Service docs](https://developers.google.com/apps-script/guides/properties) — properties are never shared between scripts). Setting `BTS_AUTOMATION_SECRET` etc. on an individual spreadsheet's *bound* script's Project settings has no effect on what the library reads — it's a different, unrelated property store. This is why one library-level setup covers every spreadsheet with zero per-spreadsheet credential entry.
+
+At runtime, values resolve with the following precedence:
+1. **Script properties on the library project** (set once, shared by every spreadsheet — the recommended path, secret never stored in any spreadsheet).
+2. Keys inside that spreadsheet's own `BTS_Config` worksheet (see below) — per-spreadsheet overrides/fallback, e.g. a spreadsheet that needs a different base URL, or rapid DEV setup before the library is configured.
+3. Library defaults hardcoded in `BtsApp.gs`.
+
+Also configurable via Script Properties or `BTS_Config`: sheet names (`BTS_AUTOMATION_SHEET_INVITES`, `BTS_AUTOMATION_SHEET_EVENT_ORDERS`, `BTS_AUTOMATION_SHEET_TARIFF_CATALOG`, `BTS_AUTOMATION_SHEET_TARIFF_PRICES`, `BTS_AUTOMATION_SHEET_CONFIG`).
+
+Scripts sign JWTs client-side and call `/api/automation`. Keep the secret aligned with your BTS instance configuration.
+
+### Checking what's actually configured
+
+Run **BTS → 00 — Diagnostics → Vérifier configuration** from any spreadsheet. It reports, for base URL / secret / issuer / audience, the resolved value (secret shown masked) and which tier it came from — the library's Script Properties, this spreadsheet's `BTS_Config` sheet, or a hardcoded default — so a misconfiguration (e.g. credentials mistakenly entered on the spreadsheet's own Project settings instead of the library's) is visible immediately instead of failing silently.
+
+## Installer
+
+Both installation steps above can be automated with `clasp`, Google's official CLI (a real project dependency — see `install/README.md`'s Prerequisites) — the manual Extensions → Apps Script → paste-and-save ritual becomes one command each. Both are also exposed as buttons in the BTS admin console, under **00 — Client Management**.
+
+```bash
+# one-time per machine — clasp itself is already installed via npm install at the repo
+# root, but only locally (node_modules/.bin/clasp, not on PATH) — run it via npx, from
+# the repo root:
+npx clasp login
+
+# step 1, once (or again to push an update to BtsApp.gs — pass --script-id to reuse the same project)
+node scripts_online/google/install/install-library.js \
+  [--feed-credentials]   # optional: reads BASE_URL/secret from THIS server's own .env and
+                          # prints them ready to paste (also records the deployment in
+                          # data/google-library-deployments.json — see step 2)
+
+# step 2, once per new spreadsheet — the admin console offers a dropdown built from
+# that registry instead; on the CLI, the combined form is the same:
+node scripts_online/google/install/install-sheet-menu.js \
+  --spreadsheet=<spreadsheet URL or ID> \
+  --library=<scriptId>:<version>   # printed by step 1
+```
+
+`install-library.js` creates (or updates) the standalone library project and pushes `BtsApp.gs`, printing the resulting Script ID + version for use in step 2. `--feed-credentials` additionally reads `APP_URL`/`AUTOMATION_JWT_SECRET` from this server's own `.env` and prints them ready to paste — no more than that. (An automatic write via `clasp run` was tried and dropped after real-world testing failed regardless of `executionApi` access level; see `install/README.md` for details.) Paste them once into Project settings → Script properties on the library project.
+
+`install-sheet-menu.js` creates a new Apps Script project bound to that spreadsheet (`clasp create --parentId ...` — deliberately no `--type`, see `install/README.md` for why) and pushes `btsMenu.gs` plus a manifest declaring the `BtsLib` library dependency (`clasp push`). No credentials are written by this one — the bound project inherits everything from the library's Script Properties. Reload the spreadsheet afterwards; the **BTS** menu appears the same as with the manual steps.
+
+See `install/README.md` for details, prerequisites, and troubleshooting.
 
 ## Usage
 

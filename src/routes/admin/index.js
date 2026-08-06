@@ -37,6 +37,8 @@ import { adminScriptGroups, getAdminScript } from '../../config/adminScripts.js'
 import { AutomationJob } from '../../models/AutomationJob.js';
 import { getRequestMetrics } from '../../services/requestMetrics.js';
 import { marked } from 'marked';
+import archiver from 'archiver';
+import { readRegistry as readGoogleLibraryRegistry } from '../../../scripts_online/google/install/lib/registry.js';
 
 const router = express.Router();
 
@@ -47,6 +49,8 @@ const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data_references');
 // reads its table of contents rather than duplicating content elsewhere.
 const GUIDES_ROOT = path.resolve(ROOT_DIR, 'docs');
 const DATA_EXAMPLES_ROOT = path.resolve(ROOT_DIR, 'data_examples');
+const SCRIPTS_DESKTOP_ROOT = path.resolve(ROOT_DIR, 'scripts_desktop');
+const AUTOMATION_CLIENT_ROOT = path.resolve(ROOT_DIR, 'automation_client');
 const CUSTOM_ROOT = path.resolve(ROOT_DIR, 'data/customization');
 const DATA_TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
 const DATA_ASSETS_ROOT = path.resolve(ROOT_DIR, 'data/assets');
@@ -1275,6 +1279,7 @@ router.get('/operate', async (req, res) => {
   const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
   const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
   const venueViews = listVenueViews();
+  const googleLibraries = readGoogleLibraryRegistry();
   let operateOptions = {
     venues: [],
     seasons: [],
@@ -1284,7 +1289,8 @@ router.get('/operate', async (req, res) => {
     inputFiles: inputsList.map(file => file.name),
     assetFiles: inputsList.map(file => file.name),
     customizationFiles: inputsList.map(file => file.name),
-    venueViews
+    venueViews,
+    googleLibraries
   };
 
   try {
@@ -1320,7 +1326,8 @@ router.get('/operate', async (req, res) => {
       inputFiles: inputsList.map(file => file.name),
       assetFiles: inputsList.map(file => file.name),
       customizationFiles: inputsList.map(file => file.name),
-      venueViews
+      venueViews,
+      googleLibraries
     };
   } catch (error) {
     console.error('[admin] operate options fetch error:', error?.message || error);
@@ -2300,6 +2307,37 @@ router.get('/automation/jobs/:jobId', async (req, res) => {
 router.get('/templates/download', (req, res) => {
   const rawPath = (req.query.path || '').toString();
   if (!rawPath) return res.status(400).send('Missing template path');
+
+  // Special case: not a file on disk — a live-generated zip of scripts_desktop/
+  // + automation_client/ (the latter is a runtime dependency of the former, per
+  // scripts_desktop/README.md), for the "Download BTS Desktop" admin entry.
+  if (rawPath === 'scripts_desktop.zip') {
+    if (!fs.existsSync(SCRIPTS_DESKTOP_ROOT)) {
+      return res.status(404).send('scripts_desktop not found');
+    }
+    res.attachment('BTS-Desktop.zip');
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => {
+      console.error('[admin] desktop bundle zip error:', err?.message || err);
+      if (!res.headersSent) res.status(500);
+      res.end();
+    });
+    archive.pipe(res);
+    archive.directory(SCRIPTS_DESKTOP_ROOT, 'scripts_desktop', (entry) => {
+      // Skip Python bytecode caches — not needed to run, just repo clutter.
+      if (entry.name.includes('__pycache__') || entry.name.endsWith('.pyc')) return false;
+      return entry;
+    });
+    if (fs.existsSync(AUTOMATION_CLIENT_ROOT)) {
+      archive.directory(AUTOMATION_CLIENT_ROOT, 'automation_client', (entry) => {
+        if (entry.name.includes('__pycache__') || entry.name.endsWith('.pyc')) return false;
+        return entry;
+      });
+    }
+    archive.finalize();
+    return;
+  }
+
   try {
     const isCustomization = rawPath.startsWith('data/customization');
     const isDataTemplates = rawPath.startsWith('data/templates');

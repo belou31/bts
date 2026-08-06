@@ -124,6 +124,60 @@ var BtsApp = (function () {
     return config;
   }
 
+  // Diagnostic-only: mirrors ensureConfig()'s resolution but also reports
+  // *where* each value came from, since the precedence (library's own Script
+  // Properties → this spreadsheet's BTS_Config sheet → hardcoded default) is
+  // not obvious from the Apps Script UI alone — Script Properties set on the
+  // library project are invisible from the library's own "Project settings"
+  // page when you're editing the *spreadsheet's* bound script, which is a
+  // common source of confusion.
+  function checkConfig() {
+    try {
+      const props = getProps_().getProperties();
+      const base = loadConfig();
+      const sheetConfig = getSheetConfigMap(base);
+
+      const fields = [
+        { label: 'Base URL', propsKey: PROP_KEYS.baseUrl, sheetKeys: ['base.url', 'base_url', 'bts_base_url'], mask: false },
+        { label: 'Secret JWT', propsKey: PROP_KEYS.secret, sheetKeys: ['automation.secret', 'automation.jwt.secret', 'automation_jwt_secret'], mask: true },
+        { label: 'Issuer (iss)', propsKey: PROP_KEYS.iss, sheetKeys: ['jwt.iss', 'automation.jwt.iss', 'automation_jwt_iss'], mask: false },
+        { label: 'Audience (aud)', propsKey: PROP_KEYS.aud, sheetKeys: ['jwt.aud', 'automation.jwt.aud', 'automation_jwt_aud'], mask: false }
+      ];
+
+      const missing = [];
+      const lines = fields.map((field) => {
+        const propsRaw = props[field.propsKey];
+        const hasProps = !!(propsRaw && String(propsRaw).trim());
+        const sheetRaw = lookupAny(sheetConfig, field.sheetKeys, null);
+        const hasSheet = !!(sheetRaw && String(sheetRaw).trim());
+        const resolved = hasProps ? propsRaw : (hasSheet ? sheetRaw : '');
+
+        if (!resolved && (field.propsKey === PROP_KEYS.baseUrl || field.propsKey === PROP_KEYS.secret)) {
+          missing.push(field.label);
+        }
+
+        const shown = !resolved
+          ? '(non défini)'
+          : field.mask
+            ? `${'•'.repeat(Math.min(8, String(resolved).length))} (${String(resolved).length} car.)`
+            : resolved;
+        const source = hasProps
+          ? 'Script Properties de la bibliothèque BtsApp — partagé par tous les classeurs qui l’utilisent'
+          : hasSheet
+            ? `feuille "${base.sheetConfig}" de CE classeur`
+            : 'valeur par défaut du code (aucune n’est définie)';
+        return `${field.label}: ${shown}\n  source : ${source}`;
+      });
+
+      const header = missing.length
+        ? `⚠ Configuration incomplète — manquant : ${missing.join(', ')}\n\n`
+        : '✓ Configuration complète.\n\n';
+      alertInfo(header + lines.join('\n\n'));
+    } catch (error) {
+      alertError(error);
+    }
+  }
+
   function parseBooleanConfig(value, fallback) {
     if (value === undefined || value === null) return fallback;
     const text = String(value).trim().toLowerCase();
@@ -804,6 +858,10 @@ var BtsApp = (function () {
   function getMenuSections() {
     return [
       {
+        title: '00 — Diagnostics',
+        items: [{ label: 'Vérifier configuration', handler: 'checkConfig' }]
+      },
+      {
         title: '02 — Tariff Management',
         items: [
           { label: 'Importer catalogue tarifs', handler: 'importTariffCatalogFromSheet' },
@@ -851,6 +909,7 @@ var BtsApp = (function () {
     importTariffCatalogFromSheet,
     importTariffPricesFromSheet,
     showImportOrderJobs,
+    checkConfig,
     getMenuSections,
     createMenu
   };
@@ -899,4 +958,11 @@ function sendRenewInvitesFromSheet() {
     return BtsApp.sendRenewInvitesFromSheet();
   }
   throw new Error('sendRenewInvitesFromSheet is not available');
+}
+
+function checkConfig() {
+  if (typeof BtsApp?.checkConfig === 'function') {
+    return BtsApp.checkConfig();
+  }
+  throw new Error('checkConfig is not available');
 }

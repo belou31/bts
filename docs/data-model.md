@@ -17,11 +17,11 @@ nav_order: 120
 | `Campaign` | Audience / opérations | 8 | 1 |
 | `Counter` | Audience / opérations | 4 | 1 |
 | `Event` | Événements et contrôle | 11 | 3 |
-| `Order` | Runtime saison / vente | 20 | 18 |
+| `Order` | Runtime saison / vente | 21 | 18 |
 | `Season` | Runtime saison / vente | 7 | 1 |
 | `Seat` | Runtime saison / vente | 8 | 11 |
 | `SeatCatalog` | Catalogue | 9 | 2 |
-| `SeatHold` | Événements et contrôle | 11 | 8 |
+| `SeatHold` | Événements et contrôle | 12 | 9 |
 | `Subscriber` | Audience / opérations | 14 | 6 |
 | `Tariff` | Autres | 11 | 5 |
 | `TariffPrice` | Autres | 11 | 6 |
@@ -142,13 +142,14 @@ nav_order: 120
 - `reason`: `String`
 - `seasonCode`: `String`
 - `seatId`: `String`
+- `sessionToken`: `String`
 - `updatedAt`: `Date`
 - `venueSlug`: `String`
 - `zoneKey`: `String`
 
 #### Indexes
 
-`eventId:1`<br>`seasonCode:1`<br>`venueSlug:1`<br>`seatId:1`<br>`zoneKey:1`<br>`eventId:1, seatId:1` (name=idx_event_seat)<br>`eventId:1, zoneKey:1` (name=idx_event_zone)<br>`expiresAt:1` (name=ttl_expiresAt, ttl=0)
+`eventId:1`<br>`seasonCode:1`<br>`venueSlug:1`<br>`seatId:1`<br>`zoneKey:1`<br>`sessionToken:1`<br>`eventId:1, seatId:1` (name=idx_event_seat, unique)<br>`eventId:1, zoneKey:1` (name=idx_event_zone)<br>`expiresAt:1` (name=ttl_expiresAt, ttl=0)
 
 ## Runtime saison / vente
 
@@ -161,6 +162,7 @@ nav_order: 120
 - `groupKey`: `String`
 - `itemName`: `String`
 - `lines`: `Array`
+- `locale`: `String`
 - `mailTemplateKind`: `String`
 - `meta`: `Mixed`
 - `parentOrderId`: `ObjectId`

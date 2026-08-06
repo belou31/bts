@@ -257,6 +257,26 @@
     .notes li {
       margin-bottom: 4px;
     }
+    .guide-callout {
+      border-left: 4px solid var(--accent);
+      margin-bottom: 20px;
+    }
+    .guide-callout h3 {
+      margin-top: 0;
+    }
+    .guide-callout ol {
+      margin: 8px 0 0;
+      padding-left: 20px;
+    }
+    .guide-callout li {
+      margin-bottom: 6px;
+    }
+    .guide-callout code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #f3f3f6;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
     .script-form-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -908,7 +928,7 @@
     const categoryChapters = {
       operate: [
         { id: 'overview', label: 'Overview', href: baseOperate, active: showOperateIntro },
-        { id: 'io', label: 'I/O', href: baseIo, active: viewMode === 'io' },
+        { id: 'io', label: 'Data I/O', href: baseIo, active: viewMode === 'io' },
         ...(scriptGroups || []).map((g) => ({
           id: g.id,
           label: g.label || g.id,
@@ -1607,7 +1627,7 @@
       <p class="muted">Pick a script below, or use the chapter dropdown above to jump straight to one.</p>
       <ul class="intro-list">
         <li>
-          <a href="<%= baseIo %>">I/O</a>
+          <a href="<%= baseIo %>">Data I/O</a>
           <span class="intro-item-desc">Upload/download data files (inputs, outputs) — not a script.</span>
         </li>
       </ul>
@@ -1724,6 +1744,7 @@
                          const isPartnerField = (field.name === 'partner' || field.name === 'partnerSlug' || (field.name === 'slug' && group.id === '05-partner-management'));
                          const hasPartnerSelect = isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
                           const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
+                          const hasGoogleLibrarySelect = field.name === 'library' && Array.isArray(opt.googleLibraries) && opt.googleLibraries.length;
                           const defaultValue = (field.placeholder && field.placeholder.startsWith('data/outputs/'))
                            ? field.placeholder
                            : '';
@@ -1798,6 +1819,15 @@
                               <% } %>
                             </select>
                             <small class="field-hint">Sélection multiple permise (Cmd/Ctrl + clic).</small>
+                          <% } else if (hasGoogleLibrarySelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Choisir une bibliothèque —</option>
+                              <% for (const lib of opt.googleLibraries) { %>
+                                <option value="<%= lib.scriptId %>:<%= lib.latestVersion %>">
+                                  <%= lib.title || lib.scriptId %> — v<%= lib.latestVersion %><%= lib.googleUser ? ' · ' + lib.googleUser : '' %> (<%= lib.scriptId.slice(0, 10) %>…)
+                                </option>
+                              <% } %>
+                            </select>
                           <% } else if (hasAssetFiles) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Fichier dans data/inputs —</option>
@@ -1861,6 +1891,16 @@
               </form>
 
             </article>
+            <% if (group.guide && group.guide.afterScriptId === script.id && group.guide.steps && group.guide.steps.length) { %>
+              <section class="card guide-callout">
+                <h3><%= group.guide.title %></h3>
+                <ol>
+                  <% for (const step of group.guide.steps) { %>
+                    <li><%- step %></li>
+                  <% } %>
+                </ol>
+              </section>
+            <% } %>
           <% } %>
         </div>
       <% } %>

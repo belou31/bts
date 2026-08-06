@@ -20,6 +20,8 @@
     "docs:refs": "node scripts/docs/generate-reference-docs.js"
   },
   "dependencies": {
+    "@google/clasp": "^3.3.0",
+    "archiver": "^7.0.1",
     "bts": "^1.0.3",
     "celebrate": "^15.0.3",
     "compression": "^1.8.1",
