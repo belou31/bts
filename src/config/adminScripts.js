@@ -329,66 +329,6 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'import-templates',
-        label: 'Import Email/Ticket Template',
-        order: 2,
-        path: 'scripts/00-system-management/import-templates.js',
-        command: 'node scripts/00-system-management/import-templates.js --resource=<email|ticket|logo> --file=<path> [--kind=<kind>] [--theme=<name>]',
-        run: {
-          script: 'scripts/00-system-management/import-templates.js',
-          args: []
-        },
-        description: 'Imports a single email or ticket template file (any filename — no naming convention required) as the given kind, with an optional theme variant — or stages a logo asset into data/assets/. Delegates to set-email-template.js / set-ticket-template.js, so the same validation/diff preview applies.',
-        templates: ['data_references/README.md'],
-        notes: [
-          'Email/Ticket: pick the resource, kind, and (optionally) theme explicitly; nothing is inferred from the filename.',
-          'kind options combine both resources\' known values; a kind that doesn\'t apply to the chosen resource (e.g. "renew" for a ticket) is still accepted but flagged as unreachable — same behavior as running set-*-template.js directly.',
-          'theme is free text — any name (e.g. halloween, partner01) — and must match a "theme" customization key for it to actually be selected at send time.',
-          'Logo: just copies the file into data/assets/ — kind/theme are ignored. Staging the file alone changes nothing; set the "logo" customization key (e.g. via set-partner-custo.js) to "assets/<filename>" so a ticket actually picks it up, same mechanism as "theme".',
-          'Use --dry-run to preview without writing files.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'resource',
-              label: 'Type',
-              required: true,
-              arg: { type: 'option', template: '--resource=${value}' },
-              options: [
-                { label: 'Email', value: 'email' },
-                { label: 'Ticket', value: 'ticket' },
-                { label: 'Logo (ticket asset)', value: 'logo' }
-              ]
-            },
-            {
-              name: 'kind',
-              label: 'Kind (ignoré pour Logo)',
-              arg: { type: 'option', template: '--kind=${value}' },
-              options: [
-                { label: 'renew', value: 'renew' },
-                { label: 'subscription', value: 'subscription' },
-                { label: 'event', value: 'event' },
-                { label: 'public', value: 'public' },
-                { label: 'default (ticket only)', value: 'default' }
-              ]
-            },
-            {
-              name: 'file',
-              label: 'Fichier source',
-              placeholder: 'data/inputs/mon-fichier.html',
-              required: true,
-              arg: { type: 'option', template: '--file=${value}' }
-            },
-            {
-              name: 'theme',
-              label: 'Thème (optionnel, texte libre, ignoré pour Logo)',
-              placeholder: 'halloween, partner01...',
-              arg: { type: 'option', template: '--theme=${value}' }
-            }
-          ]
-        }
-      },
-      {
         id: 'set-payment-provider',
         label: 'Set Payment Provider',
         order: 3,
@@ -1127,6 +1067,293 @@ export const adminScriptGroups = [
     ]
   },
   {
+    id: '02-ticket-ad-management',
+    label: '02 — Ticket/Ad',
+    // Shares the "02" number with Tariff, same insertion technique as
+    // 01 Organization/01 Venue: 02 Tariff (2) > 02 Ticket/Ad (2.5) > 03 Season (3).
+    order: 2.5,
+    description: 'Ticket templates and the advertising content (images, text, promo QR) placed on them based on a ticket\'s own tariffCode/zoneKey/zoneType.',
+    scripts: [
+      {
+        id: 'import-templates',
+        label: 'Import Email/Ticket Template',
+        order: 0,
+        path: 'scripts/00-system-management/import-templates.js',
+        command: 'node scripts/00-system-management/import-templates.js --resource=<email|ticket|logo> --file=<path> [--kind=<kind>] [--theme=<name>]',
+        run: {
+          script: 'scripts/00-system-management/import-templates.js',
+          args: []
+        },
+        description: 'Imports a single email or ticket template file (any filename — no naming convention required) as the given kind, with an optional theme variant — or stages a logo asset into data/assets/. Delegates to set-email-template.js / set-ticket-template.js, so the same validation/diff preview applies.',
+        templates: ['data_references/README.md'],
+        notes: [
+          'Email/Ticket: pick the resource, kind, and (optionally) theme explicitly; nothing is inferred from the filename.',
+          'kind options combine both resources\' known values; a kind that doesn\'t apply to the chosen resource (e.g. "renew" for a ticket) is still accepted but flagged as unreachable — same behavior as running set-*-template.js directly.',
+          'theme is free text — any name (e.g. halloween, partner01) — and must match a "theme" customization key for it to actually be selected at send time.',
+          'Logo: just copies the file into data/assets/ — kind/theme are ignored. Staging the file alone changes nothing; set the "logo" customization key (e.g. via set-partner-custo.js) to "assets/<filename>" so a ticket actually picks it up, same mechanism as "theme".',
+          'Use --dry-run to preview without writing files.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'resource',
+              label: 'Type',
+              required: true,
+              arg: { type: 'option', template: '--resource=${value}' },
+              options: [
+                { label: 'Email', value: 'email' },
+                { label: 'Ticket', value: 'ticket' },
+                { label: 'Logo (ticket asset)', value: 'logo' }
+              ]
+            },
+            {
+              name: 'kind',
+              label: 'Kind (ignoré pour Logo)',
+              arg: { type: 'option', template: '--kind=${value}' },
+              options: [
+                { label: 'renew', value: 'renew' },
+                { label: 'subscription', value: 'subscription' },
+                { label: 'event', value: 'event' },
+                { label: 'public', value: 'public' },
+                { label: 'default (ticket only)', value: 'default' }
+              ]
+            },
+            {
+              name: 'file',
+              label: 'Fichier source',
+              placeholder: 'data/inputs/mon-fichier.html',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
+              name: 'theme',
+              label: 'Thème (optionnel, texte libre, ignoré pour Logo)',
+              placeholder: 'halloween, partner01...',
+              arg: { type: 'option', template: '--theme=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-ad-campaign',
+        label: 'Set Ad Campaign (identity)',
+        order: 1,
+        path: 'scripts/02-ticket-ad-management/set-ad-campaign.js',
+        command: 'node scripts/02-ticket-ad-management/set-ad-campaign.js --slug=<slug> [--target-url=<url>] [--label="<text>"] [--active=true|false]',
+        run: {
+          script: 'scripts/02-ticket-ad-management/set-ad-campaign.js',
+          args: []
+        },
+        description: 'Defines (or edits) a sponsor campaign\'s identity: label, click target, active. Pure metadata — no asset here, see Import Ad Campaign Asset below for that. Neither script is a prerequisite for the other: register a campaign here first (no image on tickets until an asset is attached), or let Import Ad Campaign Asset create it directly.',
+        notes: [
+          'Use --dry-run to preview without writing.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'slug',
+              label: 'Identité de la campagne (créée si absente)',
+              placeholder: 'sponsor-x-2026',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            },
+            {
+              name: 'targetUrl',
+              label: 'Lien sponsor (QR promo, optionnel)',
+              placeholder: 'https://sponsor-x.example/offer',
+              arg: { type: 'option', template: '--target-url=${value}' }
+            },
+            {
+              name: 'label',
+              label: 'Nom affiché (optionnel)',
+              placeholder: 'Sponsor X — VIP',
+              arg: { type: 'option', template: '--label=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'import-ad-campaign-asset',
+        label: 'Import Ad Campaign Asset',
+        order: 2,
+        path: 'scripts/02-ticket-ad-management/import-ad-campaign-asset.js',
+        command: 'node scripts/02-ticket-ad-management/import-ad-campaign-asset.js --file=<path> --slug=<asset-id> [--campaign=<campaign-slug>] [--kind=svg|raster] [--dry-run]',
+        run: {
+          script: 'scripts/02-ticket-ad-management/import-ad-campaign-asset.js',
+          args: []
+        },
+        description: 'Stages a sponsor asset into data/assets/ads/ under a manually-chosen id, and optionally attaches it to a campaign — creating that campaign if it doesn\'t exist yet. A single svg/png/jpg stages one asset; a .zip stages a whole FAMILY (a "carousel") — tickets rotate through every image inside by their position within the order.',
+        notes: [
+          'Slug is the asset\'s own identity (manual, not derived from the filename) — lets you keep several versions/families (banner-v1, banner-v2, ...) and pick which one a campaign uses.',
+          'Leave "campaign" empty to just stage the asset ("global"/unattached) — attach it later by re-running with the same slug and --campaign set; the file is then optional (reuses what\'s already staged).',
+          'A .zip must contain only one asset kind (all svg or all raster) — mixed zips are rejected.',
+          '--kind is inferred from the file extension when omitted (ignored for a zip).'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'slug',
+              label: 'Identité de l\'asset (manuelle)',
+              placeholder: 'sponsor-x-banner-v1',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'Fichier asset (svg, png, jpg) ou famille (.zip) — optionnel si déjà en place',
+              placeholder: 'data/inputs/sponsor-x-banner.png',
+              arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
+              name: 'campaign',
+              label: 'Campagne à attacher (optionnel — vide = non attaché)',
+              placeholder: 'sponsor-x-2026',
+              arg: { type: 'option', template: '--campaign=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'import-ad-campaign-catalog',
+        label: 'Import Ad Campaign Catalog',
+        order: 2.5,
+        path: 'scripts/02-ticket-ad-management/import-ad-campaign-catalog.js',
+        command: 'node scripts/02-ticket-ad-management/import-ad-campaign-catalog.js <catalogSlug> <path/to/ad-campaign-catalog.csv> [--venue=<slug>] [--append] [--dry-run]',
+        run: {
+          script: 'scripts/02-ticket-ad-management/import-ad-campaign-catalog.js',
+          args: []
+        },
+        description: 'Imports a reusable ad campaign catalog — WHERE/WHEN an existing campaign (by slug, see Import Ad Campaign Asset) shows up: which slot, what kind of content (image/qr/text), filtered by tariffCode/zoneKey/zoneType — that can later be instantiated for a season or event.',
+        notes: [
+          'contentType is image, qr, or text — see the CSV template for what "slot" means for each and how qrValue/text work.',
+          'By default clears existing entries for the same catalogSlug/venue before import — use --append to upsert without clearing.',
+          'Warns (but doesn\'t fail) if a campaignSlug isn\'t defined yet.'
+        ],
+        templates: ['data_references/csv/ad-campaign-catalog.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'catalog',
+              label: 'Slug du catalogue',
+              placeholder: 'sponsors-2026',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'csv',
+              label: 'CSV campagnes',
+              placeholder: 'data/inputs/ad-campaign-catalog.csv',
+              required: true,
+              arg: { type: 'positional', index: 1 }
+            },
+            {
+              name: 'venue',
+              label: 'Lieu (optionnel)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'export-ad-campaign-catalog',
+        label: 'Export Ad Campaign Catalog',
+        order: 3,
+        path: 'scripts/02-ticket-ad-management/export-ad-campaign-catalog.js',
+        command: 'node scripts/02-ticket-ad-management/export-ad-campaign-catalog.js <catalogSlug> [--venue=<slug>] [--out=<file.csv>]',
+        run: {
+          script: 'scripts/02-ticket-ad-management/export-ad-campaign-catalog.js',
+          args: []
+        },
+        description: 'Exports an ad campaign catalog to CSV for review or editing.',
+        notes: [
+          'Default output is data/outputs/ad-campaign-catalog-<catalogSlug>.csv; override with --out.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'catalog',
+              label: 'Slug du catalogue',
+              placeholder: 'sponsors-2026',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'venue',
+              label: 'Lieu (optionnel)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Nom du fichier de sortie',
+              placeholder: 'ad-campaign-catalog.csv',
+              arg: { type: 'option', template: '--out=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'remove-ad-campaign-catalog',
+        label: 'Remove Ad Campaign Catalog',
+        order: 98,
+        path: 'scripts/02-ticket-ad-management/remove-ad-campaign-catalog.js',
+        command: 'node scripts/02-ticket-ad-management/remove-ad-campaign-catalog.js --catalog=<slug> [--venue=<slug>] --force',
+        run: {
+          script: 'scripts/02-ticket-ad-management/remove-ad-campaign-catalog.js',
+          args: ['--force']
+        },
+        description: 'Deletes AdCampaignCatalog rows for a catalogSlug (+ optional venue). Safe by construction: instantiate-ad-campaigns.js copies rows once and never links back, so this can never retroactively affect a season/event that already instantiated from it — only future instantiation from this slug fails until recreated. Does not touch AdCampaign masters.',
+        danger: true,
+        notes: [
+          'Leave venue blank to remove every venue scope for this catalogSlug (global + all venue-specific overrides); set it to remove just one venue\'s rows.',
+          'Run the equivalent CLI command with --dry-run first to see the exact rows before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'catalog',
+              label: 'catalogSlug à supprimer',
+              placeholder: 'sponsors-2026',
+              required: true,
+              arg: { type: 'option', template: '--catalog=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Lieu (optionnel — vide = toutes les portées)',
+              placeholder: 'stadium',
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'remove-ad-campaign',
+        label: 'Remove Ad Campaign',
+        order: 99,
+        path: 'scripts/02-ticket-ad-management/remove-ad-campaign.js',
+        command: 'node scripts/02-ticket-ad-management/remove-ad-campaign.js --slug=<slug> --force',
+        run: {
+          script: 'scripts/02-ticket-ad-management/remove-ad-campaign.js',
+          args: ['--force']
+        },
+        description: 'Deletes an AdCampaign master (identity/asset/targetUrl) by slug, and its staged asset file under data/assets/ads/ (kept if another campaign still references the same file). Does not touch campaign catalogs or instantiated placements referencing it — they simply stop resolving an asset until the campaign is recreated.',
+        danger: true,
+        form: {
+          fields: [
+            {
+              name: 'slug',
+              label: 'Identité de la campagne à supprimer',
+              placeholder: 'sponsor-x-2026',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     id: '03-season-management',
     label: '03 — Season',
     order: 3,
@@ -1322,6 +1549,43 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'season-instantiate-ad-campaigns',
+        label: 'Instantiate Ad Campaigns for Season',
+        order: 2.2,
+        path: 'scripts/03-season-management/instantiate-ad-campaigns.js',
+        command: 'node scripts/03-season-management/instantiate-ad-campaigns.js <seasonCode> <venueSlug> --catalog=<slug[,slug2]> [--clear] [--dry-run]',
+        run: {
+          script: 'scripts/03-season-management/instantiate-ad-campaigns.js',
+          args: []
+        },
+        description: 'Applies one or more ad campaign catalogs as the season-wide default for tickets that don\'t have an event-specific placement (e.g. subscription/public tickets). Add --clear to purge existing rows first.',
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu',
+              placeholder: 'patinoire-blagnac',
+              required: true,
+              arg: { type: 'positional', index: 1 }
+            },
+            {
+              name: 'catalog',
+              label: 'Catalogues (slug[,slug2])',
+              placeholder: 'sponsors-2026',
+              required: true,
+              arg: { type: 'option', template: '--catalog=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'import-subscription-orders',
         label: 'Import Subscription Orders',
         order: 4,
@@ -1481,6 +1745,40 @@ export const adminScriptGroups = [
         danger: true,
         notes: [
           'Existing paid subscription orders keep their own captured prices regardless — this only affects new purchases going forward.',
+          'Run the equivalent CLI command with --dry-run first to see row counts before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu',
+              placeholder: 'patinoire-blagnac',
+              required: true,
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'remove-season-ad-campaigns',
+        label: 'Remove Season Ad Campaigns',
+        order: 99.5,
+        path: 'scripts/03-season-management/remove-season-ad-campaigns.js',
+        command: 'node scripts/03-season-management/remove-season-ad-campaigns.js --season=<code> --venue=<slug> --force',
+        run: {
+          script: 'scripts/03-season-management/remove-season-ad-campaigns.js',
+          args: ['--force']
+        },
+        description: 'Deletes the instantiated season-scoped AdCampaignPlacement rows for a (season, venue) pair. Does not touch AdCampaign masters or the AdCampaignCatalog template.',
+        danger: true,
+        notes: [
           'Run the equivalent CLI command with --dry-run first to see row counts before confirming here.'
         ],
         form: {
@@ -1721,6 +2019,36 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'event-instantiate-ad-campaigns',
+        label: 'Instantiate Ad Campaigns for Event',
+        order: 1.2,
+        path: 'scripts/04-event-management/instantiate-ad-campaigns.js',
+        command: 'node scripts/04-event-management/instantiate-ad-campaigns.js --event=<slug> --catalog=<slug[,slug2]> [--clear] [--dry-run]',
+        run: {
+          script: 'scripts/04-event-management/instantiate-ad-campaigns.js',
+          args: []
+        },
+        description: 'Clones one or more ad campaign catalogs into the event, so tickets pick up sponsor content matching their own tariffCode/zoneKey/zoneType. Takes priority over the season default (see Instantiate Ad Campaigns for Season) when both exist.',
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'catalog',
+              label: 'Catalogues (slug[,slug2])',
+              placeholder: 'sponsors-2026',
+              required: true,
+              arg: { type: 'option', template: '--catalog=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'event-remove-tariffs',
         label: 'Remove Event Tariffs',
         order: 1.5,
@@ -1734,6 +2062,33 @@ export const adminScriptGroups = [
         danger: true,
         notes: [
           'Existing paid orders keep their own captured prices regardless — this only means the event can\'t be purchased from until tariffs are re-instantiated.',
+          'Run the equivalent CLI command with --dry-run first to see the row counts before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-remove-ad-campaigns',
+        label: 'Remove Event Ad Campaigns',
+        order: 1.7,
+        path: 'scripts/04-event-management/remove-event-ad-campaigns.js',
+        command: 'node scripts/04-event-management/remove-event-ad-campaigns.js --event=<slug> --force',
+        run: {
+          script: 'scripts/04-event-management/remove-event-ad-campaigns.js',
+          args: ['--force']
+        },
+        description: 'Deletes the instantiated AdCampaignPlacement rows for one event\'s priceTableKey — does not delete the event itself or touch AdCampaign masters. Refuses if another event shares the same priceTableKey.',
+        danger: true,
+        notes: [
           'Run the equivalent CLI command with --dry-run first to see the row counts before confirming here.'
         ],
         form: {

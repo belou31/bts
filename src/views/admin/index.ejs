@@ -1714,7 +1714,10 @@
                   data-default-dry-run="<%= defaultDryRun %>"
                 <% } %>>
                 <% if (script.form && script.form.fields && script.form.fields.length) { %>
-                  <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'create-season'; const freeCatalogField = script.id === 'import-tariff-prices'; %>
+                  <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'create-season'; const freeCatalogField = script.id === 'import-tariff-prices';
+                     const adCampaignCatalogScriptIds = ['event-instantiate-ad-campaigns', 'season-instantiate-ad-campaigns', 'import-ad-campaign-catalog', 'export-ad-campaign-catalog', 'remove-ad-campaign-catalog'];
+                     const catalogOptionsSource = adCampaignCatalogScriptIds.includes(script.id) ? opt.adCampaignCatalogs : opt.tariffCatalogs;
+                  %>
                   <div class="script-form-grid">
                   <% for (const field of script.form.fields) { 
                          const inputRole = script.id + ':' + field.name;
@@ -1743,8 +1746,9 @@
                          const hasVenueViewSelect = field.name === 'venueView' && Array.isArray(opt.venueViews) && opt.venueViews.length;
                          const isPartnerField = (field.name === 'partner' || field.name === 'partnerSlug' || (field.name === 'slug' && group.id === '05-partner-management'));
                          const hasPartnerSelect = isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
-                          const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
+                          const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(catalogOptionsSource) && catalogOptionsSource.length;
                           const hasGoogleLibrarySelect = field.name === 'library' && Array.isArray(opt.googleLibraries) && opt.googleLibraries.length;
+                          const hasMultiInputFiles = field.multi === true && Array.isArray(opt.inputFiles) && opt.inputFiles.length && field.placeholder && field.placeholder.startsWith('data/inputs');
                           const defaultValue = (field.placeholder && field.placeholder.startsWith('data/outputs/'))
                            ? field.placeholder
                            : '';
@@ -1814,7 +1818,7 @@
                             </select>
                           <% } else if (hasCatalogSelect) { %>
                             <select data-role="<%= inputRole %>" multiple data-join="," <%= field.required ? 'required' : '' %>>
-                              <% for (const cat of opt.tariffCatalogs) { %>
+                              <% for (const cat of catalogOptionsSource) { %>
                                 <option value="<%= cat %>"><%= cat %></option>
                               <% } %>
                             </select>
@@ -1844,6 +1848,13 @@
                               <% } %>
                             </select>
                             <small class="field-hint">Choisissez un fichier présent dans data/inputs ou saisissez un chemin personnalisé.</small>
+                          <% } else if (hasMultiInputFiles) { %>
+                            <select data-role="<%= inputRole %>" multiple data-join="," <%= field.required ? 'required' : '' %>>
+                              <% for (const file of (opt.inputFiles || [])) { const val = `data/inputs/${file}`; %>
+                                <option value="<%= val %>"><%= val %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Sélection multiple permise (Cmd/Ctrl + clic).</small>
                           <% } else if (hasInputFiles) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Fichier dans data/inputs —</option>

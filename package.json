@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@google/clasp": "^3.3.0",
+    "adm-zip": "^0.6.0",
     "archiver": "^7.0.1",
     "bts": "^1.0.3",
     "celebrate": "^15.0.3",

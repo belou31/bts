@@ -22,6 +22,7 @@ import supervisionRoutes from './admin/supervision.routes.js';
 import payRoutes from './pay.js';      
 import controlGuestlistRoutes from './control/guestlist.js';
 import qrRoutes   from './qr.js';
+import promoRoutes from './promo.js';
 import scanRoutes from './control/scan.js';
 import automationRoutes from './automation/index.js';
 
@@ -630,6 +631,9 @@ export default function routes(router) {
 
   router.use('/', scanRoutes);
   router.use('/', controlGuestlistRoutes);
+
+  // Sponsor promo QR redirect (trackable) — see src/routes/promo.js
+  router.use('/promo', promoRoutes);
 
   // API sous /s
   router.use('/s', renewApi);

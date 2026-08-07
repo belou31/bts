@@ -15,6 +15,7 @@ import { listPartnerConfigs } from '../../config/partners.js';
 import { Tariff } from '../../models/Tariff.js';
 import { TariffPrice } from '../../models/TariffPrice.js';
 import { TariffPriceCatalog } from '../../models/TariffPriceCatalog.js';
+import { AdCampaignCatalog } from '../../models/AdCampaignCatalog.js';
 import { Subscriber } from '../../models/Subscriber.js';
 import { Ticket } from '../../models/Ticket.js';
 import { ScanLog } from '../../models/ScanLog.js';
@@ -623,7 +624,7 @@ router.get('/', (req, res) => {
       outputsList: [],
       inputsList: [],
       operateOptions: {
-        venues: [], seasons: [], events: [], partners: [], tariffCatalogs: [],
+        venues: [], seasons: [], events: [], partners: [], tariffCatalogs: [], adCampaignCatalogs: [],
         inputFiles: [], assetFiles: [], customizationFiles: [], venueViews: []
       },
       viewMode: 'home',
@@ -677,6 +678,7 @@ router.get('/operate/io', (req, res) => {
       events: [],
       partners: [],
       tariffCatalogs: [],
+      adCampaignCatalogs: [],
       inputFiles: inputsList.map(file => file.name),
       assetFiles: inputsList.map(file => file.name),
       customizationFiles: inputsList.map(file => file.name),
@@ -763,6 +765,7 @@ router.get('/doc', (req, res) => {
       events: [],
       partners: [],
       tariffCatalogs: [],
+      adCampaignCatalogs: [],
       inputFiles: [],
       assetFiles: [],
       venueViews: []
@@ -905,6 +908,7 @@ router.get('/plan', async (req, res) => {
       events: [],
       partners: [],
       tariffCatalogs: [],
+      adCampaignCatalogs: [],
       inputFiles: [],
       assetFiles: [],
       venueViews: []
@@ -1055,6 +1059,7 @@ router.get('/orders', async (req, res) => {
       events: [],
       partners: [],
       tariffCatalogs: [],
+      adCampaignCatalogs: [],
       inputFiles: [],
       assetFiles: [],
       venueViews: []
@@ -1214,6 +1219,7 @@ router.get('/tickets', async (req, res) => {
       events: [],
       partners: [],
       tariffCatalogs: [],
+      adCampaignCatalogs: [],
       inputFiles: [],
       assetFiles: [],
       venueViews: []
@@ -1286,6 +1292,7 @@ router.get('/operate', async (req, res) => {
     events: [],
     partners: [],
     tariffCatalogs: [],
+    adCampaignCatalogs: [],
     inputFiles: inputsList.map(file => file.name),
     assetFiles: inputsList.map(file => file.name),
     customizationFiles: inputsList.map(file => file.name),
@@ -1299,12 +1306,17 @@ router.get('/operate', async (req, res) => {
       seasonsRaw,
       eventsRaw,
       tariffCatalogsAgg,
+      adCampaignCatalogsAgg,
       partnersRaw
     ] = await Promise.all([
       Venue.find({}).sort({ slug: 1 }).lean(),
       Season.find({}).sort({ code: -1 }).lean(),
       Event.find({}).sort({ startsAt: -1 }).lean(),
       TariffPriceCatalog.aggregate([
+        { $group: { _id: '$catalogSlug', count: { $sum: 1 } } },
+        { $sort: { _id: 1 } }
+      ]),
+      AdCampaignCatalog.aggregate([
         { $group: { _id: '$catalogSlug', count: { $sum: 1 } } },
         { $sort: { _id: 1 } }
       ]),
@@ -1321,6 +1333,9 @@ router.get('/operate', async (req, res) => {
       })),
       partners: partnersRaw.map(p => ({ slug: p.slug, name: p.name || '' })),
       tariffCatalogs: tariffCatalogsAgg
+        .map(entry => entry?._id)
+        .filter(Boolean),
+      adCampaignCatalogs: adCampaignCatalogsAgg
         .map(entry => entry?._id)
         .filter(Boolean),
       inputFiles: inputsList.map(file => file.name),

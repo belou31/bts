@@ -15,3 +15,7 @@ export { Subscriber }    from './Subscriber.js';
 export { Venue }         from './Venue.js';
 export { ZoneHold }      from './ZoneHold.js';
 export { AutomationJob } from './AutomationJob.js';
+export { AdCampaign }    from './AdCampaign.js';
+export { AdCampaignCatalog } from './AdCampaignCatalog.js';
+export { AdCampaignPlacement } from './AdCampaignPlacement.js';
+export { AdClick }       from './AdClick.js';
