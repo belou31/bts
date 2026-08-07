@@ -68,33 +68,33 @@
       `${dynamicBase}venues/`
     );
 
-    const safeHeading = localHeading || localPageTitle || 'Billetterie BTS';
+    const safeHeading = localHeading || localPageTitle || t('order.defaultHeading');
     const defaultTitle = localTitle || safeHeading;
     const htmlTitle = localDocumentTitle || `${defaultTitle} — BTS`;
-    const planTitleText = localPlanTitle || 'Plan';
-    const cartTitleText = localCartTitle || 'Vos places';
-    const paymentTitleText = localPaymentTitle || 'Paiement';
-    const planStatusText = localPlanStatus || 'Molette pour zoomer, cliquer-glisser pour déplacer.';
+    const planTitleText = localPlanTitle || t('common.seatingPlan');
+    const cartTitleText = localCartTitle || t('order.cartTitle');
+    const paymentTitleText = localPaymentTitle || t('common.payment');
+    const planStatusText = localPlanStatus || t('order.planStatus');
     const planHelpText = (localPlanHelp === undefined || localPlanHelp === null) ? '' : localPlanHelp;
 
-    const defaultColumns = ['', 'Place', 'Nom', 'Prénom', 'Tarif (montant)'];
+    const defaultColumns = ['', t('common.seat'), t('common.lastName'), t('common.firstName'), t('common.tariff')];
     const cartColumns = Array.isArray(localColumns) && localColumns.length ? localColumns : defaultColumns;
 
     const payerLabelsResolved = Object.assign({
-      firstName: 'Prénom',
-      lastName: 'Nom',
-      email: 'Email'
+      firstName: t('common.firstName'),
+      lastName: t('common.lastName'),
+      email: t('common.email')
     }, localPayerLabels || {});
     const payerPlaceholdersResolved = Object.assign({
-      firstName: 'Prénom',
-      lastName: 'Nom',
-      email: 'email@exemple.com'
+      firstName: t('common.firstName'),
+      lastName: t('common.lastName'),
+      email: t('order.emailPlaceholder')
     }, localPayerPlaceholders || {});
 
     const optionLabelsResolved = Object.assign({
-      '1': 'En 1 fois',
-      '2': 'En 2 fois',
-      '3': 'En 3 fois'
+      '1': t('order.installmentOnce'),
+      '2': t('order.installmentTemplate', { n: 2 }),
+      '3': t('order.installmentTemplate', { n: 3 })
     }, localOptionLabels || {});
 
     const scheduleOptionsRaw = Array.isArray(localScheduleOptions)
@@ -128,11 +128,11 @@
       : (localShowSchedule !== false && hasScheduleOptions && scheduleAllowedByTerms);
     const zoneSelectorConfig = (localZoneSelector && localZoneSelector.enabled) ? localZoneSelector : null;
 
-    const scheduleLabelText = localScheduleLabel || 'Échéancier';
-    const schedulePreviewLabelText = localSchedulePreviewLabel || 'Échéance(s)';
-    const totalLabelText = localTotalLabel || 'Total';
-    const payButtonText = localPayButtonLabel || 'Procéder au paiement';
-    const paymentHelpText = localPaymentHelp || 'Le reçu et la confirmation seront envoyés au contact ci-dessous.';
+    const scheduleLabelText = localScheduleLabel || t('common.paymentSchedule');
+    const schedulePreviewLabelText = localSchedulePreviewLabel || t('order.schedulePreviewLabel');
+    const totalLabelText = localTotalLabel || t('common.total');
+    const payButtonText = localPayButtonLabel || t('order.payButtonDefault');
+    const paymentHelpText = localPaymentHelp || t('order.paymentHelpDefault');
 
     const brandData = (localBrand && (localBrand.logo || localBrand.text))
       ? localBrand
@@ -206,8 +206,8 @@
       <div id="plan" class="panel">
         <div class="panel-head">
           <h2 class="panel-title"><%= planTitleText %></h2>
-          <div class="plan-actions" role="toolbar" aria-label="Affichage">
-            <button id="layoutToggle" class="tool-btn" type="button" title="Basculer l’affichage">
+          <div class="plan-actions" role="toolbar" aria-label="<%= t('order.displayToggleAria') %>">
+            <button id="layoutToggle" class="tool-btn" type="button" title="<%= t('order.toggleLayoutTitle') %>">
               <svg class="icon icon-h" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
                 <rect x="2" y="5" width="7" height="10" rx="2" />
                 <rect x="11" y="5" width="7" height="10" rx="2" />
@@ -217,7 +217,7 @@
                 <rect x="5" y="11" width="10" height="7" rx="2" />
               </svg>
             </button>
-            <button id="fsToggle" class="tool-btn" type="button" title="Plein écran du plan">
+            <button id="fsToggle" class="tool-btn" type="button" title="<%= t('order.fullscreenTitle') %>">
               <svg class="icon icon-big" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
                 <rect x="3" y="3" width="14" height="14" rx="3" />
               </svg>
@@ -228,7 +228,7 @@
           </div>
         </div>
         <div class="plan-wrap">
-          <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="Plan de la salle"></object>
+          <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="<%= t('order.planAria') %>"></object>
           <div class="plan-status"><%= planStatusText %></div>
         </div>
         <% if (planHelpText) { %>
@@ -246,7 +246,7 @@
               <% if (zoneSelectorConfig.label) { %>
                 <p class="help zone-label"><%= zoneSelectorConfig.label %></p>
               <% } %>
-              <div id="zoneButtons" class="zone-buttons" role="group" aria-label="Zones disponibles"></div>
+              <div id="zoneButtons" class="zone-buttons" role="group" aria-label="<%= t('order.zonesAria') %>"></div>
             </div>
           <% } %>
           <div class="lines-head">
@@ -285,7 +285,7 @@
                   <% normalizedScheduleOptions.forEach((opt) => {
                        const value = opt.value;
                        const disabled = opt.disabled;
-                       const label = opt.label || optionLabelsResolved[String(value)] || `En ${value} fois`;
+                       const label = opt.label || optionLabelsResolved[String(value)] || t('order.installmentTemplate', { n: value });
                   %>
                     <option value="<%= value %>" <%= disabled ? 'disabled' : '' %>><%= label %></option>
                   <% }); %>
@@ -316,18 +316,18 @@
       <%# Booking status — timer + payment confirmation, revealed by either %>
       <section id="bookingStatus" class="booking-status" hidden aria-live="polite">
         <div class="panel">
-          <h2>Statut de la réservation</h2>
+          <h2><%= t('order.bookingStatusTitle') %></h2>
           <% if (hasEventJs) { %>
           <div id="holdTimer" class="hold-timer" hidden>
-            <span class="hold-timer-label">Places réservées pendant&nbsp;:</span>
+            <span class="hold-timer-label"><%= t('order.holdTimerLabel') %></span>
             <span class="timer-text">--:--</span>
-            <button id="holdExtendBtn" type="button" class="hold-extend-btn" hidden>Prolonger</button>
+            <button id="holdExtendBtn" type="button" class="hold-extend-btn" hidden><%= t('order.extendHold') %></button>
           </div>
           <% } %>
           <div id="paymentPanelBody" class="payment-panel-body" hidden>
             <div class="pay-status-row">
               <span class="pay-spinner"></span>
-              En attente de confirmation…
+              <%= t('order.awaitingConfirmation') %>
             </div>
           </div>
         </div>
@@ -353,8 +353,12 @@
       headingCustom: <%- JSON.stringify(localHeadingCustom) %>
     };
     window.BTS_VIEW_CONFIG = Object.assign({}, baseConfig, <%- JSON.stringify(config || {}) %>);
+    window.BTS_I18N = {
+      lang: <%- JSON.stringify(viewLang) %>,
+      catalog: <%- JSON.stringify((typeof i18nCatalog !== 'undefined' && i18nCatalog) ? i18nCatalog : {}) %>
+    };
   </script>
-  <% const jsFiles = [staticBase + 'js/generic-view.js', staticBase + 'js/order.js']; %>
+  <% const jsFiles = [staticBase + 'js/i18n.js', staticBase + 'js/generic-view.js', staticBase + 'js/order.js']; %>
   <% (Array.isArray(localCustomJs) ? localCustomJs : []).forEach((src) => jsFiles.push(src)); %>
   <% jsFiles.forEach((src) => { %>
     <script defer src="<%= src %>"></script>

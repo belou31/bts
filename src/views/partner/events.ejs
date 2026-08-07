@@ -18,7 +18,7 @@
     'dynamic/'
   );
 %>
-<html lang="fr">
+<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'fr' %>">
 <head>
   <meta charset="utf-8">
   <title><%= title || 'Billetterie Partenaire' %></title>
@@ -110,16 +110,16 @@
         <% (events || []).forEach(ev => { %>
           <tr>
             <td><%= ev.name %> <span class="muted">(<%= ev.slug %>)</span></td>
-            <td><%= ev.startsAt ? new Date(ev.startsAt).toLocaleString('fr-FR', { dateStyle:'medium', timeStyle:'short' }) : '' %></td>
+            <td><%= ev.startsAt ? formatDate(ev.startsAt, { dateStyle:'medium', timeStyle:'short' }) : '' %></td>
             <td>
               <% if (ev.status === 'sale_opened' && ev.link) { %>
-                <a class="btn-status btn-open" href="<%= ev.link %>">SALE OPENED</a>
+                <a class="btn-status btn-open" href="<%= ev.link %>"><%= t('saleStatus.open') %></a>
               <% } else if (ev.status === 'presale_opened' && ev.link) { %>
-                <a class="btn-status btn-open" href="<%= ev.link %>">PRESALE OPENED</a>
+                <a class="btn-status btn-open" href="<%= ev.link %>"><%= t('saleStatus.presale') %></a>
               <% } else if (ev.status === 'presale_quota_reached') { %>
-                <span class="btn-status btn-close">PRESALE QUOTA REACHED</span>
+                <span class="btn-status btn-close"><%= t('saleStatus.presaleQuotaReached') %></span>
               <% } else { %>
-                <span class="btn-status btn-close">SALE CLOSED</span>
+                <span class="btn-status btn-close"><%= t('saleStatus.closed') %></span>
               <% } %>
             </td>
           </tr>

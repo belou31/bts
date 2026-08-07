@@ -1,0 +1,16 @@
+# campaignSlug,contentType,slot,qrValue,text,tariffCode,zoneKey,zoneType,priority,startsAt,endsAt,active
+# - campaignSlug: references an AdCampaign already defined via import-ad-campaign-asset.js / set-ad-campaign.js
+# - contentType: image | qr | text
+#     image -> slot is the <rect id="..."> the campaign's asset goes into
+#     qr    -> slot is the <rect id="..."> for the QR; qrValue encodes as-is if set,
+#              otherwise falls back to the campaign's targetUrl (trackable promo QR)
+#     text  -> slot is the literal {{TOKEN}} in the template replaced with this row's text
+# - qrValue: only used when contentType=qr — leave blank to use the campaign's targetUrl instead
+# - text: only used when contentType=text
+# - tariffCode/zoneKey/zoneType: applicability filters — leave blank for wildcard (matches any)
+# - priority: higher wins when several placements match the same ticket/slot (default 100)
+# - startsAt/endsAt: ISO dates, optional — leave blank for always-on
+sponsor-x-vip,image,ad1,,,,TRIBUNE_VIP,,100,,,true
+sponsor-x-vip,qr,ad1Qr,,,,TRIBUNE_VIP,,100,,,true
+sponsor-y-family,image,ad1,,,CHILD,,,100,2026-09-01,2026-12-31,true
+sponsor-y-family,text,AD1_TAGLINE,,"10% off with code FAMILY10",CHILD,,,100,2026-09-01,2026-12-31,true

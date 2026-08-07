@@ -17,6 +17,7 @@ export function serializeTask(task) {
     version: task.version || null,
     summary: task.summary || '',
     description: task.description || '',
+    chapter: task.chapter || null,
     tags: task.tags || [],
     allowDryRun: Boolean(task.allowDryRun),
     scopes: task.scopes || [],

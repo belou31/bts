@@ -13,7 +13,7 @@ The repository consolidates all operational scripts under a shared catalog expos
 
 Each section below is rendered directly from the metadata in `src/config/adminScripts.js`.
 
-## 00 — System Management
+## 00 — System
 
 Initialization tasks that prepare the environment, validate configuration, and stage tenant-specific assets.
 
@@ -21,14 +21,32 @@ Initialization tasks that prepare the environment, validate configuration, and s
 | --- | --- | --- | --- | --- |
 | `scripts/00-system-management/reset-db.js`<br><small>Reset MongoDB Database</small> | Drops the MongoDB database defined in .env. Requires the --force flag to avoid accidental wipes. | `node scripts/00-system-management/reset-db.js --force` | cli | `data_references/env/.env.template` |
 | `scripts/00-system-management/check-env.js`<br><small>Validate Environment (.env)</small> | Verifies the consistency of APP_URL/BASE_PATH and payment provider configuration for the current APP_ENV. | `node scripts/00-system-management/check-env.js` | cli | — |
-| `scripts/00-system-management/customize-app.js`<br><small>Customize Application</small> | Stages organization assets (favicon, logos, app icons) to public/dynamic/assets and saves metadata under data/customization. | `node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]` | cli | `data_references/customization/app.json` |
-| `scripts/00-system-management/set-default-custo.js`<br><small>Set Default Customization</small> | Writes default UI/email copy customizations to data/customization/default.json. | `node scripts/00-system-management/set-default-custo.js --file=<customization.json>` | cli | `data/customization/default.json` |
 | `scripts/00-system-management/purge-logs.js`<br><small>Purge Logs (Mongo)</small> | Supprime les logs opérationnels : collections ScanLog et journaux intégrés aux jobs automation. | `node scripts/00-system-management/purge-logs.js --apply` | cli | — |
 | `scripts/00-system-management/pm2-control.js`<br><small>Restart BTS (pm2)</small> | Redémarre le processus principal BTS via pm2 (démarre si absent). | `node scripts/00-system-management/pm2-control.js --name=bts --action=restart` | cli | — |
 | `scripts/00-system-management/pm2-control.js`<br><small>Start/Restart bts-sentinel (pm2)</small> | Démarre ou redémarre le sentinel pm2 (bts-sentinel). | `node scripts/00-system-management/pm2-control.js --name=bts-sentinel --action=restart` | cli | — |
 | `scripts/00-system-management/pm2-control.js`<br><small>Start/Restart pm2-logrotate</small> | Démarre ou redémarre le service de rotation des logs (pm2: pm2-logrotate). | `node scripts/00-system-management/pm2-control.js --name=pm2-logrotate --action=restart` | cli | — |
 
-## 01 — Venue Management
+## 00 — Client
+
+Deployment tooling for what runs on an operator/client's own side: the downloadable BTS Desktop bundle, and the Google Sheets integration (shared library + per-event spreadsheet).
+
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `download-desktop-bundle` | Downloads a zip of scripts_desktop/ (LibreOffice macros, CLI, GUI credentials installer, Excel/Numbers stubs) plus automation_client/, the shared Python package they all depend on — everything needed to run the desktop installer (scripts_desktop/gui/installer.py) on an operator's own machine. | `Téléchargement direct — voir le lien ci-dessous` | cli | `scripts_desktop.zip` |
+| `scripts_online/google/install/install-library.js`<br><small>Install/Update Google App BTS Library</small> | Deploys (or redeploys) the shared BtsApp Apps Script library that every spreadsheet's BTS menu attaches to. Leave "Script ID" blank the first time to create it; fill it in on later runs to push updates to the same project. "Feed credentials" reads BASE_URL/secret straight from this server's own .env and prints them ready to paste, instead of hunting them down by hand. | `node scripts_online/google/install/install-library.js [--script-id=<id>] [--feed-credentials]` | cli | — |
+| `scripts_online/google/install/install-sheet-menu.js`<br><small>Install Google Sheet BTS Menu</small> | Binds a new Apps Script project to a Google Sheet and pushes the BTS menu — not limited to event spreadsheets, whatever chapters BtsApp.gs exposes (tariffs, seasons, events, ...) come along. Leave the Google Sheet field blank to create a brand-new spreadsheet instead of binding to an existing one. No credentials are written — the new project inherits everything from the BtsLib library's own Script Properties (see scripts_online/google/README.md). | `node scripts_online/google/install/install-sheet-menu.js [--spreadsheet=<URL>] --library=<scriptId>:<version>` | cli | — |
+
+## 01 — Organization
+
+Organization-wide setup: branding and default customization today; payment provider, email account, and similar org-level configuration expected to land here too.
+
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `scripts/00-system-management/customize-app.js`<br><small>Customize Application</small> | Stages organization assets (favicon, logos, app icons) to public/dynamic/assets and saves metadata under data/customization. | `node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]` | cli | `data_references/customization/app.json` |
+| `scripts/00-system-management/set-default-custo.js`<br><small>Set Default Customization</small> | Writes default UI/email copy customizations to data/customization/default.json. | `node scripts/00-system-management/set-default-custo.js --file=<customization.json>` | cli | `data/customization/default.json` |
+| `scripts/00-system-management/set-payment-provider.js`<br><small>Set Payment Provider</small> | Switches the active payment provider by updating PAYMENT_PROVIDER (and optionally PAYMENT_PROVIDER_NAME) in .env, leaving every other line — including other providers' secrets — untouched. | `node scripts/00-system-management/set-payment-provider.js --provider=<helloasso|mollie|sumup> [--name="<Label>"]` | cli | — |
+
+## 01 — Venue
 
 Register venues and keep their seating layout in sync with the database.
 
@@ -39,7 +57,7 @@ Register venues and keep their seating layout in sync with the database.
 | `scripts/01-venue-management/import-seats.js`<br><small>Import Seats</small> | Parses the venue plan SVG (under public/dynamic/venues/<slug>/plan.svg) and stores seats in the catalog. Optionally merge overrides from a CSV mapping (seatId, zoneKey, row, number). When --view is provided, the matching view is also enriched with seat attributes. | `node scripts/01-venue-management/import-seats.js --venue=<slug> [--csv=<path/to/seats.csv>] [--view=<viewSlug>]` | cli | `data_references/csv/seats.template.csv` |
 | `scripts/01-venue-management/import-zones.js`<br><small>Import Zones</small> | Maintains the ZoneCatalog for a venue from CSV and/or the persisted SVG plan (data-zone-id by default) under public/dynamic/venues/<slug>/plan.svg. Instantiate zones per season afterwards. When --view is provided, the matching view is also enriched with zone attributes. | `node scripts/01-venue-management/import-zones.js --venue=<slug> [--csv=<path/to/zones.csv>] [--view=<viewSlug>]` | cli | `data_references/csv/zones.template.csv` |
 
-## 02 — Tariff Management
+## 02 — Tariff
 
 Maintain the tariff catalog and zone-specific pricing matrices.
 
@@ -51,8 +69,23 @@ Maintain the tariff catalog and zone-specific pricing matrices.
 | `scripts/02-tariff-management/export-zone-tariffs.js`<br><small>Export Zone Tariffs</small> | Exports the price matrix for verification or sharing. | `node scripts/02-tariff-management/export-zone-tariffs.js <seasonCode> <venueSlug> --out=<file.csv>` | cli | — |
 | `scripts/02-tariff-management/export-zone-tariffs-matrix.js`<br><small>Export Tariffs (matrix)</small> | Produces a tariffCode × zone matrix (euros) to ease comparisons. | `node scripts/02-tariff-management/export-zone-tariffs-matrix.js <seasonCode> <venueSlug> [outCsvPath]` | cli | — |
 | `scripts/02-tariff-management/clone-zone-tariffs.mjs`<br><small>Clone Zone Tariffs</small> | Copies pricing from one zone to others, optionally applying a discount. | `node scripts/02-tariff-management/clone-zone-tariffs.mjs --season=<code> --venue=<slug> --from-zone=<A1> --to-zones=<B1,B2> [--discount=30]` | cli | — |
+| `scripts/02-tariff-management/remove-price-catalog.js`<br><small>Remove Price Catalog</small> | Deletes TariffPriceCatalog rows for a catalogSlug (+ optional venue). Safe by construction: instantiate-tariffs.js copies rows once and never links back, so this can never retroactively affect an event/season that already instantiated from it — only future instantiation from this slug fails until recreated. | `node scripts/02-tariff-management/remove-price-catalog.js --catalog=<slug> [--venue=<slug>] --force` | cli | — |
 
-## 03 — Season Management
+## 02 — Ticket/Ad
+
+Ticket templates and the advertising content (images, text, promo QR) placed on them based on a ticket's own tariffCode/zoneKey/zoneType.
+
+| Script | Purpose | Command | Mode | Templates |
+| --- | --- | --- | --- | --- |
+| `scripts/00-system-management/import-templates.js`<br><small>Import Email/Ticket Template</small> | Imports a single email or ticket template file (any filename — no naming convention required) as the given kind, with an optional theme variant — or stages a logo asset into data/assets/. Delegates to set-email-template.js / set-ticket-template.js, so the same validation/diff preview applies. | `node scripts/00-system-management/import-templates.js --resource=<email|ticket|logo> --file=<path> [--kind=<kind>] [--theme=<name>]` | cli | `data_references/README.md` |
+| `scripts/02-ticket-ad-management/set-ad-campaign.js`<br><small>Set Ad Campaign (identity)</small> | Defines (or edits) a sponsor campaign's identity: label, click target, active. Pure metadata — no asset here, see Import Ad Campaign Asset below for that. Neither script is a prerequisite for the other: register a campaign here first (no image on tickets until an asset is attached), or let Import Ad Campaign Asset create it directly. | `node scripts/02-ticket-ad-management/set-ad-campaign.js --slug=<slug> [--target-url=<url>] [--label="<text>"] [--active=true|false]` | cli | — |
+| `scripts/02-ticket-ad-management/import-ad-campaign-asset.js`<br><small>Import Ad Campaign Asset</small> | Stages a sponsor asset into data/assets/ads/ under a manually-chosen id, and optionally attaches it to a campaign — creating that campaign if it doesn't exist yet. A single svg/png/jpg stages one asset; a .zip stages a whole FAMILY (a "carousel") — tickets rotate through every image inside by their position within the order. | `node scripts/02-ticket-ad-management/import-ad-campaign-asset.js --file=<path> --slug=<asset-id> [--campaign=<campaign-slug>] [--kind=svg|raster] [--dry-run]` | cli | — |
+| `scripts/02-ticket-ad-management/import-ad-campaign-catalog.js`<br><small>Import Ad Campaign Catalog</small> | Imports a reusable ad campaign catalog — WHERE/WHEN an existing campaign (by slug, see Import Ad Campaign Asset) shows up: which slot, what kind of content (image/qr/text), filtered by tariffCode/zoneKey/zoneType — that can later be instantiated for a season or event. | `node scripts/02-ticket-ad-management/import-ad-campaign-catalog.js <catalogSlug> <path/to/ad-campaign-catalog.csv> [--venue=<slug>] [--append] [--dry-run]` | cli | `data_references/csv/ad-campaign-catalog.template.csv` |
+| `scripts/02-ticket-ad-management/export-ad-campaign-catalog.js`<br><small>Export Ad Campaign Catalog</small> | Exports an ad campaign catalog to CSV for review or editing. | `node scripts/02-ticket-ad-management/export-ad-campaign-catalog.js <catalogSlug> [--venue=<slug>] [--out=<file.csv>]` | cli | — |
+| `scripts/02-ticket-ad-management/remove-ad-campaign-catalog.js`<br><small>Remove Ad Campaign Catalog</small> | Deletes AdCampaignCatalog rows for a catalogSlug (+ optional venue). Safe by construction: instantiate-ad-campaigns.js copies rows once and never links back, so this can never retroactively affect a season/event that already instantiated from it — only future instantiation from this slug fails until recreated. Does not touch AdCampaign masters. | `node scripts/02-ticket-ad-management/remove-ad-campaign-catalog.js --catalog=<slug> [--venue=<slug>] --force` | cli | — |
+| `scripts/02-ticket-ad-management/remove-ad-campaign.js`<br><small>Remove Ad Campaign</small> | Deletes an AdCampaign master (identity/asset/targetUrl) by slug, and its staged asset file under data/assets/ads/ (kept if another campaign still references the same file). Does not touch campaign catalogs or instantiated placements referencing it — they simply stop resolving an asset until the campaign is recreated. | `node scripts/02-ticket-ad-management/remove-ad-campaign.js --slug=<slug> --force` | cli | — |
+
+## 03 — Season
 
 Season setup tasks (data seeding, subscriber imports, seat provisioning).
 
@@ -63,12 +96,15 @@ Season setup tasks (data seeding, subscriber imports, seat provisioning).
 | `scripts/03-season-management/set-season-custo.js`<br><small>Set Season Customization</small> | Stores season-level UI/email customization keys under data/customization/seasons/<code>.json. | `node scripts/03-season-management/set-season-custo.js --season=<code> --file=<customization.json>` | cli | `data/customization/seasons/<code>.json` |
 | `scripts/03-season-management/instantiate-venue-for-season.js`<br><small>Instantiate Venue for Season</small> | Clones seat and zone catalogs into season-specific collections. Use the skip flags to target only seats or zones. | `node scripts/03-season-management/instantiate-venue-for-season.js <seasonCode> <venueSlug> [--skip-seats] [--skip-zones]` | cli | — |
 | `scripts/03-season-management/instantiate-tariffs.js`<br><small>Instantiate Tariffs for Season</small> | Applies one or more tariff matrix catalogs to populate TariffPrice for the season/venue. Add --clear to purge existing rows first. | `node scripts/03-season-management/instantiate-tariffs.js <seasonCode> <venueSlug> --catalog=<slug[,slug2]>` | cli | — |
+| `scripts/03-season-management/instantiate-ad-campaigns.js`<br><small>Instantiate Ad Campaigns for Season</small> | Applies one or more ad campaign catalogs as the season-wide default for tickets that don't have an event-specific placement (e.g. subscription/public tickets). Add --clear to purge existing rows first. | `node scripts/03-season-management/instantiate-ad-campaigns.js <seasonCode> <venueSlug> --catalog=<slug[,slug2]> [--clear] [--dry-run]` | cli | — |
 | `scripts/03-season-management/import-subscription-orders.js`<br><small>Import Subscription Orders</small> | Re-import subscription orders exported from the system. Dry-run by default; add --commit to apply changes. | `node scripts/03-season-management/import-subscription-orders.js <path/to/orders.csv> [--season=...] [--venue=...] [--status=paid] [--commit] [--force] [--sendEmails]` | cli | `data_references/csv/orders-export.template.csv` |
 | `scripts/03-season-management/export-subscribers.js`<br><small>Export Renewers</small> | Exports the renewer registry (formerly Subscribers collection) for the requested season/venue. | `node scripts/03-season-management/export-subscribers.js --season=<code> [--venue=...] [--activeOnly]` | cli | `data_references/csv/subscribers-export.template.csv` |
 | `scripts/03-season-management/export-subscription-orders.js`<br><small>Export Subscription Orders</small> | Exports orders with phase=subscription. Useful to audit new season sales. | `node scripts/03-season-management/export-subscription-orders.js [--season=...] [--venue=...] [--status=paid]` | cli | `data_references/csv/orders-export.template.csv` |
 | `scripts/03-season-management/block-free-seats-for-season.js`<br><small>Block/Free Seats for Season</small> | Blocks or frees season seats (status busy) based on a CSV; accepts seatId, seatPattern (regex), or zoneKey. | `node scripts/03-season-management/block-free-seats-for-season.js --file=<holds.csv> [--season=...] [--venue=...] [--commit] [--force]` | cli | `data_references/csv/seats-hold-release.template.csv` |
+| `scripts/03-season-management/remove-season-tariffs.js`<br><small>Remove Season Tariffs</small> | Deletes the instantiated season-scoped TariffPrice rows for a (season, venue) pair — subscription pricing. Refuses if the season is currently active unless explicitly overridden on the CLI (--allow-active-season, not exposed here) — deleting live subscription pricing needs a deliberate extra step, not just this confirmation. | `node scripts/03-season-management/remove-season-tariffs.js --season=<code> --venue=<slug> --force` | cli | — |
+| `scripts/03-season-management/remove-season-ad-campaigns.js`<br><small>Remove Season Ad Campaigns</small> | Deletes the instantiated season-scoped AdCampaignPlacement rows for a (season, venue) pair. Does not touch AdCampaign masters or the AdCampaignCatalog template. | `node scripts/03-season-management/remove-season-ad-campaigns.js --season=<code> --venue=<slug> --force` | cli | — |
 
-## 03 — Season Management · Renewal
+## 03 — Season · Renewal
 
 Renewal-focused tooling: import legacy subscribers, provision their seats, publish renewal links, and close the campaign.
 
@@ -81,16 +117,20 @@ Renewal-focused tooling: import legacy subscribers, provision their seats, publi
 | `scripts/03-season-management/export-renew-seats.js`<br><small>Export Renewal Seats</small> | Exports the list of seats involved in the renewal campaign for auditing. | `node scripts/03-season-management/export-renew-seats.js <seasonCode> --venue=<slug> --out=<file.csv>` | cli | `data_references/csv/renew-seats.template.csv` |
 | `scripts/03-season-management/renewal-close-phase.js`<br><small>Close Renewal Phase</small> | Closes the renewal campaign for a season and releases remaining provisioned seats. | `node scripts/03-season-management/renewal-close-phase.js <seasonCode> [--venue=<slug>]` | cli | — |
 
-## 04 — Event Management
+## 04 — Event
 
 Create events, configure their sales windows, and manage ancillary assets (QR banks, PDFs…).
 
 | Script | Purpose | Command | Mode | Templates |
 | --- | --- | --- | --- | --- |
 | `scripts/04-event-management/create.js`<br><small>Create Event</small> | Creates a new event bound to a season; attach venue/plan later via Instantiate Venue for Event. | `node scripts/04-event-management/create.js --slug=<eventCode> --name="<Event Name>" --date=YYYY-MM-DDThh:mm:ssZ --season=<code>` | cli | — |
+| `scripts/04-event-management/clone-event.js`<br><small>Clone Event</small> | Creates a new event from an existing one: copies venue (seats/zones instantiated for the new event's season+venue), tariffs (the source event's actual Tariff/TariffPrice rows, preserving any manual tweaks), and the event customization file. The new event always starts isOnSale=false with an empty QR bank. | `node scripts/04-event-management/clone-event.js --from=<slug> --slug=<newSlug> --name="<New Name>" --date=YYYY-MM-DDThh:mm:ssZ` | cli | `data/customization/events/<slug>.json` |
 | `scripts/04-event-management/set-event-custo.js`<br><small>Set Event Customization</small> | Stores event-level UI/email customization keys under data/customization/events/<slug>.json. | `node scripts/04-event-management/set-event-custo.js --event=<slug> --file=<customization.json>` | cli | `data/customization/events/<slug>.json` |
 | `scripts/04-event-management/instantiate-venue-for-event.js`<br><small>Instantiate Venue for Event</small> | Clones seat/zone catalogs for the event season/venue and optionally attaches a custom plan view. | `node scripts/04-event-management/instantiate-venue-for-event.js --event=<slug|ObjectId> [--venue=<slug>] [--skip-seats] [--skip-zones] [--venue-view=<slug>]` | cli | — |
 | `scripts/04-event-management/instantiate-tariffs.js`<br><small>Instantiate Tariffs for Event</small> | Clones one or more tariff catalogs into the event price table. | `node scripts/04-event-management/instantiate-tariffs.js --event=<slug> --catalog=<slug[,slug2]> [--clear] [--dry-run]` | cli | — |
+| `scripts/04-event-management/instantiate-ad-campaigns.js`<br><small>Instantiate Ad Campaigns for Event</small> | Clones one or more ad campaign catalogs into the event, so tickets pick up sponsor content matching their own tariffCode/zoneKey/zoneType. Takes priority over the season default (see Instantiate Ad Campaigns for Season) when both exist. | `node scripts/04-event-management/instantiate-ad-campaigns.js --event=<slug> --catalog=<slug[,slug2]> [--clear] [--dry-run]` | cli | — |
+| `scripts/04-event-management/remove-event-tariffs.js`<br><small>Remove Event Tariffs</small> | Deletes the instantiated Tariff/TariffPrice rows for one event's priceTableKey — does not delete the event itself. Refuses if another event shares the same priceTableKey (a custom/shared table isn't this event's alone to remove). | `node scripts/04-event-management/remove-event-tariffs.js --event=<slug> --force` | cli | — |
+| `scripts/04-event-management/remove-event-ad-campaigns.js`<br><small>Remove Event Ad Campaigns</small> | Deletes the instantiated AdCampaignPlacement rows for one event's priceTableKey — does not delete the event itself or touch AdCampaign masters. Refuses if another event shares the same priceTableKey. | `node scripts/04-event-management/remove-event-ad-campaigns.js --event=<slug> --force` | cli | — |
 | `scripts/04-event-management/build-allowed-from-prices.js`<br><small>Build Allowed-From Prices</small> | Recomputes allowed-from pricing for an event based on zone tariffs. | `node scripts/04-event-management/build-allowed-from-prices.js --event=<slug> --season=<code> --venue=<slug>` | cli | — |
 | `scripts/04-event-management/set-onsale.js`<br><small>Set Event On-sale</small> | Opens or closes ticket sales for an event (use --open / --close / --on=true\|false). | `node scripts/04-event-management/set-onsale.js --event=<slug|ObjectId> [--open|--close]` | cli | — |
 | `scripts/04-event-management/cancel-order.js`<br><small>Cancel Event Order</small> | Cancels an event order, releases seats, and marks lines as released. Dry-run by default; add --commit to apply. | `node scripts/04-event-management/cancel-order.js --order=<orderId> [--event=<slug|ObjectId>] [--commit]` | cli | — |
@@ -105,8 +145,9 @@ Create events, configure their sales windows, and manage ancillary assets (QR ba
 | `scripts/04-event-management/send-all-season-tickets-for-event.js`<br><small>Send All Season Tickets for Event</small> | Ensures event orders carry tickets and emails them to subscribers (works on orders created by the sync command). | `node scripts/04-event-management/send-all-season-tickets-for-event.js --event=<slug> [--limit=200] [--dry-run] [--force]` | cli | — |
 | `scripts/04-event-management/resend-event-tickets.js`<br><small>Resend Tickets for Event</small> | Resends event ticket emails for specific order IDs. Dry-run by default; add --commit to send. | `node scripts/04-event-management/resend-event-tickets.js --event=<slug> --order=<orderId[,orderId2]> [--status=paid] [--commit]` | cli | — |
 | `scripts/04-event-management/tickets-pdf.js`<br><small>Generate Tickets PDF</small> | Builds a PDF of tickets for a given order, reusing QR codes from the bank. | `node scripts/04-event-management/tickets-pdf.js --event=<slug> --id=<orderId>` | cli | — |
+| `scripts/04-event-management/delete-event.js`<br><small>Delete Event</small> | Permanently deletes an event: Tickets, SeatHolds, ScanLog, Orders, its Tariff/TariffPrice (only if not shared with another event), the Event itself, and its customization file. Never touches Seat/Zone/SeatCatalog/ZoneCatalog/TariffPriceCatalog — those are shared venue infrastructure, not event-scoped. | `node scripts/04-event-management/delete-event.js --event=<slug> --force` | cli | — |
 
-## 05 — Partner Management
+## 05 — Partner
 
 Manage partner-specific access, iframe restrictions, and payment modes backed by data/customization/partners.json.
 

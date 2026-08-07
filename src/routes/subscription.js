@@ -14,6 +14,7 @@ import { makeTokenHash }        from '../utils/ha-token.js';
 import { findSingleGaps }       from '../utils/no-single-gap.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { loadCustomization } from '../services/customization.js';
+import { isVirtualZoneSeatId } from '../utils/seat-id.js';
 
 const router = express.Router({ mergeParams: true });
 
@@ -22,7 +23,6 @@ const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 10); // durée du hold en minutes
 const HOLD_MS  = HOLD_MIN * 60 * 1000;
-const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 
 /* ====== Helpers ====== */
 const norm  = s => String(s || '').trim();
@@ -142,7 +142,7 @@ router.get('/status', async (req, res, next) => {
       { kind: 'subscription' }
     );
 
-    const customization = loadCustomization({ seasonCode });
+    const customization = loadCustomization({ seasonCode, locale: req.locale });
 
     // --- Calcul “remaining” zone = plafond - USAGE(only paid)
     const usage = zoneKeys.length
@@ -205,12 +205,17 @@ router.post('/checkout', async (req, res) => {
       : [];
     const seatMap = new Map(dbSeats.map(s => [s.seatId, s]));
 
-    // Prépare contrôle quotas pour zones explicitement demandées
+    // Prépare contrôle quotas pour zones explicitement demandées, + zoneType
+    // lookup pour toutes les zones concernées (y compris celles des sièges
+    // réels, pour peupler zoneType même sur les lignes "SIÈGE").
     const requestedZoneKeys = new Set(
       items
         .map(it => norm(it.zoneKey))
         .filter(Boolean)
     );
+    for (const s of dbSeats) {
+      if (s.zoneKey) requestedZoneKeys.add(s.zoneKey);
+    }
     const zones = requestedZoneKeys.size
       ? await Zone.find({
           seasonCode,
@@ -241,6 +246,8 @@ router.post('/checkout', async (req, res) => {
         lines.push({
           seatId,
           zoneKey: s.zoneKey || zoneKey || '',
+          unitType: 'seat',
+          zoneType: (zoneMap.get(s.zoneKey) || {}).type || null,
           holderFirstName: norm(it.firstName),
           holderLastName:  norm(it.lastName),
           tariffCode,
@@ -256,6 +263,8 @@ router.post('/checkout', async (req, res) => {
         lines.push({
           seatId,
           zoneKey,
+          unitType: 'zone',
+          zoneType: (zoneMap.get(zoneKey) || {}).type || null,
           holderFirstName: norm(it.firstName),
           holderLastName:  norm(it.lastName),
           tariffCode,
@@ -333,6 +342,7 @@ router.post('/checkout', async (req, res) => {
       paymentProviderMeta: {},
       origin: { flow: 'subscription', uiPath: seasonPath, apiPath: `${req.baseUrl||''}${req.path}` },
       mailTemplateKind: 'subscription',
+      locale: req.locale,
       meta: {
         seasonCode,
         seasonName: season?.name || null,

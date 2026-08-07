@@ -12,7 +12,7 @@
 export const adminScriptGroups = [
   {
     id: '00-system-management',
-    label: '00 — System Management',
+    label: '00 — System',
     order: 0,
     description: 'Initialization tasks that prepare the environment, validate configuration, and stage tenant-specific assets.',
     scripts: [
@@ -45,94 +45,6 @@ export const adminScriptGroups = [
           args: []
         },
         description: 'Verifies the consistency of APP_URL/BASE_PATH and payment provider configuration for the current APP_ENV.'
-      },
-      {
-        id: 'customize-app',
-        label: 'Customize Application',
-        order: 2,
-        path: 'scripts/00-system-management/customize-app.js',
-        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]',
-        run: {
-          script: 'scripts/00-system-management/customize-app.js',
-          args: []
-        },
-        description: 'Stages organization assets (favicon, logos, app icons) to public/dynamic/assets and saves metadata under data/customization.',
-        templates: ['data_references/customization/app.json'],
-        notes: [
-          'Input files can be referenced by absolute path or relative to data/inputs.',
-          'Use --dry-run to preview the configuration without writing files.',
-          'Run with --show to print the current customization metadata.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'name',
-              label: 'Nom complet de l’organisation',
-              placeholder: 'Belougas Ticketing System',
-              arg: { type: 'option', template: '--name=${value}' }
-            },
-            {
-              name: 'shortName',
-              label: 'Nom abrégé',
-              placeholder: 'BTS',
-              arg: { type: 'option', template: '--short-name=${value}' }
-            },
-            {
-              name: 'favicon',
-              label: 'Favicon (.ico)',
-              placeholder: 'public/dynamic/assets/favicon.ico',
-              arg: { type: 'option', template: '--favicon=${value}' }
-            },
-            {
-              name: 'logoSvg',
-              label: 'Logo vectoriel (.svg)',
-              placeholder: 'public/dynamic/assets/logo.svg',
-              arg: { type: 'option', template: '--logo-svg=${value}' }
-            },
-            {
-              name: 'logoPng',
-              label: 'Logo bitmap (.png)',
-              placeholder: 'public/dynamic/assets/logo.png',
-              arg: { type: 'option', template: '--logo-png=${value}' }
-            },
-            {
-              name: 'icon192',
-              label: 'Icône 192×192 (.png)',
-              placeholder: 'public/dynamic/assets/icon-192.png',
-              arg: { type: 'option', template: '--icon-192=${value}' }
-            },
-            {
-              name: 'icon512',
-              label: 'Icône 512×512 (.png)',
-              placeholder: 'public/dynamic/assets/icon-512.png',
-              arg: { type: 'option', template: '--icon-512=${value}' }
-            }
-          ]
-        }
-      },
-      {
-        id: 'set-default-custo',
-        label: 'Set Default Customization',
-        order: 3,
-        path: 'scripts/00-system-management/set-default-custo.js',
-        command: 'node scripts/00-system-management/set-default-custo.js --file=<customization.json>',
-        run: {
-          script: 'scripts/00-system-management/set-default-custo.js',
-          args: []
-        },
-        description: 'Writes default UI/email copy customizations to data/customization/default.json.',
-        templates: ['data/customization/default.json'],
-        form: {
-          fields: [
-            {
-              name: 'file',
-              label: 'JSON customization',
-              placeholder: 'data/customization/default.json',
-              required: true,
-              arg: { type: 'option', template: '--file=${value}' }
-            }
-          ]
-        }
       },
       {
         id: 'purge-logs',
@@ -205,8 +117,261 @@ export const adminScriptGroups = [
     ]
   },
   {
+    id: '00-client-management',
+    label: '00 — Client',
+    // Same "00 -" insertion technique as the season-renewal chapter (order
+    // 3.5): a new chapter between System (0) and Organization (0.6), no
+    // renumbering. Sorts before Organization: 00 System > 00 Client >
+    // 01 Organization > 01 Venue > 02 Tariff ...
+    order: 0.3,
+    description: 'Deployment tooling for what runs on an operator/client\'s own side: the downloadable BTS Desktop bundle, and the Google Sheets integration (shared library + per-event spreadsheet).',
+    guide: {
+      title: 'Google Auth — clasp step-by-step',
+      // Rendered between these two script cards (not above the whole chapter)
+      // since it's specifically about the two Google-script cards that follow,
+      // not the desktop bundle download above it.
+      afterScriptId: 'download-desktop-bundle',
+      steps: [
+        'Required once per server host, before either Google script below will work — <code>clasp</code> is a project dependency (<code>npm install</code>), not a global command, so it must be authenticated from inside the repo.',
+        '<code>ssh &lt;server&gt;</code> — connect to the server.',
+        '<code>sudo -iu &lt;user&gt;</code> — become the OS user the BTS server runs as (e.g. <code>belou</code>).',
+        '<code>cd bts</code> — the repo root (adjust if it lives elsewhere).',
+        '<code>npx clasp login --no-localhost</code> — authenticate clasp for THIS user.',
+        'Open the printed URL in any browser (your own laptop\'s is fine) and complete Google\'s consent screen.',
+        'It redirects to a broken <code>http://localhost:.../</code> page — that\'s expected, nothing is meant to be listening there. Copy the <strong>entire</strong> address bar URL (not just the <code>code=</code> value) and paste that whole thing back into the terminal, which is waiting for it.',
+        'One-time per Google account, separate from clasp login: visit <a href="https://script.google.com/home/usersettings" target="_blank" rel="noopener">script.google.com/home/usersettings</a> and enable the "Google Apps Script API" toggle. Wait a minute or two for it to propagate, then retry the script below if it just failed with "User has not enabled the Apps Script API."',
+'"Install/Update Google App BTS Library" prints the credential values ready to paste, but doesn\'t write them for you (an automatic path via <code>clasp run</code> was tried and dropped — unreliable regardless of executionApi access level). Paste them once into the <strong>library</strong> project itself (the standalone one deployed as a library, not a spreadsheet\'s bound script — Script Properties are isolated per project) in script.google.com → Project settings → Script properties.'
+      ]
+    },
+    scripts: [
+      {
+        id: 'download-desktop-bundle',
+        label: 'Download BTS Desktop',
+        order: 0,
+        command: 'Téléchargement direct — voir le lien ci-dessous',
+        description: 'Downloads a zip of scripts_desktop/ (LibreOffice macros, CLI, GUI credentials installer, Excel/Numbers stubs) plus automation_client/, the shared Python package they all depend on — everything needed to run the desktop installer (scripts_desktop/gui/installer.py) on an operator\'s own machine.',
+        templates: ['scripts_desktop.zip'],
+        notes: [
+          'This entry has no CLI command — use the download link below, not "Exécuter".',
+          'The zip is generated on the fly from the current checkout, so it always matches what this BTS instance is actually running.',
+          'After extracting: python3 scripts_desktop/gui/installer.py (see scripts_desktop/README.md for per-surface details).'
+        ]
+      },
+      {
+        id: 'install-google-library',
+        label: 'Install/Update Google App BTS Library',
+        order: 1,
+        path: 'scripts_online/google/install/install-library.js',
+        command: 'node scripts_online/google/install/install-library.js [--script-id=<id>] [--feed-credentials]',
+        run: {
+          script: 'scripts_online/google/install/install-library.js',
+          args: []
+        },
+        description: 'Deploys (or redeploys) the shared BtsApp Apps Script library that every spreadsheet\'s BTS menu attaches to. Leave "Script ID" blank the first time to create it; fill it in on later runs to push updates to the same project. "Feed credentials" reads BASE_URL/secret straight from this server\'s own .env and prints them ready to paste, instead of hunting them down by hand.',
+        notes: [
+          'clasp needs authenticating once per server host before this works — see the "Google Auth — clasp step-by-step" box above.',
+          'First run: leave "Script ID" blank. Note the printed Script ID + version afterwards — needed by "Install Google Sheet BTS Menu" below (as BTS_GOOGLE_LIBRARY_ID / BTS_GOOGLE_LIBRARY_VERSION in .env, or pasted per run).',
+          'Later runs (pushing an updated BtsApp.gs): fill in the same Script ID so it updates the existing project instead of creating a new one.',
+          '"Feed credentials" reads APP_URL+BASE_PATH and AUTOMATION_JWT_SECRET from THIS server\'s own .env — the same secret already used to validate incoming automation JWTs — and prints them. Paste them once into script.google.com → this project → Project settings → Script properties. (An earlier version tried writing them automatically via the Apps Script Execution API — dropped after real-world testing failed regardless of executionApi access level; not worth the added complexity/attack surface for one manual paste.)'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'scriptId',
+              label: 'Script ID (optionnel — vide = nouveau projet)',
+              arg: { type: 'option', template: '--script-id=${value}' }
+            },
+            {
+              name: 'feedCredentials',
+              label: 'Afficher les identifiants de ce serveur (.env), prêts à coller',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--feed-credentials' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'install-google-sheet-menu',
+        label: 'Install Google Sheet BTS Menu',
+        order: 2,
+        path: 'scripts_online/google/install/install-sheet-menu.js',
+        command: 'node scripts_online/google/install/install-sheet-menu.js [--spreadsheet=<URL>] --library=<scriptId>:<version>',
+        run: {
+          script: 'scripts_online/google/install/install-sheet-menu.js',
+          args: []
+        },
+        description: 'Binds a new Apps Script project to a Google Sheet and pushes the BTS menu — not limited to event spreadsheets, whatever chapters BtsApp.gs exposes (tariffs, seasons, events, ...) come along. Leave the Google Sheet field blank to create a brand-new spreadsheet instead of binding to an existing one. No credentials are written — the new project inherits everything from the BtsLib library\'s own Script Properties (see scripts_online/google/README.md).',
+        notes: [
+          'clasp needs authenticating once per server host before this works — see the "Google Auth — clasp step-by-step" box above. Without it, every run fails with "No credentials found."',
+          'Requires the library to be deployed first — see "Install/Update Google App BTS Library" above, which registers it here for selection.',
+          'Library not listed? It hasn\'t been deployed via "Install/Update Google App BTS Library" yet (only libraries deployed that way are tracked in data/google-library-deployments.json) — deploy it there first, or use the CLI directly with --library-id/--library-version.',
+          'Leaving "Google Sheet" blank creates a new spreadsheet (clasp create --type sheets) and prints its URL at the end — check the run output for the link.',
+          'After a successful run, reload the target spreadsheet — the BTS menu appears; run 00 — Diagnostics → Vérifier configuration from it to confirm credentials resolved from the library.',
+          'See scripts_online/google/install/README.md for troubleshooting.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'spreadsheet',
+              label: 'Google Sheet (URL ou ID) — vide = créer un nouveau classeur',
+              placeholder: 'https://docs.google.com/spreadsheets/d/…',
+              arg: { type: 'option', template: '--spreadsheet=${value}' }
+            },
+            {
+              name: 'library',
+              label: 'Bibliothèque Google (déployée via "Install/Update Google App BTS Library")',
+              required: true,
+              arg: { type: 'option', template: '--library=${value}' }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    id: '00-organization-management',
+    label: '01 — Organization',
+    // Between Client (0.3) and Venue (1), without renumbering either — same
+    // technique as 03-season-management-renewal's 3.5. More scripts expected
+    // here later (payment provider setup, email account, ...), hence its own
+    // chapter rather than folding into System. Labeled "01" (shares the
+    // number with Venue) rather than "00": 00 System > 00 Client >
+    // 01 Organization > 01 Venue > 02 Tariff ...
+    order: 0.6,
+    description: 'Organization-wide setup: branding and default customization today; payment provider, email account, and similar org-level configuration expected to land here too.',
+    scripts: [
+      {
+        id: 'customize-app',
+        label: 'Customize Application',
+        order: 0,
+        path: 'scripts/00-system-management/customize-app.js',
+        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]',
+        run: {
+          script: 'scripts/00-system-management/customize-app.js',
+          args: []
+        },
+        description: 'Stages organization assets (favicon, logos, app icons) to public/dynamic/assets and saves metadata under data/customization.',
+        templates: ['data_references/customization/app.json'],
+        notes: [
+          'Input files can be referenced by absolute path or relative to data/inputs.',
+          'Use --dry-run to preview the configuration without writing files.',
+          'Run with --show to print the current customization metadata.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'name',
+              label: 'Nom complet de l’organisation',
+              placeholder: 'Belougas Ticketing System',
+              arg: { type: 'option', template: '--name=${value}' }
+            },
+            {
+              name: 'shortName',
+              label: 'Nom abrégé',
+              placeholder: 'BTS',
+              arg: { type: 'option', template: '--short-name=${value}' }
+            },
+            {
+              name: 'favicon',
+              label: 'Favicon (.ico)',
+              placeholder: 'public/dynamic/assets/favicon.ico',
+              arg: { type: 'option', template: '--favicon=${value}' }
+            },
+            {
+              name: 'logoSvg',
+              label: 'Logo vectoriel (.svg)',
+              placeholder: 'public/dynamic/assets/logo.svg',
+              arg: { type: 'option', template: '--logo-svg=${value}' }
+            },
+            {
+              name: 'logoPng',
+              label: 'Logo bitmap (.png)',
+              placeholder: 'public/dynamic/assets/logo.png',
+              arg: { type: 'option', template: '--logo-png=${value}' }
+            },
+            {
+              name: 'icon192',
+              label: 'Icône 192×192 (.png)',
+              placeholder: 'public/dynamic/assets/icon-192.png',
+              arg: { type: 'option', template: '--icon-192=${value}' }
+            },
+            {
+              name: 'icon512',
+              label: 'Icône 512×512 (.png)',
+              placeholder: 'public/dynamic/assets/icon-512.png',
+              arg: { type: 'option', template: '--icon-512=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-default-custo',
+        label: 'Set Default Customization',
+        order: 1,
+        path: 'scripts/00-system-management/set-default-custo.js',
+        command: 'node scripts/00-system-management/set-default-custo.js --file=<customization.json>',
+        run: {
+          script: 'scripts/00-system-management/set-default-custo.js',
+          args: []
+        },
+        description: 'Writes default UI/email copy customizations to data/customization/default.json.',
+        templates: ['data/customization/default.json'],
+        form: {
+          fields: [
+            {
+              name: 'file',
+              label: 'JSON customization',
+              placeholder: 'data/customization/default.json',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-payment-provider',
+        label: 'Set Payment Provider',
+        order: 3,
+        path: 'scripts/00-system-management/set-payment-provider.js',
+        command: 'node scripts/00-system-management/set-payment-provider.js --provider=<helloasso|mollie|sumup> [--name="<Label>"]',
+        run: {
+          script: 'scripts/00-system-management/set-payment-provider.js',
+          args: []
+        },
+        description: 'Switches the active payment provider by updating PAYMENT_PROVIDER (and optionally PAYMENT_PROVIDER_NAME) in .env, leaving every other line — including other providers\' secrets — untouched.',
+        notes: [
+          'The provider list comes directly from src/services/payments/index.js, so it can never offer a provider the code doesn\'t actually support.',
+          'Each provider\'s own credentials live in its .env.<provider> file — this script only switches which provider is active, it does not edit credentials.',
+          'PAYMENT_PROVIDER is cached in memory at server start — restart the server for the change to take effect.',
+          'Use --dry-run to preview the .env diff without writing.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'provider',
+              label: 'Provider',
+              required: true,
+              arg: { type: 'option', template: '--provider=${value}' },
+              options: [
+                { label: 'HelloAsso', value: 'helloasso' },
+                { label: 'Mollie', value: 'mollie' },
+                { label: 'SumUp', value: 'sumup' }
+              ]
+            },
+            {
+              name: 'name',
+              label: 'Libellé affiché (optionnel)',
+              placeholder: 'SumUp',
+              arg: { type: 'option', template: '--name=${value}' }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     id: '03-season-management-renewal',
-    label: '03 — Season Management · Renewal',
+    label: '03 — Season · Renewal',
     order: 3.5,
     description: 'Renewal-focused tooling: import legacy subscribers, provision their seats, publish renewal links, and close the campaign.',
     scripts: [
@@ -476,7 +641,7 @@ export const adminScriptGroups = [
   },
   {
     id: '01-venue-management',
-    label: '01 — Venue Management',
+    label: '01 — Venue',
     order: 1,
     description: 'Register venues and keep their seating layout in sync with the database.',
     scripts: [
@@ -636,7 +801,7 @@ export const adminScriptGroups = [
   },
   {
     id: '02-tariff-management',
-    label: '02 — Tariff Management',
+    label: '02 — Tariff',
     order: 2,
     description: 'Maintain the tariff catalog and zone-specific pricing matrices.',
     scripts: [
@@ -864,12 +1029,333 @@ export const adminScriptGroups = [
             }
           ]
         }
+      },
+      {
+        id: 'remove-price-catalog',
+        label: 'Remove Price Catalog',
+        order: 99,
+        path: 'scripts/02-tariff-management/remove-price-catalog.js',
+        command: 'node scripts/02-tariff-management/remove-price-catalog.js --catalog=<slug> [--venue=<slug>] --force',
+        run: {
+          script: 'scripts/02-tariff-management/remove-price-catalog.js',
+          args: ['--force']
+        },
+        description: 'Deletes TariffPriceCatalog rows for a catalogSlug (+ optional venue). Safe by construction: instantiate-tariffs.js copies rows once and never links back, so this can never retroactively affect an event/season that already instantiated from it — only future instantiation from this slug fails until recreated.',
+        danger: true,
+        notes: [
+          'Leave venue blank to remove every venue scope for this catalogSlug (global + all venue-specific overrides); set it to remove just one venue\'s rows.',
+          'Run the equivalent CLI command with --dry-run first to see the exact rows/zones/tariffs/price range before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'catalog',
+              label: 'catalogSlug à supprimer',
+              placeholder: 'event_p01',
+              required: true,
+              arg: { type: 'option', template: '--catalog=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Lieu (optionnel — vide = toutes les portées)',
+              placeholder: 'stadium',
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    id: '02-ticket-ad-management',
+    label: '02 — Ticket/Ad',
+    // Shares the "02" number with Tariff, same insertion technique as
+    // 01 Organization/01 Venue: 02 Tariff (2) > 02 Ticket/Ad (2.5) > 03 Season (3).
+    order: 2.5,
+    description: 'Ticket templates and the advertising content (images, text, promo QR) placed on them based on a ticket\'s own tariffCode/zoneKey/zoneType.',
+    scripts: [
+      {
+        id: 'import-templates',
+        label: 'Import Email/Ticket Template',
+        order: 0,
+        path: 'scripts/00-system-management/import-templates.js',
+        command: 'node scripts/00-system-management/import-templates.js --resource=<email|ticket|logo> --file=<path> [--kind=<kind>] [--theme=<name>]',
+        run: {
+          script: 'scripts/00-system-management/import-templates.js',
+          args: []
+        },
+        description: 'Imports a single email or ticket template file (any filename — no naming convention required) as the given kind, with an optional theme variant — or stages a logo asset into data/assets/. Delegates to set-email-template.js / set-ticket-template.js, so the same validation/diff preview applies.',
+        templates: ['data_references/README.md'],
+        notes: [
+          'Email/Ticket: pick the resource, kind, and (optionally) theme explicitly; nothing is inferred from the filename.',
+          'kind options combine both resources\' known values; a kind that doesn\'t apply to the chosen resource (e.g. "renew" for a ticket) is still accepted but flagged as unreachable — same behavior as running set-*-template.js directly.',
+          'theme is free text — any name (e.g. halloween, partner01) — and must match a "theme" customization key for it to actually be selected at send time.',
+          'Logo: just copies the file into data/assets/ — kind/theme are ignored. Staging the file alone changes nothing; set the "logo" customization key (e.g. via set-partner-custo.js) to "assets/<filename>" so a ticket actually picks it up, same mechanism as "theme".',
+          'Use --dry-run to preview without writing files.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'resource',
+              label: 'Type',
+              required: true,
+              arg: { type: 'option', template: '--resource=${value}' },
+              options: [
+                { label: 'Email', value: 'email' },
+                { label: 'Ticket', value: 'ticket' },
+                { label: 'Logo (ticket asset)', value: 'logo' }
+              ]
+            },
+            {
+              name: 'kind',
+              label: 'Kind (ignoré pour Logo)',
+              arg: { type: 'option', template: '--kind=${value}' },
+              options: [
+                { label: 'renew', value: 'renew' },
+                { label: 'subscription', value: 'subscription' },
+                { label: 'event', value: 'event' },
+                { label: 'public', value: 'public' },
+                { label: 'default (ticket only)', value: 'default' }
+              ]
+            },
+            {
+              name: 'file',
+              label: 'Fichier source',
+              placeholder: 'data/inputs/mon-fichier.html',
+              required: true,
+              arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
+              name: 'theme',
+              label: 'Thème (optionnel, texte libre, ignoré pour Logo)',
+              placeholder: 'halloween, partner01...',
+              arg: { type: 'option', template: '--theme=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-ad-campaign',
+        label: 'Set Ad Campaign (identity)',
+        order: 1,
+        path: 'scripts/02-ticket-ad-management/set-ad-campaign.js',
+        command: 'node scripts/02-ticket-ad-management/set-ad-campaign.js --slug=<slug> [--target-url=<url>] [--label="<text>"] [--active=true|false]',
+        run: {
+          script: 'scripts/02-ticket-ad-management/set-ad-campaign.js',
+          args: []
+        },
+        description: 'Defines (or edits) a sponsor campaign\'s identity: label, click target, active. Pure metadata — no asset here, see Import Ad Campaign Asset below for that. Neither script is a prerequisite for the other: register a campaign here first (no image on tickets until an asset is attached), or let Import Ad Campaign Asset create it directly.',
+        notes: [
+          'Use --dry-run to preview without writing.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'slug',
+              label: 'Identité de la campagne (créée si absente)',
+              placeholder: 'sponsor-x-2026',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            },
+            {
+              name: 'targetUrl',
+              label: 'Lien sponsor (QR promo, optionnel)',
+              placeholder: 'https://sponsor-x.example/offer',
+              arg: { type: 'option', template: '--target-url=${value}' }
+            },
+            {
+              name: 'label',
+              label: 'Nom affiché (optionnel)',
+              placeholder: 'Sponsor X — VIP',
+              arg: { type: 'option', template: '--label=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'import-ad-campaign-asset',
+        label: 'Import Ad Campaign Asset',
+        order: 2,
+        path: 'scripts/02-ticket-ad-management/import-ad-campaign-asset.js',
+        command: 'node scripts/02-ticket-ad-management/import-ad-campaign-asset.js --file=<path> --slug=<asset-id> [--campaign=<campaign-slug>] [--kind=svg|raster] [--dry-run]',
+        run: {
+          script: 'scripts/02-ticket-ad-management/import-ad-campaign-asset.js',
+          args: []
+        },
+        description: 'Stages a sponsor asset into data/assets/ads/ under a manually-chosen id, and optionally attaches it to a campaign — creating that campaign if it doesn\'t exist yet. A single svg/png/jpg stages one asset; a .zip stages a whole FAMILY (a "carousel") — tickets rotate through every image inside by their position within the order.',
+        notes: [
+          'Slug is the asset\'s own identity (manual, not derived from the filename) — lets you keep several versions/families (banner-v1, banner-v2, ...) and pick which one a campaign uses.',
+          'Leave "campaign" empty to just stage the asset ("global"/unattached) — attach it later by re-running with the same slug and --campaign set; the file is then optional (reuses what\'s already staged).',
+          'A .zip must contain only one asset kind (all svg or all raster) — mixed zips are rejected.',
+          '--kind is inferred from the file extension when omitted (ignored for a zip).'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'slug',
+              label: 'Identité de l\'asset (manuelle)',
+              placeholder: 'sponsor-x-banner-v1',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'Fichier asset (svg, png, jpg) ou famille (.zip) — optionnel si déjà en place',
+              placeholder: 'data/inputs/sponsor-x-banner.png',
+              arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
+              name: 'campaign',
+              label: 'Campagne à attacher (optionnel — vide = non attaché)',
+              placeholder: 'sponsor-x-2026',
+              arg: { type: 'option', template: '--campaign=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'import-ad-campaign-catalog',
+        label: 'Import Ad Campaign Catalog',
+        order: 2.5,
+        path: 'scripts/02-ticket-ad-management/import-ad-campaign-catalog.js',
+        command: 'node scripts/02-ticket-ad-management/import-ad-campaign-catalog.js <catalogSlug> <path/to/ad-campaign-catalog.csv> [--venue=<slug>] [--append] [--dry-run]',
+        run: {
+          script: 'scripts/02-ticket-ad-management/import-ad-campaign-catalog.js',
+          args: []
+        },
+        description: 'Imports a reusable ad campaign catalog — WHERE/WHEN an existing campaign (by slug, see Import Ad Campaign Asset) shows up: which slot, what kind of content (image/qr/text), filtered by tariffCode/zoneKey/zoneType — that can later be instantiated for a season or event.',
+        notes: [
+          'contentType is image, qr, or text — see the CSV template for what "slot" means for each and how qrValue/text work.',
+          'By default clears existing entries for the same catalogSlug/venue before import — use --append to upsert without clearing.',
+          'Warns (but doesn\'t fail) if a campaignSlug isn\'t defined yet.'
+        ],
+        templates: ['data_references/csv/ad-campaign-catalog.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'catalog',
+              label: 'Slug du catalogue',
+              placeholder: 'sponsors-2026',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'csv',
+              label: 'CSV campagnes',
+              placeholder: 'data/inputs/ad-campaign-catalog.csv',
+              required: true,
+              arg: { type: 'positional', index: 1 }
+            },
+            {
+              name: 'venue',
+              label: 'Lieu (optionnel)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'export-ad-campaign-catalog',
+        label: 'Export Ad Campaign Catalog',
+        order: 3,
+        path: 'scripts/02-ticket-ad-management/export-ad-campaign-catalog.js',
+        command: 'node scripts/02-ticket-ad-management/export-ad-campaign-catalog.js <catalogSlug> [--venue=<slug>] [--out=<file.csv>]',
+        run: {
+          script: 'scripts/02-ticket-ad-management/export-ad-campaign-catalog.js',
+          args: []
+        },
+        description: 'Exports an ad campaign catalog to CSV for review or editing.',
+        notes: [
+          'Default output is data/outputs/ad-campaign-catalog-<catalogSlug>.csv; override with --out.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'catalog',
+              label: 'Slug du catalogue',
+              placeholder: 'sponsors-2026',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'venue',
+              label: 'Lieu (optionnel)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Nom du fichier de sortie',
+              placeholder: 'ad-campaign-catalog.csv',
+              arg: { type: 'option', template: '--out=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'remove-ad-campaign-catalog',
+        label: 'Remove Ad Campaign Catalog',
+        order: 98,
+        path: 'scripts/02-ticket-ad-management/remove-ad-campaign-catalog.js',
+        command: 'node scripts/02-ticket-ad-management/remove-ad-campaign-catalog.js --catalog=<slug> [--venue=<slug>] --force',
+        run: {
+          script: 'scripts/02-ticket-ad-management/remove-ad-campaign-catalog.js',
+          args: ['--force']
+        },
+        description: 'Deletes AdCampaignCatalog rows for a catalogSlug (+ optional venue). Safe by construction: instantiate-ad-campaigns.js copies rows once and never links back, so this can never retroactively affect a season/event that already instantiated from it — only future instantiation from this slug fails until recreated. Does not touch AdCampaign masters.',
+        danger: true,
+        notes: [
+          'Leave venue blank to remove every venue scope for this catalogSlug (global + all venue-specific overrides); set it to remove just one venue\'s rows.',
+          'Run the equivalent CLI command with --dry-run first to see the exact rows before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'catalog',
+              label: 'catalogSlug à supprimer',
+              placeholder: 'sponsors-2026',
+              required: true,
+              arg: { type: 'option', template: '--catalog=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Lieu (optionnel — vide = toutes les portées)',
+              placeholder: 'stadium',
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'remove-ad-campaign',
+        label: 'Remove Ad Campaign',
+        order: 99,
+        path: 'scripts/02-ticket-ad-management/remove-ad-campaign.js',
+        command: 'node scripts/02-ticket-ad-management/remove-ad-campaign.js --slug=<slug> --force',
+        run: {
+          script: 'scripts/02-ticket-ad-management/remove-ad-campaign.js',
+          args: ['--force']
+        },
+        description: 'Deletes an AdCampaign master (identity/asset/targetUrl) by slug, and its staged asset file under data/assets/ads/ (kept if another campaign still references the same file). Does not touch campaign catalogs or instantiated placements referencing it — they simply stop resolving an asset until the campaign is recreated.',
+        danger: true,
+        form: {
+          fields: [
+            {
+              name: 'slug',
+              label: 'Identité de la campagne à supprimer',
+              placeholder: 'sponsor-x-2026',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            }
+          ]
+        }
       }
     ]
   },
   {
     id: '03-season-management',
-    label: '03 — Season Management',
+    label: '03 — Season',
     order: 3,
     description: 'Season setup tasks (data seeding, subscriber imports, seat provisioning).',
     scripts: [
@@ -1063,6 +1549,43 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'season-instantiate-ad-campaigns',
+        label: 'Instantiate Ad Campaigns for Season',
+        order: 2.2,
+        path: 'scripts/03-season-management/instantiate-ad-campaigns.js',
+        command: 'node scripts/03-season-management/instantiate-ad-campaigns.js <seasonCode> <venueSlug> --catalog=<slug[,slug2]> [--clear] [--dry-run]',
+        run: {
+          script: 'scripts/03-season-management/instantiate-ad-campaigns.js',
+          args: []
+        },
+        description: 'Applies one or more ad campaign catalogs as the season-wide default for tickets that don\'t have an event-specific placement (e.g. subscription/public tickets). Add --clear to purge existing rows first.',
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu',
+              placeholder: 'patinoire-blagnac',
+              required: true,
+              arg: { type: 'positional', index: 1 }
+            },
+            {
+              name: 'catalog',
+              label: 'Catalogues (slug[,slug2])',
+              placeholder: 'sponsors-2026',
+              required: true,
+              arg: { type: 'option', template: '--catalog=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'import-subscription-orders',
         label: 'Import Subscription Orders',
         order: 4,
@@ -1208,11 +1731,80 @@ export const adminScriptGroups = [
           ]
         }
       },
+      {
+        id: 'remove-season-tariffs',
+        label: 'Remove Season Tariffs',
+        order: 99,
+        path: 'scripts/03-season-management/remove-season-tariffs.js',
+        command: 'node scripts/03-season-management/remove-season-tariffs.js --season=<code> --venue=<slug> --force',
+        run: {
+          script: 'scripts/03-season-management/remove-season-tariffs.js',
+          args: ['--force']
+        },
+        description: 'Deletes the instantiated season-scoped TariffPrice rows for a (season, venue) pair — subscription pricing. Refuses if the season is currently active unless explicitly overridden on the CLI (--allow-active-season, not exposed here) — deleting live subscription pricing needs a deliberate extra step, not just this confirmation.',
+        danger: true,
+        notes: [
+          'Existing paid subscription orders keep their own captured prices regardless — this only affects new purchases going forward.',
+          'Run the equivalent CLI command with --dry-run first to see row counts before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu',
+              placeholder: 'patinoire-blagnac',
+              required: true,
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'remove-season-ad-campaigns',
+        label: 'Remove Season Ad Campaigns',
+        order: 99.5,
+        path: 'scripts/03-season-management/remove-season-ad-campaigns.js',
+        command: 'node scripts/03-season-management/remove-season-ad-campaigns.js --season=<code> --venue=<slug> --force',
+        run: {
+          script: 'scripts/03-season-management/remove-season-ad-campaigns.js',
+          args: ['--force']
+        },
+        description: 'Deletes the instantiated season-scoped AdCampaignPlacement rows for a (season, venue) pair. Does not touch AdCampaign masters or the AdCampaignCatalog template.',
+        danger: true,
+        notes: [
+          'Run the equivalent CLI command with --dry-run first to see row counts before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu',
+              placeholder: 'patinoire-blagnac',
+              required: true,
+              arg: { type: 'option', template: '--venue=${value}' }
+            }
+          ]
+        }
+      }
     ]
   },
   {
     id: '04-event-management',
-    label: '04 — Event Management',
+    label: '04 — Event',
     order: 4,
     description: 'Create events, configure their sales windows, and manage ancillary assets (QR banks, PDFs…).',
     scripts: [
@@ -1265,6 +1857,63 @@ export const adminScriptGroups = [
               label: 'Description courte (optionnel)',
               placeholder: 'Match de saison régulière',
               arg: { type: 'option', template: '--desc=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-clone',
+        label: 'Clone Event',
+        order: 0.1,
+        path: 'scripts/04-event-management/clone-event.js',
+        command: 'node scripts/04-event-management/clone-event.js --from=<slug> --slug=<newSlug> --name="<New Name>" --date=YYYY-MM-DDThh:mm:ssZ',
+        run: {
+          script: 'scripts/04-event-management/clone-event.js',
+          args: []
+        },
+        description: 'Creates a new event from an existing one: copies venue (seats/zones instantiated for the new event\'s season+venue), tariffs (the source event\'s actual Tariff/TariffPrice rows, preserving any manual tweaks), and the event customization file. The new event always starts isOnSale=false with an empty QR bank.',
+        templates: ['data/customization/events/<slug>.json'],
+        notes: [
+          'venueSlug/venueView are copied from the source event; season defaults to the source\'s season unless overridden.',
+          'priceTableKey is always a fresh "ev:<newSlug>" — never shared with the source event.',
+          'QR bank codes are never copied (one-shot, event-specific) — the new event starts with an empty bank.',
+          'Review tariffs/customization and use Set Event On-sale when ready — cloning does not open sales.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'from',
+              label: 'Événement source (slug ou ID)',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--from=${value}' }
+            },
+            {
+              name: 'slug',
+              label: 'Slug du nouvel événement',
+              placeholder: 'match-2025-10-05-bts-vs-yyy',
+              required: true,
+              arg: { type: 'option', template: '--slug=${value}' }
+            },
+            {
+              name: 'name',
+              label: 'Nom affiché',
+              placeholder: 'Bélougas vs Yankees',
+              required: true,
+              arg: { type: 'option', template: '--name=${value}' }
+            },
+            {
+              name: 'date',
+              label: 'Date ISO',
+              placeholder: '2025-10-05T16:00:00+02:00',
+              required: true,
+              arg: { type: 'option', template: '--date=${value}' }
+            },
+            {
+              name: 'season',
+              label: 'Code saison (optionnel — sinon celui de la source)',
+              placeholder: '2025-2026',
+              arg: { type: 'option', template: '--season=${value}' }
             }
           ]
         }
@@ -1365,6 +2014,91 @@ export const adminScriptGroups = [
               placeholder: 'season-game',
               required: true,
               arg: { type: 'option', template: '--catalog=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-instantiate-ad-campaigns',
+        label: 'Instantiate Ad Campaigns for Event',
+        order: 1.2,
+        path: 'scripts/04-event-management/instantiate-ad-campaigns.js',
+        command: 'node scripts/04-event-management/instantiate-ad-campaigns.js --event=<slug> --catalog=<slug[,slug2]> [--clear] [--dry-run]',
+        run: {
+          script: 'scripts/04-event-management/instantiate-ad-campaigns.js',
+          args: []
+        },
+        description: 'Clones one or more ad campaign catalogs into the event, so tickets pick up sponsor content matching their own tariffCode/zoneKey/zoneType. Takes priority over the season default (see Instantiate Ad Campaigns for Season) when both exist.',
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'catalog',
+              label: 'Catalogues (slug[,slug2])',
+              placeholder: 'sponsors-2026',
+              required: true,
+              arg: { type: 'option', template: '--catalog=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-remove-tariffs',
+        label: 'Remove Event Tariffs',
+        order: 1.5,
+        path: 'scripts/04-event-management/remove-event-tariffs.js',
+        command: 'node scripts/04-event-management/remove-event-tariffs.js --event=<slug> --force',
+        run: {
+          script: 'scripts/04-event-management/remove-event-tariffs.js',
+          args: ['--force']
+        },
+        description: 'Deletes the instantiated Tariff/TariffPrice rows for one event\'s priceTableKey — does not delete the event itself. Refuses if another event shares the same priceTableKey (a custom/shared table isn\'t this event\'s alone to remove).',
+        danger: true,
+        notes: [
+          'Existing paid orders keep their own captured prices regardless — this only means the event can\'t be purchased from until tariffs are re-instantiated.',
+          'Run the equivalent CLI command with --dry-run first to see the row counts before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'event-remove-ad-campaigns',
+        label: 'Remove Event Ad Campaigns',
+        order: 1.7,
+        path: 'scripts/04-event-management/remove-event-ad-campaigns.js',
+        command: 'node scripts/04-event-management/remove-event-ad-campaigns.js --event=<slug> --force',
+        run: {
+          script: 'scripts/04-event-management/remove-event-ad-campaigns.js',
+          args: ['--force']
+        },
+        description: 'Deletes the instantiated AdCampaignPlacement rows for one event\'s priceTableKey — does not delete the event itself or touch AdCampaign masters. Refuses if another event shares the same priceTableKey.',
+        danger: true,
+        notes: [
+          'Run the equivalent CLI command with --dry-run first to see the row counts before confirming here.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
             }
           ]
         }
@@ -1823,12 +2557,41 @@ export const adminScriptGroups = [
             }
           ]
         }
+      },
+      {
+        id: 'event-delete',
+        label: 'Delete Event',
+        order: 99,
+        path: 'scripts/04-event-management/delete-event.js',
+        command: 'node scripts/04-event-management/delete-event.js --event=<slug> --force',
+        run: {
+          script: 'scripts/04-event-management/delete-event.js',
+          args: ['--force']
+        },
+        description: 'Permanently deletes an event: Tickets, SeatHolds, ScanLog, Orders, its Tariff/TariffPrice (only if not shared with another event), the Event itself, and its customization file. Never touches Seat/Zone/SeatCatalog/ZoneCatalog/TariffPriceCatalog — those are shared venue infrastructure, not event-scoped.',
+        danger: true,
+        notes: [
+          'Refuses to run if the event has any paid/tobepaid/refunded orders or scanned tickets — that requires --allow-paid-orders on the command line, deliberately not exposed here, so a real financial/attendance record can never be wiped from the admin UI by accident.',
+          'Run the equivalent CLI command with --dry-run first to see exactly what would be deleted, with counts, before confirming here.',
+          'Tariff/TariffPrice are only deleted if no other event shares this event\'s priceTableKey (a custom/shared price table is left alone).'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Événement à supprimer (slug ou ID)',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            }
+          ]
+        }
       }
     ]
   },
   {
     id: '05-partner-management',
-    label: '05 — Partner Management',
+    label: '05 — Partner',
     order: 5,
     description: 'Manage partner-specific access, iframe restrictions, and payment modes backed by data/customization/partners.json.',
     scripts: [

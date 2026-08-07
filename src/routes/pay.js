@@ -400,7 +400,7 @@ router.get('/start', async (req, res) => {
   const statusUrl = urlFor(`/pay/status?orderId=${encodeURIComponent(orderId)}`);
   const backUrl = urlFor('/pay/back');
 
-  const totalEur = ((Number(order.totalCents) || 0) / 100).toFixed(2);
+  const totalCents = Number(order.totalCents) || 0;
   const description = order.meta?.eventName || order.itemName || String(order._id);
   const lines = Array.isArray(order.lines) ? order.lines : [];
 
@@ -414,7 +414,7 @@ router.get('/start', async (req, res) => {
     statusUrl,
     backUrl,
     orderId,
-    totalEur,
+    totalCents,
     description,
     lines,
     assets: {

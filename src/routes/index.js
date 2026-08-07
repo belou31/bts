@@ -9,6 +9,7 @@ import { Season } from '../models/Season.js';
 import { Venue } from '../models/Venue.js';
 import { Order } from '../models/Order.js';
 import { loadCustomization } from '../services/customization.js';
+import { formatDate } from '../utils/format.js';
 import { getPartnerConfig } from '../config/partners.js';
 
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
@@ -21,6 +22,7 @@ import supervisionRoutes from './admin/supervision.routes.js';
 import payRoutes from './pay.js';      
 import controlGuestlistRoutes from './control/guestlist.js';
 import qrRoutes   from './qr.js';
+import promoRoutes from './promo.js';
 import scanRoutes from './control/scan.js';
 import automationRoutes from './automation/index.js';
 
@@ -90,11 +92,9 @@ async function resolveEventByKey(key) {
   return Event.findOne(query).lean();
 }
 
-function formatEventDateLabel(startsAt) {
+function formatEventDateLabel(startsAt, locale) {
   if (!startsAt) return '';
-  const dt = new Date(startsAt);
-  if (Number.isNaN(dt.getTime())) return '';
-  return dt.toLocaleString('fr-FR', {
+  return formatDate(startsAt, locale, {
     weekday: 'long',
     day: '2-digit',
     month: 'long',
@@ -149,7 +149,7 @@ export default function routes(router) {
       const providerName = currentPaymentProviderLabel();
       const venueSlug = seasonDoc.venueSlug || seasonDoc.venue || '';
       const venueDoc = venueSlug ? await Venue.findOne({ slug: venueSlug }).lean().catch(() => null) : null;
-      const customization = loadCustomization({ seasonCode });
+      const customization = loadCustomization({ seasonCode, locale: req.locale });
       const tmplVars = {
         seasonCode,
         seasonName,
@@ -245,7 +245,7 @@ export default function routes(router) {
       const statusPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'status');
       const checkoutPath = path.posix.join(baseForJoin, 'api/event', encodedKey, 'checkout');
       const providerName = currentPaymentProviderLabel();
-      const customization = loadCustomization({ eventSlug: slug, seasonCode: ev.seasonCode });
+      const customization = loadCustomization({ eventSlug: slug, seasonCode: ev.seasonCode, locale: req.locale });
       const venueDoc = ev.venueSlug ? await Venue.findOne({ slug: ev.venueSlug }).lean().catch(() => null) : null;
       const tmplVars = {
         eventName: ev.name || slug,
@@ -254,45 +254,47 @@ export default function routes(router) {
         venueSlug: ev.venueSlug || '',
         venueName: venueDoc?.name || ev.venueSlug || '',
         eventStartsAt: ev.startsAt || '',
-        eventStartsAtFormatted: formatEventDateLabel(ev.startsAt) || ''
+        eventStartsAtFormatted: formatEventDateLabel(ev.startsAt, req.locale) || ''
       };
 
-      const dateLabel = formatEventDateLabel(ev.startsAt);
+      const t = res.locals.t;
+      const eventNameForCopy = ev.name || t('event.genericMatchName');
+      const dateLabel = formatEventDateLabel(ev.startsAt, req.locale);
       const venueLabel = venueDoc?.name || (ev.venueSlug || '').replace(/[-_]/g, ' ').trim();
       const headingCustom = Boolean(customization['event.title']);
       const heading = headingCustom
         ? tmpl(customization['event.title'], tmplVars)
-        : (ev.name ? `Billetterie — ${ev.name}` : 'Billetterie Match');
+        : t('event.documentTitle', { eventName: eventNameForCopy });
       const leadPieces = [];
       if (ev.description) leadPieces.push(ev.description);
-      if (dateLabel) leadPieces.push(`Coup d’envoi : ${dateLabel}`);
-      if (venueLabel) leadPieces.push(`Lieu : ${venueLabel}`);
+      if (dateLabel) leadPieces.push(t('event.leadKickoff', { date: dateLabel }));
+      if (venueLabel) leadPieces.push(t('event.leadVenue', { venue: venueLabel }));
       if (!leadPieces.length) {
-        leadPieces.push(`Choisissez vos places pour ce match et suivez le paiement sécurisé ${providerName}.`);
+        leadPieces.push(t('event.leadGeneric', { provider: providerName }));
       }
       const leadText = customization['event.lead']
         ? tmpl(customization['event.lead'], tmplVars)
         : leadPieces.join(' · ');
       const planHelpText = customization['event.help']
         ? tmpl(customization['event.help'], tmplVars)
-        : 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.';
+        : t('event.planHelpDefault');
       const payButtonLabel = customization['event.payButton']
         ? tmpl(customization['event.payButton'], tmplVars)
         : undefined;
 
       res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
-        title: `Billetterie Match — ${ev.name || slug}`,
-        documentTitle: `Billetterie — ${ev.name || 'Match BTS'}`,
+        title: t('event.pageTitle', { eventName: eventNameForCopy }),
+        documentTitle: t('event.documentTitle', { eventName: eventNameForCopy }),
         heading,
         lead: leadText,
         planHelp: planHelpText,
         scheduleOptions: [],
-        paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
+        paymentHelp: t('event.paymentHelp'),
         assets: ASSETS_BASE,
         zoneSelector: {
           enabled: true,
-          label: 'Choisir sur Plan ou Ajouter Zone:',
-          addLabel: 'Ajouter',
+          label: t('event.zoneSelectorLabel'),
+          addLabel: t('common.add'),
           options: []
         },
         config: {
@@ -426,7 +428,7 @@ export default function routes(router) {
     const providerName = currentPaymentProviderLabel();
     const ev = await resolveEventByKey(eventSlug).catch(() => null);
     const venueDoc = ev?.venueSlug ? await Venue.findOne({ slug: ev.venueSlug }).lean().catch(() => null) : null;
-    const customization = loadCustomization({ eventSlug, seasonCode: ev?.seasonCode, partnerSlug });
+    const customization = loadCustomization({ eventSlug, seasonCode: ev?.seasonCode, partnerSlug, locale: req.locale });
     const tmplVars = {
       eventName: ev?.name || eventSlug,
       eventSlug,
@@ -434,7 +436,7 @@ export default function routes(router) {
       venueSlug: ev?.venueSlug || '',
       venueName: venueDoc?.name || ev?.venueSlug || '',
       eventStartsAt: ev?.startsAt || '',
-      eventStartsAtFormatted: formatEventDateLabel(ev?.startsAt) || '',
+      eventStartsAtFormatted: formatEventDateLabel(ev?.startsAt, req.locale) || '',
       partnerSlug,
       partnerName: partnerCfg.name || partnerSlug
     };
@@ -447,8 +449,6 @@ export default function routes(router) {
     const reservePath = partnerCfg.paymentMode !== 'psp'
       ? path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'reserve') + tokenSuffix
       : null;
-
-    const resolveCusto = (key) => customization[`partner.${key}`] || customization[key];
 
     const slugKey = ev?.slug || eventSlug || '';
     const nameKey = ev?.name || '';
@@ -474,21 +474,21 @@ export default function routes(router) {
       slug: partnerCfg.slug,
       invoiceMode: partnerCfg.paymentMode === 'psp' ? 'psp' : 'invoice',
       reserveApi: reservePath,
-      payButtonLabel: resolveCusto('event.payButton') || partnerCfg?.reserve?.payButtonLabel || (partnerCfg.paymentMode === 'psp' ? 'Procéder au paiement' : 'Envoyer la demande'),
+      payButtonLabel: customization['event.payButton'] || partnerCfg?.reserve?.payButtonLabel || (partnerCfg.paymentMode === 'psp' ? 'Procéder au paiement' : 'Envoyer la demande'),
       successMessage: partnerCfg?.reserve?.successMessage || 'Demande envoyée. Vous recevrez une confirmation prochainement.',
       errorMessage: partnerCfg?.reserve?.errorMessage || 'Impossible d’enregistrer votre demande. Réessayez.'
     };
 
-    const heading = resolveCusto('event.title')
-      ? tmpl(resolveCusto('event.title'), tmplVars)
+    const heading = customization['event.title']
+      ? tmpl(customization['event.title'], tmplVars)
       : (partnerCfg?.ui?.heading || 'Accès Partenaire');
-    const lead = resolveCusto('event.lead')
-      ? tmpl(resolveCusto('event.lead'), tmplVars)
+    const lead = customization['event.lead']
+      ? tmpl(customization['event.lead'], tmplVars)
       : (partnerCfg?.ui?.lead || 'Réservez vos places via la billetterie dédiée partenaire.');
-    const planHelp = resolveCusto('event.help')
-      ? tmpl(resolveCusto('event.help'), tmplVars)
+    const planHelp = customization['event.help']
+      ? tmpl(customization['event.help'], tmplVars)
       : 'Sélectionnez un siège disponible ou ajoutez des places en zone Debout lorsque proposé.';
-    const headingCustom = Boolean(resolveCusto('event.title'));
+    const headingCustom = Boolean(customization['event.title']);
     const isInvoiceMode = partnerCfg.paymentMode !== 'psp';
     const paymentHelp = partnerCfg?.ui?.paymentHelp ||
       (isInvoiceMode
@@ -631,6 +631,9 @@ export default function routes(router) {
 
   router.use('/', scanRoutes);
   router.use('/', controlGuestlistRoutes);
+
+  // Sponsor promo QR redirect (trackable) — see src/routes/promo.js
+  router.use('/promo', promoRoutes);
 
   // API sous /s
   router.use('/s', renewApi);

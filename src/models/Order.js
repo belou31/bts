@@ -18,6 +18,17 @@ const AttendanceSchema = new mongoose.Schema({
 const LineSchema = new mongoose.Schema({
   seatId:          { type: String, default: '' },
   zoneKey:         { type: String, default: '' },   // ← needed for TBH7 / standing zones
+  // Allocation mechanism: 'seat' = individually locked against the Seat
+  // collection; 'zone' = zone-quota-tracked (standing AND seated-but-
+  // zone-allocated zones like VIP both use this — see src/utils/seat-id.js).
+  // Deliberately no default: lines created before this field existed must
+  // read back as unset (not silently 'seat') so resolveUnitType() falls
+  // back to its seatId-shape heuristic instead of trusting a fabricated value.
+  unitType:        { type: String, enum: ['seat', 'zone'] },
+  // The zone's own physical seating character at booking time (mirrors
+  // Zone.type). This is what display/i18n code should key off for labeling
+  // — never `unitType`, which only reflects the allocation mechanism.
+  zoneType:        { type: String, enum: ['seated', 'standing', 'fanclub'] },
   tariffCode:      { type: String, index: true },
   priceCents:      { type: Number, default: 0 },
   // Partner billing override (what the partner pays/subsidizes)
@@ -90,6 +101,14 @@ const OrderSchema = new mongoose.Schema({
 
   // ajout de "event" pour les emails de match
   mailTemplateKind: { type:String, enum:['renew','subscription','public','event'], default:'subscription', index:true },
+
+  // Locale captured at checkout time (see src/middlewares/locale.js) so
+  // confirmation emails/tickets render in the language the buyer actually
+  // used, even on a later resend/regeneration. Defaults to 'fr': every
+  // order predating this field genuinely was placed in French, so — unlike
+  // unitType/zoneType — a schema default here reflects real history rather
+  // than fabricating an unknown value.
+  locale: { type: String, enum: ['fr', 'en'], default: 'fr' },
 
 }, { timestamps: true, strict: true });
 

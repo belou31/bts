@@ -5,6 +5,7 @@ export const importTariffsTask = {
   id: 'tariff.import-catalog',
   version: '1.0.0',
   summary: 'Importe le catalogue de tarifs (code/label...) depuis un tableur ou JSON.',
+  chapter: '02 — Tariff Management',
   tags: ['tariff', 'catalog'],
   scopes: ['automation:jobs:write', 'automation:jobs:run'],
   allowDryRun: true,

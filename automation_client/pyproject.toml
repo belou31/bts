@@ -1,0 +1,14 @@
+[project]
+name = "automation-client"
+version = "0.1.0"
+description = "Shared client (config resolution, JWT signing, HTTP) for the BTS /api/automation surface."
+requires-python = ">=3.8"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["automation_client"]
+package-dir = { "automation_client" = "." }

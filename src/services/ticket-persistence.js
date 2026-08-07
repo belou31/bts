@@ -1,6 +1,7 @@
 // src/services/ticket-persistence.js
 import { Types } from 'mongoose';
 import { Ticket } from '../models/Ticket.js';
+import { resolveUnitType } from '../utils/seat-id.js';
 
 /**
  * Ensures event tickets exist in MongoDB for scanner reconciliation.
@@ -70,6 +71,7 @@ export async function upsertEventTickets({
       return `${zone}-GA-${suffix}-${index}`;
     })();
     const seatId = seatCandidate || fallbackSeat;
+    const unitType = resolveUnitType({ unitType: line.unitType, seatId: seatCandidate });
 
     const tariffCode = String(line.tariffCode || metaTicket.tariff || metaTicket.tariffCode || '')
       .trim()
@@ -89,6 +91,7 @@ export async function upsertEventTickets({
       venueSlug,
       eventId,
       seatId,
+      unitType,
       tariffCode,
       'holder.firstName': holderFirst,
       'holder.lastName': holderLast,
