@@ -16,6 +16,7 @@ import { finalizePaidIfNoConflict, sendOrderAttestationIfNeeded } from '../servi
 import { matchesChannel } from '../utils/channel-scopes.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { isVirtualZoneSeatId } from '../utils/seat-id.js';
+import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
@@ -399,8 +400,9 @@ export function createEventFlowRouter({
         ? Number(channelCtx?.partnerConfig?.presale?.events?.[ev?.slug]?.quota || 0)
         : 0;
       const saleStatus = (() => {
-        if (ev.isOnSale === true) return 'sale_opened';
-        if (isPartnerPresaleAllowed(ev, channelCtx)) {
+        if (isEventOnSale(ev)) return 'sale_opened';
+        if (ev.sale === 'soldout') return 'sold_out';
+        if (!isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx)) {
           if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
           return 'presale_opened';
         }
@@ -558,7 +560,7 @@ export function createEventFlowRouter({
           slug: ev.slug,
           name: ev.name,
           startsAt: ev.startsAt,
-          isOnSale: ev.isOnSale,
+          sale: ev.sale,
           venueView: resolvedVenueView,
           saleStatus
         },
@@ -687,12 +689,13 @@ export function createEventFlowRouter({
     try {
       const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
-      const presale = isPartnerPresaleAllowed(ev, channelCtx);
+      const onSale = isEventOnSale(ev);
+      const presale = !isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx);
       const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
-      assert(ev.isOnSale === true || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
+      assert(onSale || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
 
       const ctxData = await prepareOrderContext(req, ev, channelCtx);
-      if (ev.isOnSale !== true && presale) {
+      if (!onSale && presale) {
         const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
         if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
           return res.status(400).json({
@@ -842,12 +845,13 @@ export function createEventFlowRouter({
 
       try {
         const ev = await loadEvent(req.params.eventId);
-        const presale = isPartnerPresaleAllowed(ev, channelCtx);
+        const onSale = isEventOnSale(ev);
+        const presale = !isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx);
         const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
-        assert(ev.isOnSale === true || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
+        assert(onSale || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
 
         const ctxData = await prepareOrderContext(req, ev, channelCtx);
-        if (ev.isOnSale !== true && presale) {
+        if (!onSale && presale) {
           const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
           if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
             return res.status(400).json({

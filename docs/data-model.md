@@ -20,7 +20,7 @@ nav_order: 120
 | `AutomationJob` | Audience / opérations | 14 | 3 |
 | `Campaign` | Audience / opérations | 8 | 1 |
 | `Counter` | Audience / opérations | 4 | 1 |
-| `Event` | Événements et contrôle | 11 | 3 |
+| `Event` | Événements et contrôle | 12 | 5 |
 | `Order` | Runtime saison / vente | 21 | 18 |
 | `Season` | Runtime saison / vente | 7 | 1 |
 | `Seat` | Runtime saison / vente | 8 | 11 |
@@ -245,11 +245,12 @@ nav_order: 120
 
 #### Top-level fields
 
+- `activity`: `String`
 - `createdAt`: `Date`
 - `description`: `String`
-- `isOnSale`: `Boolean`
 - `name`: `String`
 - `priceTableKey`: `String`
+- `sale`: `String`
 - `seasonCode`: `String`
 - `slug`: `String`
 - `startsAt`: `Date`
@@ -259,7 +260,7 @@ nav_order: 120
 
 #### Indexes
 
-`slug:1` (unique)<br>`seasonCode:1`<br>`venueSlug:1`
+`slug:1` (unique)<br>`seasonCode:1`<br>`venueSlug:1`<br>`sale:1`<br>`activity:1`
 
 ### SeatHold
 

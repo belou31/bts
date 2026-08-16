@@ -8,9 +8,10 @@ import { Event } from '../models/Event.js';
 import { Season } from '../models/Season.js';
 import { Venue } from '../models/Venue.js';
 import { Order } from '../models/Order.js';
-import { loadCustomization } from '../services/customization.js';
+import { loadCustomization, resolveOrganizationName } from '../services/customization.js';
 import { formatDate } from '../utils/format.js';
 import { getPartnerConfig } from '../config/partners.js';
+import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
 
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 import fanclubRouter from './fanclub.js';
@@ -324,6 +325,42 @@ export default function routes(router) {
     }
   });
 
+  // Public: list all events, open ones link straight to /event/:slug
+  router.get('/events', async (req, res) => {
+    try {
+      const events = await Event.find({ activity: 'active' }).sort({ startsAt: 1 }).lean();
+      const list = events.map(ev => {
+        const status = isEventOnSale(ev) ? 'sale_opened' : (ev.sale === 'soldout' ? 'sold_out' : 'sale_closed');
+        const link = status === 'sale_opened'
+          ? path.posix.join(BASE_PATH || '/', 'event', ev.slug)
+          : null;
+        return {
+          slug: ev.slug,
+          name: ev.name || ev.slug,
+          startsAt: ev.startsAt,
+          status,
+          link
+        };
+      });
+
+      if (req.accepts('json') && !req.accepts('html')) {
+        return res.json({ ok: true, events: list });
+      }
+
+      const brandLogo = path.posix.join(ASSETS_BASE.media, 'logo.svg');
+
+      res.render(path.resolve(VIEWS_DIR, 'events'), {
+        title: 'Événements — BTS',
+        events: list,
+        assets: ASSETS_BASE,
+        brand: { logo: brandLogo, alt: resolveOrganizationName() }
+      });
+    } catch (err) {
+      console.error('[events] error:', err?.message || err);
+      res.status(500).send('Error loading events');
+    }
+  });
+
   // Partner: list available events with shared token
   router.get('/partner/:partnerSlug/events', async (req, res) => {
     try {
@@ -358,8 +395,9 @@ export default function routes(router) {
           remaining = Math.max(0, quota - used);
         }
         const status = (() => {
-          if (ev.isOnSale === true) return 'sale_opened';
-          if (quota > 0) {
+          if (isEventOnSale(ev)) return 'sale_opened';
+          if (ev.sale === 'soldout') return 'sold_out';
+          if (!isEventSaleLocked(ev) && quota > 0) {
             if (remaining !== null && remaining <= 0) return 'presale_quota_reached';
             return 'presale_opened';
           }
@@ -367,7 +405,7 @@ export default function routes(router) {
         })();
         const expectedToken = expectedPartnerToken(partnerCfg, ev.slug);
         const sameToken = !expectedToken || expectedToken === providedToken;
-        const link = (sameToken && status !== 'sale_closed' && status !== 'presale_quota_reached')
+        const link = (sameToken && status !== 'sale_closed' && status !== 'presale_quota_reached' && status !== 'sold_out')
           ? path.posix.join(BASE_PATH || '/', 'partner', partnerSlug, 'event', ev.slug) +
               (providedToken ? `?token=${encodeURIComponent(providedToken)}` : '')
           : null;
@@ -389,11 +427,10 @@ export default function routes(router) {
 
       const brandLogo = path.posix.join(ASSETS_BASE.media, 'logo.svg');
 
-      res.render(path.resolve(VIEWS_DIR, 'partner', 'events'), {
+      res.render(path.resolve(VIEWS_DIR, 'events'), {
         title: `${partnerCfg.name || partnerSlug} — Événements`,
         partner: partnerCfg,
         events: list,
-        providedToken,
         assets: ASSETS_BASE,
         brand: { logo: brandLogo, alt: partnerCfg.name || partnerSlug }
       });

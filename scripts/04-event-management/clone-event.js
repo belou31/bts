@@ -11,8 +11,9 @@
  *     [--season=<code>] [--skip-venue] [--skip-tariffs] [--skip-custo] [--dry-run]
  *
  * Behaviour:
- *   - New event always starts isOnSale=false and with a fresh empty qrBank
- *     (QR codes are one-shot and event-specific — never copied).
+ *   - New event always starts in the default lifecycle state (sale=notopen,
+ *     activity=draft) and with a fresh empty qrBank (QR codes are one-shot
+ *     and event-specific — never copied).
  *   - venueSlug/venueView are copied from the source event.
  *   - seasonCode defaults to the source event's, override with --season.
  *   - priceTableKey is always a fresh "ev:<newSlug>" — never shared with the source.
@@ -100,7 +101,6 @@ async function main() {
     venueSlug: source.venueSlug,
     venueView: source.venueView,
     priceTableKey,
-    isOnSale: false,
     description: source.description || '',
     qrBank: { provider: 'bank', codes: [] }
   });
@@ -149,7 +149,7 @@ async function main() {
     }
   }
 
-  console.log(`\n✅ Clone terminé. "${newSlug}" n'est PAS en vente (isOnSale=false) — vérifiez tarifs/personnalisation puis utilisez set-onsale quand prêt.`);
+  console.log(`\n✅ Clone terminé. "${newSlug}" n'est PAS en vente (sale=notopen, activity=draft) — vérifiez tarifs/personnalisation puis utilisez publish-event quand prêt.`);
   await mongoose.disconnect();
 }
 

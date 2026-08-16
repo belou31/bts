@@ -9,7 +9,7 @@ import { buildTicketsPdfBuffer as buildTicketsPdfBufferFromService } from './tic
 import { isZoneUnit } from '../utils/seat-id.js';
 import { formatCurrency, formatCurrencyPlain, formatDate } from '../utils/format.js';
 import { t, getCatalog, DEFAULT_LOCALE } from '../utils/i18n.js';
-import { resolveThemeForOrder, resolveCustomizationForOrder } from './customization.js';
+import { resolveThemeForOrder, resolveCustomizationForOrder, resolveOrganizationName } from './customization.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -346,7 +346,7 @@ export async function renderOrderEmail(order) {
     const ename = order?.meta?.eventName || order?.meta?.eventSlug || t('common.match', locale);
     // Contexte unifié (event)
     const ctx = {
-      org: { clubName: (process.env.CLUB_NAME || 'Les Bélougas') },
+      org: { clubName: resolveOrganizationName() },
       payer: {
         fullName: [order.payerFirstName || order?.payer?.firstName, order.payerLastName || order?.payer?.lastName]
                   .filter(Boolean).join(' ').trim()
@@ -373,7 +373,7 @@ export async function renderOrderEmail(order) {
       totalEuroPlain: fmtEuroPlain(totalCents, locale),
       installmentsInfo: humanInstallments(split, locale),
       haOrderBlock,
-      clubName: (process.env.CLUB_NAME || 'Les Bélougas'),
+      clubName: resolveOrganizationName(),
       linesRows: LINES_HTML,
       extraInfo: ''
     };
@@ -382,7 +382,7 @@ export async function renderOrderEmail(order) {
 
   // ——— Non-event (renew / subscription / public)
   const ctx = {
-    org: { clubName: (process.env.CLUB_NAME || 'Les Bélougas') },
+    org: { clubName: resolveOrganizationName() },
     payer: {
       fullName: [order.payerFirstName || order?.payer?.firstName, order.payerLastName || order?.payer?.lastName]
                  .filter(Boolean).join(' ').trim()
@@ -408,7 +408,7 @@ export async function renderOrderEmail(order) {
     totalEuroPlain: fmtEuroPlain(totalCents, locale),
     installmentsInfo: humanInstallments(split, locale),
     haOrderBlock,
-    clubName: (process.env.CLUB_NAME || 'Les Bélougas'),
+    clubName: resolveOrganizationName(),
     linesRows: LINES_HTML,
     extraInfo: ''
   };

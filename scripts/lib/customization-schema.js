@@ -29,6 +29,9 @@ export const CUSTOMIZATION_KEYS = {
   'event.emailSubject':              { status: 'active', usedIn: 'src/services/mailer.js (subjectForOrder) — email subject prefix for "event" kind orders (event name is appended). Loses to EMAIL_SUBJECT_EVENT_CONFIRM env var if set.' },
   'public.emailSubject':             { status: 'active', usedIn: 'src/services/mailer.js (subjectForOrder) — email subject for "public" kind orders. No env var override exists for this kind.' },
 
+  'renew.inviteSubject':             { status: 'active', usedIn: 'src/services/automation/tasks/send-renew-invites.js — default email subject for a renewal-campaign run, season-scoped. Loses to the task\'s "subject"/"emailSubject" param if set. Plain string only, not a {fr,en} object (task has no locale concept).' },
+  'renew.inviteTemplate':            { status: 'active', usedIn: 'src/services/automation/tasks/send-renew-invites.js — default email template name for a renewal-campaign run, season-scoped. Loses to the task\'s "template"/"templateName" param if set. Plain string only, not a {fr,en} object.' },
+
   'subscription.emailConfirmation': { status: 'unused' },
   'subscription.ticket':            { status: 'unused' },
   'event.emailConfirmation':        { status: 'unused' },

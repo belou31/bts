@@ -44,7 +44,9 @@
     "presaleSub": "Prévente partenaire",
     "presaleRemaining": "Places restantes : {{n}}",
     "presaleQuotaReached": "Quota prévente atteint",
-    "presaleQuotaUsed": "Quota utilisé ({{n}})"
+    "presaleQuotaUsed": "Quota utilisé ({{n}})",
+    "soldOut": "Complet",
+    "soldOutSub": "Plus de places disponibles"
   },
   "order": {
     "defaultHeading": "Billetterie BTS",

@@ -106,3 +106,13 @@ export function resolveLogoRefForOrder(order) {
   const logo = resolveCustomizationForOrder(order).logo;
   return typeof logo === 'string' ? logo.trim() : '';
 }
+
+// data/customization/app.json is a separate, non-layered file (no season/
+// event/partner variants — it's app identity, set once via
+// scripts/00-system-management/customize-app.js), so it doesn't go through
+// loadCustomization()'s layering. organizationName is the club's display
+// name, used in email/ticket contexts wherever "clubName" appears.
+export function resolveOrganizationName() {
+  const name = readJson(path.join(CUSTOM_BASE, 'app.json')).organizationName;
+  return (typeof name === 'string' && name.trim()) ? name.trim() : 'Les Bélougas';
+}

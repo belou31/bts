@@ -53,7 +53,7 @@ scripts/
   01-venue-management/   # register venue, import seats/zones, validate SVG
   02-tariff-management/  # import/export tariff catalogs & matrices
   03-season-management/  # instantiate venue/tariffs, seed data, renewal helpers
-  04-event-management/   # création d’événements, imports QR/prix, set-onsale
+  04-event-management/   # création d’événements, imports QR/prix, publish-event
   05-partner-management/   # partner setup scripts (iframe, payment options)
   06-misc/   # exports/reports, audits
   00-system-management/  # reset-db, check-env, customize-app, purge-logs

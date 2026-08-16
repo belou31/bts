@@ -222,7 +222,7 @@ node scripts/04-event-management/build-allowed-from-prices.js --event=match-j1
 ### Ouvrir la vente
 
 ```bash
-node scripts/04-event-management/set-onsale.js --event=match-j1 --open
+node scripts/04-event-management/publish-event.js --event=match-j1 --sale=onsale
 ```
 
 ### Charger des QR si nécessaire

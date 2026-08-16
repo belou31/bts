@@ -2,7 +2,20 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>BTS — Administration</title>
+  <%
+    const PAGE_TITLES = {
+      home: 'BTS Administration',
+      operate: 'BTS Admin Operation',
+      io: 'BTS Admin Operation',
+      monitor: 'BTS Admin Monitoring',
+      templates: 'BTS Admin Documentation',
+      advanced: 'BTS Admin Advanced',
+      plan: 'BTS Admin Plan',
+      orders: 'BTS Admin Orders',
+      tickets: 'BTS Admin Tickets'
+    };
+  %>
+  <title><%= PAGE_TITLES[viewMode] || 'BTS Administration' %></title>
   <style>
     :root {
       color-scheme: light;
@@ -86,6 +99,109 @@
     .btn-small { padding: 4px 8px; font-size: 12px; margin-left: 6px; margin-top: 0; }
     .btn-link { border: none; background: transparent; color: var(--accent); padding: 0; margin-left: 8px; cursor: pointer; font-weight: 500; }
     .btn-link:hover { text-decoration: underline; background: transparent; }
+    .btn-secondary {
+      background: #f3f3f6;
+    }
+    .btn-secondary:hover {
+      background: #e8e8ec;
+    }
+    /* Generic show/hide utility — .modal relies on this to actually be hidden
+       until opened; without it, [hidden] state was purely semantic (class
+       toggled by JS) with no visual effect. */
+    .hidden {
+      display: none !important;
+    }
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+    }
+    .modal-dialog {
+      position: relative;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+      width: 90%;
+      max-width: 480px;
+      max-height: 85vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-header h3 { margin: 0; }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 22px;
+      line-height: 1;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 0;
+    }
+    .modal-close:hover { color: var(--fg); }
+    .modal-body { padding: 16px; }
+    .modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .modal-summary {
+      margin-right: auto;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .form-group {
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .form-group label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+    }
+    .form-help {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .error {
+      color: var(--danger);
+      background: #fff6f6;
+      border: 1px solid #f4c2c2;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
     .scripts-card {
       margin-top: 24px;
     }
@@ -631,6 +747,28 @@
     .scroll-table table {
       margin: 0;
     }
+    /* Same look as .scroll-table but no vertical cap — for a single selected
+       record's full detail (e.g. one price catalog's every zone/tariff row),
+       as opposed to .scroll-table's use for scannable summary lists of many
+       records where a small scrollbox is the right size. */
+    .scroll-table-full {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .scroll-table-full table {
+      margin: 0;
+    }
+    tr.sub-row td {
+      padding-top: 2px;
+      padding-bottom: 2px;
+      font-size: 12px;
+      border-top: none;
+    }
+    tr.sub-row .sub-row-label {
+      padding-left: 20px;
+      color: var(--muted);
+    }
     .empty-state {
       color: var(--muted);
       font-size: 13px;
@@ -897,11 +1035,13 @@
   <% const basePlan = urlFor('/admin/plan') + tokenQueryString; %>
   <% const baseOrders = urlFor('/admin/orders') + tokenQueryString; %>
   <% const baseTickets = urlFor('/admin/tickets') + tokenQueryString; %>
+  <% const baseAdvanced = urlFor('/admin/advanced') + tokenQueryString; %>
   <%
     // Two-level nav: "BTS Admin" picks a category; a second dropdown (only
     // rendered when the active category has chapters) picks a chapter within it.
-    // Plan/Orders/Tickets are folded into Monitoring as chapters, since all of
-    // Monitoring's tabs (like these three) are inspection views, not script runners.
+    // Plan/Orders/Tickets have their own category ("Advanced") rather than being
+    // Monitoring chapters — they're full-page tools (seat-level adjustments,
+    // record search) rather than dashboard-style inspection views.
     // "Data I/O" is not a category on its own: data/inputs + data/outputs are an
     // Operation concern (feeding/collecting script runs), so they're Operate's
     // first chapter; the read-only customization/template/asset listings are a
@@ -910,12 +1050,13 @@
     const activeCategoryId = ['io'].includes(viewMode)
       ? 'operate'
       : ['plan', 'orders', 'tickets'].includes(viewMode)
-        ? 'monitor'
+        ? 'advanced'
         : viewMode;
     const navCategories = [
       { id: 'operate', label: 'Operation', href: baseOperate },
       { id: 'monitor', label: 'Monitoring', href: baseMonitor },
-      { id: 'templates', label: 'Documentation', href: baseTemplates }
+      { id: 'templates', label: 'Documentation', href: baseTemplates },
+      { id: 'advanced', label: 'Advanced', href: baseAdvanced }
     ];
     const monitorHref = (tab) => `${baseMonitor}${baseMonitor.includes('?') ? '&' : '?'}monitorTab=${tab}`;
     const docHref = (tab) => `${baseTemplates}${baseTemplates.includes('?') ? '&' : '?'}docTab=${tab}`;
@@ -925,6 +1066,7 @@
     const showOperateIntro = viewMode === 'operate' && !activeGroupId;
     const showDocIntro = viewMode === 'templates' && !docTab;
     const showMonitorIntro = viewMode === 'monitor' && !monitorTab;
+    const showAdvancedIntro = viewMode === 'advanced';
     const categoryChapters = {
       operate: [
         { id: 'overview', label: 'Overview', href: baseOperate, active: showOperateIntro },
@@ -950,9 +1092,12 @@
         { id: 'tariffs', label: 'Tarifs', description: 'Catalogues et grilles tarifaires par lieu/saison.', href: monitorHref('tariffs'), active: viewMode === 'monitor' && monitorTab === 'tariffs' },
         { id: 'seasons', label: 'Saisons', description: 'Saisons enregistrées et leur statut.', href: monitorHref('seasons'), active: viewMode === 'monitor' && monitorTab === 'seasons' },
         { id: 'events', label: 'Événements', description: 'Événements enregistrés et leur statut de vente.', href: monitorHref('events'), active: viewMode === 'monitor' && monitorTab === 'events' },
-        { id: 'partners', label: 'Partenaires', description: 'Partenaires configurés, mode de paiement, tarifs publics.', href: monitorHref('partners'), active: viewMode === 'monitor' && monitorTab === 'partners' },
-        { id: 'plan', label: 'Plan', description: 'Visualisation du plan de salle et de l’occupation des sièges.', href: basePlan, active: viewMode === 'plan' },
-        { id: 'orders', label: 'Orders', description: 'Recherche et détail des commandes.', href: baseOrders, active: viewMode === 'orders' },
+        { id: 'partners', label: 'Partenaires', description: 'Partenaires configurés, mode de paiement, tarifs publics.', href: monitorHref('partners'), active: viewMode === 'monitor' && monitorTab === 'partners' }
+      ],
+      advanced: [
+        { id: 'overview', label: 'Overview', href: baseAdvanced, active: showAdvancedIntro },
+        { id: 'plan', label: 'Plan', description: 'Visualisation du plan de salle, occupation des sièges, ajustement de présence.', href: basePlan, active: viewMode === 'plan' },
+        { id: 'orders', label: 'Orders', description: 'Recherche et détail des commandes, ajustement de présence.', href: baseOrders, active: viewMode === 'orders' },
         { id: 'tickets', label: 'Tickets', description: 'Recherche et détail des billets émis.', href: baseTickets, active: viewMode === 'tickets' }
       ]
     };
@@ -961,7 +1106,8 @@
     const categoryTitles = {
       operate: 'Operation management',
       templates: 'Documentation',
-      monitor: 'Monitoring'
+      monitor: 'Monitoring',
+      advanced: 'Advanced'
     };
     const activeChapter = activeChapters.find((ch) => ch.active);
     const pageTitle = 'BTS > Administration'
@@ -1079,12 +1225,31 @@
         </li>
         <li>
           <a href="<%= baseMonitor %>">Monitoring</a>
-          <span class="intro-item-desc">Inspect current system state: files, orders, tickets, seating plan.</span>
+          <span class="intro-item-desc">Inspect current system state: files, venues, tariffs, seasons, events, partners.</span>
         </li>
         <li>
           <a href="<%= baseTemplates %>">Documentation</a>
           <span class="intro-item-desc">Guides, reference templates, and example files.</span>
         </li>
+        <li>
+          <a href="<%= baseAdvanced %>">Advanced</a>
+          <span class="intro-item-desc">Seating plan, order search, and ticket search — with seat-level presence adjustments.</span>
+        </li>
+      </ul>
+    </section>
+  <% } %>
+
+  <% if (showAdvancedIntro) { %>
+    <section class="card intro-card">
+      <h2>Advanced — Overview</h2>
+      <p class="muted">Pick a tool below, or use the dropdown above.</p>
+      <ul class="intro-list">
+        <% for (const ch of categoryChapters.advanced) { if (ch.id === 'overview') continue; %>
+          <li>
+            <a href="<%= ch.href %>"><%= ch.label %></a>
+            <% if (ch.description) { %><span class="intro-item-desc"><%= ch.description %></span><% } %>
+          </li>
+        <% } %>
       </ul>
     </section>
   <% } %>
@@ -1389,7 +1554,7 @@
         <% } %>
       </section>
 
-      <div class="plan-layout">
+      <div class="plan-layout" data-event-orders-block data-event-slug="<%= planView.selectedEventSlug || '' %>">
         <section class="card plan-canvas">
           <% if (planView.planUrl) { %>
             <object
@@ -1442,8 +1607,27 @@
                 <dd data-plan-seat-order-id>—</dd>
               </div>
             </dl>
+            <button type="button" class="btn btn-small hidden" data-attendance-edit data-plan-seat-adjust data-order-id="">Ajuster</button>
           </section>
         </aside>
+      </div>
+
+      <div class="modal hidden" data-attendance-modal>
+        <div class="modal-backdrop" data-attendance-close></div>
+        <div class="modal-dialog">
+          <header class="modal-header">
+            <h3>Ajuster la présence</h3>
+            <button type="button" class="modal-close" data-attendance-close>&times;</button>
+          </header>
+          <div class="modal-body" data-attendance-body>
+            <div class="empty-state">Chargement…</div>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-attendance-summary></div>
+            <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
+            <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
+          </footer>
+        </div>
       </div>
     </div>
   <% } %>
@@ -1492,7 +1676,7 @@
 
       <section class="card">
         <% if (ordersView.rows && ordersView.rows.length) { %>
-          <div class="records-table-wrap">
+          <div class="records-table-wrap" data-event-orders-block data-event-slug="<%= ordersView.selectedEventSlug || '' %>">
             <table class="records-table">
               <thead>
                 <tr>
@@ -1505,6 +1689,7 @@
                   <th>Tarif(s)</th>
                   <th>Lignes</th>
                   <th>Total</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="ordersRows">
@@ -1519,6 +1704,11 @@
                     <td><%= row.tariffs && row.tariffs.length ? row.tariffs.join(', ') : '—' %></td>
                     <td><%= row.lineCount || 0 %></td>
                     <td><%= ((row.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
+                    <td>
+                      <% if (ordersView.selectedEventSlug) { %>
+                        <button type="button" class="btn btn-small" data-attendance-edit data-order-id="<%= row.id %>">Ajuster</button>
+                      <% } %>
+                    </td>
                   </tr>
                 <% } %>
               </tbody>
@@ -1528,6 +1718,24 @@
           <div class="empty-state">Aucune commande pour cette sélection.</div>
         <% } %>
       </section>
+
+      <div class="modal hidden" data-attendance-modal>
+        <div class="modal-backdrop" data-attendance-close></div>
+        <div class="modal-dialog">
+          <header class="modal-header">
+            <h3>Ajuster la présence</h3>
+            <button type="button" class="modal-close" data-attendance-close>&times;</button>
+          </header>
+          <div class="modal-body" data-attendance-body>
+            <div class="empty-state">Chargement…</div>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-attendance-summary></div>
+            <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
+            <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
+          </footer>
+        </div>
+      </div>
     </div>
   <% } %>
 
@@ -1575,7 +1783,7 @@
 
       <section class="card">
         <% if (ticketsView.rows && ticketsView.rows.length) { %>
-          <div class="records-table-wrap">
+          <div class="records-table-wrap" data-event-orders-block data-event-slug="<%= ticketsView.selectedEventSlug || '' %>">
             <table class="records-table">
               <thead>
                 <tr>
@@ -1589,10 +1797,13 @@
                   <th>Order id</th>
                   <th>Créé</th>
                   <th>Scan</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="ticketsRows">
-                <% for (const row of ticketsView.rows) { %>
+                <% for (const row of ticketsView.rows) {
+                     const hasOrder = row.orderId && row.orderId !== '—';
+                %>
                   <tr data-search="<%= row.searchIndex || '' %>">
                     <td><code><%= row.id %></code></td>
                     <td><%= row.seatId || '—' %></td>
@@ -1601,12 +1812,17 @@
                     <td><%= row.holderEmail || '—' %></td>
                     <td><%= row.contactName || '—' %></td>
                     <td><%= row.contactEmail || '—' %></td>
-                    <td><%= row.orderId && row.orderId !== '—' ? row.orderId : '—' %></td>
+                    <td><%= hasOrder ? row.orderId : '—' %></td>
                     <td><%= row.createdAt ? new Date(row.createdAt).toLocaleString() : '—' %></td>
                     <td>
                       <%= row.scannedAt ? ('Scanné le ' + new Date(row.scannedAt).toLocaleString()) : 'Non scanné' %>
                       <% if ((row.scanCount || 0) > 0) { %>
                         (<%= row.scanCount %>)
+                      <% } %>
+                    </td>
+                    <td>
+                      <% if (hasOrder) { %>
+                        <button type="button" class="btn btn-small" data-attendance-edit data-order-id="<%= row.orderId %>">Ajuster</button>
                       <% } %>
                     </td>
                   </tr>
@@ -1618,6 +1834,24 @@
           <div class="empty-state">Aucun ticket pour cette sélection.</div>
         <% } %>
       </section>
+
+      <div class="modal hidden" data-attendance-modal>
+        <div class="modal-backdrop" data-attendance-close></div>
+        <div class="modal-dialog">
+          <header class="modal-header">
+            <h3>Ajuster la présence</h3>
+            <button type="button" class="modal-close" data-attendance-close>&times;</button>
+          </header>
+          <div class="modal-body" data-attendance-body>
+            <div class="empty-state">Chargement…</div>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-attendance-summary></div>
+            <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
+            <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
+          </footer>
+        </div>
+      </div>
     </div>
   <% } %>
 
@@ -2280,18 +2514,36 @@
     <div class="monitoring-panel <%= monitorTab === 'venue' ? 'active' : '' %>" data-monitor-panel="venue">
       <h3>Lieux</h3>
       <% if (monitoring.lists.venues && monitoring.lists.venues.length) { %>
-        <div class="scroll-table" style="margin-bottom:16px;">
+        <div class="scroll-table-full" style="margin-bottom:16px;">
           <table>
             <tr><th>Slug</th><th>Nom</th><th>Zones</th><th>Sièges</th><th>Vues</th><th>Plan</th></tr>
-            <% for (const v of monitoring.lists.venues) { %>
+            <% for (const v of monitoring.lists.venues) {
+                 const resources = (venueResources || []).find(r => r.venueSlug === v.slug) || null;
+                 const views = (resources && resources.views) || [];
+            %>
               <tr>
                 <td><code><%= v.slug %></code></td>
                 <td><%= v.name %></td>
                 <td><%= v.zoneCount %></td>
                 <td><%= v.seatCount %></td>
                 <td><%= v.viewCount %></td>
-                <td><%= v.hasPlan ? 'Oui' : 'Non' %></td>
+                <td>
+                  <% if (resources && resources.plan) { %>
+                    <a class="btn btn-small" href="<%= urlFor('/' + resources.plan.rel) %>" download="plan.svg">Télécharger</a>
+                  <% } else { %>
+                    <span class="muted">—</span>
+                  <% } %>
+                </td>
               </tr>
+              <% for (const view of views) { const viewUrl = urlFor('/' + view.rel); %>
+                <tr class="sub-row">
+                  <td class="sub-row-label">↳ <code><%= view.slug %></code></td>
+                  <td><%= view.name || '—' %></td>
+                  <td colspan="2" class="muted"><%= (view.size/1024).toFixed(1) %> KB · <%= new Date(view.mtime).toLocaleString() %></td>
+                  <td></td>
+                  <td><a class="btn btn-small" href="<%= viewUrl %>" download="<%= view.slug %>.svg">Télécharger</a></td>
+                </tr>
+              <% } %>
             <% } %>
           </table>
         </div>
@@ -2349,7 +2601,7 @@
       <% if (monitoring.lists.tariffs && monitoring.lists.tariffs.length) { %>
         <div class="scroll-table" style="margin-bottom:16px;">
           <table>
-            <tr><th>Code</th><th>Libellé</th><th>Actif</th><th>Table de prix</th><th>Champ requis</th></tr>
+            <tr><th>Code</th><th>Libellé</th><th>Actif</th><th>Table de prix</th><th>Champ requis</th><th>Canaux</th></tr>
             <% for (const t of monitoring.lists.tariffs) { %>
               <tr>
                 <td><code><%= t.code %></code></td>
@@ -2357,6 +2609,7 @@
                 <td><%= t.active ? 'Oui' : 'Non' %></td>
                 <td><%= t.priceTableKey || 'Global' %></td>
                 <td><%= t.fieldLabel || t.requiresField || '—' %></td>
+                <td><%= t.channels.length ? t.channels.join(', ') : 'public (implicite)' %></td>
               </tr>
             <% } %>
           </table>
@@ -2369,7 +2622,7 @@
       <% if (monitoring.lists.tariffPriceCatalogGroups && monitoring.lists.tariffPriceCatalogGroups.length) { %>
         <div class="scroll-table" style="margin-bottom:16px;">
           <table>
-            <tr><th>Catalogue</th><th>Lieu</th><th>Zones</th><th>Tarifs</th><th>Entrées</th><th>Devise</th></tr>
+            <tr><th>Catalogue</th><th>Lieu</th><th>Zones</th><th>Tarifs</th><th>Entrées</th><th>Devise</th><th>Canaux</th></tr>
             <% for (const g of monitoring.lists.tariffPriceCatalogGroups) { %>
               <tr>
                 <td><code><%= g.catalogSlug %></code></td>
@@ -2378,6 +2631,7 @@
                 <td><%= g.tariffCount %></td>
                 <td><%= g.entryCount %></td>
                 <td><%= g.currency %></td>
+                <td><%= g.channels.length ? g.channels.join(', ') : 'public (implicite)' %></td>
               </tr>
             <% } %>
           </table>
@@ -2386,7 +2640,7 @@
         <div class="empty-state">Aucun catalogue de prix configuré.</div>
       <% } %>
 
-      <h3>Aperçu d'un catalogue de prix</h3>
+      <h3>Détail d'un catalogue de prix</h3>
       <% if (monitoring.lists.tariffPriceCatalogGroups && monitoring.lists.tariffPriceCatalogGroups.length) { %>
         <form method="get" class="inline-filter-form">
           <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
@@ -2405,15 +2659,17 @@
         </form>
 
         <% if (monitoring.lists.tariffPriceCatalogEntries && monitoring.lists.tariffPriceCatalogEntries.length) { %>
-          <div class="scroll-table" style="margin-top:12px;">
+          <div class="muted" style="margin-top:12px;"><%= monitoring.lists.tariffPriceCatalogEntries.length %> entrée(s)</div>
+          <div class="scroll-table-full" style="margin-top:4px;">
             <table>
-              <tr><th>Zone</th><th>Tarif</th><th>Prix</th><th>Prix partenaire</th></tr>
+              <tr><th>Zone</th><th>Tarif</th><th>Prix</th><th>Prix partenaire</th><th>Canaux</th></tr>
               <% for (const e of monitoring.lists.tariffPriceCatalogEntries) { %>
                 <tr>
                   <td><code><%= e.zoneKey %></code></td>
                   <td><code><%= e.tariffCode %></code></td>
                   <td><%= (e.priceCents / 100).toLocaleString('fr-FR', { style: 'currency', currency: e.currency }) %></td>
                   <td><%= e.partnerPriceCents != null ? (e.partnerPriceCents / 100).toLocaleString('fr-FR', { style: 'currency', currency: e.currency }) : '—' %></td>
+                  <td><%= e.channels.length ? e.channels.join(', ') : 'public (implicite)' %></td>
                 </tr>
               <% } %>
             </table>
@@ -2426,6 +2682,31 @@
       <% } %>
     </div>
     <div class="monitoring-panel <%= monitorTab === 'seasons' ? 'active' : '' %>" data-monitor-panel="seasons">
+      <h3>Toutes les saisons</h3>
+      <% if (monitoring.lists.seasons && monitoring.lists.seasons.length) { %>
+        <div class="scroll-table-full" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Code</th><th>Nom</th><th>Statut</th><th>Lieu</th><th>Phases</th><th>Lien public</th><th></th></tr>
+            <% for (const s of monitoring.lists.seasons) {
+                 const publicUrl = urlFor('/season/' + s.code);
+                 const detailUrl = `${monitorHref('seasons')}&season=${encodeURIComponent(s.code)}`;
+            %>
+              <tr>
+                <td><code><%= s.code %></code></td>
+                <td><%= s.name || '—' %></td>
+                <td><%= s.active ? 'Active' : 'Inactive' %></td>
+                <td><%= s.venueSlug || '—' %></td>
+                <td><%= s.phaseCount %></td>
+                <td><a href="<%= publicUrl %>" target="_blank" rel="noopener"><%= publicUrl %></a></td>
+                <td><a class="btn btn-small" href="<%= detailUrl %>">Détail</a></td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucune saison.</div>
+      <% } %>
+
       <h3>Abonnement</h3>
       <% if (monitoring.subscription.selectedSeasonCode) { %>
         <form method="get" class="inline-filter-form">
@@ -2455,6 +2736,30 @@
           </label>
           <noscript><button type="submit" class="btn btn-small">Mettre à jour</button></noscript>
         </form>
+
+        <h4>Répartition par zone</h4>
+        <% if (monitoring.subscription.zoneBreakdown && monitoring.subscription.zoneBreakdown.zones.length) { %>
+          <div class="scroll-table-full" style="margin-bottom:16px;">
+            <table>
+              <tr>
+                <th>Zone</th>
+                <% for (const status of monitoring.subscription.zoneBreakdown.statuses) { %><th><%= status %></th><% } %>
+                <th>Total</th>
+              </tr>
+              <% for (const z of monitoring.subscription.zoneBreakdown.zones) { %>
+                <tr>
+                  <td><code><%= z.zoneKey %></code></td>
+                  <% for (const status of monitoring.subscription.zoneBreakdown.statuses) { %>
+                    <td><%= z.statusCounts[status] || 0 %></td>
+                  <% } %>
+                  <td><strong><%= z.total %></strong></td>
+                </tr>
+              <% } %>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state" style="margin-bottom:16px;">Aucun siège pour cette sélection.</div>
+        <% } %>
 
         <div class="monitoring-grid">
           <section class="card">
@@ -2561,6 +2866,33 @@
     </div>
 
     <div class="monitoring-panel <%= monitorTab === 'events' ? 'active' : '' %>" data-monitor-panel="events">
+      <h3>Tous les événements</h3>
+      <% if (monitoring.lists.events && monitoring.lists.events.length) { %>
+        <div class="scroll-table-full" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Slug</th><th>Nom</th><th>Date</th><th>Saison</th><th>Lieu</th><th>Vente</th><th>Activité</th><th>Lien public</th><th></th></tr>
+            <% for (const ev of monitoring.lists.events) {
+                 const publicUrl = urlFor('/event/' + ev.slug);
+                 const detailUrl = `${monitorHref('events')}&event=${encodeURIComponent(ev.slug)}`;
+            %>
+              <tr>
+                <td><code><%= ev.slug %></code></td>
+                <td><%= ev.name || '—' %></td>
+                <td><%= ev.startsAt ? new Date(ev.startsAt).toLocaleString() : '—' %></td>
+                <td><%= ev.seasonCode || '—' %></td>
+                <td><%= ev.venueSlug || '—' %></td>
+                <td><%= ev.sale || 'notopen' %></td>
+                <td><%= ev.activity || 'draft' %></td>
+                <td><a href="<%= publicUrl %>" target="_blank" rel="noopener"><%= publicUrl %></a></td>
+                <td><a class="btn btn-small" href="<%= detailUrl %>">Détail</a></td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun événement.</div>
+      <% } %>
+
       <h3>Événement</h3>
       <% if (monitoring.event && monitoring.event.selectedEvent) { %>
         <form method="get" class="inline-filter-form">
@@ -2588,8 +2920,33 @@
           <div>Date : <%= monitoring.event.selectedEvent.startsAt ? new Date(monitoring.event.selectedEvent.startsAt).toLocaleString() : '—' %></div>
           <div>Saison : <%= monitoring.event.selectedEvent.seasonCode || '—' %></div>
           <div>Lieu : <%= monitoring.event.selectedEvent.venueSlug || '—' %></div>
-          <div>En vente : <%= monitoring.event.selectedEvent.isOnSale ? 'Oui' : 'Non' %></div>
+          <div>Vente : <%= monitoring.event.selectedEvent.sale || 'notopen' %></div>
+          <div>Activité : <%= monitoring.event.selectedEvent.activity || 'draft' %></div>
         </section>
+
+        <h4>Répartition par zone</h4>
+        <% if (monitoring.event.zoneBreakdown && monitoring.event.zoneBreakdown.zones.length) { %>
+          <div class="scroll-table-full" style="margin-bottom:16px;">
+            <table>
+              <tr>
+                <th>Zone</th>
+                <% for (const status of monitoring.event.zoneBreakdown.statuses) { %><th><%= status %></th><% } %>
+                <th>Total</th>
+              </tr>
+              <% for (const z of monitoring.event.zoneBreakdown.zones) { %>
+                <tr>
+                  <td><code><%= z.zoneKey %></code></td>
+                  <% for (const status of monitoring.event.zoneBreakdown.statuses) { %>
+                    <td><%= z.statusCounts[status] || 0 %></td>
+                  <% } %>
+                  <td><strong><%= z.total %></strong></td>
+                </tr>
+              <% } %>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state" style="margin-bottom:16px;">Aucun siège pour cette sélection.</div>
+        <% } %>
 
         <div class="monitoring-grid">
           <section class="card">
@@ -2645,9 +3002,11 @@
           </section>
         </div>
 
-        <div class="monitoring-grid" data-event-orders-block data-event-slug="<%= monitoring.event.selectedEvent.slug %>">
+        <div class="monitoring-grid">
           <section class="card">
             <h4>Commandes récentes</h4>
+            <% const ordersForEventUrl = `${baseOrders}${baseOrders.includes('?') ? '&' : '?'}event=${encodeURIComponent(monitoring.event.selectedEvent.slug)}`; %>
+            <div class="muted" style="margin-bottom:8px;">Pour ajuster la présence d'une commande, utilisez la page <a href="<%= ordersForEventUrl %>">Orders</a>.</div>
             <% if (monitoring.event.orders && monitoring.event.orders.length) { %>
               <div class="scroll-table">
                 <table>
@@ -2660,7 +3019,6 @@
                     <th>Lignes</th>
                     <th>Présence</th>
                     <th>Ajustements</th>
-                    <th></th>
                     <th>Total</th>
                   </tr>
                   <% monitoring.event.orders.forEach(o => { %>
@@ -2701,11 +3059,6 @@
                         <% } else { %>
                           <span class="muted">—</span>
                         <% } %>
-                      </td>
-                      <td>
-                        <button type="button" class="btn btn-small" data-attendance-edit data-order-id="<%= o.id %>">
-                          Ajuster
-                        </button>
                       </td>
                       <td><%= ((o.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
                     </tr>
@@ -2784,24 +3137,6 @@
       <% } else { %>
         <div class="empty-state">Sélectionnez un événement pour afficher les détails.</div>
       <% } %>
-
-      <div class="modal hidden" data-attendance-modal>
-        <div class="modal-backdrop" data-attendance-close></div>
-        <div class="modal-dialog">
-          <header class="modal-header">
-            <h3>Ajuster la présence</h3>
-            <button type="button" class="modal-close" data-attendance-close>&times;</button>
-          </header>
-          <div class="modal-body" data-attendance-body>
-            <div class="empty-state">Chargement…</div>
-          </div>
-          <footer class="modal-footer">
-            <div class="modal-summary" data-attendance-summary></div>
-            <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
-            <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
-          </footer>
-        </div>
-      </div>
     </div>
     <div class="monitoring-panel <%= monitorTab === 'partners' ? 'active' : '' %>" data-monitor-panel="partners">
       <h3>Partenaires</h3>
@@ -3039,6 +3374,7 @@
         const payerEl = document.querySelector('[data-plan-seat-payer]');
         const tariffEl = document.querySelector('[data-plan-seat-tariff]');
         const orderIdEl = document.querySelector('[data-plan-seat-order-id]');
+        const adjustBtn = document.querySelector('[data-plan-seat-adjust]');
 
         const seatStatusById = new Map(
           (Array.isArray(PLAN_VIEW_DATA.seats) ? PLAN_VIEW_DATA.seats : [])
@@ -3062,6 +3398,10 @@
         const hidePanel = () => {
           if (!seatPanel) return;
           seatPanel.classList.remove('active');
+          if (adjustBtn) {
+            adjustBtn.classList.add('hidden');
+            adjustBtn.dataset.orderId = '';
+          }
         };
 
         const showSeatPanel = (seatId) => {
@@ -3072,6 +3412,15 @@
           if (payerEl) payerEl.textContent = details.payer || '—';
           if (tariffEl) tariffEl.textContent = details.tariff || '—';
           if (orderIdEl) orderIdEl.textContent = details.orderId || '—';
+          if (adjustBtn) {
+            if (details.orderId) {
+              adjustBtn.dataset.orderId = details.orderId;
+              adjustBtn.classList.remove('hidden');
+            } else {
+              adjustBtn.dataset.orderId = '';
+              adjustBtn.classList.add('hidden');
+            }
+          }
           seatPanel.classList.add('active');
         };
 
@@ -3503,7 +3852,7 @@
       bindDeleteButtons();
 
       /* ----- Attendance modal wiring ----- */
-      const defaultEventSlug = <%- JSON.stringify((locals.monitoring && locals.monitoring.event && locals.monitoring.event.selectedEvent && locals.monitoring.event.selectedEvent.slug) ? locals.monitoring.event.selectedEvent.slug : '') %>;
+      const defaultEventSlug = <%- JSON.stringify((locals.ordersView && locals.ordersView.selectedEventSlug) ? locals.ordersView.selectedEventSlug : '') %>;
       const attendanceBase = <%- JSON.stringify(urlFor('/admin/events')) %>;
       const attendanceSuffix = <%- JSON.stringify(tokenSuffix || '') %>;
 

@@ -72,10 +72,10 @@ async function releaseExpiredHolds({ seasonCode, venueSlug }) {
 
 // ====== Résolution d’un contexte {seasonCode, venueSlug} ======
 async function resolveCtx() {
-  // On prend la saison/la salle de la commande la plus récente ; fallback sur l'env
+  // On prend la saison/la salle de la commande la plus récente
   const recent = await Order.findOne({}).sort({ createdAt: -1 }).lean();
-  const seasonCode = recent?.seasonCode || process.env.SEASON_CODE || null;
-  const venueSlug  = recent?.venueSlug  || process.env.VENUE_SLUG  || null;
+  const seasonCode = recent?.seasonCode || null;
+  const venueSlug  = recent?.venueSlug  || null;
   return { seasonCode, venueSlug };
 }
 

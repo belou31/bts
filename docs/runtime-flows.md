@@ -136,7 +136,7 @@ Le front appelle `GET /api/event/:eventId/status`.
 
 Le backend agrège :
 
-- l'événement (`slug`, `name`, `startsAt`, `isOnSale`)
+- l'événement (`slug`, `name`, `startsAt`, `sale`)
 - l'état des sièges
 - les zones debout et leur capacité restante
 - les tarifs/prix applicables
