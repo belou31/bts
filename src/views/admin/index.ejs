@@ -12,7 +12,8 @@
       advanced: 'BTS Admin Advanced',
       plan: 'BTS Admin Plan',
       orders: 'BTS Admin Orders',
-      tickets: 'BTS Admin Tickets'
+      tickets: 'BTS Admin Tickets',
+      renewers: 'BTS Admin Renewers'
     };
   %>
   <title><%= PAGE_TITLES[viewMode] || 'BTS Administration' %></title>
@@ -1035,6 +1036,7 @@
   <% const basePlan = urlFor('/admin/plan') + tokenQueryString; %>
   <% const baseOrders = urlFor('/admin/orders') + tokenQueryString; %>
   <% const baseTickets = urlFor('/admin/tickets') + tokenQueryString; %>
+  <% const baseRenewers = urlFor('/admin/renewers') + tokenQueryString; %>
   <% const baseAdvanced = urlFor('/admin/advanced') + tokenQueryString; %>
   <%
     // Two-level nav: "BTS Admin" picks a category; a second dropdown (only
@@ -1049,7 +1051,7 @@
     // first chapter ("Custo files").
     const activeCategoryId = ['io'].includes(viewMode)
       ? 'operate'
-      : ['plan', 'orders', 'tickets'].includes(viewMode)
+      : ['plan', 'orders', 'tickets', 'renewers'].includes(viewMode)
         ? 'advanced'
         : viewMode;
     const navCategories = [
@@ -1098,7 +1100,8 @@
         { id: 'overview', label: 'Overview', href: baseAdvanced, active: showAdvancedIntro },
         { id: 'plan', label: 'Plan', description: 'Visualisation du plan de salle, occupation des sièges, ajustement de présence.', href: basePlan, active: viewMode === 'plan' },
         { id: 'orders', label: 'Orders', description: 'Recherche et détail des commandes, ajustement de présence.', href: baseOrders, active: viewMode === 'orders' },
-        { id: 'tickets', label: 'Tickets', description: 'Recherche et détail des billets émis.', href: baseTickets, active: viewMode === 'tickets' }
+        { id: 'tickets', label: 'Tickets', description: 'Recherche et détail des billets émis.', href: baseTickets, active: viewMode === 'tickets' },
+        { id: 'renewers', label: 'Renewers', description: 'Suivi des lignes de renouvellement (statut, lien, envoi, annulation).', href: baseRenewers, active: viewMode === 'renewers' }
       ]
     };
     const activeCategory = navCategories.find((c) => c.id === activeCategoryId);
@@ -1733,6 +1736,147 @@
             <div class="modal-summary" data-attendance-summary></div>
             <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
             <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
+          </footer>
+        </div>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'renewers' && renewersView) { %>
+    <div class="records-view">
+      <section class="card">
+        <h2>Renewers administrateur</h2>
+        <form method="get" action="<%= baseRenewers %>" class="records-toolbar">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <label>
+            Saison
+            <select name="season" data-auto-submit="change">
+              <% if (renewersView.seasons && renewersView.seasons.length) { %>
+                <% for (const s of renewersView.seasons) { %>
+                  <option value="<%= s.code %>" <%= s.code === renewersView.selectedSeasonCode ? 'selected' : '' %>>
+                    <%= s.code %><%= s.name ? ' — ' + s.name : '' %><%= s.venueSlug ? ' (' + s.venueSlug + ')' : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucune saison</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Statut
+            <select name="status" data-auto-submit="change">
+              <option value="">Tous</option>
+              <% for (const st of renewersView.statuses) { %>
+                <option value="<%= st %>" <%= st === renewersView.statusFilter ? 'selected' : '' %>><%= st %></option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Filtrer nom / email / groupe / siège
+            <input type="search" data-table-filter data-table-target="renewersRows" placeholder="Tapez un nom, un email, un groupe…">
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Actualiser</button></noscript>
+        </form>
+        <% if (renewersView.selectedSeasonCode && !renewersView.selectedVenueSlug) { %>
+          <div class="error">Cette saison n'a pas de venueSlug renseigné (voir create-season.js / instantiate-venue-for-season.js) — aucune ligne de renouvellement ne peut être affichée.</div>
+        <% } %>
+      </section>
+
+      <section class="card">
+        <% if (renewersView.rows && renewersView.rows.length) { %>
+          <div class="records-table-wrap">
+            <table class="records-table">
+              <thead>
+                <tr>
+                  <th>Groupe</th>
+                  <th>Nom</th>
+                  <th>Email</th>
+                  <th>Téléphone</th>
+                  <th>Siège préféré</th>
+                  <th>Statut siège</th>
+                  <th>Statut renouvellement</th>
+                  <th>Dernier envoi</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="renewersRows">
+                <% for (const row of renewersView.rows) { %>
+                  <tr data-search="<%= row.searchIndex || '' %>" data-renewer-row data-renewer-id="<%= row.id %>">
+                    <td><%= row.groupKey || '—' %></td>
+                    <td data-renewer-field="name"><%= [row.firstName, row.lastName].filter(Boolean).join(' ') || '—' %></td>
+                    <td data-renewer-field="email"><%= row.email || '—' %></td>
+                    <td data-renewer-field="phone"><%= row.phone || '—' %></td>
+                    <td data-renewer-field="prefSeatId"><%= row.prefSeatId || '—' %></td>
+                    <td data-renewer-field="seatStatus"><%= row.seatStatus || '—' %></td>
+                    <td><span class="pill" data-renewer-field="status"><%= row.status %></span></td>
+                    <td data-renewer-field="lastInviteSentAt"><%= row.lastInviteSentAt ? new Date(row.lastInviteSentAt).toLocaleString() : '—' %></td>
+                    <td class="records-row-actions">
+                      <button type="button" class="btn btn-small" data-renewer-link>Lien</button>
+                      <button type="button" class="btn btn-small" data-renewer-send>Envoyer</button>
+                      <button type="button" class="btn btn-small" data-renewer-edit>Modifier</button>
+                      <button type="button" class="btn btn-small btn-danger" data-renewer-cancel>Annuler</button>
+                    </td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state">Aucune ligne de renouvellement pour cette sélection.</div>
+        <% } %>
+      </section>
+
+      <div class="modal hidden" data-renewer-modal>
+        <div class="modal-backdrop" data-renewer-close></div>
+        <div class="modal-dialog">
+          <header class="modal-header">
+            <h3>Modifier la ligne de renouvellement</h3>
+            <button type="button" class="modal-close" data-renewer-close>&times;</button>
+          </header>
+          <div class="modal-body">
+            <form data-renewer-form>
+              <div class="form-group">
+                <label>Prénom</label>
+                <input type="text" name="firstName" data-renewer-field-input="firstName">
+              </div>
+              <div class="form-group">
+                <label>Nom</label>
+                <input type="text" name="lastName" data-renewer-field-input="lastName">
+              </div>
+              <div class="form-group">
+                <label>Email</label>
+                <input type="email" name="email" data-renewer-field-input="email">
+              </div>
+              <div class="form-group">
+                <label>Téléphone</label>
+                <input type="text" name="phone" data-renewer-field-input="phone">
+              </div>
+              <div class="form-group">
+                <label>Siège préféré</label>
+                <input type="text" name="prefSeatId" data-renewer-field-input="prefSeatId" placeholder="ex: S1-A-01">
+              </div>
+              <div class="form-group">
+                <label>Groupe</label>
+                <input type="text" name="groupKey" data-renewer-field-input="groupKey">
+              </div>
+              <div class="form-group">
+                <label>Statut</label>
+                <select name="status" data-renewer-field-input="status">
+                  <% for (const st of renewersView.statuses) { %>
+                    <option value="<%= st %>"><%= st %></option>
+                  <% } %>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Notes</label>
+                <textarea name="notes" rows="3" data-renewer-field-input="notes"></textarea>
+              </div>
+            </form>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-renewer-modal-summary></div>
+            <button type="button" class="btn btn-secondary" data-renewer-close>Annuler</button>
+            <button type="button" class="btn" data-renewer-submit>Enregistrer</button>
           </footer>
         </div>
       </div>
@@ -4061,6 +4205,174 @@
         if (evt.target === attendanceModal) {
           closeAttendance();
         }
+      });
+
+      /* ===================== Renewers panel ===================== */
+      const renewersBase = <%- JSON.stringify(urlFor('/admin/renewers')) %>;
+      const renewersSuffix = <%- JSON.stringify(tokenSuffix || '') %>;
+      const renewerModal = document.querySelector('[data-renewer-modal]');
+      const renewerForm = renewerModal?.querySelector('[data-renewer-form]') || null;
+      const renewerSubmit = renewerModal?.querySelector('[data-renewer-submit]') || null;
+      const renewerSummary = document.querySelector('[data-renewer-modal-summary]');
+      let renewerEditingId = null;
+
+      const renewerFieldNames = ['firstName', 'lastName', 'email', 'phone', 'prefSeatId', 'groupKey', 'status', 'notes'];
+
+      const closeRenewerModal = () => {
+        if (!renewerModal) return;
+        renewerModal.classList.add('hidden');
+        renewerEditingId = null;
+        if (renewerSummary) renewerSummary.textContent = '';
+      };
+      const openRenewerModal = () => renewerModal?.classList.remove('hidden');
+
+      document.querySelectorAll('[data-renewer-close]').forEach(btn => {
+        btn.addEventListener('click', closeRenewerModal);
+      });
+      renewerModal?.addEventListener('click', (evt) => {
+        if (evt.target === renewerModal) closeRenewerModal();
+      });
+      document.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Escape' && renewerModal && !renewerModal.classList.contains('hidden')) {
+          closeRenewerModal();
+        }
+      });
+
+      const updateRenewerRow = (row, sub) => {
+        if (!row || !sub) return;
+        const setField = (name, value) => {
+          const cell = row.querySelector(`[data-renewer-field="${name}"]`);
+          if (cell) cell.textContent = value || '—';
+        };
+        setField('name', [sub.firstName, sub.lastName].filter(Boolean).join(' '));
+        setField('email', sub.email);
+        setField('phone', sub.phone);
+        setField('prefSeatId', sub.prefSeatId);
+        setField('status', sub.status);
+        setField('lastInviteSentAt', sub.lastInviteSentAt ? new Date(sub.lastInviteSentAt).toLocaleString() : '');
+      };
+
+      document.querySelectorAll('[data-renewer-edit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const row = btn.closest('[data-renewer-row]');
+          const id = row?.dataset.renewerId;
+          if (!id || !renewerForm) return;
+          renewerEditingId = id;
+          for (const name of renewerFieldNames) {
+            const input = renewerForm.querySelector(`[data-renewer-field-input="${name}"]`);
+            if (!input) continue;
+            const cell = row.querySelector(`[data-renewer-field="${name}"]`);
+            input.value = (cell?.textContent === '—' ? '' : cell?.textContent) || '';
+          }
+          openRenewerModal();
+        });
+      });
+
+      const submitRenewerEdit = async () => {
+        if (!renewerEditingId || !renewerForm) return;
+        const body = {};
+        for (const name of renewerFieldNames) {
+          const input = renewerForm.querySelector(`[data-renewer-field-input="${name}"]`);
+          if (input) body[name] = input.value;
+        }
+        if (renewerSubmit) { renewerSubmit.disabled = true; renewerSubmit.textContent = 'Enregistrement…'; }
+        try {
+          const res = await fetch(`${renewersBase}/${renewerEditingId}${renewersSuffix}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json();
+          if (!res.ok || !data?.ok) throw new Error(data?.error || 'Enregistrement impossible');
+          const row = document.querySelector(`[data-renewer-row][data-renewer-id="${renewerEditingId}"]`);
+          updateRenewerRow(row, data.subscriber);
+          if (renewerSubmit) { renewerSubmit.textContent = 'Enregistré'; }
+          setTimeout(closeRenewerModal, 700);
+        } catch (err) {
+          if (renewerSummary) {
+            renewerSummary.textContent = err.message || 'Erreur inconnue';
+            renewerSummary.classList.add('error');
+          }
+          if (renewerSubmit) { renewerSubmit.disabled = false; renewerSubmit.textContent = 'Réessayer'; }
+        }
+      };
+      renewerSubmit?.addEventListener('click', submitRenewerEdit);
+
+      document.querySelectorAll('[data-renewer-cancel]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('[data-renewer-row]');
+          const id = row?.dataset.renewerId;
+          if (!id) return;
+          if (!confirm('Annuler cette ligne de renouvellement ? Le siège provisionné (le cas échéant) sera libéré.')) return;
+          btn.disabled = true;
+          try {
+            const res = await fetch(`${renewersBase}/${id}/cancel${renewersSuffix}`, {
+              method: 'POST',
+              headers: { Accept: 'application/json' }
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.ok) throw new Error(data?.error || 'Annulation impossible');
+            updateRenewerRow(row, data.subscriber);
+            const seatCell = row.querySelector('[data-renewer-field="seatStatus"]');
+            if (seatCell && data.seatReleased) seatCell.textContent = 'available';
+            btn.disabled = false;
+          } catch (err) {
+            alert(err.message || 'Erreur inconnue');
+            btn.disabled = false;
+          }
+        });
+      });
+
+      document.querySelectorAll('[data-renewer-link]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('[data-renewer-row]');
+          const id = row?.dataset.renewerId;
+          if (!id) return;
+          btn.disabled = true;
+          const original = btn.textContent;
+          btn.textContent = '…';
+          try {
+            const res = await fetch(`${renewersBase}/${id}/link${renewersSuffix}`, {
+              method: 'POST',
+              headers: { Accept: 'application/json' }
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.ok) throw new Error(data?.error || 'Génération du lien impossible');
+            window.prompt('Lien de renouvellement (copier) :', data.url);
+          } catch (err) {
+            alert(err.message || 'Erreur inconnue');
+          } finally {
+            btn.disabled = false;
+            btn.textContent = original;
+          }
+        });
+      });
+
+      document.querySelectorAll('[data-renewer-send]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('[data-renewer-row]');
+          const id = row?.dataset.renewerId;
+          if (!id) return;
+          btn.disabled = true;
+          const original = btn.textContent;
+          btn.textContent = 'Envoi…';
+          try {
+            const res = await fetch(`${renewersBase}/${id}/send-email${renewersSuffix}`, {
+              method: 'POST',
+              headers: { Accept: 'application/json' }
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.ok) throw new Error(data?.error || 'Envoi impossible');
+            updateRenewerRow(row, data.subscriber);
+            btn.textContent = 'Envoyé ✓';
+            btn.disabled = true;
+            setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1800);
+          } catch (err) {
+            btn.textContent = 'Échec';
+            btn.title = err.message || 'Erreur inconnue';
+            setTimeout(() => { btn.textContent = original; btn.disabled = false; btn.title = ''; }, 2500);
+          }
+        });
       });
 
     })();

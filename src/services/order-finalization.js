@@ -467,6 +467,10 @@ export async function finalizePaidIfNoConflict(order) {
       seatId:     { $in: seatIds },
       $or: [
         { status: 'available' },
+        // renouvellement : le siège a été réservé par renewal-provision-seats.js
+        // en amont de la campagne, avant même que cette commande existe — c'est
+        // l'état de départ NORMAL pour un paiement de renouvellement, pas un conflit.
+        { status: 'provisioned' },
         // busy tenu par cet ordre en ObjectId...
         { status: 'busy', 'meta.hold.orderId': order._id },
        // ...ou en String (cas /event et historiques)
@@ -474,7 +478,7 @@ export async function finalizePaidIfNoConflict(order) {
       ]
     },
 
-    { $set: { status: 'booked' }, $unset: { 'meta.hold': 1 } },
+    { $set: { status: 'booked' }, $unset: { 'meta.hold': 1, provisionedFor: 1 } },
       { runValidators: false }
     );
     const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);

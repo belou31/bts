@@ -1,4 +1,4 @@
-# email,firstName,lastName,seatIds,groupKey,notes
-jane.doe@example.org,Jane,Doe,"A1-001|A1-002",FAMILY-DOE,"Main contact"
-john.doe@example.org,John,Doe,"A1-002",FAMILY-DOE,"Secondary seat"
-fan.club@example.org,Alex,Fan,"TBH7_NORD-015",TBH7-CLUB,"Fan club member"
+firstName,lastName,email,phone,seatId,group
+Jane,Doe,jane.doe@example.org,0600000001,A1-001,FAMILY-DOE
+John,Doe,john.doe@example.org,0600000002,A1-002,FAMILY-DOE
+Alex,Fan,fan.club@example.org,0600000003,TBH7_NORD-015,TBH7-CLUB

@@ -30,6 +30,25 @@ function decodeToken(id) {
 }
 function normSeatId(s) { return String(s || '').trim(); }
 
+// Same helpers as event-flow.factory.js — the checkout response needs
+// providerUrl+statusUrl or the shared order/index.ejs client (generic-view.js)
+// never opens the active-polling booking-status panel and falls back to a
+// bare full-page redirect + /pay/return's slow 8s self-refresh.
+function buildPayStartUrl(orderId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  return `${app}/pay/start?orderId=${encodeURIComponent(String(orderId))}`;
+}
+function buildPayStatusUrl(orderId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  return `${app}/pay/status?orderId=${encodeURIComponent(String(orderId))}`;
+}
+function buildPayReturnUrl(orderId, checkoutId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  const oid = encodeURIComponent(String(orderId));
+  const ci  = checkoutId ? `&ci=${encodeURIComponent(String(checkoutId))}` : '';
+  return `${app}/pay/return?oid=${oid}${ci}`;
+}
+
 function buildSeatSubscribersFromSeats(seats, existing = {}) {
   const out = { ...existing };
   for (const s of seats || []) {
@@ -66,6 +85,30 @@ function getPriceCents(pricesIdx, zoneKey, tariffCode) {
   const z = String(zoneKey || '').toUpperCase();
   const t = String(tariffCode || '').toUpperCase();
   return pricesIdx.get(`${z}|${t}`) ?? 0;
+}
+
+// Which seatIds from this renewal token are already covered by a paid/tobepaid
+// order? Real seats already get this via Seat.status, but a standing-zone
+// virtual seat (e.g. "FAN_ZONE-Z001") has no Seat document at all — nothing
+// else can tell a second checkout attempt that the slot was already renewed.
+async function alreadyPaidSeatIdsForToken({ seasonCode, venueSlug, seatIds }) {
+  const orders = await Order.find(
+    {
+      seasonCode, venueSlug,
+      'origin.flow': { $in: ['subscription', 'renew'] },
+      status: { $in: ['paid', 'tobepaid'] },
+      'lines.seatId': { $in: seatIds }
+    },
+    { 'lines.seatId': 1 }
+  ).lean();
+  const covered = new Set();
+  for (const ord of orders) {
+    for (const line of (ord.lines || [])) {
+      const sid = normSeatId(line?.seatId);
+      if (sid && seatIds.includes(sid)) covered.add(sid);
+    }
+  }
+  return covered;
 }
 
 // ---------- GET /s/renew?id=<jwt> ----------
@@ -140,10 +183,17 @@ router.get('/renew', async (req, res) => {
       }
     }
 
-    // Statuts bloqués (info UI)
-    const blockedSeats = seats
+    // Statuts bloqués (info UI) — sièges réels déjà occupés...
+    const blockedFromSeats = seats
       .filter(s => s.status && String(s.status).toLowerCase() !== 'available')
       .map(s => s.seatId);
+    // ...+ sièges virtuels de zone (debout) déjà couverts par une commande payée :
+    // il n'existe aucun Seat pour ces id, donc rien d'autre ne peut détecter qu'un
+    // renouvellement debout a déjà été honoré — sans ce contrôle, un lien de
+    // renouvellement reste indéfiniment réutilisable et peut créer des commandes
+    // payées en double pour la même place.
+    const alreadyPaidSeatIds = await alreadyPaidSeatIdsForToken({ seasonCode, venueSlug, seatIds });
+    const blockedSeats = Array.from(new Set([...blockedFromSeats, ...alreadyPaidSeatIds]));
     const blockedAny = blockedSeats.length > 0;
 
     return res.json({
@@ -193,6 +243,16 @@ router.post('/renew', async (req, res) => {
       if (!allowedSeatIds.includes(sid)) {
         return res.status(403).json({ error: 'seat_not_in_token', seatId: sid });
       }
+    }
+
+    // Un lien de renouvellement reste valable jusqu'à son expiration JWT — sans
+    // ce contrôle, le rouvrir après un renouvellement déjà payé (ou un double
+    // clic) crée une seconde commande payée pour la même place. Pour un siège
+    // réel, la vérif seatStatus (holdable/conflit) plus bas fait déjà ce travail ;
+    // ceci couvre en plus les places de zone debout, qui n'ont pas de Seat.
+    const alreadyPaidAsked = await alreadyPaidSeatIdsForToken({ seasonCode, venueSlug, seatIds: seatIdsAsked });
+    if (alreadyPaidAsked.size) {
+      return res.status(409).json({ error: 'already_renewed', seatIds: Array.from(alreadyPaidAsked) });
     }
 
     // Prix (index)
@@ -286,6 +346,7 @@ router.post('/renew', async (req, res) => {
         name: PAYMENT_PROVIDER_ID,
         checkoutIntentId: checkoutId,
         checkoutReference,
+        providerRedirectUrl: redirectUrl || null,
         providerOrderId:
           intent.providerOrderId ||
           raw?.order?.id ||
@@ -299,7 +360,15 @@ router.post('/renew', async (req, res) => {
       await order.save();
     }
 
-    return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
+    return res.json({
+      ok: true,
+      orderId: order._id,
+      totalCents,
+      redirectUrl: buildPayStartUrl(order._id),   // /pay/start (legacy fallback)
+      providerUrl: redirectUrl,                    // direct provider URL (SumUp hosted checkout)
+      statusUrl:   buildPayStatusUrl(order._id),   // polling endpoint
+      returnUrl:   buildPayReturnUrl(order._id, checkoutId)
+    });
   } catch (e) {
     console.error('[POST /s/renew] error:', e);
     res.status(500).json({ error: 'internal_error' });

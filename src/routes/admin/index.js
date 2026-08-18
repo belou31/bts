@@ -445,7 +445,7 @@ function unauthorized(res) {
   return res.status(401).send('Unauthorized');
 }
 
-function adminAuth(req, res, next) {
+export function adminAuth(req, res, next) {
   // Bearer / query token
   const queryTok = (req.query.token || '').toString();
   const hdr      = (req.headers.authorization || '').toString();
@@ -665,6 +665,7 @@ router.get('/', (req, res) => {
       monitoring: null,
       planView: null,
       ordersView: null,
+      renewersView: null,
       ticketsView: null
     });
   }
@@ -711,6 +712,7 @@ router.get('/advanced', (req, res) => {
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null
   });
 });
@@ -755,6 +757,7 @@ router.get('/operate/io', (req, res) => {
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null
   });
 });
@@ -841,6 +844,7 @@ router.get('/doc', (req, res) => {
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null
   });
 });
@@ -983,6 +987,7 @@ router.get('/plan', async (req, res) => {
     docTab: 'references',
     monitoring: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null,
     planView: {
       seasons: (seasonsRaw || []).map(s => ({
@@ -1137,6 +1142,7 @@ router.get('/orders', async (req, res) => {
     monitoring: null,
     planView: null,
     ticketsView: null,
+    renewersView: null,
     ordersView: {
       seasons: (seasonsRaw || []).map(s => ({
         code: s.code,
@@ -1161,6 +1167,143 @@ router.get('/orders', async (req, res) => {
             venueSlug: selectedEvent.venueSlug || null
           }
         : null,
+      rows
+    }
+  });
+});
+
+const RENEWER_STATUSES = ['none', 'invited', 'pending', 'active', 'partial', 'canceled'];
+
+router.get('/renewers', async (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const seasonsRaw = await Season.find({}).sort({ code: -1 }).lean();
+  const defaultSeason = seasonsRaw.find(s => s.active) || seasonsRaw[0] || null;
+  const selectedSeasonCodeRaw = typeof req.query.season === 'string' && req.query.season
+    ? req.query.season
+    : (defaultSeason?.code || null);
+  const selectedSeason = seasonsRaw.find(s => s.code === selectedSeasonCodeRaw) || defaultSeason || null;
+  const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
+  // Subscriber is season+venue scoped (no event) — venue comes straight off
+  // the season document, same derivation the Plan panel uses for its own
+  // effectiveVenueSlug.
+  const selectedVenueSlug = selectedSeason?.venueSlug || null;
+
+  const statusFilter = RENEWER_STATUSES.includes(req.query.status) ? req.query.status : '';
+
+  let rows = [];
+  if (selectedSeasonCode && selectedVenueSlug) {
+    const query = { seasonCode: selectedSeasonCode, venueSlug: selectedVenueSlug };
+    if (statusFilter) query.status = statusFilter;
+
+    const subsRaw = await Subscriber.find(query)
+      .sort({ groupKey: 1, lastName: 1, firstName: 1 })
+      .lean();
+
+    const seatIds = [...new Set(subsRaw.map(s => s.prefSeatId).filter(Boolean))];
+    const realSeatIds = seatIds.filter(sid => !isVirtualZoneSeatId(sid));
+    const virtualSeatIds = seatIds.filter(sid => isVirtualZoneSeatId(sid));
+
+    const seatByPrefId = new Map();
+    if (realSeatIds.length) {
+      const seatsRaw = await Seat.find(
+        { seasonCode: selectedSeasonCode, venueSlug: selectedVenueSlug, seatId: { $in: realSeatIds } },
+        { seatId: 1, status: 1 }
+      ).lean();
+      for (const seat of seatsRaw) seatByPrefId.set(seat.seatId, seat.status);
+    }
+
+    // Standing-zone renewal lines have no Seat document to check — look at
+    // whether a paid/tobepaid order already covers the virtual seat id instead.
+    const paidVirtualSeatIds = new Set();
+    if (virtualSeatIds.length) {
+      const zoneOrders = await Order.find(
+        {
+          seasonCode: selectedSeasonCode, venueSlug: selectedVenueSlug,
+          'origin.flow': { $in: ['subscription', 'renew'] },
+          status: { $in: ['paid', 'tobepaid'] },
+          'lines.seatId': { $in: virtualSeatIds }
+        },
+        { 'lines.seatId': 1 }
+      ).lean();
+      for (const ord of zoneOrders) {
+        for (const line of (ord.lines || [])) {
+          if (line?.seatId && virtualSeatIds.includes(line.seatId)) paidVirtualSeatIds.add(line.seatId);
+        }
+      }
+    }
+
+    const seatStatusFor = (prefSeatId) => {
+      if (!prefSeatId) return null;
+      if (isVirtualZoneSeatId(prefSeatId)) return paidVirtualSeatIds.has(prefSeatId) ? 'booked' : 'not booked yet';
+      return seatByPrefId.get(prefSeatId) || 'unknown';
+    };
+
+    rows = subsRaw.map((s) => {
+      const fullName = [s.firstName, s.lastName].filter(Boolean).join(' ').trim();
+      return {
+        id: String(s._id),
+        subscriberNo: s.subscriberNo || '',
+        firstName: s.firstName || '',
+        lastName: s.lastName || '',
+        email: s.email || '',
+        phone: s.phone || '',
+        groupKey: s.groupKey || '',
+        prefSeatId: s.prefSeatId || '',
+        previousSeasonSeats: s.previousSeasonSeats || [],
+        status: s.status || 'none',
+        notes: s.notes || '',
+        lastInviteSentAt: s.lastInviteSentAt || null,
+        seatStatus: seatStatusFor(s.prefSeatId),
+        searchIndex: [fullName, s.email, s.groupKey, s.prefSeatId].filter(Boolean).join(' ').toLowerCase()
+      };
+    });
+  }
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: NAV_SCRIPT_GROUPS,
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    operateOptions: {
+      venues: [],
+      seasons: [],
+      events: [],
+      partners: [],
+      tariffCatalogs: [],
+      adCampaignCatalogs: [],
+      inputFiles: [],
+      assetFiles: [],
+      venueViews: []
+    },
+    viewMode: 'renewers',
+    monitorTab: 'tariffs',
+    docTab: 'references',
+    monitoring: null,
+    planView: null,
+    ordersView: null,
+    ticketsView: null,
+    renewersView: {
+      statuses: RENEWER_STATUSES,
+      seasons: (seasonsRaw || []).map(s => ({
+        code: s.code,
+        name: s.name || '',
+        active: Boolean(s.active),
+        venueSlug: s.venueSlug || null
+      })),
+      selectedSeasonCode,
+      selectedVenueSlug,
+      statusFilter,
       rows
     }
   });
@@ -1297,6 +1440,7 @@ router.get('/tickets', async (req, res) => {
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: {
       seasons: (seasonsRaw || []).map(s => ({
         code: s.code,
@@ -1459,6 +1603,7 @@ router.get('/operate', async (req, res) => {
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null
   });
 });
@@ -2083,6 +2228,7 @@ router.get('/monitor', async (req, res) => {
     monitoring,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null,
     dynamicAssetsList,
     venueResources,

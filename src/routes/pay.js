@@ -361,9 +361,18 @@ router.get('/status', async (req, res) => {
         if (isPaidLike(normalized)) {
           // Re-fetch with a full Mongoose doc so finalize can save
           const liveOrder = await Order.findById(order._id);
-          if (liveOrder && liveOrder.status !== 'paid') {
+          if (!liveOrder) return res.json({ status: 'not_found', paid: false });
+
+          if (liveOrder.status !== 'paid') {
             const finalizeInfo = await finalizePaidIfNoConflict(liveOrder);
-            if (finalizeInfo.ok && !finalizeInfo.alreadyFinalized) {
+            if (!finalizeInfo.ok) {
+              // Provider confirmed payment but the seat(s) couldn't be booked
+              // (real conflict, or a race) — do NOT report paid:true, the
+              // booking itself failed. liveOrder.status is now 'failed';
+              // surface that instead of a false success.
+              return res.json({ status: liveOrder.status, paid: false });
+            }
+            if (!finalizeInfo.alreadyFinalized) {
               try { await sendOrderAttestationIfNeeded(liveOrder, { source: 'status-poll' }); } catch {}
             }
           }

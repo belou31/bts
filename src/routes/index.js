@@ -2,6 +2,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import jwt from 'jsonwebtoken';
 
 import { currentPaymentProviderLabel } from '../services/payments/index.js';
 import { Event } from '../models/Event.js';
@@ -20,6 +21,7 @@ import eventRoutes from './event.js';
 import partnerRoutes, { adminRouter as partnerAdminRouter } from './partner.js';
 import adminRoutes from './admin/index.js';
 import supervisionRoutes from './admin/supervision.routes.js';
+import renewersRoutes from './admin/renewers.routes.js';
 import payRoutes from './pay.js';      
 import controlGuestlistRoutes from './control/guestlist.js';
 import qrRoutes   from './qr.js';
@@ -109,15 +111,32 @@ function formatEventDateLabel(startsAt, locale) {
 
 export default function routes(router) {
   // Page HTML "renew"
-  router.get('/renew', (req, res) => {
+  router.get('/renew', async (req, res) => {
     const providerName = currentPaymentProviderLabel();
     const qsIndex = req.originalUrl.indexOf('?');
     const suffix = qsIndex >= 0 ? req.originalUrl.slice(qsIndex) : '';
 
+    // The season isn't known server-side otherwise — it's only carried inside
+    // the renewal JWT (?id=), same token decoded by src/routes/renew.js.
+    let seasonName = '';
+    const token = String(req.query.id || '').trim();
+    if (token && process.env.JWT_SECRET) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded?.seasonCode) {
+          const seasonDoc = await Season.findOne({ code: decoded.seasonCode }).lean().catch(() => null);
+          seasonName = seasonDoc?.name || decoded.seasonCode;
+        }
+      } catch { /* invalid/expired token: fall back to season-agnostic copy below */ }
+    }
+    const lead = seasonName
+      ? `Renouvelez votre abonnement pour conserver vos sièges et accéder à l’ensemble des rencontres à domicile de la ${seasonName}.`
+      : 'Renouvelez votre abonnement pour conserver vos sièges et accéder à l’ensemble des rencontres à domicile.';
+
     res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
       title: 'Renouvellement d’abonnement — BTS',
       heading: 'Renouvellement d’abonnement',
-      lead: 'Renouvelez votre abonnement pour conserver vos sièges et accéder à l’ensemble des rencontres à domicile de la saison 2025-2026.',
+      lead,
       planHelp: 'Cliquez sur votre siège pour le renouveler. Les zones TBH7 et Debout restent accessibles via le plan.',
       scheduleOptions: null,
       paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
@@ -131,7 +150,11 @@ export default function routes(router) {
       },
       orderPageConfig: {
         focusField: 'payerEmail'
-      }
+      },
+      // Standing-zone renewal lines (e.g. "FAN_ZONE-Z001") have no SVG seat
+      // element to click, so renew.js (customJs below) adds them to the cart
+      // automatically instead of requiring a click. See public/static/js/renew.js.
+      customJs: [STATIC_PREFIX + 'js/renew.js']
     });
   });
 
@@ -665,6 +688,8 @@ export default function routes(router) {
   router.use('/admin', adminRoutes);
 
   router.use('/admin/supervision', supervisionRoutes);
+
+  router.use('/admin/renewers', renewersRoutes);
 
   router.use('/', scanRoutes);
   router.use('/', controlGuestlistRoutes);

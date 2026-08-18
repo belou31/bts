@@ -19,6 +19,12 @@ Tariff- and price-related CSV templates now expose a `channels` column. Populate
 
 Use `csv/subscribers-export.template.csv` as the target schema for the **Export Renewers** script (`scripts/03-season-management/export-subscribers.js`). This file now represents the next-season renewer list exclusively; subscription order imports no longer mutate that collection automatically, so remember to run the export at season closure and keep it as the seed for the following campaign.
 
+**`csv/subscribers-import.template.csv`** feeds `scripts/03-season-management/import-subscription-orders.js`. Its columns are the exact CSV_COLUMNS the script requires (same shape as `orders-export.template.csv` — the script's own docstring says it reads the export format back in): `orderId,createdAt,phase,status,payerFirstName,payerLastName,payerEmail,seasonCode,venueSlug,paymentSplit,totalCents,providerName,haOrderId,checkoutIntentId,lastReturnCode,lastWebhookEvent,attestationSentAt,lineIndex,seatId,zoneKey,tariffCode,priceCents,holderFirstName,holderLastName`. `phase` must literally be `subscription` — any other value is rejected. For a multi-seat order, repeat `orderId` (and the other order-level columns) on every line; only `lineIndex`/`seatId`/`zoneKey`/`tariffCode`/`priceCents`/`holder*` vary per line.
+
+**`csv/renew-subscribers.template.csv`** feeds `scripts/03-season-management/import-renewers-flat.js`, which is genuinely *flat*: **one row per seat**, not per subscriber. A renewer keeping two seats needs two rows sharing the same `group`. Accepted headers (case-insensitive, with aliases): `firstName`, `lastName`, `email`, `phone`, `seatId` (or `prefSeatId`/`seat`), `group` (or `groupKey`/`groupe`), plus optional per-row `seasonCode`/`venueSlug` overrides.
+
+⚠️ **None of the CSV importer scripts in `scripts/03-season-management/` or `scripts/01-venue-management/` support comment lines.** Each one treats the first non-blank line as the header, unconditionally — a leading `# ...` line gets parsed *as* the header (and fails the required-column check) rather than being skipped. Keep these templates to header + data rows only; put explanatory notes here in the README instead.
+
 ## Customization files
 
 Page/email text (titles, lead paragraphs, help text, button labels — see `customization/default.json`, `event.json`, `partner.json`, `season.json` in this directory) is resolved by `src/services/customization.js` at request time by layering up to six JSON files, **narrowest wins**:

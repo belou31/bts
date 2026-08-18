@@ -8,6 +8,7 @@ import { Zone }        from '../models/Zone.js';
 import { Tariff }      from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Order }       from '../models/Order.js';
+import { Subscriber }  from '../models/Subscriber.js';
 
 import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
 import { makeTokenHash }        from '../utils/ha-token.js';
@@ -86,10 +87,17 @@ function zoneKeyFromSeatId(seatId) {
 async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, statusIn = ['paid'] }) {
   // Conso = nombre de lignes de commandes groupées par zone.
   // Par défaut, on retient UNIQUEMENT les commandes "paid" pour le quota subscription.
+  //
+  // NB: the Order model has no top-level `phase` field (it's `strict:true`
+  // and only declares `origin.flow`) — matching on `phase` silently matched
+  // zero documents ever, so this "used" count was always 0 regardless of
+  // real sales. `origin.flow` is the real field; renewals use 'renew',
+  // fresh season purchases use 'subscription' — both draw from the same
+  // zone quota, so both must count here.
   const baseMatch = {
     seasonCode,
     venueSlug,
-    phase: 'subscription', // ne pas compter les ventes “event” dans le quota saison
+    'origin.flow': { $in: ['subscription', 'renew'] },
     'lines.zoneKey': { $in: zoneKeys }
   };
   const statusMatch = (Array.isArray(statusIn) && statusIn.length)
@@ -100,9 +108,41 @@ async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, stat
     { $match: { ...baseMatch, ...statusMatch } },
     { $unwind: '$lines' },
     { $match: { 'lines.zoneKey': { $in: zoneKeys } } },
-    { $group: { _id: '$lines.zoneKey', count: { $sum: 1 } } }
+    { $group: { _id: '$lines.zoneKey', count: { $sum: 1 }, seatIds: { $addToSet: '$lines.seatId' } } }
   ]);
-  const usage = new Map(rows.map(r => [String(r._id || ''), Number(r.count || 0)]));
+  const usage = new Map();
+  const coveredSeatIds = new Set();
+  for (const r of rows) {
+    usage.set(String(r._id || ''), Number(r.count || 0));
+    for (const sid of (r.seatIds || [])) {
+      if (sid) coveredSeatIds.add(String(sid));
+    }
+  }
+  return { usage, coveredSeatIds };
+}
+
+// Standing-zone renewal claims have no Seat document to flip to
+// 'provisioned' (there's nothing per-slot to reserve), so an invited/pending
+// renewer's virtual seat (e.g. "FAN_ZONE-Z001") is otherwise invisible to
+// the quota above until they actually pay. This counts those outstanding
+// claims too, so a renewal window correctly reserves a slot ahead of
+// payment — mirroring what a provisioned real Seat already does implicitly
+// by no longer being 'available'. Claims already covered by a paid/tobepaid
+// order (coveredSeatIds) are skipped to avoid double-counting the same slot.
+async function computeProvisionalZoneClaims({ seasonCode, venueSlug, zoneKeys, coveredSeatIds }) {
+  const subs = await Subscriber.find(
+    { seasonCode, venueSlug, status: { $nin: ['canceled', 'none'] } },
+    { prefSeatId: 1 }
+  ).lean();
+
+  const usage = new Map();
+  for (const sub of subs) {
+    const seatId = String(sub.prefSeatId || '').trim();
+    if (!seatId || !isVirtualZoneSeatId(seatId) || coveredSeatIds.has(seatId)) continue;
+    const zoneKey = zoneKeyFromSeatId(seatId).toUpperCase();
+    if (!zoneKeys.includes(zoneKey)) continue;
+    usage.set(zoneKey, (usage.get(zoneKey) || 0) + 1);
+  }
   return usage;
 }
 
@@ -144,17 +184,20 @@ router.get('/status', async (req, res, next) => {
 
     const customization = loadCustomization({ seasonCode, locale: req.locale });
 
-    // --- Calcul “remaining” zone = plafond - USAGE(only paid)
-    const usage = zoneKeys.length
+    // --- Calcul “remaining” zone = plafond - USAGE(only paid) - claims de renouvellement en attente
+    const { usage, coveredSeatIds } = zoneKeys.length
       ? await computeZoneUsageAllOrders({
           seasonCode, venueSlug, zoneKeys, statusIn: ['paid']
         })
+      : { usage: new Map(), coveredSeatIds: new Set() };
+    const provisionalUsage = zoneKeys.length
+      ? await computeProvisionalZoneClaims({ seasonCode, venueSlug, zoneKeys, coveredSeatIds })
       : new Map();
     const zonesOut = (zones || []).map(z => {
       const quota     = Number(z.quota || 0);
       const capacity  = Number(z.capacity || 0);
       const plafond   = quota > 0 ? quota : capacity;
-      const used      = usage.get(z.key) || 0;
+      const used      = (usage.get(z.key) || 0) + (provisionalUsage.get(z.key) || 0);
       const remaining = plafond > 0 ? Math.max(0, plafond - used) : Math.max(0, capacity - used);
       return {
         key: z.key,
@@ -302,14 +345,17 @@ router.post('/checkout', async (req, res) => {
     // ----- CONTRÔLE QUOTAS SUR LES ZONES -----
     if (requestedPerZone.size) {
       const zoneKeys = Array.from(requestedPerZone.keys());
-      // Garde-fou anti-oversell : ne compter que le "paid" pour autoriser la vente
-      const usage = await computeZoneUsageAllOrders({
+      // Garde-fou anti-oversell : ne compter que le "paid" pour autoriser la vente,
+      // + les claims de renouvellement en attente (sinon un checkout public pourrait
+      // encore vendre une place déjà réservée pour un renouvellement non payé).
+      const { usage, coveredSeatIds } = await computeZoneUsageAllOrders({
         seasonCode, venueSlug, zoneKeys, statusIn: ['paid']
       });
+      const provisionalUsage = await computeProvisionalZoneClaims({ seasonCode, venueSlug, zoneKeys, coveredSeatIds });
 
       for (const [zoneKey, count] of requestedPerZone) {
         const z        = zoneMap.get(zoneKey);
-        const used     = usage.get(zoneKey) || 0;
+        const used     = (usage.get(zoneKey) || 0) + (provisionalUsage.get(zoneKey) || 0);
         const quota    = Number(z.quota || 0);
         const capacity = Number(z.capacity || 0);
         const plafond  = quota > 0 ? quota : capacity;

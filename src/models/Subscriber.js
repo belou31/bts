@@ -33,7 +33,13 @@ const SubscriberSchema = new mongoose.Schema({
     type: String,
     enum: ['none', 'invited', 'pending', 'active', 'partial', 'canceled'],
     default: 'none'
-  }
+  },
+
+  // annotation libre admin (déjà attendue par subscribers-export.template.csv)
+  notes: { type: String, default: '' },
+
+  // dernier envoi de l'invitation de renouvellement (admin/renewers)
+  lastInviteSentAt: { type: Date, default: null }
 }, {
   timestamps: true,
   strict: true

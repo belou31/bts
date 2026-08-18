@@ -1,0 +1,8 @@
+firstName,lastName,email,phone,seatId,group
+Nadia,Morel,nadia.morel@example.org,0601020304,S2-A-01,MOREL
+Karim,Haddad,karim.haddad@example.org,0602030405,S1-A-01,HADDAD-FAM
+Amel,Haddad,amel.haddad@example.org,0602030406,S1-A-02,HADDAD-FAM
+Sophie,Lefevre,sophie.lefevre@example.org,0603040506,S2-B-01,LEFEVRE-FAM
+Marc,Lefevre,marc.lefevre@example.org,0603040507,S2-B-02,LEFEVRE-FAM
+Yannick,Petit,yannick.petit@example.org,0604050607,N-A-01,PETIT
+Yasmine,Roy,yasmine.roy@example.org,0605060708,FAN_ZONE-Z001,ROY

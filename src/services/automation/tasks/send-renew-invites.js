@@ -7,6 +7,7 @@ import { renderEmailTemplate } from '../../../utils/email-template.js';
 import { sendMail } from '../../../loaders/mailer.js';
 import { currentPaymentProviderLabel } from '../../payments/index.js';
 import { loadCustomization } from '../../customization.js';
+import { Season } from '../../../models/Season.js';
 
 const EMAIL_ALIASES = ['email', 'payerEmail', 'contact', 'mail'];
 const URL_ALIASES = ['url', 'link', 'renewurl', 'renew_url', 'renew'];
@@ -223,6 +224,8 @@ export const sendRenewInvitesTask = {
 
     const csvPath = usingInline ? null : resolveCsvPath(params.csv, context);
     const seasonCode = params.seasonCode || params.season || '';
+    const seasonDoc = seasonCode ? await Season.findOne({ code: seasonCode }).lean().catch(() => null) : null;
+    const seasonName = seasonDoc?.name || seasonCode;
     const custo = loadCustomization({ seasonCode });
     const subject = params.subject || params.emailSubject || custo['renew.inviteSubject'] || 'Renouvellement d’abonnement';
     const limit =
@@ -340,6 +343,7 @@ export const sendRenewInvitesTask = {
         seatsBlock,
         deadlineBlock,
         seasonCode,
+        seasonName,
         venueSlug,
         clubName,
         paymentProviderLabel: providerLabel
