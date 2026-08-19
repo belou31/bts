@@ -5,12 +5,17 @@
  * Each CSV line represents a single seat/subscriber entry to upsert.
  *
  * Usage:
- *   node scripts/03-season-management/import-renewers-flat.js <csvPath> <seasonCode> --venue=<slug>
+ *   node scripts/03-season-management/import-renewers-flat.js <csvPath> <seasonCode> --venue=<slug> [--extra=<n>]
  *
  * Accepted columns (case-insensitive):
- *   firstName,lastName,email,phone,seasonCode,venueSlug,seatId|prefSeatId|seat,group
+ *   firstName,lastName,email,phone,seasonCode,venueSlug,seatId|prefSeatId|seat,group,extra
  * - If group is empty → groupKey falls back to a normalized email.
  * - Upsert key: (email, seasonCode, venueSlug, prefSeatId)
+ * - extra = places supplémentaires que ce renouveleur peut prendre en plus de
+ *   ses sièges précédents. Colonne CSV prioritaire ; --extra=<n> sert de valeur
+ *   par défaut pour les lignes sans colonne/valeur. Défaut final : 0.
+ *   ⚠ Le quota d'un lien de renouvellement est calculé par groupKey en prenant
+ *   le MAX des extra du groupe (jamais la somme) — voir export-renew-groups.js.
  *
  * Environment:
  *   - MONGO_URI or MONGODB_URI: Mongo database connection (required)
@@ -44,12 +49,20 @@ function resolveInputFile(p) {
 
 function parseArgs(argv) {
   const [,, csvPath, seasonCode, ...rest] = argv;
-  const args = { csvPath, seasonCode, venueSlug: null };
+  const args = { csvPath, seasonCode, venueSlug: null, extra: 0 };
   for (const t of rest) {
-    const m = /^--venue=(.+)$/.exec(t);
-    if (m) args.venueSlug = m[1];
+    const venue = /^--venue=(.+)$/.exec(t);
+    if (venue) { args.venueSlug = venue[1]; continue; }
+    const extra = /^--extra=(.+)$/.exec(t);
+    if (extra) args.extra = normExtra(extra[1]);
   }
   return args;
+}
+
+// Non-numeric / negative / absent → 0 rather than NaN reaching the schema.
+function normExtra(v) {
+  const n = Number(String(v ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
 // ----- CSV helpers (delimiter auto + guillemets + BOM) -----
@@ -114,6 +127,7 @@ function headersIndex(headerLine, delim) {
   const group     = pick('group','groupkey','groupe');
   const seasonCol = pick('seasoncode','season','saison');
   const venueCol  = pick('venueslug','venue','lieu');
+  const extraCol  = pick('extra','extras','supplement','supplementaire');
 
   const missing = [];
   if (email  < 0) missing.push('email');
@@ -121,7 +135,7 @@ function headersIndex(headerLine, delim) {
   if (missing.length) {
     throw new Error(`Colonnes manquantes: ${missing.join(', ')}. Vues: ${h.join(', ')}`);
   }
-  return { header: h, lc, firstName, lastName, email, phone, seatId, group, seasonCol, venueCol, delim };
+  return { header: h, lc, firstName, lastName, email, phone, seatId, group, seasonCol, venueCol, extraCol, delim };
 }
 
 function normGroupKey(v) {
@@ -130,9 +144,9 @@ function normGroupKey(v) {
 }
 
 (async () => {
-  const { csvPath, seasonCode, venueSlug } = parseArgs(process.argv);
+  const { csvPath, seasonCode, venueSlug, extra: extraDefault } = parseArgs(process.argv);
   if (!csvPath || !seasonCode) {
-    die('Usage: node scripts/03-season-management/import-renewers-flat.js <csvPath> <seasonCode> --venue=<slug>');
+    die('Usage: node scripts/03-season-management/import-renewers-flat.js <csvPath> <seasonCode> --venue=<slug> [--extra=<n>]');
   }
 
   const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
@@ -173,6 +187,8 @@ function normGroupKey(v) {
     const groupRaw  = take(cols.group);
     const seasonCSV = take(cols.seasonCol);
     const venueCSV  = take(cols.venueCol);
+    const extraCSV  = take(cols.extraCol);
+    const extra     = extraCSV !== '' ? normExtra(extraCSV) : extraDefault;
 
     const season = seasonCSV || seasonCode;
     const venue  = venueCSV  || venueSlug;
@@ -198,6 +214,7 @@ function normGroupKey(v) {
       seasonCode: season,
       venueSlug: venue,
       groupKey,
+      extra,
       status: 'invited',
       $addToSet: { previousSeasonSeats: seatId }
     };

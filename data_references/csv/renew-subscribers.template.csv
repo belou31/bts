@@ -1,4 +1,4 @@
-firstName,lastName,email,phone,seatId,group
-Jane,Doe,jane.doe@example.org,0600000001,A1-001,FAMILY-DOE
-John,Doe,john.doe@example.org,0600000002,A1-002,FAMILY-DOE
-Alex,Fan,fan.club@example.org,0600000003,TBH7_NORD-015,TBH7-CLUB
+firstName,lastName,email,phone,seatId,group,extra
+Jane,Doe,jane.doe@example.org,0600000001,A1-001,FAMILY-DOE,2
+John,Doe,john.doe@example.org,0600000002,A1-002,FAMILY-DOE,0
+Alex,Fan,fan.club@example.org,0600000003,TBH7_NORD-015,TBH7-CLUB,0

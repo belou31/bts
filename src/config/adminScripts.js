@@ -380,13 +380,18 @@ export const adminScriptGroups = [
         label: 'Import Renewal Subscribers (flat CSV)',
         order: 0,
         path: 'scripts/03-season-management/import-renewers-flat.js',
-        command: 'node scripts/03-season-management/import-renewers-flat.js <path/to/subscribers.csv> <seasonCode> --venue=<slug>',
+        command: 'node scripts/03-season-management/import-renewers-flat.js <path/to/subscribers.csv> <seasonCode> --venue=<slug> [--extra=<n>]',
         run: {
           script: 'scripts/03-season-management/import-renewers-flat.js',
           args: []
         },
-        description: 'Loads renewal subscribers from a simple CSV (one seat per row) and marks them as invited.',
+        description: 'Loads renewal subscribers from a simple CSV (one seat per row) and marks them as invited. An optional "extra" column grants a renewer places beyond the seats they already had.',
         templates: ['data_references/csv/renew-subscribers.template.csv'],
+        notes: [
+          'extra = places supplémentaires autorisées en plus des sièges précédents. La colonne CSV prime ; le champ ci-dessous ne sert que de valeur par défaut pour les lignes qui ne la renseignent pas.',
+          'Le quota d\'un lien de renouvellement est calculé par groupe (groupKey) en prenant le MAX des extra du groupe, jamais la somme : marquer extra=1 sur les 3 lignes d\'une famille accorde 1 place de plus, pas 3.',
+          'Les sièges précédents restent provisionnés mais ne sont plus imposés : le renouveleur peut en changer, dans la limite de son quota (sièges précédents + extra).'
+        ],
         form: {
           fields: [
             {
@@ -409,6 +414,13 @@ export const adminScriptGroups = [
               placeholder: 'patinoire-blagnac',
               required: true,
               arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'extra',
+              label: 'Places supplémentaires par défaut (optionnel — défaut 0)',
+              placeholder: '0',
+              hint: 'Utilisé uniquement pour les lignes sans colonne "extra" dans le CSV.',
+              arg: { type: 'option', template: '--extra=${value}' }
             }
           ]
         }

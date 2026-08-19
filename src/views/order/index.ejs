@@ -22,6 +22,8 @@
     const localPaymentTerms = (typeof paymentTerms === 'undefined') ? null : paymentTerms;
     const localShowSchedule = (typeof showSchedule === 'undefined') ? undefined : showSchedule;
     const localZoneSelector = (typeof zoneSelector === 'undefined') ? null : zoneSelector;
+    // Chemin d'un partial rendu à la place du panier/paiement (voir plus bas).
+    const sidePanelPath = (typeof sidePanel === 'undefined' || !sidePanel) ? null : String(sidePanel);
     const localScheduleLabel = (typeof scheduleLabel === 'undefined') ? null : scheduleLabel;
     const localSchedulePreviewLabel = (typeof schedulePreviewLabel === 'undefined') ? null : schedulePreviewLabel;
     const localTotalLabel = (typeof totalLabel === 'undefined') ? null : totalLabel;
@@ -239,7 +241,16 @@
 
     <section class="col form-col">
       <div id="order" class="panel">
-        <div id="linesPanel" class="block">
+        <%# Colonne de droite alternative (ex: changement de place) : le plan,
+            son zoom/déplacement et sa barre d'outils restent identiques, seul
+            le contenu de cette colonne change. Panier et paiement sont alors
+            masqués — mais TOUJOURS présents dans le DOM, car generic-view.js
+            s'y accroche sans condition (#payBtn, #payer*, #cartRows…) et
+            planterait avant d'installer le zoom s'ils disparaissaient. %>
+        <% if (sidePanelPath) { %>
+          <%- include(sidePanelPath) %>
+        <% } %>
+        <div id="linesPanel" class="block"<%= sidePanelPath ? ' hidden' : '' %>>
           <h2><%= cartTitleText %></h2>
           <% if (zoneSelectorConfig) { %>
             <div class="zone-toolbar">
@@ -257,7 +268,7 @@
           <div id="cartRows"></div>
         </div>
 
-        <div id="payPanel" class="block">
+        <div id="payPanel" class="block"<%= sidePanelPath ? ' hidden' : '' %>>
           <h2><%= paymentTitleText %></h2>
           <% if (paymentHelpText) { %>
             <p><small class="help"><%= paymentHelpText %></small></p>

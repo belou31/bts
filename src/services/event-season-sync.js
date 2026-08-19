@@ -6,6 +6,16 @@ import { Order } from '../models/Order.js';
 
 const DEFAULT_PROVIDER = 'season-sync';
 
+// Ce qui vaut abonnement à la saison, donc droit aux billets de chaque match.
+// Un RENOUVELLEMENT en fait partie : c'est la façon dont un abonné existant
+// reprend sa place pour la saison, pas un flux à part. Ne chercher que
+// 'subscription' laissait tous les renouveleurs hors de la synchronisation —
+// ils ne recevaient aucun billet. Même définition que
+// utils/zone-availability.js et routes/renew.js, qui comptent déjà les deux
+// flux ensemble ; 'fanclub'/'vip' restent volontairement dehors, ils n'ont
+// jamais été considérés comme des abonnements saison ici.
+const SEASON_PASS_FLOWS = ['subscription', 'renew'];
+
 function ensureLogger(logger) {
   if (logger && typeof logger.info === 'function' && typeof logger.warn === 'function') {
     return logger;
@@ -171,9 +181,9 @@ export async function syncSeasonOrdersToEvent({ eventId = null, eventSlug = null
     venueSlug: eventDoc.venueSlug,
     payerEmail: { $ne: null },
     $or: [
-      { phase: 'subscription' },
-      { 'origin.flow': 'subscription' },
-      { mailTemplateKind: 'subscription' }
+      { phase: { $in: SEASON_PASS_FLOWS } },
+      { 'origin.flow': { $in: SEASON_PASS_FLOWS } },
+      { mailTemplateKind: { $in: SEASON_PASS_FLOWS } }
     ]
   };
 

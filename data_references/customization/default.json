@@ -1,6 +1,6 @@
 {
-  "subscription.title": { "fr": "Abonnement {{seasonCode}}", "en": "Season Pass {{seasonCode}}" },
-  "subscription.lead": { "fr": "L'abonnement donne accès à tous les matchs à domicile pour {{seasonCode}} (saison régulière, playoffs, amicaux).", "en": "The season pass grants access to all home matches for {{seasonCode}} (regular season, playoffs, friendlies)." },
+  "subscription.title": { "fr": "Abonnement {{seasonName}}", "en": "Season Pass {{seasonName}}" },
+  "subscription.lead": { "fr": "L'abonnement donne accès à tous les matchs à domicile pour {{seasonName}} (saison régulière, playoffs, amicaux).", "en": "The season pass grants access to all home matches for {{seasonName}} (regular season, playoffs, friendlies)." },
   "subscription.help": { "fr": "Choisissez votre siège ou sélectionnez directement une zone.", "en": "Choose your seat or select a zone directly." },
   "subscription.payButton": { "fr": "Payer", "en": "Pay" },
   "subscription.emailConfirmation": { "fr": "Merci pour votre confiance — un email de confirmation vous sera envoyé.", "en": "Thank you for your trust — a confirmation email will be sent to you." },

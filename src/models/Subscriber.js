@@ -25,6 +25,11 @@ const SubscriberSchema = new mongoose.Schema({
   // historique sièges
   previousSeasonSeats: { type: [String], default: [] },
 
+  // places supplémentaires accordées à ce renouveleur, au-delà de ses sièges
+  // précédents (quota du lien = previousSeasonSeats + extra). Agrégé par MAX
+  // sur le groupKey à l'export du token — voir export-renew-groups.js.
+  extra: { type: Number, default: 0, min: 0 },
+
   // contexte
   seasonCode: { type: String, index: true },
   venueSlug:  { type: String, index: true },

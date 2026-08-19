@@ -15,6 +15,7 @@ import { getPartnerConfig } from '../config/partners.js';
 import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
 
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
+import seatChangeApi from './seat-change.js';   // <- API: GET/POST /s/seat-change
 import fanclubRouter from './fanclub.js';
 import subscriptionRouter from './subscription.js';
 import eventRoutes from './event.js';
@@ -139,6 +140,15 @@ export default function routes(router) {
       lead,
       planHelp: 'Cliquez sur votre siège pour le renouveler. Les zones TBH7 et Debout restent accessibles via le plan.',
       scheduleOptions: null,
+      // Une place supplémentaire peut être prise en zone debout, pas seulement
+      // sur un siège numéroté : sans ce bloc, order/index.ejs ne rend pas le
+      // conteneur #zoneButtons et renew.js n'a nulle part où poser les boutons.
+      zoneSelector: {
+        enabled: true,
+        label: 'Choisir sur le plan ou ajouter une place en zone :',
+        addLabel: 'Ajouter',
+        options: []
+      },
       paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
       assets: ASSETS_BASE,
       config: {
@@ -146,7 +156,12 @@ export default function routes(router) {
           status: `s/renew${suffix}`,
           checkout: `s/renew${suffix}`
         },
-        selection: { type: 'seats' }
+        selection: { type: 'seats' },
+        // Le panier ne se déduit plus des sièges renvoyés : /s/renew expose
+        // désormais TOUTE la salle (nécessaire pour changer de place), donc
+        // laisser generic-view.js pré-remplir depuis `seats` mettrait le stade
+        // entier dans le panier. renew.js n'y met que les sièges du renouveleur.
+        buildRowsFromData: false
       },
       orderPageConfig: {
         focusField: 'payerEmail'
@@ -346,6 +361,39 @@ export default function routes(router) {
     } catch (err) {
       next(err);
     }
+  });
+
+  // Abonné : changement de place pour UN match, depuis le mail de billets.
+  // La page ne fait que porter le plan ; tout est validé par /s/seat-change.
+  router.get('/seat-change', (req, res) => {
+    const token = String(req.query.id || '').trim();
+    if (!token) return res.status(400).send('Missing token');
+    const statusPath = path.posix.join(BASE_PATH || '/', 's', 'seat-change') +
+      `?id=${encodeURIComponent(token)}`;
+
+    // Vue de commande partagée : on ne veut d'elle que le plan (zoom,
+    // déplacement, plein écran, bascule de disposition). `sidePanel` remplace
+    // la colonne panier/paiement par la liste des places de l'abonné.
+    res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
+      title: 'Changer de place — BTS',
+      heading: 'Changer de place',
+      planHelp: 'Sélectionnez la place à changer à droite, puis cliquez sa nouvelle position sur le plan.',
+      // Chemin absolu : un include EJS se résout sinon depuis le dossier de la
+      // vue qui inclut (ici src/views/order/).
+      sidePanel: path.resolve(VIEWS_DIR, 'seat-change', 'panel'),
+      scheduleOptions: null,
+      showSchedule: false,
+      assets: ASSETS_BASE,
+      config: {
+        api: { status: statusPath, checkout: statusPath },
+        selection: { type: 'seats' },
+        // Aucun panier ici : les lignes sont rendues par le panneau latéral.
+        buildRowsFromData: false,
+        seatChange: { api: statusPath }
+      },
+      orderPageConfig: {},
+      customJs: [STATIC_PREFIX + 'js/seat-change.js']
+    });
   });
 
   // Public: list all events, open ones link straight to /event/:slug
@@ -699,6 +747,7 @@ export default function routes(router) {
 
   // API sous /s
   router.use('/s', renewApi);
+  router.use('/s', seatChangeApi);   // GET/POST /s/seat-change
 
 
   // ✨ Routes paiement (return, back, error, webhook)

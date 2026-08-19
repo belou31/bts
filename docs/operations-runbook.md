@@ -142,11 +142,49 @@ Quand les scripts ou l'admin console sont utilisés pour piloter le calendrier, 
 node scripts/03-season-management/import-renewers-flat.js data/inputs/renew-subscribers.csv 2025-2026 --venue=patinoire-blagnac
 ```
 
+Colonne CSV optionnelle `extra` : places que ce renouveleur peut prendre **en
+plus** de ses sièges précédents (défaut 0). `--extra=<n>` fixe la valeur par
+défaut des lignes qui ne renseignent pas la colonne.
+
 ### Provisionner les sièges
 
 ```bash
 node scripts/03-season-management/renewal-provision-seats.js 2025-2026 --venue=patinoire-blagnac --apply
 ```
+
+### Changement de place et quota
+
+Les sièges provisionnés ne sont pas imposés : depuis son lien, un renouveleur
+voit **tout le plan** et peut échanger n'importe lequel de ses anciens sièges
+contre n'importe quel siège libre. Ce qui est contrôlé, c'est le **nombre** de
+places :
+
+```
+quota du lien = sièges précédents du groupe + extra
+```
+
+`extra` est agrégé **par groupKey en prenant le MAX**, jamais la somme :
+marquer `extra=1` sur les 3 lignes d'une famille accorde 1 place de plus, pas 3.
+
+Conséquences opérationnelles :
+
+- un ancien siège que le renouveleur ne reprend pas **repart immédiatement** au
+  pot commun (`available`) dès la validation du panier — il peut être pris par
+  un autre renouveleur ou par la vente publique ;
+- les sièges provisionnés pour **un autre** abonné restent invisibles/bloqués :
+  un lien ne peut jamais réserver la place encore due à quelqu'un d'autre ;
+- une place supplémentaire peut être prise **en zone debout** aussi bien que
+  sur un siège numéroté : les zones actives disposant d'un `svgSelector`
+  apparaissent en boutons, décomptées du même quota de zone que l'abonnement
+  (`src/utils/zone-availability.js`). Le libellé de la place (`<ZONE>-Z001`)
+  est attribué **par le serveur**, pour que deux renouveleurs ne repartent pas
+  avec la même ;
+- l'ancienne place de zone portée par le token reste, elle, non échangeable :
+  faute de `Seat`, rien ne permettrait d'en vérifier la disponibilité.
+
+Les liens émis avant cette évolution restent valides : sans `extra`/`quota`
+dans le token, le quota vaut le nombre de sièges précédents (donc échange
+possible, mais aucune place supplémentaire).
 
 ### Exporter les liens
 
@@ -223,6 +261,62 @@ node scripts/04-event-management/build-allowed-from-prices.js --event=match-j1
 
 ```bash
 node scripts/04-event-management/publish-event.js --event=match-j1 --sale=onsale
+```
+
+### Changement de place par l'abonné (un match)
+
+Le mail de billets envoyé par `send-all-season-tickets-for-event.js` contient un
+lien `/seat-change?id=<jwt>` permettant à l'abonné de changer lui-même de place
+**pour ce match uniquement**. Règles, toutes appliquées côté serveur :
+
+- **même zone** : le prix est identique par construction, donc aucun mouvement
+  d'argent. C'est délibéré — il n'existe aucun remboursement dans le code
+  (`refunded` n'est qu'un statut reçu des webhooks), donc un changement de zone
+  supposerait d'en construire un ;
+- **un changement par place** : une ligne déjà `moved` est verrouillée ;
+- **jusqu'au coup d'envoi** : le JWT expire à `startsAt`, et la route revérifie
+  la date sur l'évènement (un token rejoué ne rouvre pas la fenêtre) ;
+- la place quittée **redevient disponible** pour les autres abonnés du même
+  match.
+
+L'abonnement n'est pas modifié : le changement est un override par évènement sur
+la ligne de commande (`attendance.status = 'moved'`), donc l'abonné retrouve sa
+place habituelle à tous les autres matchs.
+
+Le billet est **réédité et renvoyé automatiquement** après le changement. Le QR
+ne change pas et reste valable : le contrôle d'accès résout le billet par son
+hash puis lit le siège en base. Si l'envoi échoue, le changement reste acquis
+(la page ne promet alors pas de mail) — `resend-event-tickets.js` permet de
+relancer.
+
+⚠ La chaîne de billetterie lit désormais le siège **effectif** (override inclus)
+et non `line.seatId` brut : `ensureTicketsForEventOrder`, le corps du mail et le
+PDF passent par `resolveLinePlacement`. Sans cela, la normalisation des tickets
+réécrivait la place déplacée vers l'ancienne, et l'abonné recevait un PDF
+contredisant son contrôle d'accès.
+
+#### Reprise d'une place libérée (achat public)
+
+Une place rendue redevient achetable pour ce match. Deux points en découlent,
+tous deux corrigés :
+
+- la **finalisation** juge la disponibilité sur la vue évènement et non sur
+  `Seat.status` (qui décrit la saison, où la place reste `booked` puisque
+  l'abonné la garde pour les autres matchs). Sinon le paiement était encaissé
+  puis la commande refusée en `already_booked` — « intervention manuelle » ;
+- le **verrou** de checkout passe par `SeatHold` (index unique
+  `{eventId, seatId}`), car le verrou historique `Seat.meta.hold` est posé avec
+  le filtre `status != 'booked'` et ne pouvait donc jamais couvrir ces places.
+
+⚠ **Prérequis base** : l'index `idx_event_seat` doit être UNIQUE. Le schéma le
+déclare, mais Mongoose ne modifie pas les options d'un index existant : une base
+créée avant l'ajout du flag garde un index non unique, en silence, et le verrou
+ne verrouille rien (deux acheteurs peuvent payer la même place). À exécuter une
+fois par environnement :
+
+```bash
+node scripts/migrations/migrate-seathold-unique-event-seat.js          # dry-run
+node scripts/migrations/migrate-seathold-unique-event-seat.js --apply
 ```
 
 ### Charger des QR si nécessaire

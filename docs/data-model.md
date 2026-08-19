@@ -26,7 +26,7 @@ nav_order: 120
 | `Seat` | Runtime saison / vente | 8 | 11 |
 | `SeatCatalog` | Catalogue | 9 | 2 |
 | `SeatHold` | Événements et contrôle | 12 | 9 |
-| `Subscriber` | Audience / opérations | 14 | 6 |
+| `Subscriber` | Audience / opérations | 17 | 6 |
 | `Tariff` | Autres | 11 | 5 |
 | `TariffPrice` | Autres | 11 | 6 |
 | `TariffPriceCatalog` | Catalogue | 10 | 2 |
@@ -222,10 +222,13 @@ nav_order: 120
 
 - `createdAt`: `Date`
 - `email`: `String`
+- `extra`: `Number`
 - `firstName`: `String`
 - `group`: `String`
 - `groupKey`: `String`
+- `lastInviteSentAt`: `Date`
 - `lastName`: `String`
+- `notes`: `String`
 - `phone`: `String`
 - `prefSeatId`: `String`
 - `previousSeasonSeats`: `Array<String>`
