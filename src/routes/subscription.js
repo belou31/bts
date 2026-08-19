@@ -15,6 +15,12 @@ import { findSingleGaps }       from '../utils/no-single-gap.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { loadCustomization } from '../services/customization.js';
 import { isVirtualZoneSeatId } from '../utils/seat-id.js';
+import {
+  buildZonesWithRemaining,
+  selectZoneAllocatedZones,
+  computeZoneUsageAllOrders,
+  computeProvisionalZoneClaims
+} from '../utils/zone-availability.js';
 
 const router = express.Router({ mergeParams: true });
 
@@ -83,28 +89,8 @@ function zoneKeyFromSeatId(seatId) {
   return i > 0 ? s.slice(0, i) : s;
 }
 
-async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, statusIn = ['paid'] }) {
-  // Conso = nombre de lignes de commandes groupées par zone.
-  // Par défaut, on retient UNIQUEMENT les commandes "paid" pour le quota subscription.
-  const baseMatch = {
-    seasonCode,
-    venueSlug,
-    phase: 'subscription', // ne pas compter les ventes “event” dans le quota saison
-    'lines.zoneKey': { $in: zoneKeys }
-  };
-  const statusMatch = (Array.isArray(statusIn) && statusIn.length)
-    ? { status: { $in: statusIn } }                 // ex: ['paid']
-    : { status: { $nin: ['canceled', 'failed'] } }; // fallback historique
-
-  const rows = await Order.aggregate([
-    { $match: { ...baseMatch, ...statusMatch } },
-    { $unwind: '$lines' },
-    { $match: { 'lines.zoneKey': { $in: zoneKeys } } },
-    { $group: { _id: '$lines.zoneKey', count: { $sum: 1 } } }
-  ]);
-  const usage = new Map(rows.map(r => [String(r._id || ''), Number(r.count || 0)]));
-  return usage;
-}
+// Zone availability lives in src/utils/zone-availability.js: the renewal flow
+// draws from the same zone quota and must not disagree on what "used" means.
 
 
 /* ====== GET /api/season/:seasonCode/status ======
@@ -121,13 +107,17 @@ router.get('/status', async (req, res, next) => {
       { _id:0, seatId:1, status:1, zoneKey:1 }
     ).lean();
 
-    // --- Zones actives (avec svgSelector si fourni)
+    // --- Zones actives (avec svgSelector si fourni), vendues en bloc
+    // uniquement : une tribune dont les sièges se choisissent un par un sur le
+    // plan n'a pas à proposer en plus un bouton "ajouter une place".
     const zonesAll = await Zone.find({
       seasonCode, venueSlug,
       isActive: true
     }).lean();
-    const zones = zonesAll.filter(z => z?.svgSelector);
-    const zoneKeys = zones.map(z => String(z.key || '').toUpperCase()).filter(Boolean);
+    const zones = await selectZoneAllocatedZones({
+      seasonCode, venueSlug,
+      zones: zonesAll.filter(z => z?.svgSelector)
+    });
 
     // --- Tarifs & Prix applicables (TOUS les prix / tarifs actifs pour la salle)
     const allPrices = await TariffPrice.find({
@@ -144,28 +134,8 @@ router.get('/status', async (req, res, next) => {
 
     const customization = loadCustomization({ seasonCode, locale: req.locale });
 
-    // --- Calcul “remaining” zone = plafond - USAGE(only paid)
-    const usage = zoneKeys.length
-      ? await computeZoneUsageAllOrders({
-          seasonCode, venueSlug, zoneKeys, statusIn: ['paid']
-        })
-      : new Map();
-    const zonesOut = (zones || []).map(z => {
-      const quota     = Number(z.quota || 0);
-      const capacity  = Number(z.capacity || 0);
-      const plafond   = quota > 0 ? quota : capacity;
-      const used      = usage.get(z.key) || 0;
-      const remaining = plafond > 0 ? Math.max(0, plafond - used) : Math.max(0, capacity - used);
-      return {
-        key: z.key,
-        name: z.name || z.key,
-        type: z.type || 'public',
-        quota,
-        capacity,
-        remaining,
-        svgSelector: z.svgSelector || null
-      };
-    });
+    // --- “remaining” zone = plafond - USAGE(only paid) - claims de renouvellement en attente
+    const zonesOut = await buildZonesWithRemaining({ seasonCode, venueSlug, zones });
 
     res.json({ seasonCode, seasonName: season?.name || null, venueSlug, tariffs, prices, seats, zones: zonesOut, customization });
   } catch (e) { next(e); }
@@ -302,14 +272,17 @@ router.post('/checkout', async (req, res) => {
     // ----- CONTRÔLE QUOTAS SUR LES ZONES -----
     if (requestedPerZone.size) {
       const zoneKeys = Array.from(requestedPerZone.keys());
-      // Garde-fou anti-oversell : ne compter que le "paid" pour autoriser la vente
-      const usage = await computeZoneUsageAllOrders({
+      // Garde-fou anti-oversell : ne compter que le "paid" pour autoriser la vente,
+      // + les claims de renouvellement en attente (sinon un checkout public pourrait
+      // encore vendre une place déjà réservée pour un renouvellement non payé).
+      const { usage, coveredSeatIds } = await computeZoneUsageAllOrders({
         seasonCode, venueSlug, zoneKeys, statusIn: ['paid']
       });
+      const provisionalUsage = await computeProvisionalZoneClaims({ seasonCode, venueSlug, zoneKeys, coveredSeatIds });
 
       for (const [zoneKey, count] of requestedPerZone) {
         const z        = zoneMap.get(zoneKey);
-        const used     = usage.get(zoneKey) || 0;
+        const used     = (usage.get(zoneKey) || 0) + (provisionalUsage.get(zoneKey) || 0);
         const quota    = Number(z.quota || 0);
         const capacity = Number(z.capacity || 0);
         const plafond  = quota > 0 ? quota : capacity;

@@ -2,7 +2,10 @@
 import mongoose from 'mongoose';
 import { Seat } from '../models/Seat.js';
 import { Order } from '../models/Order.js';
+import { Event } from '../models/Event.js';
+import { SeatHold } from '../models/SeatHold.js';
 import { Ticket } from '../models/Ticket.js';
+import { computeEventSeatStates } from './event-seat-states.js';
 import { renderOrderEmail, subjectForOrder, attachQrFromBank } from './mailer.js';
 import { buildTicketsPdfBuffer } from './tickets-pdf.js';
 import { sendMail } from '../loaders/mailer.js';
@@ -89,6 +92,21 @@ async function hydrateTicketsFromExistingDocs(order) {
   return true;
 }
 
+
+// Le siège effectif d'une ligne pour CET évènement. Un changement de place
+// (utils/event-attendance.js) est stocké en override et laisse line.seatId
+// intact : sans cette résolution, la normalisation ci-dessous réécrirait le
+// billet vers l'ancienne place, et le doc Ticket suivrait — le porteur
+// recevrait un PDF et un contrôle d'accès pointant le mauvais siège.
+// Volontairement limité au cas 'moved' : une ligne 'released' garde le
+// comportement historique.
+function effectiveLineSeatId(line) {
+  const placement = resolveLinePlacement(line);
+  return placement.moved && placement.seatId
+    ? String(placement.seatId).trim()
+    : String(line?.seatId || '').trim();
+}
+
 export async function ensureTicketsForEventOrder(order) {
   const eventIdRaw = order?.eventId || order?.meta?.eventId;
   if (!eventIdRaw) return { created: 0, updated: 0 };
@@ -133,7 +151,7 @@ export async function ensureTicketsForEventOrder(order) {
   if (!metaTickets.length && lines.length) {
     order.meta = order.meta || {};
     order.meta.tickets = lines.map((line, index) => {
-      const seatId = String(line?.seatId || '').trim();
+      const seatId = effectiveLineSeatId(line);
       const zoneKey = String(line?.zoneKey || '').trim().toUpperCase();
       const tariffCode = String(line?.tariffCode || line?.tariff || 'NORMAL').toUpperCase();
       const hex = generateTicketHex(orderId, index, seatId, zoneKey, tariffCode);
@@ -166,7 +184,7 @@ export async function ensureTicketsForEventOrder(order) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] || {};
-    const seatFromLine = String(line.seatId || '').trim();
+    const seatFromLine = effectiveLineSeatId(line);
     const zoneFromLine = String(line.zoneKey || '').trim().toUpperCase();
     const tariffFromLine = String(line.tariffCode || '').trim().toUpperCase() || 'NORMAL';
 
@@ -229,7 +247,7 @@ export async function ensureTicketsForEventOrder(order) {
 
     const zoneKey = String(metaTicket.zoneKey || line.zoneKey || '').toUpperCase();
     const seatFromMeta = String(metaTicket.seatId || '').trim();
-    const seatFromLine = String(line.seatId || '').trim();
+    const seatFromLine = effectiveLineSeatId(line);
     let seatId = seatFromMeta || seatFromLine;
     let usedPlaceholder = false;
     // Computed from the pre-placeholder candidate so re-runs (e.g. resend)
@@ -411,14 +429,41 @@ export async function finalizePaidIfNoConflict(order) {
   }).lean();
   const byId = new Map(seats.map(s => [String(s.seatId), s]));
 
+  const ownHold = (sid) => {
+    const holder = byId.get(sid)?.meta?.hold?.orderId;
+    return holder ? String(holder) === String(order._id) : false;
+  };
+
   const conflicts = [];
-  for (const sid of seatIds) {
-    const s = byId.get(sid);
-    if (!s) { conflicts.push({ seatId: sid, reason: 'not_found' }); continue; }
-    if (s.status === 'booked') { conflicts.push({ seatId: sid, reason: 'already_booked' }); continue; }
-    if (s.status === 'busy') {
-    const holder = s?.meta?.hold?.orderId ? String(s.meta.hold.orderId) : '';
-      if (holder && holder !== String(order._id)) {
+  if (isEvent) {
+    // Pour un ÉVÈNEMENT, la disponibilité n'est pas Seat.status : cette
+    // collection décrit la SAISON. Une place rendue par un abonné pour ce match
+    // précis y reste 'booked' — il la garde pour tous les autres matchs — donc
+    // juger le conflit sur l'état saison refusait la finalisation d'un achat
+    // pourtant légitime : paiement encaissé, commande en échec, "intervention
+    // manuelle". On interroge donc la même vue évènement que la billetterie.
+    const ev = await Event.findById(eventIdRaw).lean().catch(() => null);
+    const states = ev ? await computeEventSeatStates(ev) : [];
+    const stateById = new Map(states.map(s => [String(s.seatId), s]));
+    // Les SeatHold posés par CETTE commande ne peuvent pas lui être opposés.
+    const heldByThisOrder = new Set(
+      (await SeatHold.find({ orderId: order._id }, { seatId: 1, _id: 0 }).lean().catch(() => []))
+        .map(h => String(h.seatId))
+    );
+
+    for (const sid of seatIds) {
+      const st = stateById.get(sid);
+      if (!st) { conflicts.push({ seatId: sid, reason: 'not_found' }); continue; }
+      if (st.status === 'available') continue;
+      if (ownHold(sid) || heldByThisOrder.has(sid)) continue;
+      conflicts.push({ seatId: sid, reason: st.status === 'booked' ? 'already_booked' : 'busy_other' });
+    }
+  } else {
+    for (const sid of seatIds) {
+      const s = byId.get(sid);
+      if (!s) { conflicts.push({ seatId: sid, reason: 'not_found' }); continue; }
+      if (s.status === 'booked') { conflicts.push({ seatId: sid, reason: 'already_booked' }); continue; }
+      if (s.status === 'busy' && !ownHold(sid)) {
         conflicts.push({ seatId: sid, reason: 'busy_other' });
         continue;
       }
@@ -448,6 +493,11 @@ export async function finalizePaidIfNoConflict(order) {
       { runValidators: false }
     );
 
+    // Idem pour le verrou évènement : la commande est payée, c'est elle qui
+    // occupe désormais la place via l'overlay. Le laisser expirer tout seul
+    // (TTL) bloquerait inutilement une éventuelle correction entre-temps.
+    await SeatHold.deleteMany({ orderId: order._id }).catch(() => {});
+
     // L’état “booked” pour le plan du match sera géré en LECTURE
     // par /api/event/:id/status (overlay à partir des Orders paid).
     order.status = 'paid';
@@ -467,6 +517,10 @@ export async function finalizePaidIfNoConflict(order) {
       seatId:     { $in: seatIds },
       $or: [
         { status: 'available' },
+        // renouvellement : le siège a été réservé par renewal-provision-seats.js
+        // en amont de la campagne, avant même que cette commande existe — c'est
+        // l'état de départ NORMAL pour un paiement de renouvellement, pas un conflit.
+        { status: 'provisioned' },
         // busy tenu par cet ordre en ObjectId...
         { status: 'busy', 'meta.hold.orderId': order._id },
        // ...ou en String (cas /event et historiques)
@@ -474,7 +528,7 @@ export async function finalizePaidIfNoConflict(order) {
       ]
     },
 
-    { $set: { status: 'booked' }, $unset: { 'meta.hold': 1 } },
+    { $set: { status: 'booked' }, $unset: { 'meta.hold': 1, provisionedFor: 1 } },
       { runValidators: false }
     );
     const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);

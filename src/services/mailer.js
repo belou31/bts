@@ -6,10 +6,11 @@ import { Tariff } from '../models/Tariff.js';
 import { hexToQrSvg } from './qr.js';
 import { currentPaymentProviderLabel } from './payments/index.js';
 import { buildTicketsPdfBuffer as buildTicketsPdfBufferFromService } from './tickets-pdf.js';
+import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { isZoneUnit } from '../utils/seat-id.js';
 import { formatCurrency, formatCurrencyPlain, formatDate } from '../utils/format.js';
 import { t, getCatalog, DEFAULT_LOCALE } from '../utils/i18n.js';
-import { resolveThemeForOrder, resolveCustomizationForOrder } from './customization.js';
+import { resolveThemeForOrder, resolveCustomizationForOrder, resolveOrganizationName } from './customization.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -204,7 +205,13 @@ function applyVars(html, ctx) {
 function lineSeatOrZone(l) {
   // Ligne "zone" (standing/GA) : on affiche la zone plutôt que le seatId
   // (réel ou synthétique — voir src/utils/seat-id.js).
-  const sid = String(l.seatId||'');
+  //
+  // Le siège annoncé doit être celui où la personne s'assied POUR CE MATCH :
+  // un changement de place est un override et laisse l.seatId sur l'ancienne
+  // (utils/event-attendance.js). Sans cette résolution, le corps du mail
+  // contredirait le PDF joint et le contrôle d'accès.
+  const placement = resolveLinePlacement(l);
+  const sid = String((placement.moved && placement.seatId) || l.seatId || '');
   if (sid && isZoneUnit({ unitType: l.unitType, seatId: sid })) return String(l.zoneKey||'');
   return sid || String(l.zoneKey||'');
 }
@@ -346,7 +353,7 @@ export async function renderOrderEmail(order) {
     const ename = order?.meta?.eventName || order?.meta?.eventSlug || t('common.match', locale);
     // Contexte unifié (event)
     const ctx = {
-      org: { clubName: (process.env.CLUB_NAME || 'Les Bélougas') },
+      org: { clubName: resolveOrganizationName() },
       payer: {
         fullName: [order.payerFirstName || order?.payer?.firstName, order.payerLastName || order?.payer?.lastName]
                   .filter(Boolean).join(' ').trim()
@@ -373,7 +380,7 @@ export async function renderOrderEmail(order) {
       totalEuroPlain: fmtEuroPlain(totalCents, locale),
       installmentsInfo: humanInstallments(split, locale),
       haOrderBlock,
-      clubName: (process.env.CLUB_NAME || 'Les Bélougas'),
+      clubName: resolveOrganizationName(),
       linesRows: LINES_HTML,
       extraInfo: ''
     };
@@ -382,7 +389,7 @@ export async function renderOrderEmail(order) {
 
   // ——— Non-event (renew / subscription / public)
   const ctx = {
-    org: { clubName: (process.env.CLUB_NAME || 'Les Bélougas') },
+    org: { clubName: resolveOrganizationName() },
     payer: {
       fullName: [order.payerFirstName || order?.payer?.firstName, order.payerLastName || order?.payer?.lastName]
                  .filter(Boolean).join(' ').trim()
@@ -408,7 +415,7 @@ export async function renderOrderEmail(order) {
     totalEuroPlain: fmtEuroPlain(totalCents, locale),
     installmentsInfo: humanInstallments(split, locale),
     haOrderBlock,
-    clubName: (process.env.CLUB_NAME || 'Les Bélougas'),
+    clubName: resolveOrganizationName(),
     linesRows: LINES_HTML,
     extraInfo: ''
   };

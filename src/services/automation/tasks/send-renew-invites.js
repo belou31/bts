@@ -6,15 +6,14 @@ import readline from 'node:readline';
 import { renderEmailTemplate } from '../../../utils/email-template.js';
 import { sendMail } from '../../../loaders/mailer.js';
 import { currentPaymentProviderLabel } from '../../payments/index.js';
+import { loadCustomization } from '../../customization.js';
+import { Season } from '../../../models/Season.js';
 
 const EMAIL_ALIASES = ['email', 'payerEmail', 'contact', 'mail'];
 const URL_ALIASES = ['url', 'link', 'renewurl', 'renew_url', 'renew'];
 const FIRST_NAME_ALIASES = ['firstName', 'first_name', 'payerFirstName'];
 const LAST_NAME_ALIASES = ['lastName', 'last_name', 'payerLastName'];
 const SEATS_ALIASES = ['seats', 'seatIds', 'seat_ids', 'seats_list'];
-
-const DEFAULT_SUBJECT = process.env.EMAIL_SUBJECT_RENEW_INVITE || 'Renouvellement d’abonnement';
-const DEFAULT_TEMPLATE = process.env.EMAIL_TEMPLATE_RENEW_INVITE || 'renew-invite';
 
 function stripBOM(input = '') {
   return String(input).replace(/^\uFEFF/, '');
@@ -224,17 +223,20 @@ export const sendRenewInvitesTask = {
     const usingInline = inlineInvitees.length > 0;
 
     const csvPath = usingInline ? null : resolveCsvPath(params.csv, context);
-    const subject = params.subject || params.emailSubject || DEFAULT_SUBJECT;
+    const seasonCode = params.seasonCode || params.season || '';
+    const seasonDoc = seasonCode ? await Season.findOne({ code: seasonCode }).lean().catch(() => null) : null;
+    const seasonName = seasonDoc?.name || seasonCode;
+    const custo = loadCustomization({ seasonCode });
+    const subject = params.subject || params.emailSubject || custo['renew.inviteSubject'] || 'Renouvellement d’abonnement';
     const limit =
       params.limit != null ? Number(params.limit) : Number.POSITIVE_INFINITY;
     const offset = params.offset != null ? Math.max(Number(params.offset), 0) : 0;
     const delayMs = params.delayMs != null ? Math.max(Number(params.delayMs), 0) : 800;
     const forcedSeparator = params.separator || params.sep || '';
-    const templateName = params.template || params.templateName || DEFAULT_TEMPLATE;
-    const seasonCode = params.seasonCode || params.season || context?.env?.seasonCode || '';
-    const venueSlug = params.venue || params.venueSlug || context?.env?.venueSlug || '';
+    const templateName = params.template || params.templateName || custo['renew.inviteTemplate'] || 'renew-invite';
+    const venueSlug = params.venue || params.venueSlug || '';
     const clubName = params.clubName || context?.env?.clubName || 'Bélougas Toulouse-Blagnac';
-    const deadline = params.deadline || process.env.RENEW_DEADLINE || '';
+    const deadline = params.deadline || '';
     const providerLabel =
       params.providerLabel || currentPaymentProviderLabel();
 
@@ -341,6 +343,7 @@ export const sendRenewInvitesTask = {
         seatsBlock,
         deadlineBlock,
         seasonCode,
+        seasonName,
         venueSlug,
         clubName,
         paymentProviderLabel: providerLabel

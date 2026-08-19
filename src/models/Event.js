@@ -7,7 +7,10 @@ const EventSchema = new mongoose.Schema({
   seasonCode: { type: String, index: true, required: true },
   venueSlug:  { type: String, index: true, default: null },
   priceTableKey: { type: String, default: null },              // table tarifs dédiée
-  isOnSale:   { type: Boolean, default: false },
+  // Sale lifecycle (replaces the old isOnSale boolean): notopen -> presale -> onsale -> [soldout] -> closed.
+  sale:       { type: String, enum: ['notopen', 'presale', 'onsale', 'soldout', 'closed'], default: 'notopen', index: true },
+  // Publication lifecycle, independent of sale: draft -> active -> archived.
+  activity:   { type: String, enum: ['draft', 'active', 'archived'], default: 'draft', index: true },
   // Banque de QR pré-générés (phase 1) : { provider:"bank", codes:[hex...] }
   qrBank: {
     provider: { type: String, default: 'bank' },

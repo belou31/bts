@@ -20,13 +20,13 @@ nav_order: 120
 | `AutomationJob` | Audience / opérations | 14 | 3 |
 | `Campaign` | Audience / opérations | 8 | 1 |
 | `Counter` | Audience / opérations | 4 | 1 |
-| `Event` | Événements et contrôle | 11 | 3 |
+| `Event` | Événements et contrôle | 12 | 5 |
 | `Order` | Runtime saison / vente | 21 | 18 |
 | `Season` | Runtime saison / vente | 7 | 1 |
 | `Seat` | Runtime saison / vente | 8 | 11 |
 | `SeatCatalog` | Catalogue | 9 | 2 |
 | `SeatHold` | Événements et contrôle | 12 | 9 |
-| `Subscriber` | Audience / opérations | 14 | 6 |
+| `Subscriber` | Audience / opérations | 17 | 6 |
 | `Tariff` | Autres | 11 | 5 |
 | `TariffPrice` | Autres | 11 | 6 |
 | `TariffPriceCatalog` | Catalogue | 10 | 2 |
@@ -222,10 +222,13 @@ nav_order: 120
 
 - `createdAt`: `Date`
 - `email`: `String`
+- `extra`: `Number`
 - `firstName`: `String`
 - `group`: `String`
 - `groupKey`: `String`
+- `lastInviteSentAt`: `Date`
 - `lastName`: `String`
+- `notes`: `String`
 - `phone`: `String`
 - `prefSeatId`: `String`
 - `previousSeasonSeats`: `Array<String>`
@@ -245,11 +248,12 @@ nav_order: 120
 
 #### Top-level fields
 
+- `activity`: `String`
 - `createdAt`: `Date`
 - `description`: `String`
-- `isOnSale`: `Boolean`
 - `name`: `String`
 - `priceTableKey`: `String`
+- `sale`: `String`
 - `seasonCode`: `String`
 - `slug`: `String`
 - `startsAt`: `Date`
@@ -259,7 +263,7 @@ nav_order: 120
 
 #### Indexes
 
-`slug:1` (unique)<br>`seasonCode:1`<br>`venueSlug:1`
+`slug:1` (unique)<br>`seasonCode:1`<br>`venueSlug:1`<br>`sale:1`<br>`activity:1`
 
 ### SeatHold
 

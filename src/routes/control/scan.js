@@ -1027,7 +1027,7 @@ router.get(['/control/scan/events.json', '/scan/events.json'], async (req, res) 
       startsAt: 1,
       seasonCode: 1,
       venueSlug: 1,
-      isOnSale: 1
+      sale: 1
     })
       .sort({ startsAt: 1 })
       .limit(limit)
@@ -1040,7 +1040,7 @@ router.get(['/control/scan/events.json', '/scan/events.json'], async (req, res) 
       startsAt: doc.startsAt || null,
       seasonCode: doc.seasonCode || null,
       venueSlug: doc.venueSlug || null,
-      isOnSale: doc.isOnSale === true
+      sale: doc.sale || 'notopen'
     }));
 
     res.json({ ok: true, events });

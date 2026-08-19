@@ -60,6 +60,11 @@ body{ margin:0; font-family:var(--font); background:var(--bg); color:var(--fg); 
   background:linear-gradient(145deg, rgba(255,194,46,0.18), rgba(255,194,46,0.06));
   color:#ffe6b3;
 }
+.site-header .sale-chip.soldout{
+  border-color:rgba(255,140,46,0.6);
+  background:linear-gradient(145deg, rgba(255,140,46,0.18), rgba(255,140,46,0.06));
+  color:#ffd4b3;
+}
 
 .page{ display:grid; gap:16px; padding:16px; align-items:start; grid-template-columns: 1fr 1fr; }
 /* Mode auto (par défaut) quand aucun verrou n’est posé via data-layout */

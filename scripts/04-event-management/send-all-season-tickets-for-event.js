@@ -10,6 +10,7 @@ import { buildTicketsPdfBuffer } from '../../src/services/tickets-pdf.js';
 import { renderOrderEmail, subjectForOrder, attachQrFromBank } from '../../src/services/mailer.js';
 import { sendMail } from '../../src/loaders/mailer.js';
 import { ensureTicketsForEventOrder, generateTicketHex } from '../../src/services/order-finalization.js';
+import { signSeatChangeToken } from '../../src/routes/seat-change.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -71,11 +72,44 @@ async function deliverOrder({ order, eventDoc, dryRun }) {
   const defaultSubject = `Vos billets — ${eventDoc.name}${eventDateLabel ? ` — ${eventDateLabel}` : ''}`;
   const subject = await subjectForOrder(order) || defaultSubject;
 
+  // Lien de changement de place (même zone, une fois, jusqu'au coup d'envoi).
+  // Expire au coup d'envoi : inutile de le proposer pour un match commencé.
+  let seatChangeUrl = '';
+  try {
+    if (process.env.JWT_SECRET && eventDoc.startsAt && new Date(eventDoc.startsAt) > new Date()) {
+      const token = signSeatChangeToken({
+        eventId: eventDoc._id,
+        orderId: order._id,
+        startsAt: eventDoc.startsAt
+      });
+      const base = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+      seatChangeUrl = `${base}/seat-change?id=${token}`;
+    }
+  } catch (err) {
+    console.warn('[send-all-season-tickets] seat-change link skipped:', err?.message || err);
+  }
+
+  const seatChangeBlock = seatChangeUrl
+    ? `<p style="margin:.75rem 0">
+         Vous souhaitez changer de place pour ce match ?
+         <a href="${seatChangeUrl}">Choisir une autre place</a>
+         (même zone, une seule fois, jusqu'au coup d'envoi).
+       </p>`
+    : '';
+
   let html;
   try {
     html = await renderOrderEmail(order);
   } catch {
     html = '';
+  }
+
+  // Le template personnalisé peut placer le lien lui-même via {{seatChangeUrl}} ;
+  // sinon on l'ajoute en fin de corps plutôt que de le perdre.
+  if (html && seatChangeBlock) {
+    html = html.includes('{{seatChangeUrl}}')
+      ? html.replaceAll('{{seatChangeUrl}}', seatChangeUrl)
+      : `${html}${seatChangeBlock}`;
   }
 
   if (!html) {
@@ -89,6 +123,7 @@ async function deliverOrder({ order, eventDoc, dryRun }) {
         <p style="margin:.75rem 0">
           Retrouvez vos billets en pièce jointe (PDF). Présentez le QR à l'entrée.
         </p>
+        ${seatChangeBlock}
         <p style="margin:.75rem 0;color:#666">
           Cet envoi concerne votre abonnement (${order.payerFirstName || ''} ${order.payerLastName || ''}).
         </p>

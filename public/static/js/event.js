@@ -418,53 +418,38 @@
     const ev = (raw && typeof raw === 'object') ? (raw.event || raw) : null;
     const presale = raw?.presale && typeof raw.presale === 'object' ? raw.presale : null;
     const saleStatus = String(raw?.saleStatus || ev?.saleStatus || '').toLowerCase();
-    const onSale  = saleStatus === 'sale_opened' || ev?.isOnSale === true || ev?.onSale === true || String(ev?.status || '').toLowerCase() === 'on_sale';
-    const offSale = saleStatus === 'sale_closed' || ev?.isOnSale === false || ev?.onSale === false || String(ev?.status || '').toLowerCase() === 'off_sale';
-    const presaleAllowed = presale?.allowed === true;
     const presaleRemaining = typeof presale?.remaining === 'number' ? presale.remaining : null;
     const presaleQuota = typeof presale?.quota === 'number' ? presale.quota : null;
-    const presaleDepleted = presaleAllowed && presaleRemaining !== null && presaleRemaining <= 0;
 
     const t = window.t || ((key) => key);
     let main = t('saleStatus.pending');
     let sub  = t('saleStatus.pendingSub');
     let stateClass = 'pending';
 
-    if (saleStatus === 'presale_quota_reached' || (presaleAllowed && !onSale && presaleDepleted)) {
+    if (saleStatus === 'presale_quota_reached') {
       main = t('saleStatus.presaleQuotaReached');
       sub  = t('saleStatus.presaleQuotaUsed', { n: presaleQuota ?? 0 });
       stateClass = 'quota';
     }
-    else if (saleStatus === 'presale_opened' || (presaleAllowed && !onSale)) {
+    else if (saleStatus === 'presale_opened') {
       main = t('saleStatus.presale');
       sub  = presaleRemaining !== null ? t('saleStatus.presaleRemaining', { n: presaleRemaining }) : t('saleStatus.presaleSub');
       stateClass = 'presale';
     }
-    else if (saleStatus === 'sale_opened' || onSale) {
+    else if (saleStatus === 'sale_opened') {
       main = t('saleStatus.open');
       sub  = t('saleStatus.openSub');
       stateClass = 'open';
     }
-    else if (saleStatus === 'sale_closed' || offSale) {
+    else if (saleStatus === 'sold_out') {
+      main = t('saleStatus.soldOut');
+      sub  = t('saleStatus.soldOutSub');
+      stateClass = 'soldout';
+    }
+    else if (saleStatus === 'sale_closed') {
       main = t('saleStatus.closed');
       sub  = t('saleStatus.closedSub');
       stateClass = 'closed';
-    }
-    else if (presaleAllowed && !onSale) {
-      if (presaleDepleted) {
-        main = t('saleStatus.presaleQuotaReached');
-        sub  = t('saleStatus.presaleQuotaUsed', { n: presaleQuota ?? 0 });
-        stateClass = 'quota';
-      } else {
-        main = t('saleStatus.presale');
-        sub  = presaleRemaining !== null ? t('saleStatus.presaleRemaining', { n: presaleRemaining }) : t('saleStatus.presaleSub');
-        stateClass = 'presale';
-      }
-    } else if (onSale || offSale) {
-      const open = onSale && !offSale;
-      main = open ? t('saleStatus.open') : t('saleStatus.closed');
-      sub  = open ? t('saleStatus.openSub') : t('saleStatus.closedSub');
-      stateClass = open ? 'open' : 'closed';
     }
 
     badge.hidden = false;

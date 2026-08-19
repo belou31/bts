@@ -69,8 +69,13 @@ const startProcess = () => {
       console.log(out || `Started ${target.module} (${scriptPath})`);
       return;
     }
-    const out = run(`pm2 start ${target.module}`);
-    console.log(out || `Started ${target.module}`);
+    // No app.js found under $PM2_HOME/modules/<module>/ — it was never
+    // actually installed on this host (not just stopped). `pm2 start
+    // <module>` treats that name as a script path relative to cwd and fails
+    // with "Script not found"; `pm2 install` is the real first-time-setup
+    // command for a PM2 module.
+    const out = run(`pm2 install ${target.module}`);
+    console.log(out || `Installed ${target.module}`);
     return;
   }
   const scriptPath = target.script;

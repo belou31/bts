@@ -380,13 +380,18 @@ export const adminScriptGroups = [
         label: 'Import Renewal Subscribers (flat CSV)',
         order: 0,
         path: 'scripts/03-season-management/import-renewers-flat.js',
-        command: 'node scripts/03-season-management/import-renewers-flat.js <path/to/subscribers.csv> <seasonCode> --venue=<slug>',
+        command: 'node scripts/03-season-management/import-renewers-flat.js <path/to/subscribers.csv> <seasonCode> --venue=<slug> [--extra=<n>]',
         run: {
           script: 'scripts/03-season-management/import-renewers-flat.js',
           args: []
         },
-        description: 'Loads renewal subscribers from a simple CSV (one seat per row) and marks them as invited.',
+        description: 'Loads renewal subscribers from a simple CSV (one seat per row) and marks them as invited. An optional "extra" column grants a renewer places beyond the seats they already had.',
         templates: ['data_references/csv/renew-subscribers.template.csv'],
+        notes: [
+          'extra = places supplémentaires autorisées en plus des sièges précédents. La colonne CSV prime ; le champ ci-dessous ne sert que de valeur par défaut pour les lignes qui ne la renseignent pas.',
+          'Le quota d\'un lien de renouvellement est calculé par groupe (groupKey) en prenant le MAX des extra du groupe, jamais la somme : marquer extra=1 sur les 3 lignes d\'une famille accorde 1 place de plus, pas 3.',
+          'Les sièges précédents restent provisionnés mais ne sont plus imposés : le renouveleur peut en changer, dans la limite de son quota (sièges précédents + extra).'
+        ],
         form: {
           fields: [
             {
@@ -409,6 +414,13 @@ export const adminScriptGroups = [
               placeholder: 'patinoire-blagnac',
               required: true,
               arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'extra',
+              label: 'Places supplémentaires par défaut (optionnel — défaut 0)',
+              placeholder: '0',
+              hint: 'Utilisé uniquement pour les lignes sans colonne "extra" dans le CSV.',
+              arg: { type: 'option', template: '--extra=${value}' }
             }
           ]
         }
@@ -764,12 +776,12 @@ export const adminScriptGroups = [
         label: 'Add View for Venue',
         order: 1,
         path: 'scripts/01-venue-management/import-venue-view.js',
-        command: 'node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <path/to/view.svg> [--overwrite]',
+        command: 'node scripts/01-venue-management/import-venue-view.js <venueSlug> <viewSlug> <path/to/view.svg> [--name="<label>"] [--overwrite]',
         run: {
           script: 'scripts/01-venue-management/import-venue-view.js',
           args: []
         },
-        description: 'Copies a custom view to public/dynamic/venues/<slug>/views/<viewSlug>.svg (no enrichment).',
+        description: 'Copies a custom view to public/dynamic/venues/<slug>/views/<viewSlug>.svg. Optional display name is recorded in data/venue-views.json (not the SVG itself — no DB record either, kept as a simple sidecar so it can\'t drift out of sync with the file).',
         templates: ['data_references/files/plan.svg'],
         form: {
           fields: [
@@ -793,6 +805,12 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/venue-view.svg',
               required: true,
               arg: { type: 'positional', index: 2 }
+            },
+            {
+              name: 'viewName',
+              label: 'Nom affiché (optionnel)',
+              placeholder: 'Vue Partenaire AISC',
+              arg: { type: 'option', template: '--name=${value}' }
             }
           ]
         }
@@ -1871,13 +1889,13 @@ export const adminScriptGroups = [
           script: 'scripts/04-event-management/clone-event.js',
           args: []
         },
-        description: 'Creates a new event from an existing one: copies venue (seats/zones instantiated for the new event\'s season+venue), tariffs (the source event\'s actual Tariff/TariffPrice rows, preserving any manual tweaks), and the event customization file. The new event always starts isOnSale=false with an empty QR bank.',
+        description: 'Creates a new event from an existing one: copies venue (seats/zones instantiated for the new event\'s season+venue), tariffs (the source event\'s actual Tariff/TariffPrice rows, preserving any manual tweaks), and the event customization file. The new event always starts sale=notopen, activity=draft with an empty QR bank.',
         templates: ['data/customization/events/<slug>.json'],
         notes: [
           'venueSlug/venueView are copied from the source event; season defaults to the source\'s season unless overridden.',
           'priceTableKey is always a fresh "ev:<newSlug>" — never shared with the source event.',
           'QR bank codes are never copied (one-shot, event-specific) — the new event starts with an empty bank.',
-          'Review tariffs/customization and use Set Event On-sale when ready — cloning does not open sales.'
+          'Review tariffs/customization and use Publish Event when ready — cloning does not open sales.'
         ],
         form: {
           fields: [
@@ -2139,18 +2157,19 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'event-set-onsale',
-        label: 'Set Event On-sale',
+        id: 'event-publish-event',
+        label: 'Publish Event (sale / activity)',
         order: 3,
-        path: 'scripts/04-event-management/set-onsale.js',
-        command: 'node scripts/04-event-management/set-onsale.js --event=<slug|ObjectId> [--open|--close]',
+        path: 'scripts/04-event-management/publish-event.js',
+        command: 'node scripts/04-event-management/publish-event.js --event=<slug|ObjectId> [--sale=<state>] [--activity=<state>]',
         run: {
-          script: 'scripts/04-event-management/set-onsale.js',
+          script: 'scripts/04-event-management/publish-event.js',
           args: []
         },
-        description: 'Opens or closes ticket sales for an event (use --open / --close / --on=true|false).',
+        description: 'Sets the event\'s sale lifecycle (notopen -> presale -> onsale -> [soldout] -> closed) and/or its activity lifecycle (draft -> active -> archived). Provide at least one of the two.',
         notes: [
-          'Accepts either the event slug or its MongoDB ObjectId.'
+          'Accepts either the event slug or its MongoDB ObjectId.',
+          'sale=onsale is what actually opens checkout to the public — the other sale states (notopen/presale/soldout/closed) all keep public checkout closed; partner presale quotas still apply on top unless sale is soldout or closed.'
         ],
         form: {
           fields: [
@@ -2160,6 +2179,30 @@ export const adminScriptGroups = [
               placeholder: 'match-2025-09-21-bts-vs-xxx',
               required: true,
               arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'sale',
+              label: 'État de vente (optionnel)',
+              arg: { type: 'option', template: '--sale=${value}' },
+              options: [
+                { label: '— (ne pas changer)', value: '' },
+                { label: 'Pas encore ouvert', value: 'notopen' },
+                { label: 'Prévente', value: 'presale' },
+                { label: 'En vente', value: 'onsale' },
+                { label: 'Complet', value: 'soldout' },
+                { label: 'Fermé', value: 'closed' }
+              ]
+            },
+            {
+              name: 'activity',
+              label: 'État de publication (optionnel)',
+              arg: { type: 'option', template: '--activity=${value}' },
+              options: [
+                { label: '— (ne pas changer)', value: '' },
+                { label: 'Brouillon', value: 'draft' },
+                { label: 'Actif', value: 'active' },
+                { label: 'Archivé', value: 'archived' }
+              ]
             }
           ]
         }

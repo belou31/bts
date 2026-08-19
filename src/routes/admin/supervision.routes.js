@@ -43,7 +43,7 @@ router.get('/summary', async (_req, res) => {
   try {
     const [subs, events, paidSum, pending, seatsBusy] = await Promise.all([
       Order.countDocuments({ phase: 'subscription', status: 'paid' }),
-      Event.countDocuments({ isOnSale: true }),
+      Event.countDocuments({ sale: 'onsale' }),
       Order.aggregate([
         { $match: { status: 'paid' } },
         { $group: { _id: null, total: { $sum: '$totalCents' } } }
@@ -66,12 +66,12 @@ router.get('/summary', async (_req, res) => {
 });
 
 // GET /admin/supervision/events
-// ?onSale=true|false (optional)
+// ?sale=notopen|presale|onsale|soldout|closed (optional)
 router.get('/events', async (req, res) => {
   try {
     const q = {};
-    if (typeof req.query.onSale !== 'undefined') {
-      q.isOnSale = String(req.query.onSale).toLowerCase() === 'true';
+    if (typeof req.query.sale !== 'undefined') {
+      q.sale = String(req.query.sale).trim();
     }
     const list = await Event.find(q).sort({ startsAt: 1 }).lean();
 
@@ -92,7 +92,8 @@ router.get('/events', async (req, res) => {
         slug: e.slug,
         name: e.name,
         startsAt: e.startsAt,
-        isOnSale: e.isOnSale,
+        sale: e.sale,
+        activity: e.activity,
         venueSlug: e.venueSlug,
         paidOrders: c.paid || 0,
         pendingOrders: c.pending || 0,

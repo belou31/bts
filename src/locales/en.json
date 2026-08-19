@@ -44,7 +44,9 @@
     "presaleSub": "Partner presale",
     "presaleRemaining": "Remaining: {{n}}",
     "presaleQuotaReached": "Presale quota reached",
-    "presaleQuotaUsed": "Quota used ({{n}})"
+    "presaleQuotaUsed": "Quota used ({{n}})",
+    "soldOut": "Sold out",
+    "soldOutSub": "No more tickets available"
   },
   "order": {
     "defaultHeading": "BTS Ticketing",

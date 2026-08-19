@@ -40,6 +40,7 @@ import { getRequestMetrics } from '../../services/requestMetrics.js';
 import { marked } from 'marked';
 import archiver from 'archiver';
 import { readRegistry as readGoogleLibraryRegistry } from '../../../scripts_online/google/install/lib/registry.js';
+import { readVenueViewNames } from '../../../scripts/lib/venue-view-names.js';
 
 const router = express.Router();
 
@@ -316,6 +317,7 @@ function listVenueViews(rootDir = DYNAMIC_VENUES_ROOT) {
 
 function listVenueResources(rootDir = DYNAMIC_VENUES_ROOT) {
   const venues = [];
+  const viewNames = readVenueViewNames();
   try {
     const entries = fs.readdirSync(rootDir, { withFileTypes: true }).filter(e => e.isDirectory());
     for (const entry of entries) {
@@ -345,6 +347,7 @@ function listVenueResources(rootDir = DYNAMIC_VENUES_ROOT) {
           const stats = fs.statSync(path.join(viewsDir, viewEntry.name));
           views.push({
             slug,
+            name: viewNames?.[venueSlug]?.[slug] || null,
             rel: `dynamic/venues/${venueSlug}/views/${viewEntry.name}`,
             size: stats.size,
             mtime: stats.mtime
@@ -442,7 +445,7 @@ function unauthorized(res) {
   return res.status(401).send('Unauthorized');
 }
 
-function adminAuth(req, res, next) {
+export function adminAuth(req, res, next) {
   // Bearer / query token
   const queryTok = (req.query.token || '').toString();
   const hdr      = (req.headers.authorization || '').toString();
@@ -470,11 +473,37 @@ const csvEscape = (v) => {
   const s = String(v);
   return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 };
+// Reshapes a Mongo aggregate result grouped by { zoneKey, status } (as produced
+// by both the season and event seat-status queries) into a table-friendly
+// shape: the distinct statuses seen (for column headers) and one row per zone
+// with a count per status plus a row total.
+function buildZoneBreakdown(zoneStatusRows = []) {
+  const zoneMap = new Map();
+  const statusSet = new Set();
+  for (const row of zoneStatusRows || []) {
+    const zoneKey = row?._id?.zoneKey || '—';
+    const status = row?._id?.status || 'unknown';
+    const count = row?.count || 0;
+    statusSet.add(status);
+    if (!zoneMap.has(zoneKey)) zoneMap.set(zoneKey, {});
+    zoneMap.get(zoneKey)[status] = (zoneMap.get(zoneKey)[status] || 0) + count;
+  }
+  const statuses = Array.from(statusSet).sort();
+  const zones = Array.from(zoneMap.entries())
+    .map(([zoneKey, statusCounts]) => ({
+      zoneKey,
+      statusCounts,
+      total: Object.values(statusCounts).reduce((a, b) => a + b, 0)
+    }))
+    .sort((a, b) => a.zoneKey.localeCompare(b.zoneKey, 'fr', { numeric: true, sensitivity: 'base' }));
+  return { statuses, zones };
+}
+
 async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
-  if (!eventDoc) return {};
+  if (!eventDoc) return { counts: {}, zoneBreakdown: { statuses: [], zones: [] } };
   const seasonCode = eventDoc.seasonCode || null;
   const venueSlug = eventDoc.venueSlug || null;
-  if (!seasonCode || !venueSlug) return {};
+  if (!seasonCode || !venueSlug) return { counts: {}, zoneBreakdown: { statuses: [], zones: [] } };
 
   const paidOrderMatch = orderMatch
     ? { ...orderMatch, status: 'paid' }
@@ -500,11 +529,12 @@ async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
     if (!seatId) continue;
     seatMap.set(seatId, {
       seatId,
+      zoneKey: seat?.zoneKey || '—',
       status: String(seat?.status || 'available').toLowerCase()
     });
   }
 
-  if (!seatMap.size) return {};
+  if (!seatMap.size) return { counts: {}, zoneBreakdown: { statuses: [], zones: [] } };
 
   for (const order of paidOrders || []) {
     for (const line of order?.lines || []) {
@@ -520,11 +550,13 @@ async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
   }
 
   const counts = {};
-  for (const { status } of seatMap.values()) {
+  const zoneStatusRows = [];
+  for (const { zoneKey, status } of seatMap.values()) {
     const key = status || 'unknown';
     counts[key] = (counts[key] || 0) + 1;
+    zoneStatusRows.push({ _id: { zoneKey, status: key }, count: 1 });
   }
-  return counts;
+  return { counts, zoneBreakdown: buildZoneBreakdown(zoneStatusRows) };
 }
 
 function mapSeatStateForPlan(statusRaw = '') {
@@ -633,6 +665,7 @@ router.get('/', (req, res) => {
       monitoring: null,
       planView: null,
       ordersView: null,
+      renewersView: null,
       ticketsView: null
     });
   }
@@ -648,6 +681,40 @@ router.get('/', (req, res) => {
   if (view === 'orders') target = urlFor('/admin/orders');
   if (view === 'tickets') target = urlFor('/admin/tickets');
   return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
+});
+
+// Landing/summary page for the "Advanced" category (Plan/Orders/Tickets) —
+// same role as /operate and /monitor's own overview pages.
+router.get('/advanced', (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: NAV_SCRIPT_GROUPS,
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    operateOptions: {
+      venues: [], seasons: [], events: [], partners: [], tariffCatalogs: [], adCampaignCatalogs: [],
+      inputFiles: [], assetFiles: [], customizationFiles: [], venueViews: []
+    },
+    viewMode: 'advanced',
+    monitorTab: null,
+    docTab: null,
+    monitoring: null,
+    planView: null,
+    ordersView: null,
+    renewersView: null,
+    ticketsView: null
+  });
 });
 
 router.get('/operate/io', (req, res) => {
@@ -690,6 +757,7 @@ router.get('/operate/io', (req, res) => {
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null
   });
 });
@@ -776,6 +844,7 @@ router.get('/doc', (req, res) => {
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null
   });
 });
@@ -918,6 +987,7 @@ router.get('/plan', async (req, res) => {
     docTab: 'references',
     monitoring: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null,
     planView: {
       seasons: (seasonsRaw || []).map(s => ({
@@ -931,7 +1001,8 @@ router.get('/plan', async (req, res) => {
         name: ev.name || '',
         startsAt: ev.startsAt || null,
         venueSlug: ev.venueSlug || null,
-        isOnSale: Boolean(ev.isOnSale)
+        sale: ev.sale || 'notopen',
+        activity: ev.activity || 'draft'
       })),
       selectedSeasonCode,
       selectedEventSlug: selectedEvent ? selectedEvent.slug : null,
@@ -942,7 +1013,8 @@ router.get('/plan', async (req, res) => {
             name: selectedEvent.name || '',
             startsAt: selectedEvent.startsAt || null,
             venueSlug: selectedEvent.venueSlug || null,
-            isOnSale: Boolean(selectedEvent.isOnSale)
+            sale: selectedEvent.sale || 'notopen',
+            activity: selectedEvent.activity || 'draft'
           }
         : null,
       venueSlug: effectiveVenueSlug,
@@ -1070,6 +1142,7 @@ router.get('/orders', async (req, res) => {
     monitoring: null,
     planView: null,
     ticketsView: null,
+    renewersView: null,
     ordersView: {
       seasons: (seasonsRaw || []).map(s => ({
         code: s.code,
@@ -1094,6 +1167,143 @@ router.get('/orders', async (req, res) => {
             venueSlug: selectedEvent.venueSlug || null
           }
         : null,
+      rows
+    }
+  });
+});
+
+const RENEWER_STATUSES = ['none', 'invited', 'pending', 'active', 'partial', 'canceled'];
+
+router.get('/renewers', async (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const seasonsRaw = await Season.find({}).sort({ code: -1 }).lean();
+  const defaultSeason = seasonsRaw.find(s => s.active) || seasonsRaw[0] || null;
+  const selectedSeasonCodeRaw = typeof req.query.season === 'string' && req.query.season
+    ? req.query.season
+    : (defaultSeason?.code || null);
+  const selectedSeason = seasonsRaw.find(s => s.code === selectedSeasonCodeRaw) || defaultSeason || null;
+  const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
+  // Subscriber is season+venue scoped (no event) — venue comes straight off
+  // the season document, same derivation the Plan panel uses for its own
+  // effectiveVenueSlug.
+  const selectedVenueSlug = selectedSeason?.venueSlug || null;
+
+  const statusFilter = RENEWER_STATUSES.includes(req.query.status) ? req.query.status : '';
+
+  let rows = [];
+  if (selectedSeasonCode && selectedVenueSlug) {
+    const query = { seasonCode: selectedSeasonCode, venueSlug: selectedVenueSlug };
+    if (statusFilter) query.status = statusFilter;
+
+    const subsRaw = await Subscriber.find(query)
+      .sort({ groupKey: 1, lastName: 1, firstName: 1 })
+      .lean();
+
+    const seatIds = [...new Set(subsRaw.map(s => s.prefSeatId).filter(Boolean))];
+    const realSeatIds = seatIds.filter(sid => !isVirtualZoneSeatId(sid));
+    const virtualSeatIds = seatIds.filter(sid => isVirtualZoneSeatId(sid));
+
+    const seatByPrefId = new Map();
+    if (realSeatIds.length) {
+      const seatsRaw = await Seat.find(
+        { seasonCode: selectedSeasonCode, venueSlug: selectedVenueSlug, seatId: { $in: realSeatIds } },
+        { seatId: 1, status: 1 }
+      ).lean();
+      for (const seat of seatsRaw) seatByPrefId.set(seat.seatId, seat.status);
+    }
+
+    // Standing-zone renewal lines have no Seat document to check — look at
+    // whether a paid/tobepaid order already covers the virtual seat id instead.
+    const paidVirtualSeatIds = new Set();
+    if (virtualSeatIds.length) {
+      const zoneOrders = await Order.find(
+        {
+          seasonCode: selectedSeasonCode, venueSlug: selectedVenueSlug,
+          'origin.flow': { $in: ['subscription', 'renew'] },
+          status: { $in: ['paid', 'tobepaid'] },
+          'lines.seatId': { $in: virtualSeatIds }
+        },
+        { 'lines.seatId': 1 }
+      ).lean();
+      for (const ord of zoneOrders) {
+        for (const line of (ord.lines || [])) {
+          if (line?.seatId && virtualSeatIds.includes(line.seatId)) paidVirtualSeatIds.add(line.seatId);
+        }
+      }
+    }
+
+    const seatStatusFor = (prefSeatId) => {
+      if (!prefSeatId) return null;
+      if (isVirtualZoneSeatId(prefSeatId)) return paidVirtualSeatIds.has(prefSeatId) ? 'booked' : 'not booked yet';
+      return seatByPrefId.get(prefSeatId) || 'unknown';
+    };
+
+    rows = subsRaw.map((s) => {
+      const fullName = [s.firstName, s.lastName].filter(Boolean).join(' ').trim();
+      return {
+        id: String(s._id),
+        subscriberNo: s.subscriberNo || '',
+        firstName: s.firstName || '',
+        lastName: s.lastName || '',
+        email: s.email || '',
+        phone: s.phone || '',
+        groupKey: s.groupKey || '',
+        prefSeatId: s.prefSeatId || '',
+        previousSeasonSeats: s.previousSeasonSeats || [],
+        status: s.status || 'none',
+        notes: s.notes || '',
+        lastInviteSentAt: s.lastInviteSentAt || null,
+        seatStatus: seatStatusFor(s.prefSeatId),
+        searchIndex: [fullName, s.email, s.groupKey, s.prefSeatId].filter(Boolean).join(' ').toLowerCase()
+      };
+    });
+  }
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: NAV_SCRIPT_GROUPS,
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    operateOptions: {
+      venues: [],
+      seasons: [],
+      events: [],
+      partners: [],
+      tariffCatalogs: [],
+      adCampaignCatalogs: [],
+      inputFiles: [],
+      assetFiles: [],
+      venueViews: []
+    },
+    viewMode: 'renewers',
+    monitorTab: 'tariffs',
+    docTab: 'references',
+    monitoring: null,
+    planView: null,
+    ordersView: null,
+    ticketsView: null,
+    renewersView: {
+      statuses: RENEWER_STATUSES,
+      seasons: (seasonsRaw || []).map(s => ({
+        code: s.code,
+        name: s.name || '',
+        active: Boolean(s.active),
+        venueSlug: s.venueSlug || null
+      })),
+      selectedSeasonCode,
+      selectedVenueSlug,
+      statusFilter,
       rows
     }
   });
@@ -1230,6 +1440,7 @@ router.get('/tickets', async (req, res) => {
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: {
       seasons: (seasonsRaw || []).map(s => ({
         code: s.code,
@@ -1392,6 +1603,7 @@ router.get('/operate', async (req, res) => {
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null
   });
 });
@@ -1547,7 +1759,8 @@ router.get('/monitor', async (req, res) => {
           count: { $sum: 1 },
           zoneKeys: { $addToSet: '$zoneKey' },
           tariffCodes: { $addToSet: '$tariffCode' },
-          currency: { $first: '$currency' }
+          currency: { $first: '$currency' },
+          channelLists: { $addToSet: '$channels' }
         }
       },
       { $sort: { '_id.catalogSlug': 1, '_id.venueSlug': 1 } }
@@ -1610,7 +1823,8 @@ router.get('/monitor', async (req, res) => {
     startsAt: e.startsAt,
     seasonCode: e.seasonCode,
     venueSlug: e.venueSlug,
-    isOnSale: e.isOnSale
+    sale: e.sale,
+    activity: e.activity
   }));
 
   const partnersList = (partnersRaw || []).map(p => ({
@@ -1627,7 +1841,8 @@ router.get('/monitor', async (req, res) => {
     active: t.active,
     priceTableKey: t.priceTableKey || null,
     requiresField: t.requiresField,
-    fieldLabel: t.fieldLabel
+    fieldLabel: t.fieldLabel,
+    channels: Array.isArray(t.channels) ? t.channels : []
   }));
 
   const tariffPriceCatalogGroups = tariffPriceCatalogGroupsAgg.map(g => ({
@@ -1637,6 +1852,11 @@ router.get('/monitor', async (req, res) => {
     zoneCount: (g.zoneKeys || []).length,
     tariffCount: (g.tariffCodes || []).length,
     currency: g.currency || 'EUR',
+    // channelLists is one array per distinct value seen (via $addToSet on the
+    // array field itself, so it's an array-of-arrays) — flatten + dedupe into
+    // the union of channels used anywhere in this catalog, since a single
+    // grouped row can't show a per-entry value.
+    channels: Array.from(new Set((g.channelLists || []).flat().filter(Boolean))),
     key: `${g._id.catalogSlug}|${g._id.venueSlug || ''}`
   }));
 
@@ -1657,7 +1877,8 @@ router.get('/monitor', async (req, res) => {
       tariffCode: e.tariffCode,
       priceCents: e.priceCents,
       partnerPriceCents: e.partnerPriceCents,
-      currency: e.currency || 'EUR'
+      currency: e.currency || 'EUR',
+      channels: Array.isArray(e.channels) ? e.channels : []
     }));
   }
 
@@ -1689,9 +1910,10 @@ router.get('/monitor', async (req, res) => {
   let subscriptionSeatCounts = {};
   let subscriptionTickets = [];
   let subscriptionSeatsSample = [];
+  let subscriptionZoneBreakdown = { statuses: [], zones: [] };
 
   if (selectedSeasonCode) {
-    const [ordersRaw, orderStatsAgg, seatStatsAgg, ticketsRaw, seatsRaw] = await Promise.all([
+    const [ordersRaw, orderStatsAgg, seatStatsAgg, ticketsRaw, seatsRaw, zoneSeatStatsAgg] = await Promise.all([
       Order.find(subscriptionMatch)
         .sort({ createdAt: -1 })
         .limit(20)
@@ -1711,7 +1933,11 @@ router.get('/monitor', async (req, res) => {
       Seat.find({ seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}) })
         .sort({ updatedAt: -1 })
         .limit(20)
-        .lean()
+        .lean(),
+      Seat.aggregate([
+        { $match: { seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}) } },
+        { $group: { _id: { zoneKey: '$zoneKey', status: '$status' }, count: { $sum: 1 } } }
+      ])
     ]);
 
     subscriptionOrders = ordersRaw.map(o => ({
@@ -1747,6 +1973,8 @@ router.get('/monitor', async (req, res) => {
       status: s.status,
       updatedAt: s.updatedAt
     }));
+
+    subscriptionZoneBreakdown = buildZoneBreakdown(zoneSeatStatsAgg);
   }
 
   const eventOrderMatch = selectedEventId
@@ -1761,6 +1989,7 @@ router.get('/monitor', async (req, res) => {
   let eventOrderStats = {};
   let eventTickets = [];
   let eventSeatCounts = {};
+  let eventZoneBreakdown = { statuses: [], zones: [] };
   let eventSubscribers = [];
   let eventScans = [];
   let eventAttendance = { kept: 0, released: 0, moved: 0 };
@@ -1794,7 +2023,7 @@ router.get('/monitor', async (req, res) => {
         .lean(),
       selectedEvent
         ? computeEventSeatCounts(selectedEvent, eventOrderMatch)
-        : Promise.resolve({}),
+        : Promise.resolve({ counts: {}, zoneBreakdown: { statuses: [], zones: [] } }),
       selectedEvent
         ? Subscriber.find({ seasonCode: selectedEvent.seasonCode, venueSlug: selectedEvent.venueSlug })
             .sort({ updatedAt: -1 })
@@ -1866,9 +2095,12 @@ router.get('/monitor', async (req, res) => {
       createdAt: t.createdAt
     }));
 
-    eventSeatCounts = (eventSeatCountsRaw && typeof eventSeatCountsRaw === 'object')
-      ? eventSeatCountsRaw
+    eventSeatCounts = (eventSeatCountsRaw && typeof eventSeatCountsRaw.counts === 'object')
+      ? eventSeatCountsRaw.counts
       : {};
+    eventZoneBreakdown = (eventSeatCountsRaw && eventSeatCountsRaw.zoneBreakdown)
+      ? eventSeatCountsRaw.zoneBreakdown
+      : { statuses: [], zones: [] };
 
     eventSubscribers = eventSubscribersRaw.map(s => ({
       id: String(s._id),
@@ -1929,6 +2161,7 @@ router.get('/monitor', async (req, res) => {
       orders: subscriptionOrders,
       orderStats: subscriptionOrderStats,
       seatCounts: subscriptionSeatCounts,
+      zoneBreakdown: subscriptionZoneBreakdown,
       tickets: subscriptionTickets,
       seats: subscriptionSeatsSample
     },
@@ -1941,13 +2174,15 @@ router.get('/monitor', async (req, res) => {
             startsAt: selectedEvent.startsAt,
             seasonCode: selectedEvent.seasonCode,
             venueSlug: selectedEvent.venueSlug,
-            isOnSale: selectedEvent.isOnSale
+            sale: selectedEvent.sale,
+            activity: selectedEvent.activity
           }
         : null,
       orders: eventOrders,
       orderStats: eventOrderStats,
       tickets: eventTickets,
       seatCounts: eventSeatCounts,
+      zoneBreakdown: eventZoneBreakdown,
       attendance: eventAttendance,
       subscribers: eventSubscribers,
       scans: eventScans
@@ -1993,6 +2228,7 @@ router.get('/monitor', async (req, res) => {
     monitoring,
     planView: null,
     ordersView: null,
+    renewersView: null,
     ticketsView: null,
     dynamicAssetsList,
     venueResources,
@@ -2549,8 +2785,8 @@ async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, stat
 
 async function zonesSnapshot() {
   const activeSeason = await Order.findOne({}).sort({ createdAt: -1 }).lean();
-  const seasonCode = activeSeason?.seasonCode || process.env.SEASON_CODE || null;
-  const venueSlug  = activeSeason?.venueSlug  || process.env.VENUE_SLUG  || null;
+  const seasonCode = activeSeason?.seasonCode || null;
+  const venueSlug  = activeSeason?.venueSlug  || null;
 
   // usagePaid = seulement "paid" (référence pour quota subscription)
   // usageAll  = tout sauf canceled/failed (diagnostic)

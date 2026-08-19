@@ -2,23 +2,27 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import jwt from 'jsonwebtoken';
 
 import { currentPaymentProviderLabel } from '../services/payments/index.js';
 import { Event } from '../models/Event.js';
 import { Season } from '../models/Season.js';
 import { Venue } from '../models/Venue.js';
 import { Order } from '../models/Order.js';
-import { loadCustomization } from '../services/customization.js';
+import { loadCustomization, resolveOrganizationName } from '../services/customization.js';
 import { formatDate } from '../utils/format.js';
 import { getPartnerConfig } from '../config/partners.js';
+import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
 
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
+import seatChangeApi from './seat-change.js';   // <- API: GET/POST /s/seat-change
 import fanclubRouter from './fanclub.js';
 import subscriptionRouter from './subscription.js';
 import eventRoutes from './event.js';
 import partnerRoutes, { adminRouter as partnerAdminRouter } from './partner.js';
 import adminRoutes from './admin/index.js';
 import supervisionRoutes from './admin/supervision.routes.js';
+import renewersRoutes from './admin/renewers.routes.js';
 import payRoutes from './pay.js';      
 import controlGuestlistRoutes from './control/guestlist.js';
 import qrRoutes   from './qr.js';
@@ -108,17 +112,43 @@ function formatEventDateLabel(startsAt, locale) {
 
 export default function routes(router) {
   // Page HTML "renew"
-  router.get('/renew', (req, res) => {
+  router.get('/renew', async (req, res) => {
     const providerName = currentPaymentProviderLabel();
     const qsIndex = req.originalUrl.indexOf('?');
     const suffix = qsIndex >= 0 ? req.originalUrl.slice(qsIndex) : '';
 
+    // The season isn't known server-side otherwise — it's only carried inside
+    // the renewal JWT (?id=), same token decoded by src/routes/renew.js.
+    let seasonName = '';
+    const token = String(req.query.id || '').trim();
+    if (token && process.env.JWT_SECRET) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded?.seasonCode) {
+          const seasonDoc = await Season.findOne({ code: decoded.seasonCode }).lean().catch(() => null);
+          seasonName = seasonDoc?.name || decoded.seasonCode;
+        }
+      } catch { /* invalid/expired token: fall back to season-agnostic copy below */ }
+    }
+    const lead = seasonName
+      ? `Renouvelez votre abonnement pour conserver vos sièges et accéder à l’ensemble des rencontres à domicile de la ${seasonName}.`
+      : 'Renouvelez votre abonnement pour conserver vos sièges et accéder à l’ensemble des rencontres à domicile.';
+
     res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
       title: 'Renouvellement d’abonnement — BTS',
       heading: 'Renouvellement d’abonnement',
-      lead: 'Renouvelez votre abonnement pour conserver vos sièges et accéder à l’ensemble des rencontres à domicile de la saison 2025-2026.',
+      lead,
       planHelp: 'Cliquez sur votre siège pour le renouveler. Les zones TBH7 et Debout restent accessibles via le plan.',
       scheduleOptions: null,
+      // Une place supplémentaire peut être prise en zone debout, pas seulement
+      // sur un siège numéroté : sans ce bloc, order/index.ejs ne rend pas le
+      // conteneur #zoneButtons et renew.js n'a nulle part où poser les boutons.
+      zoneSelector: {
+        enabled: true,
+        label: 'Choisir sur le plan ou ajouter une place en zone :',
+        addLabel: 'Ajouter',
+        options: []
+      },
       paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
       assets: ASSETS_BASE,
       config: {
@@ -126,11 +156,20 @@ export default function routes(router) {
           status: `s/renew${suffix}`,
           checkout: `s/renew${suffix}`
         },
-        selection: { type: 'seats' }
+        selection: { type: 'seats' },
+        // Le panier ne se déduit plus des sièges renvoyés : /s/renew expose
+        // désormais TOUTE la salle (nécessaire pour changer de place), donc
+        // laisser generic-view.js pré-remplir depuis `seats` mettrait le stade
+        // entier dans le panier. renew.js n'y met que les sièges du renouveleur.
+        buildRowsFromData: false
       },
       orderPageConfig: {
         focusField: 'payerEmail'
-      }
+      },
+      // Standing-zone renewal lines (e.g. "FAN_ZONE-Z001") have no SVG seat
+      // element to click, so renew.js (customJs below) adds them to the cart
+      // automatically instead of requiring a click. See public/static/js/renew.js.
+      customJs: [STATIC_PREFIX + 'js/renew.js']
     });
   });
 
@@ -324,6 +363,75 @@ export default function routes(router) {
     }
   });
 
+  // Abonné : changement de place pour UN match, depuis le mail de billets.
+  // La page ne fait que porter le plan ; tout est validé par /s/seat-change.
+  router.get('/seat-change', (req, res) => {
+    const token = String(req.query.id || '').trim();
+    if (!token) return res.status(400).send('Missing token');
+    const statusPath = path.posix.join(BASE_PATH || '/', 's', 'seat-change') +
+      `?id=${encodeURIComponent(token)}`;
+
+    // Vue de commande partagée : on ne veut d'elle que le plan (zoom,
+    // déplacement, plein écran, bascule de disposition). `sidePanel` remplace
+    // la colonne panier/paiement par la liste des places de l'abonné.
+    res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
+      title: 'Changer de place — BTS',
+      heading: 'Changer de place',
+      planHelp: 'Sélectionnez la place à changer à droite, puis cliquez sa nouvelle position sur le plan.',
+      // Chemin absolu : un include EJS se résout sinon depuis le dossier de la
+      // vue qui inclut (ici src/views/order/).
+      sidePanel: path.resolve(VIEWS_DIR, 'seat-change', 'panel'),
+      scheduleOptions: null,
+      showSchedule: false,
+      assets: ASSETS_BASE,
+      config: {
+        api: { status: statusPath, checkout: statusPath },
+        selection: { type: 'seats' },
+        // Aucun panier ici : les lignes sont rendues par le panneau latéral.
+        buildRowsFromData: false,
+        seatChange: { api: statusPath }
+      },
+      orderPageConfig: {},
+      customJs: [STATIC_PREFIX + 'js/seat-change.js']
+    });
+  });
+
+  // Public: list all events, open ones link straight to /event/:slug
+  router.get('/events', async (req, res) => {
+    try {
+      const events = await Event.find({ activity: 'active' }).sort({ startsAt: 1 }).lean();
+      const list = events.map(ev => {
+        const status = isEventOnSale(ev) ? 'sale_opened' : (ev.sale === 'soldout' ? 'sold_out' : 'sale_closed');
+        const link = status === 'sale_opened'
+          ? path.posix.join(BASE_PATH || '/', 'event', ev.slug)
+          : null;
+        return {
+          slug: ev.slug,
+          name: ev.name || ev.slug,
+          startsAt: ev.startsAt,
+          status,
+          link
+        };
+      });
+
+      if (req.accepts('json') && !req.accepts('html')) {
+        return res.json({ ok: true, events: list });
+      }
+
+      const brandLogo = path.posix.join(ASSETS_BASE.media, 'logo.svg');
+
+      res.render(path.resolve(VIEWS_DIR, 'events'), {
+        title: 'Événements — BTS',
+        events: list,
+        assets: ASSETS_BASE,
+        brand: { logo: brandLogo, alt: resolveOrganizationName() }
+      });
+    } catch (err) {
+      console.error('[events] error:', err?.message || err);
+      res.status(500).send('Error loading events');
+    }
+  });
+
   // Partner: list available events with shared token
   router.get('/partner/:partnerSlug/events', async (req, res) => {
     try {
@@ -358,8 +466,9 @@ export default function routes(router) {
           remaining = Math.max(0, quota - used);
         }
         const status = (() => {
-          if (ev.isOnSale === true) return 'sale_opened';
-          if (quota > 0) {
+          if (isEventOnSale(ev)) return 'sale_opened';
+          if (ev.sale === 'soldout') return 'sold_out';
+          if (!isEventSaleLocked(ev) && quota > 0) {
             if (remaining !== null && remaining <= 0) return 'presale_quota_reached';
             return 'presale_opened';
           }
@@ -367,7 +476,7 @@ export default function routes(router) {
         })();
         const expectedToken = expectedPartnerToken(partnerCfg, ev.slug);
         const sameToken = !expectedToken || expectedToken === providedToken;
-        const link = (sameToken && status !== 'sale_closed' && status !== 'presale_quota_reached')
+        const link = (sameToken && status !== 'sale_closed' && status !== 'presale_quota_reached' && status !== 'sold_out')
           ? path.posix.join(BASE_PATH || '/', 'partner', partnerSlug, 'event', ev.slug) +
               (providedToken ? `?token=${encodeURIComponent(providedToken)}` : '')
           : null;
@@ -389,11 +498,10 @@ export default function routes(router) {
 
       const brandLogo = path.posix.join(ASSETS_BASE.media, 'logo.svg');
 
-      res.render(path.resolve(VIEWS_DIR, 'partner', 'events'), {
+      res.render(path.resolve(VIEWS_DIR, 'events'), {
         title: `${partnerCfg.name || partnerSlug} — Événements`,
         partner: partnerCfg,
         events: list,
-        providedToken,
         assets: ASSETS_BASE,
         brand: { logo: brandLogo, alt: partnerCfg.name || partnerSlug }
       });
@@ -629,6 +737,8 @@ export default function routes(router) {
 
   router.use('/admin/supervision', supervisionRoutes);
 
+  router.use('/admin/renewers', renewersRoutes);
+
   router.use('/', scanRoutes);
   router.use('/', controlGuestlistRoutes);
 
@@ -637,6 +747,7 @@ export default function routes(router) {
 
   // API sous /s
   router.use('/s', renewApi);
+  router.use('/s', seatChangeApi);   // GET/POST /s/seat-change
 
 
   // ✨ Routes paiement (return, back, error, webhook)

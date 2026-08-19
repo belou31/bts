@@ -6,6 +6,7 @@ import SVGtoPDF from 'svg-to-pdfkit';
 import { Event } from '../models/Event.js';
 import { Venue } from '../models/Venue.js';
 import { hexToQrSvg, renderQrSvg, signCode } from './qr.js';
+import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { Tariff } from '../models/Tariff.js';
 import { AdCampaign } from '../models/AdCampaign.js';
 import { AdCampaignPlacement } from '../models/AdCampaignPlacement.js';
@@ -14,7 +15,7 @@ import { formatDate } from '../utils/format.js';
 // Aliased: this file already uses `t` as a local variable for the current
 // ticket object throughout buildTicketsPdfBuffer's loop.
 import { t as translate } from '../utils/i18n.js';
-import { resolveThemeForOrder, resolveLogoRefForOrder } from './customization.js';
+import { resolveThemeForOrder, resolveLogoRefForOrder, resolveOrganizationName } from './customization.js';
 
 // --- Emplacements / chemins par défaut
 const TICKET_ROOT_RUNTIME     = path.resolve(process.cwd(), 'data', 'templates');
@@ -232,7 +233,7 @@ function escapeXml(s) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function applyVars(svg, vars) {
-  return svg.replace(/\{\{\s*([A-Z_]+)\s*\}\}/g, (_m, k) => {
+  return svg.replace(/\{\{\s*([A-Z0-9_]+)\s*\}\}/g, (_m, k) => {
     const v = vars[k];
     return (v === undefined || v === null) ? '' : escapeXml(String(v));
   });
@@ -309,7 +310,15 @@ function findOrderLineForTicket(ticket, order) {
   }
 
   if (ticket?.seatId) {
-    const bySeat = lines.find(l => String(l.seatId||'') === String(ticket.seatId||''));
+    const sid = String(ticket.seatId||'');
+    // Le siège effectif d'une ligne peut différer de line.seatId : un
+    // changement de place pour UN match est stocké en override
+    // (utils/event-attendance.js) et laisse la ligne d'origine intacte. Sans
+    // la seconde comparaison, le ticket d'une place déplacée ne retrouverait
+    // plus sa ligne — donc plus son bénéficiaire — dès que l'appariement par
+    // position ne suffit pas.
+    const bySeat = lines.find(l => String(l.seatId||'') === sid
+      || String(resolveLinePlacement(l).seatId||'') === sid);
     if (bySeat) return bySeat;
   }
   if (ticket?.zoneKey) {
@@ -448,7 +457,7 @@ export async function buildTicketsPdfBuffer(order) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    const clubName = process.env.CLUB_NAME || 'Les Bélougas';
+    const clubName = resolveOrganizationName();
     const eventName = ev?.name || order?.meta?.eventName || translate('common.match', order?.locale);
     const eventStartsAt = ev?.startsAt || order?.createdAt;
     let venueName = ev?.venueName || '';
