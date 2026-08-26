@@ -26,7 +26,7 @@ const AdCampaignPlacementSchema = new mongoose.Schema({
 
   tariffCode: { type: String, default: null, trim: true, uppercase: true },
   zoneKey:    { type: String, default: null, trim: true, uppercase: true },
-  zoneType:   { type: String, enum: ['seated', 'standing', 'fanclub', null], default: null },
+  zoneType:   { type: String, enum: ['seated', 'standing', null], default: null },
 
   priority: { type: Number, default: 100 },
   startsAt: { type: Date, default: null },

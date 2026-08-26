@@ -5,12 +5,15 @@
  * Usage:
  *   node scripts/04-event-management/instantiate-ad-campaigns.js --event=<slug>
  *     --catalog=sponsors-2026[,sponsors-2026-extra]
- *     [--clear] [--dry-run]
+ *     [--clear] [--dry-run] [--set-theme=<value>]
  *
  * Behaviour:
  *   - Loads AdCampaignCatalog rows (global + venue-specific) for each catalog slug.
  *   - Upserts AdCampaignPlacement documents scoped to the event's priceTableKey.
  *   - Use --clear to remove existing AdCampaignPlacement rows for that priceTableKey before upserting.
+ *   - --set-theme=<value>: also sets Event.templateTheme (see set-event-theme.js),
+ *     so this event's ticket/email switch to the matching themed template —
+ *     opt-in, not automatic; omit to leave the event's template untouched.
  *
  * Does not touch AdCampaign masters (asset/targetUrl) — see set-ad-campaign.js.
  */
@@ -35,6 +38,7 @@ const argv = yargs(hideBin(process.argv))
   .option('catalog', { type: 'string', demandOption: true, desc: 'Un ou plusieurs catalogues AdCampaignCatalog (slug[,slug2])' })
   .option('clear', { type: 'boolean', default: false, desc: 'Supprime d\'abord les AdCampaignPlacement existants pour cette table' })
   .option('dry-run', { type: 'boolean', default: false, desc: 'Ne fait aucun upsert' })
+  .option('set-theme', { type: 'string', desc: 'Définit aussi Event.templateTheme (voir set-event-theme.js) — optionnel' })
   .help()
   .argv;
 
@@ -144,6 +148,12 @@ try {
   }
 
   console.log(`✅ AdCampaignPlacement upserts=${upserts}`);
+
+  if (argv['set-theme']) {
+    const nextTheme = String(argv['set-theme']).trim();
+    await Event.updateOne({ _id: event._id }, { $set: { templateTheme: nextTheme } });
+    console.log(`✅ Event.templateTheme="${nextTheme}" (ticket + email switchent vers ce thème s'il existe)`);
+  }
 
   await mongoose.disconnect();
   process.exit(0);

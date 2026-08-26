@@ -14,7 +14,8 @@ Cette page décrit les flux métier réellement exposés par BTS au runtime.
 | Renouvellement | `/renew?id=...` | `/s/renew` | PSP via intent | `/pay/*` |
 | Abonnement saison | `/subscription` ou `/season/:seasonCode` | `/api/season/*` | PSP via intent | `/pay/*` |
 | Vente événementielle | `/event/:ev` | `/api/event/*` | PSP via intent | `/pay/*` |
-| Vente partenaire | `/partner/:partnerSlug/event/:eventId` | routeur partenaire | PSP ou réservation facture | `/pay/*` ou finalisation directe |
+| Vente partenaire (événement) | `/partner/:partnerSlug/event/:eventId` | routeur partenaire | PSP ou réservation facture | `/pay/*` ou finalisation directe |
+| Vente partenaire (abonnement) | `/partner/:partnerSlug/season/:seasonCode` | routeur abonnement, canal partenaire | PSP ou réservation facture | `/pay/*` ou finalisation directe |
 | Automatisation | pas de page publique | `/api/automation/*` | sans objet | job API |
 | Contrôle d'accès | interface scan/guestlist | routes `control/*` | sans objet | lecture tickets / scans |
 
@@ -73,13 +74,14 @@ Après paiement confirmé :
 
 Deux points d'entrée existent :
 
-- `/subscription` : redirection vers la saison active
-- `/season/:seasonCode` : page explicite d'abonnement
+- `/subscription` : redirection vers la saison dont la porte `subscribe` est ouverte
+- `/season/:seasonCode/subscribe` : page explicite d'abonnement
+- `/season/:seasonCode` : redirige vers `/season/:seasonCode/subscribe`
 
 La page charge une vue de type `order` avec sélection :
 
 - par siège réel
-- ou par zone debout/fanclub selon la configuration
+- ou par zone debout selon la configuration
 
 ### Lecture de l'état
 
@@ -277,3 +279,52 @@ Les surfaces de contrôle et de supervision permettent ensuite :
 - [Paiements](payments.md)
 - [API d’automatisation](automation-api.md)
 - [Runbook d’exploitation](operations-runbook.md)
+
+
+## Abonnements vendus par un partenaire
+
+`/partner/:partnerSlug/season/:seasonCode` sert la vue partenaire branchée sur
+l'API d'abonnement : `/api/partner/:partnerSlug/season/:seasonCode/{status,checkout}`.
+
+C'est **le même routeur** que `/api/season/...`, monté une seconde fois derrière
+la garde partenaire. Le flux (prix, zones, quotas de zone, holds, commande) est
+donc rigoureusement celui de l'abonnement public ; seul le canal change.
+
+### Quota
+
+Déclaré dans `data/customization/partners.json` :
+
+```json
+{ "slug": "partner01", "presale": { "seasons": { "2026-2027": { "quota": 50 } } } }
+```
+
+posé par :
+
+```bash
+node scripts/05-partner-management/set-partner-presale.js --partner=partner01 --season=2026-2027 --quota=50
+```
+
+Le quota se compte en **abonnements**, pas en événements ni en places : une
+ligne de commande vaut une unité, que l'abonné ait pris un siège nominatif ou
+une place en zone. Le décompte vit dans `src/services/partner-presale.js`.
+
+### Qui peut acheter
+
+Règle unique dans `src/services/season-access.js`, partagée par la page et
+l'API — sans quoi la page pourrait s'ouvrir sur un formulaire qui échoue au
+paiement.
+
+| Saison | Public | Partenaire sans quota | Partenaire avec quota |
+|---|---|---|---|
+| `subscribe=notopen` | ✗ | ✗ | ✓ tant qu'il reste du quota (anticipation) |
+| `subscribe=open` | ✓ | ✓ | ✓ tant qu'il reste du quota |
+| `subscribe=closed` | ✗ | ✗ | ✗ (arrêt dur) |
+| `activity=archived` | ✗ | ✗ | ✗ (arrêt dur) |
+
+Deux points à connaître :
+
+- Le quota **saison** reste un plafond même après l'ouverture publique : il
+  exprime une allocation contractuelle. Le quota **événement**, lui, ne borne
+  que la fenêtre de prévente. C'est une divergence assumée entre les deux.
+- Les commandes partenaire portent `meta.partner.slug` : c'est la clé sur
+  laquelle se compte le quota, et celle qu'interroge `/partner/:slug/admin`.

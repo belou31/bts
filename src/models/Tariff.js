@@ -28,15 +28,15 @@ const TariffSchema = new mongoose.Schema({
 TariffSchema.index({ active: 1, sortOrder: 1 });
 
 // --- Indexes d'unicité "mutuellement exclusifs" via filtres partiels ---
-// 1) Cas historique (abonnement) : pas de priceTableKey => code unique global
-TariffSchema.index(
-  { code: 1 },
-  {
-    unique: true,
-    name: 'uniq_code_global_when_no_priceTableKey',
-    partialFilterExpression: { priceTableKey: { $exists: false } }
-  }
-);
+// 1) Cas historique (abonnement) : pas de priceTableKey => code unique global.
+//
+// Un seul index suffit : dans un partialFilterExpression, `priceTableKey: null`
+// couvre À LA FOIS le champ absent et le champ explicitement null (vérifié).
+// Il a existé ici un second index filtré sur `{ $exists: false }` pour le cas
+// "absent" — MongoDB le refuse (« Expression not supported in partial index:
+// $not »), il n'a donc jamais été créé nulle part, et il ne manquait rien : le
+// filtre `null` le rendait de toute façon redondant. Retiré pour que
+// sync-indexes.mjs cesse de signaler une erreur sans objet.
 TariffSchema.index(
   { code: 1 },
   {

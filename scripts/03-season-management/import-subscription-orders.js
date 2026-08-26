@@ -211,6 +211,12 @@ function orderFromRows(orderId, group) {
       priceCents: toNumber(row.priceCents || 0, 0),
       holderFirstName: row.holderFirstName || '',
       holderLastName: row.holderLastName || '',
+      // Optional — not in CSV_COLUMNS so older CSVs without them still import,
+      // but read them when present so a tariff requiring extra info (see
+      // Tariff.requiresField/fieldLabel) round-trips through export→import.
+      justif: row.justif || '',
+      justificationField: row.justificationField || '',
+      info: row.info || '',
       isVirtualSeat
     };
   }).sort((a, b) => a.lineIndex - b.lineIndex);
@@ -339,7 +345,10 @@ async function main() {
         tariffCode: l.tariffCode || 'NORMAL',
         priceCents: l.priceCents || 0,
         holderFirstName: l.holderFirstName || '',
-        holderLastName:  l.holderLastName  || ''
+        holderLastName:  l.holderLastName  || '',
+        justif: l.justif || '',
+        justificationField: l.justificationField || '',
+        info: l.info || ''
       })),
       totalCents: parsed.totalCents || 0,
       status,

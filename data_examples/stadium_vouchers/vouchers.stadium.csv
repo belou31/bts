@@ -1,0 +1,8 @@
+label;total;maxPerEvent;zones;tags;seasons;events;expires;note
+École Jean Moulin;20;20;S1,S3;regular;;;2027-06-30;Classe entière sur un seul match — plafond = total
+Centre social Les Tilleuls;12;4;S3;regular;;;2027-06-30;Étalé sur plusieurs matchs, 4 places à la fois
+Cadeau anniversaire Camille;2;0;;regular;;;2027-06-30;Petit bon fan, aucune restriction de zone
+Tombola club;6;2;S1,S2,S3;regular;;;2027-03-31;Zones assises uniquement, échéance courte
+Partenaire local Boulangerie Girard;4;2;VIP;;;;2027-06-30;Zone VIP, aucune contrainte de tag
+Invitation presse J1;2;2;E;;;match01-2027;;Match unique, désigné explicitement
+Bon fin de saison (calendrier inconnu);10;4;S1,S3;regular;test8-2027;;2027-12-31;Aucun match listé : la règle saison+tag suffit

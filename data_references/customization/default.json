@@ -15,5 +15,7 @@
   "renew.emailSubject": { "fr": "Confirmation – Abonnement (Renouvellement)", "en": "Confirmation – Season Pass (Renewal)" },
   "subscription.emailSubject": { "fr": "Confirmation – Abonnement", "en": "Confirmation – Season Pass" },
   "event.emailSubject": { "fr": "Confirmation – Billetterie", "en": "Confirmation – Tickets" },
+  "event.subscriberNote": {"fr": "Ces places sont incluses dans votre abonnement : rien à régler pour ce match.", "en": "These seats are included in your season pass: nothing to pay for this match."},
+  "event.voucherNote": {"fr": "Ces places vous sont offertes : aucun paiement n'est demandé.", "en": "These seats are complimentary: no payment is required."},
   "public.emailSubject": { "fr": "Confirmation", "en": "Confirmation" }
 }

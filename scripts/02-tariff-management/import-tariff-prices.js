@@ -141,6 +141,10 @@ function detectFormat(hdrLC, explicit) {
   const hasListSig =
     hdrLC.includes('zonekey') ||
     hdrLC.includes('zone') ||
+    // Une grille entièrement par méta-zone n'a pas de colonne zoneKey.
+    hdrLC.includes('metazone') ||
+    hdrLC.includes('category') ||
+    hdrLC.includes('categorie') ||
     hdrLC.includes('pricecents') ||
     hdrLC.includes('priceeuro') ||
     hdrLC.includes('prix') ||
@@ -197,6 +201,9 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
     if (headerInfo.mode === 'list') {
       const map = Object.fromEntries(headerInfo.headerLC.map((name, idx) => [name, cells[idx]]));
       const zoneKey = String(map.zonekey || map.zone || '').trim().toUpperCase();
+      // Une ligne vise SOIT une zone, SOIT une méta-zone : écrire la
+      // grille une fois pour « CAT2 » plutôt que de la recopier sur S1, S3, N.
+      const metaZone = String(map.metazone || map.category || map.categorie || '').trim().toUpperCase();
       const tariffCode = String(map.tariffcode || map.code || '').trim().toUpperCase();
       const rawPriceCents = map.pricecents;
       const rawPrice = rawPriceCents ?? map.priceeuro ?? map.prix ?? map.prix_euro ?? map.price;
@@ -208,8 +215,13 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
       const priceCents = rawPriceCents !== undefined && rawPriceCents !== null && rawPriceCents !== ''
         ? parseExplicitCents(rawPriceCents)
         : parsePriceCell(rawPrice);
-      if (!zoneKey || !tariffCode || !Number.isFinite(priceCents)) {
-        console.warn(`[import-tariff-prices] Ligne ${rowCount}: données incomplètes (zone=${zoneKey}, tarif=${tariffCode}, prix=${rawPrice}) → ignorée`);
+      if (Boolean(zoneKey) === Boolean(metaZone)) {
+        console.warn(`[import-tariff-prices] Ligne ${rowCount}: renseigner zoneKey OU metaZone, pas les deux ni aucun (zone=${zoneKey}, méta-zone=${metaZone}) → ignorée`);
+        skips++;
+        continue;
+      }
+      if (!tariffCode || !Number.isFinite(priceCents)) {
+        console.warn(`[import-tariff-prices] Ligne ${rowCount}: données incomplètes (zone=${zoneKey || metaZone}, tarif=${tariffCode}, prix=${rawPrice}) → ignorée`);
         skips++;
         continue;
       }
@@ -218,7 +230,8 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
         : '';
       const parsedChannels = headerInfo.hasChannels ? serializeChannelList(channelsRaw) : undefined;
       entries.push({
-        zoneKey,
+        zoneKey: zoneKey || null,
+        metaZone: metaZone || null,
         tariffCode,
         priceCents,
         partnerPriceCents: headerInfo.hasPartnerPrice
@@ -346,6 +359,7 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
         catalogSlug,
         venueSlug,
         zoneKey: entry.zoneKey,
+        metaZone: entry.metaZone ?? null,
         tariffCode: entry.tariffCode,
         priceCents: entry.priceCents,
         currency: entry.currency || 'EUR',
@@ -364,6 +378,7 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
           catalogSlug,
           venueSlug,
           zoneKey: entry.zoneKey,
+          metaZone: entry.metaZone ?? null,
           tariffCode: entry.tariffCode
         },
         updateDoc,
@@ -378,6 +393,7 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
         catalogSlug,
         venueSlug,
         zoneKey: entry.zoneKey,
+        metaZone: entry.metaZone ?? null,
         tariffCode: entry.tariffCode,
         priceCents: entry.priceCents,
         currency: entry.currency || 'EUR',
@@ -397,6 +413,7 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
             catalogSlug,
             venueSlug,
             zoneKey: entry.zoneKey,
+            metaZone: entry.metaZone ?? null,
             tariffCode: entry.tariffCode
           },
           update: updateDoc,

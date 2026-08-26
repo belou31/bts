@@ -1037,6 +1037,7 @@
   <% const baseOrders = urlFor('/admin/orders') + tokenQueryString; %>
   <% const baseTickets = urlFor('/admin/tickets') + tokenQueryString; %>
   <% const baseRenewers = urlFor('/admin/renewers') + tokenQueryString; %>
+  <% const baseVouchers = urlFor('/admin/vouchers') + tokenQueryString; %>
   <% const baseAdvanced = urlFor('/admin/advanced') + tokenQueryString; %>
   <%
     // Two-level nav: "BTS Admin" picks a category; a second dropdown (only
@@ -1051,7 +1052,7 @@
     // first chapter ("Custo files").
     const activeCategoryId = ['io'].includes(viewMode)
       ? 'operate'
-      : ['plan', 'orders', 'tickets', 'renewers'].includes(viewMode)
+      : ['plan', 'orders', 'tickets', 'renewers', 'vouchers'].includes(viewMode)
         ? 'advanced'
         : viewMode;
     const navCategories = [
@@ -1094,14 +1095,16 @@
         { id: 'tariffs', label: 'Tarifs', description: 'Catalogues et grilles tarifaires par lieu/saison.', href: monitorHref('tariffs'), active: viewMode === 'monitor' && monitorTab === 'tariffs' },
         { id: 'seasons', label: 'Saisons', description: 'Saisons enregistrées et leur statut.', href: monitorHref('seasons'), active: viewMode === 'monitor' && monitorTab === 'seasons' },
         { id: 'events', label: 'Événements', description: 'Événements enregistrés et leur statut de vente.', href: monitorHref('events'), active: viewMode === 'monitor' && monitorTab === 'events' },
-        { id: 'partners', label: 'Partenaires', description: 'Partenaires configurés, mode de paiement, tarifs publics.', href: monitorHref('partners'), active: viewMode === 'monitor' && monitorTab === 'partners' }
+        { id: 'partners', label: 'Partenaires', description: 'Partenaires configurés, mode de paiement, tarifs publics.', href: monitorHref('partners'), active: viewMode === 'monitor' && monitorTab === 'partners' },
+        { id: 'ticket', label: 'Ticket', description: 'Templates de billets, catalogue de campagnes publicitaires, assets sponsors.', href: monitorHref('ticket'), active: viewMode === 'monitor' && monitorTab === 'ticket' }
       ],
       advanced: [
         { id: 'overview', label: 'Overview', href: baseAdvanced, active: showAdvancedIntro },
         { id: 'plan', label: 'Plan', description: 'Visualisation du plan de salle, occupation des sièges, ajustement de présence.', href: basePlan, active: viewMode === 'plan' },
         { id: 'orders', label: 'Orders', description: 'Recherche et détail des commandes, ajustement de présence.', href: baseOrders, active: viewMode === 'orders' },
         { id: 'tickets', label: 'Tickets', description: 'Recherche et détail des billets émis.', href: baseTickets, active: viewMode === 'tickets' },
-        { id: 'renewers', label: 'Renewers', description: 'Suivi des lignes de renouvellement (statut, lien, envoi, annulation).', href: baseRenewers, active: viewMode === 'renewers' }
+        { id: 'renewers', label: 'Renewers', description: 'Suivi des lignes de renouvellement (statut, lien, envoi, annulation).', href: baseRenewers, active: viewMode === 'renewers' },
+        { id: 'vouchers', label: 'Vouchers', description: 'Bons cadeaux : solde, retraits, suspension, prolongation.', href: baseVouchers, active: viewMode === 'vouchers' }
       ]
     };
     const activeCategory = navCategories.find((c) => c.id === activeCategoryId);
@@ -1740,6 +1743,115 @@
         </div>
       </div>
     </div>
+  <% } %>
+
+  <% if (viewMode === 'vouchers' && vouchersView) { %>
+    <section class="panel">
+      <h2>Bons cadeaux</h2>
+      <form method="get" action="<%= baseVouchers %>" class="records-toolbar">
+        <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+        <label>
+          Statut
+          <select name="status" data-auto-submit="change">
+            <option value="">Tous</option>
+            <% for (const st of vouchersView.statuses) { %>
+              <option value="<%= st %>" <%= st === vouchersView.statusFilter ? 'selected' : '' %>><%= st %></option>
+            <% } %>
+          </select>
+        </label>
+        <noscript><button type="submit" class="btn btn-small">Filtrer</button></noscript>
+      </form>
+
+      <% if (!vouchersView.rows.length) { %>
+        <div class="empty-state">Aucun bon.</div>
+      <% } else { %>
+        <div class="scroll-table-full">
+          <table>
+            <tr>
+              <th>Code</th><th>Libellé</th><th>Solde</th><th>Par match</th>
+              <th>Échéance</th><th>Portée</th><th>Statut</th><th>Actions</th>
+            </tr>
+            <% for (const v of vouchersView.rows) { %>
+              <tr data-voucher-id="<%= v.id %>">
+                <td><code><%= v.code %></code></td>
+                <td>
+                  <%= v.label || '—' %>
+                  <% if (v.redemptions.length) { %>
+                    <br><small class="muted"><%= v.redemptions.length %> retrait(s) :
+                      <%= v.redemptions.map(r => `${r.eventSlug} ×${r.qty}`).join(', ') %>
+                    </small>
+                  <% } %>
+                </td>
+                <td><strong><%= v.remaining %></strong> / <%= v.total %></td>
+                <td><%= v.maxPerEvent > 0 ? v.maxPerEvent : '—' %></td>
+                <td>
+                  <%= v.expiresAt ? new Date(v.expiresAt).toLocaleDateString() : '—' %>
+                  <% if (v.expired) { %><br><small class="muted">expiré</small><% } %>
+                </td>
+                <td>
+                  <% if (v.allowedZones.length) { %><small>zones : <%= v.allowedZones.join(', ') %></small><br><% } %>
+                  <% if (v.eligibility.events.length) { %><small>matchs : <%= v.eligibility.events.join(', ') %></small><br><% } %>
+                  <% if (v.eligibility.seasonCodes.length) { %><small>saisons : <%= v.eligibility.seasonCodes.join(', ') %></small><br><% } %>
+                  <% if (v.eligibility.tags.length) { %><small>tags : <%= v.eligibility.tags.join(', ') %></small><% } %>
+                  <% if (!v.allowedZones.length && !v.eligibility.events.length && !v.eligibility.seasonCodes.length && !v.eligibility.tags.length) { %>—<% } %>
+                </td>
+                <td><span class="voucher-status"><%= v.status %></span></td>
+                <td class="voucher-actions">
+                  <button type="button" class="btn btn-small" data-voucher-action="link">Lien</button>
+                  <% if (v.status === 'active') { %>
+                    <button type="button" class="btn btn-small" data-voucher-action="suspend">Suspendre</button>
+                  <% } else if (v.status === 'suspended') { %>
+                    <button type="button" class="btn btn-small" data-voucher-action="activate">Réactiver</button>
+                  <% } %>
+                  <button type="button" class="btn btn-small" data-voucher-action="extend">Prolonger</button>
+                </td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } %>
+    </section>
+
+    <script>
+      (function () {
+        const base = <%- JSON.stringify(urlFor('/admin/vouchers')) %>;
+        const tokenQS = <%- JSON.stringify(tokenQueryString || '') %>;
+        document.querySelectorAll('[data-voucher-action]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const row = btn.closest('[data-voucher-id]');
+            const id = row?.dataset.voucherId;
+            const action = btn.dataset.voucherAction;
+            if (!id) return;
+
+            if (action === 'link') {
+              const res = await fetch(`${base}/${id}/link${tokenQS}`);
+              const data = await res.json().catch(() => ({}));
+              if (data.ok) {
+                // prompt() plutôt qu'une copie muette : le lien doit pouvoir
+                // être relu et collé dans un mail ou une commande d'impression.
+                window.prompt('Lien du bon ' + data.code, data.url);
+              } else { alert('Erreur : ' + (data.error || 'inconnue')); }
+              return;
+            }
+
+            let body = null;
+            if (action === 'extend') {
+              const v = window.prompt('Nouvelle échéance (AAAA-MM-JJ)');
+              if (!v) return;
+              body = JSON.stringify({ expiresAt: v });
+            }
+            const res = await fetch(`${base}/${id}/${action}${tokenQS}`, {
+              method: 'POST',
+              headers: body ? { 'Content-Type': 'application/json' } : {},
+              body
+            });
+            const data = await res.json().catch(() => ({}));
+            if (data.ok) window.location.reload();
+            else alert('Erreur : ' + (data.error || 'inconnue'));
+          });
+        });
+      })();
+    </script>
   <% } %>
 
   <% if (viewMode === 'renewers' && renewersView) { %>
@@ -2830,7 +2942,7 @@
       <% if (monitoring.lists.seasons && monitoring.lists.seasons.length) { %>
         <div class="scroll-table-full" style="margin-bottom:16px;">
           <table>
-            <tr><th>Code</th><th>Nom</th><th>Statut</th><th>Lieu</th><th>Phases</th><th>Lien public</th><th></th></tr>
+            <tr><th>Code</th><th>Nom</th><th>Statut</th><th>Lieu</th><th>Renouvellement</th><th>Abonnement</th><th>Lien public</th><th></th></tr>
             <% for (const s of monitoring.lists.seasons) {
                  const publicUrl = urlFor('/season/' + s.code);
                  const detailUrl = `${monitorHref('seasons')}&season=${encodeURIComponent(s.code)}`;
@@ -2838,9 +2950,9 @@
               <tr>
                 <td><code><%= s.code %></code></td>
                 <td><%= s.name || '—' %></td>
-                <td><%= s.active ? 'Active' : 'Inactive' %></td>
-                <td><%= s.venueSlug || '—' %></td>
-                <td><%= s.phaseCount %></td>
+                <td><%= s.activity %></td>
+                <td><%= s.renew %></td>
+                <td><%= s.subscribe %></td>
                 <td><a href="<%= publicUrl %>" target="_blank" rel="noopener"><%= publicUrl %></a></td>
                 <td><a class="btn btn-small" href="<%= detailUrl %>">Détail</a></td>
               </tr>
@@ -3313,6 +3425,94 @@
       <% } else { %>
         <div class="empty-state">Aucun partenaire configuré.</div>
       <% } %>
+    </div>
+    <div class="monitoring-panel <%= monitorTab === 'ticket' ? 'active' : '' %>" data-monitor-panel="ticket">
+      <div class="io-subsection">
+        <h3>Templates de billets (data/templates/templates.json)</h3>
+        <% if (!ticketTemplatesList || !ticketTemplatesList.length) { %>
+          <div class="empty-state">Aucun template de billet configuré — voir "Import Email/Ticket Template" (chapitre 02 — Ticket/Ad) pour en définir un.</div>
+        <% } else { %>
+          <div class="scroll-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Kind</th>
+                  <th>Fichier</th>
+                  <th>Logo</th>
+                  <th>Présent sur disque ?</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% for (const t of ticketTemplatesList) { %>
+                  <tr>
+                    <td><code><%= t.kind %></code></td>
+                    <td><code><%= t.file || '—' %></code></td>
+                    <td><code><%= t.logo || '—' %></code></td>
+                    <td><%= t.exists ? 'Oui' : '⚠ Absent' %></td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+          <div class="muted">Un kind absent de ce tableau retombe sur <code>tickets/ticket.svg</code> — voir <code>buildTicketsPdfBuffer</code> dans <code>src/services/tickets-pdf.js</code>.</div>
+        <% } %>
+      </div>
+
+      <div class="io-subsection">
+        <h3>Catalogue de campagnes publicitaires (AdCampaignCatalog)</h3>
+        <% const adCatalogList = monitoring.lists.adCampaignCatalog || []; %>
+        <% if (!adCatalogList.length) { %>
+          <div class="empty-state">Aucune ligne de catalogue — voir "Import Ad Campaign Catalog" (chapitre 02 — Ticket/Ad).</div>
+        <% } else { %>
+          <div class="scroll-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Catalogue</th>
+                  <th>Lieu</th>
+                  <th>Campagne</th>
+                  <th>Type</th>
+                  <th>Slot</th>
+                  <th>Tarif</th>
+                  <th>Zone</th>
+                  <th>Type de zone</th>
+                  <th>Priorité</th>
+                  <th>Actif</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% for (const row of adCatalogList) { %>
+                  <tr>
+                    <td><code><%= row.catalogSlug %></code></td>
+                    <td><%= row.venueSlug || '—' %></td>
+                    <td><code><%= row.campaignSlug %></code></td>
+                    <td><%= row.contentType %></td>
+                    <td><code><%= row.slot %></code></td>
+                    <td><%= row.tariffCode || '—' %></td>
+                    <td><%= row.zoneKey || '—' %></td>
+                    <td><%= row.zoneType || '—' %></td>
+                    <td><%= row.priority %></td>
+                    <td><%= row.active ? 'Oui' : 'Non' %></td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+
+      <div class="io-subsection">
+        <h3>Assets sponsors (data/assets/ads)</h3>
+        <% if (!adAssetsList || !adAssetsList.length) { %>
+          <div class="empty-state">Aucun asset — voir "Import Ad Campaign Asset" (chapitre 02 — Ticket/Ad).</div>
+        <% } else {
+             const adsOnlyFiles = adAssetsList.map(f => Object.assign({}, f, { rel: f.rel.replace(/^ads\//, '') }));
+        %>
+          <div class="scroll-limited">
+            <% renderFileTree(buildFileTree(adsOnlyFiles), 'data/assets/ads/'); %>
+          </div>
+        <% } %>
+      </div>
     </div>
 
   <% } %>

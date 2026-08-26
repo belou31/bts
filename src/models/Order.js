@@ -28,7 +28,7 @@ const LineSchema = new mongoose.Schema({
   // The zone's own physical seating character at booking time (mirrors
   // Zone.type). This is what display/i18n code should key off for labeling
   // — never `unitType`, which only reflects the allocation mechanism.
-  zoneType:        { type: String, enum: ['seated', 'standing', 'fanclub'] },
+  zoneType:        { type: String, enum: ['seated', 'standing'] },
   tariffCode:      { type: String, index: true },
   priceCents:      { type: Number, default: 0 },
   // Partner billing override (what the partner pays/subsidizes)
@@ -53,7 +53,7 @@ const LineSchema = new mongoose.Schema({
 
 /* ----- Optional sub-schema for origin ----- */
 const OriginSchema = new mongoose.Schema({
-  flow:   { type: String, enum: ['renew','fanclub','vip','subscription','vip','partner','public','event'], default: null },
+  flow:   { type: String, enum: ['renew','vip','subscription','partner','public','event','voucher','voucher-purchase'], default: null },
   uiPath: { type: String, default: null },
   apiPath:{ type: String, default: null }
 }, { _id:false });
@@ -80,11 +80,16 @@ const OrderSchema = new mongoose.Schema({
   lines:      { type: [LineSchema], default: [] },
   totalCents: { type: Number, default: 0 },
 
-  status: { type: String, enum: ['pending','tobepaid','paid','failed','canceled','refunded'], default: 'pending', index: true },
+  // 'torelocate' : l'abonnement est payé mais la place de ce match n'a pas pu
+  // être attribuée (siège déjà pris). La commande existe pour que l'abonné
+  // soit joignable et puisse choisir une autre place ; elle n'occupe aucun
+  // siège tant qu'elle n'est pas passée 'paid' (voir event-seat-states.js, qui
+  // ne compte que paid/tobepaid).
+  status: { type: String, enum: ['pending','tobepaid','paid','failed','canceled','refunded','torelocate'], default: 'pending', index: true },
 
   paymentProvider:     { type: String, default: process.env.PAYMENT_PROVIDER || 'helloasso' },
 
-  // ✅ New canonical provider meta bag (used by renew/fanclub routes & pay.js)
+  // ✅ New canonical provider meta bag (used by renew/subscription routes & pay.js)
   paymentProviderMeta: { type: mongoose.Schema.Types.Mixed, default: {} },
 
   // ⬅ Legacy (keep for compatibility with older data/logic if any)
@@ -94,7 +99,7 @@ const OrderSchema = new mongoose.Schema({
   // Email/template routing
    origin: {
     // ajout de "event" pour distinguer le flux billetterie évènement
-    flow:   { type:String, enum:['renew','subscription','public','event','partner','vip','fanclub'], default:'subscription', index:true },
+    flow:   { type:String, enum:['renew','subscription','public','event','partner','vip','voucher','voucher-purchase'], default:'subscription', index:true },
      uiPath: { type:String },
      apiPath:{ type:String }
    },

@@ -419,6 +419,19 @@ export async function finalizePaidIfNoConflict(order) {
   if (!seatIds.length) {
     order.status = 'paid';
     await order.save();
+    // Une commande payée SANS siège, c'est l'achat d'un bon : c'est ici, au
+    // moment exact où le paiement est acquis, que le bon doit naître. Le faire
+    // plus tôt offrirait des places non payées ; plus tard demanderait un
+    // second point de passage. issueVoucherForPurchase est idempotent, la
+    // finalisation pouvant être rejouée (retour, webhook, relance).
+    if (String(order?.origin?.flow || '').toLowerCase() === 'voucher-purchase') {
+      try {
+        const { issueVoucherForPurchase } = await import('./vouchers.js');
+        await issueVoucherForPurchase(order);
+      } catch (err) {
+        console.error('[finalize] voucher issue failed:', err?.message || err);
+      }
+    }
     return { ok: true, booked: 0, conflicts: [] };
   }
 
@@ -737,6 +750,78 @@ export async function sendOrderAttestationIfNeeded(order, options = {}) {
   }
 }
 
+/**
+ * Le paiement est passé mais le siège n'a pas pu être verrouillé (quelqu'un
+ * d'autre l'a pris entre-temps).
+ *
+ * Ce cas n'envoyait RIEN sur le retour de paiement : l'abonné voyait
+ * l'avertissement « intervention manuelle » à l'écran, puis plus rien — aucune
+ * trace dans sa boîte mail de ce qu'il venait de payer. sendConflictEmail() ne
+ * convenait pas ici : il annonce un remboursement, alors qu'ici l'argent est
+ * bien encaissé et la commande honorée, seul le placement reste à faire.
+ *
+ * On renvoie donc le récapitulatif de commande, précédé de l'avertissement, et
+ * suivi du lien de changement de place quand il y en a un.
+ */
+export async function sendSeatPendingNotice(order, options = {}) {
+  const to = order?.payerEmail;
+  if (!to) {
+    console.warn('[finalize] seat-pending notice skipped: no payerEmail on order', String(order?._id || ''));
+    return false;
+  }
+  const { seatChangeUrl = '', source = 'auto' } = options;
+  const locale = order?.locale;
+
+  // Le récapitulatif reprend le rendu normal ; s'il échoue, on préfère un
+  // message court à pas de message du tout.
+  let recapHtml = '';
+  try {
+    recapHtml = await renderOrderEmail(order);
+  } catch (e) {
+    console.warn('[finalize] seat-pending recap render failed:', e?.message || e);
+  }
+
+  const relocate = seatChangeUrl
+    ? `<p style="margin:.75rem 0">${t('email.seatPendingRelocate', locale)}
+         <a href="${seatChangeUrl}">${t('email.seatPendingRelocateLink', locale)}</a></p>`
+    : `<p style="margin:.75rem 0">${t('email.seatPendingNoAction', locale)}</p>`;
+
+  const notice = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial">
+    <p>${t('email.greeting', locale)} ${[order?.payerFirstName, order?.payerLastName].filter(Boolean).join(' ') || ''},</p>
+    <div style="border-left:4px solid #b45309;background:#fef3c7;padding:.75rem 1rem;margin:1rem 0">
+      <p style="margin:0 0 .5rem"><strong>${t('email.seatPendingIntro', locale)}</strong></p>
+      ${relocate}
+    </div>
+    <p>${t('email.conflictOrderRef', locale)} : <strong>${order._id}</strong></p>
+  </div>`;
+
+  const html = recapHtml
+    ? `${notice}<hr style="margin:1.5rem 0;border:none;border-top:1px solid #ddd">
+       <h3 style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial">${t('email.seatPendingRecap', locale)}</h3>
+       ${recapHtml}`
+    : notice;
+
+  try {
+    await sendMail({ to, subject: t('email.seatPendingSubject', locale), html });
+  } catch (e) {
+    console.warn('[finalize] seat-pending mail failed:', e?.message || e);
+    return false;
+  }
+
+  // Trace d'envoi : sans elle, chaque rechargement de la page de retour
+  // renverrait le même courriel.
+  try {
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { 'paymentProviderMeta.seatPendingNoticeSentAt': new Date(),
+                'paymentProviderMeta.seatPendingNoticeSource': source } }
+    );
+  } catch (e) {
+    console.warn('[finalize] seat-pending stamp failed:', e?.message || e);
+  }
+  return true;
+}
+
 export async function sendConflictEmail(order) {
   const to = order?.payerEmail;
   if (!to) return;
@@ -745,7 +830,7 @@ export async function sendConflictEmail(order) {
   const html = `<p>${t('email.greeting', locale)} ${[order?.payerFirstName, order?.payerLastName].filter(Boolean).join(' ') || ''},</p>
   <p>${t('email.conflictBody1', locale)}</p>
   <p><strong>${t('email.conflictBody2', locale)}</strong></p>
-  <p>${t('email.conflictOrderRef', locale)} : <strong>${order._id}</strong></p>`;
+  <p>${t('email.conflictOrderRef', locale)}&nbsp;: <strong>${order._id}</strong></p>`;
   try { await sendMail({ to, subject, html }); }
   catch (e) { console.warn('[finalize] conflict mail failed:', e.message); }
 }

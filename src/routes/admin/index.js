@@ -10,6 +10,7 @@ import { Seat }  from '../../models/Seat.js';
 import { Zone }  from '../../models/Zone.js';
 import { Venue } from '../../models/Venue.js';
 import { Season } from '../../models/Season.js';
+import { Voucher } from '../../models/Voucher.js';
 import { Event } from '../../models/Event.js';
 import { listPartnerConfigs } from '../../config/partners.js';
 import { Tariff } from '../../models/Tariff.js';
@@ -41,6 +42,7 @@ import { marked } from 'marked';
 import archiver from 'archiver';
 import { readRegistry as readGoogleLibraryRegistry } from '../../../scripts_online/google/install/lib/registry.js';
 import { readVenueViewNames } from '../../../scripts/lib/venue-view-names.js';
+import { readTemplatesConfig } from '../../../scripts/lib/template-write.js';
 
 const router = express.Router();
 
@@ -666,6 +668,7 @@ router.get('/', (req, res) => {
       planView: null,
       ordersView: null,
       renewersView: null,
+      vouchersView: null,
       ticketsView: null
     });
   }
@@ -713,6 +716,7 @@ router.get('/advanced', (req, res) => {
     planView: null,
     ordersView: null,
     renewersView: null,
+    vouchersView: null,
     ticketsView: null
   });
 });
@@ -758,6 +762,7 @@ router.get('/operate/io', (req, res) => {
     planView: null,
     ordersView: null,
     renewersView: null,
+    vouchersView: null,
     ticketsView: null
   });
 });
@@ -845,6 +850,7 @@ router.get('/doc', (req, res) => {
     planView: null,
     ordersView: null,
     renewersView: null,
+    vouchersView: null,
     ticketsView: null
   });
 });
@@ -988,6 +994,7 @@ router.get('/plan', async (req, res) => {
     monitoring: null,
     ordersView: null,
     renewersView: null,
+    vouchersView: null,
     ticketsView: null,
     planView: {
       seasons: (seasonsRaw || []).map(s => ({
@@ -1143,6 +1150,7 @@ router.get('/orders', async (req, res) => {
     planView: null,
     ticketsView: null,
     renewersView: null,
+    vouchersView: null,
     ordersView: {
       seasons: (seasonsRaw || []).map(s => ({
         code: s.code,
@@ -1309,6 +1317,72 @@ router.get('/renewers', async (req, res) => {
   });
 });
 
+
+// ——— Bons cadeaux : liste, consultation, suspension, prolongation ———
+router.get('/vouchers', async (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const statusFilter = ['active', 'suspended', 'spent', 'canceled'].includes(req.query.status)
+    ? req.query.status : '';
+  const q = statusFilter ? { status: statusFilter } : {};
+  const vouchers = await Voucher.find(q).sort({ createdAt: -1 }).limit(300).lean();
+
+  const rows = vouchers.map(v => {
+    const total = Number(v.balance?.total || 0);
+    const used = Number(v.balance?.used || 0);
+    return {
+      id: String(v._id),
+      code: v.code,
+      label: v.label || '',
+      status: v.status,
+      total, used, remaining: Math.max(0, total - used),
+      maxPerEvent: Number(v.maxPerEvent || 0),
+      expiresAt: v.expiresAt || null,
+      expired: Boolean(v.expiresAt && new Date(v.expiresAt) <= new Date()),
+      allowedZones: v.allowedZones || [],
+      eligibility: {
+        events: v.eligibility?.events || [],
+        seasonCodes: v.eligibility?.rules?.seasonCodes || [],
+        tags: v.eligibility?.rules?.tags || []
+      },
+      originKind: v.origin?.kind || 'donation',
+      createdAt: v.createdAt,
+      // Le journal des retraits : c'est la réponse à « ce bon a-t-il servi ? »
+      redemptions: (v.redemptions || []).map(r => ({
+        eventSlug: r.eventSlug, qty: r.qty, at: r.at, by: r.by || '',
+        seatIds: r.seatIds || []
+      }))
+    };
+  });
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token, tokenQuery, tokenSuffix, urlFor,
+    scriptGroups: NAV_SCRIPT_GROUPS,
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    operateOptions: {
+      venues: [], seasons: [], events: [], partners: [], tariffCatalogs: [],
+      adCampaignCatalogs: [], inputFiles: [], assetFiles: [], venueViews: []
+    },
+    viewMode: 'vouchers',
+    monitorTab: 'tariffs',
+    docTab: 'references',
+    monitoring: null,
+    planView: null,
+    ordersView: null,
+    ticketsView: null,
+    renewersView: null,
+    vouchersView: { statuses: ['active', 'suspended', 'spent', 'canceled'], statusFilter, rows }
+  });
+});
+
 router.get('/tickets', async (req, res) => {
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
@@ -1441,6 +1515,7 @@ router.get('/tickets', async (req, res) => {
     planView: null,
     ordersView: null,
     renewersView: null,
+    vouchersView: null,
     ticketsView: {
       seasons: (seasonsRaw || []).map(s => ({
         code: s.code,
@@ -1604,6 +1679,7 @@ router.get('/operate', async (req, res) => {
     planView: null,
     ordersView: null,
     renewersView: null,
+    vouchersView: null,
     ticketsView: null
   });
 });
@@ -1720,7 +1796,7 @@ router.get('/monitor', async (req, res) => {
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
-  const monitorTabOptions = new Set(['custo', 'system', 'venue', 'tariffs', 'seasons', 'events', 'partners']);
+  const monitorTabOptions = new Set(['custo', 'system', 'venue', 'tariffs', 'seasons', 'events', 'partners', 'ticket']);
   // No ?monitorTab= → show the Monitoring overview page instead of
   // defaulting to "system" (see the "!monitorTab" intro block in the view).
   const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : null;
@@ -1731,6 +1807,25 @@ router.get('/monitor', async (req, res) => {
   const dataAssetsList = listTemplatesRecursive(DATA_ASSETS_ROOT);
   const venueResources = listVenueResources();
 
+  // "Ticket" monitor tab: ticket templates (data/templates/templates.json,
+  // cross-referenced against what's actually on disk) + the ad campaign
+  // asset tree (data/assets/ads — scoped subset of dataAssetsList above).
+  const ticketTemplatesList = (() => {
+    const config = readTemplatesConfig();
+    const entries = Object.entries(config?.tickets?.templates || {});
+    return entries.map(([kind, entry]) => {
+      const file = entry?.file || '';
+      const filePath = file ? path.resolve(DATA_TEMPLATES_ROOT, file) : '';
+      return {
+        kind,
+        file,
+        logo: entry?.logo || '',
+        exists: Boolean(file) && fs.existsSync(filePath)
+      };
+    }).sort((a, b) => a.kind.localeCompare(b.kind));
+  })();
+  const adAssetsList = dataAssetsList.filter(f => f.rel.startsWith('ads/'));
+
   const [
     venuesRaw,
     seasonsRaw,
@@ -1739,7 +1834,8 @@ router.get('/monitor', async (req, res) => {
     venueZoneCountsAgg,
     seatCatalogCountsAgg,
     partnersRaw,
-    tariffPriceCatalogGroupsAgg
+    tariffPriceCatalogGroupsAgg,
+    adCampaignCatalogRaw
   ] = await Promise.all([
     Venue.find({}).sort({ slug: 1 }).lean(),
     Season.find({}).sort({ code: -1 }).lean(),
@@ -1764,8 +1860,24 @@ router.get('/monitor', async (req, res) => {
         }
       },
       { $sort: { '_id.catalogSlug': 1, '_id.venueSlug': 1 } }
-    ])
+    ]),
+    AdCampaignCatalog.find({}).sort({ catalogSlug: 1, campaignSlug: 1, slot: 1 }).lean()
   ]);
+
+  const adCampaignCatalogList = adCampaignCatalogRaw.map(row => ({
+    catalogSlug: row.catalogSlug,
+    venueSlug: row.venueSlug || '',
+    campaignSlug: row.campaignSlug,
+    contentType: row.contentType,
+    slot: row.slot,
+    qrValue: row.qrValue || '',
+    text: row.text || '',
+    tariffCode: row.tariffCode || '',
+    zoneKey: row.zoneKey || '',
+    zoneType: row.zoneType || '',
+    priority: Number.isFinite(row.priority) ? row.priority : 100,
+    active: row.active !== false
+  }));
 
   const venueZoneCounts = new Map(venueZoneCountsAgg.map(entry => [entry._id || '', entry.count]));
   const seatCatalogCounts = new Map(seatCatalogCountsAgg.map(entry => [entry._id || '', entry.count]));
@@ -1813,7 +1925,9 @@ router.get('/monitor', async (req, res) => {
     name: s.name,
     active: s.active,
     venueSlug: s.venueSlug || null,
-    phaseCount: Array.isArray(s.phases) ? s.phases.length : 0
+    activity: s.activity || 'draft',
+    renew: s.renew || 'notopen',
+    subscribe: s.subscribe || 'notopen'
   }));
 
   const eventsList = eventsRaw.map(e => ({
@@ -2152,7 +2266,8 @@ router.get('/monitor', async (req, res) => {
       tariffPriceCatalogGroups,
       selectedCatalogKey,
       tariffPriceCatalogEntries,
-      partners: partnersList
+      partners: partnersList,
+      adCampaignCatalog: adCampaignCatalogList
     },
     subscription: {
       selectedSeasonCode,
@@ -2229,12 +2344,15 @@ router.get('/monitor', async (req, res) => {
     planView: null,
     ordersView: null,
     renewersView: null,
+    vouchersView: null,
     ticketsView: null,
     dynamicAssetsList,
     venueResources,
     dataTemplatesList,
     dataAssetsList,
-    customizationList
+    customizationList,
+    ticketTemplatesList,
+    adAssetsList
   });
 });
 

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ticket-background.svg — reference variant of ticket.svg showing the
+  base64-embedded-image background technique prototyped in
+  data/templates/tickets/ticket.newmodel.svg: the plain `<rect class="card">`
+  is replaced by an `<image>` element carrying a base64-encoded PNG, so the
+  card itself renders the artwork instead of a flat fill.
+
+  The PNG embedded below is a small original graphic made for this file (a
+  soft pale-blue-to-white gradient with two faint decorative circles and a
+  thin accent bar along the top) — it is not copied from ticket.newmodel.svg.
+  Swap the href for your own base64 PNG/JPEG to try a different background;
+  keep the plain <rect class="card"/> underneath (commented out) as a quick
+  fallback if you want to disable the image without deleting anything.
+
+  Canvas is 210mm x 279mm (viewBox 634x842) — the print-safe INTERSECTION of
+  A4 (210x297mm) and US Letter (216x279mm). Everything is placed inside
+  that box so nothing clips regardless of which paper size a printer
+  actually feeds — A4 leaves ~18mm of blank margin at the bottom, Letter
+  leaves ~6mm on the right, neither cuts content.
+
+  Note: the `rx` attribute on `<image>` below is not standards-valid SVG
+  (rounded corners only apply to `<rect>`) — most renderers (browsers,
+  LibreOffice) ignore it harmlessly and draw square corners; it is kept
+  here only because ticket.newmodel.svg uses the same pattern. Use a
+  <clipPath> instead if you need true rounded corners on the image.
+
+  Adopt this file as the live "ticket" template via
+  scripts/00-system-management/import-templates.js, with flags (each
+  prefixed with two hyphens) resource=ticket, file=data_references/templates/
+  tickets/ticket-background.svg, kind=<default|event|...>.
+-->
+<svg width="210mm" height="279mm" viewBox="0 0 634 842" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .h1{font:700 22px system-ui, -apple-system, Segoe UI, Roboto, Arial;}
+      .h2{font:600 14px system-ui, -apple-system, Segoe UI, Roboto, Arial;}
+      .p {font:400 12px system-ui, -apple-system, Segoe UI, Roboto, Arial;}
+      .muted{fill:#666}
+      .text{fill:#111}
+      .chip{fill:#f3f4f6; stroke:#e5e7eb}
+      .card{fill:#fff; stroke:#e5e7eb}
+    </style>
+  </defs>
+
+  <!-- Fond -->
+  <rect x="0" y="0" width="634" height="842" fill="#ffffff"/>
+  <!-- Carte : image de fond en base64 (remplace le rect uni ci-dessous) -->
+  <image x="28" y="28" width="578" height="786" rx="12" class="card" href="data:image/png;base64,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"/>
+  <!-- <rect x="28" y="28" width="578" height="786" rx="12" class="card"/> -->
+
+  <!-- En-tête -->
+  <text x="44" y="64" class="h2 text">{{CLUB_NAME}}</text>
+  <text x="44" y="92" class="h2 text">{{EVENT_NAME}}</text>
+  <text x="44" y="112" class="p muted">{{EVENT_DATE}}</text>
+  <text x="44" y="130" class="p muted">Lieu : {{VENUE_NAME}}</text>
+
+  <!-- Slot logo (en haut à droite) -->
+  <rect id="logo" x="498" y="44" width="92" height="92" fill="none"/>
+
+  <!-- Bloc info billet -->
+  <text x="44" y="170" class="h4 text">{{TARIFF_TITLE}}</text>
+  <text x="44" y="200" class="h1 text">{{TARIFF_LABEL}}</text>
+
+  <text x="44" y="230" class="h4 text">Place</text>
+  <text x="44" y="260" class="h1 text">{{SEAT}}</text>
+
+  <text x="44" y="310" class="h4 text">Bénéficiaire</text>
+  <text x="44" y="340" class="h1 text">{{BENEFICIARY}}</text>
+
+  <!-- Slot QR à droite (carré) -->
+  <rect id="qr" x="420" y="160" width="150" height="150" fill="none"/>
+
+  <!-- Pied de page -->
+  <text x="44" y="800" class="p muted">Commande : {{ORDER_ID}} — Présentez ce billet (QR) à l’entrée.</text>
+</svg>

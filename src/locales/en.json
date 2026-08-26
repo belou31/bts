@@ -30,6 +30,8 @@
     "seatingPlan": "Seating plan",
     "partner": "Partner",
     "subscription": "Season pass",
+    "subscriber": "Subscriber",
+    "invitation": "Complimentary",
     "email": "Email",
     "add": "Add"
   },
@@ -155,7 +157,13 @@
     "conflictSubject": "Your order could not be completed",
     "conflictBody1": "Your order could not be completed: your payment exceeded the seat-hold window and another order took the seats.",
     "conflictBody2": "Please try again. If your payment went through, you will be refunded.",
-    "conflictOrderRef": "Order reference"
+    "conflictOrderRef": "Order reference",
+    "seatPendingSubject": "Your payment is confirmed — your seat still needs to be assigned",
+    "seatPendingIntro": "Your payment went through. However, the seat you picked was taken by another order in the meantime, so we need to reassign one for you.",
+    "seatPendingNoAction": "There is nothing more to pay. Our team will get back to you shortly to finalise your seating.",
+    "seatPendingRelocate": "You can pick another seat yourself:",
+    "seatPendingRelocateLink": "Choose another seat",
+    "seatPendingRecap": "Your order summary"
   },
   "ticket": {
     "footerNote": "Order: {{orderId}} — Show this ticket (QR) at the entrance."

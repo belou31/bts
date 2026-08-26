@@ -12,7 +12,6 @@
     "templates": {
       "default": { "file": "tickets/ticket.svg", "logo": "assets/logo.svg" },
       "subscription": { "file": "tickets/ticket.svg", "logo": "assets/logo.svg" },
-      "fanclub": { "file": "tickets/ticket.svg", "logo": "assets/logo.svg" },
       "event": { "file": "tickets/ticket.svg", "logo": "assets/logo.svg" }
     }
   }

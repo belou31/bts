@@ -2,7 +2,6 @@
   "templates": {
     "renew": { "file": "renew-confirmation.html" },
     "subscription": { "file": "subscription-confirmation.html" },
-    "fanclub": { "file": "fanclub-confirmation.html" },
     "event": { "file": "event-confirmation.html" }
   }
 }

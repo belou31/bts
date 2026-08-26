@@ -35,6 +35,34 @@ export const adminScriptGroups = [
         ]
       },
       {
+        id: 'sync-indexes',
+        label: 'Synchroniser les index (MongoDB)',
+        order: 0.5,
+        path: 'scripts/sync-indexes.mjs',
+        command: 'node scripts/sync-indexes.mjs [--apply]',
+        run: {
+          script: 'scripts/sync-indexes.mjs',
+          args: []
+        },
+        description: 'Crée les index manquants et recrée ceux qui ont dérivé du schéma, pour tous les modèles. À lancer après chaque déploiement, et OBLIGATOIREMENT après un « Reset MongoDB Database » sur INT/PROD.',
+        notes: [
+          'Hors développement, l\'application ne crée AUCUN index toute seule : src/loaders/mongoose.js connecte avec autoIndex = (APP_ENV === "development"). Après un reset, la base tourne donc sans une seule contrainte d\'unicité — prix en double, deux commandes payées pour la même place, deux verrous sur le même siège passent en silence.',
+          'Sans « Appliquer », le script se contente de lister ce qui manque, modèle par modèle. Rien n\'est écrit.',
+          'Non destructif pour les données, mais un index qui a changé d\'options est supprimé puis recréé : sur une grosse collection, la reconstruction peut durer. La page peut expirer avant la fin — le script, lui, continue côté serveur et va au bout.',
+          'Si MongoDB refuse un index, le script le signale sur stderr et poursuit : un modèle en échec n\'empêche pas les autres d\'être synchronisés.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'apply',
+              label: 'Appliquer (sinon : simple inventaire)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--apply' }
+            }
+          ]
+        }
+      },
+      {
         id: 'check-env',
         label: 'Validate Environment (.env)',
         order: 1,
@@ -458,6 +486,46 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'release-unrenewed-seats',
+        label: 'Release Unrenewed Seats',
+        order: 4,
+        path: 'scripts/03-season-management/release-unrenewed-seats.js',
+        command: 'node scripts/03-season-management/release-unrenewed-seats.js <seasonCode> [--venue=<slug>] [--dry-run]',
+        run: {
+          script: 'scripts/03-season-management/release-unrenewed-seats.js',
+          args: []
+        },
+        description: 'Rend au public les sièges provisionnés qu\'un abonné n\'a pas renouvelés.',
+        notes: [
+          'Ne touche que les sièges encore `provisioned` : un siège renouvelé est `booked` et reste en place.',
+          'Fermez d\'abord le renouvellement (`publish-season.js --renew=closed`), sinon on reprend leur place à des abonnés en cours.',
+          'Utilisez --dry-run pour compter sans rien modifier, et --venue pour se limiter à un lieu.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu (optionnel)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'dryRun',
+              label: 'Simulation (aucune écriture)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--dry-run' }
+            }
+          ]
+        }
+      },
+      {
         id: 'export-renew-groups',
         label: 'Export Renewal Tokens',
         order: 2,
@@ -616,39 +684,7 @@ export const adminScriptGroups = [
           ]
         }
       },
-      {
-        id: 'renewal-close-phase',
-        label: 'Close Renewal Phase',
-        order: 4,
-        path: 'scripts/03-season-management/renewal-close-phase.js',
-        command: 'node scripts/03-season-management/renewal-close-phase.js <seasonCode> [--venue=<slug>]',
-        run: {
-          script: 'scripts/03-season-management/renewal-close-phase.js',
-          args: []
-        },
-        description: 'Closes the renewal campaign for a season and releases remaining provisioned seats.',
-        notes: [
-          'Sets Season.enableRenewal to false and clears Seat.status=provisioned.',
-          'Provide --venue to limit the release to a single venue.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'season',
-              label: 'Code saison',
-              placeholder: '2025-2026',
-              required: true,
-              arg: { type: 'positional', index: 0 }
-            },
-            {
-              name: 'venue',
-              label: 'Slug du lieu (optionnel)',
-              placeholder: 'patinoire-blagnac',
-              arg: { type: 'option', template: '--venue=${value}' }
-            }
-          ]
-        }
-      }
+
     ]
   },
   {
@@ -811,6 +847,75 @@ export const adminScriptGroups = [
               label: 'Nom affiché (optionnel)',
               placeholder: 'Vue Partenaire AISC',
               arg: { type: 'option', template: '--name=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-zone-meta',
+        label: 'Set Zone Meta-Zone',
+        order: 4,
+        path: 'scripts/01-venue-management/set-zone-meta.js',
+        command: 'node scripts/01-venue-management/set-zone-meta.js --season=<code> --venue=<slug> [--meta=<META> --zones=<A,B>] [--csv=<file>] [--clear] [--list]',
+        run: {
+          script: 'scripts/01-venue-management/set-zone-meta.js',
+          args: []
+        },
+        description: 'Rattache des zones à une méta-zone : un regroupement logique de zones, qui n\'existe PAS sur le plan (aucun sélecteur SVG, aucun siège). Premier usage : la grille tarifaire s\'écrit UNE fois pour la méta-zone (colonne metaZone d\'Import Tariff Prices Catalog) au lieu d\'être recopiée zone par zone, et une zone rattachée plus tard hérite du prix sans retoucher la grille.',
+        templates: ['data_references/csv/meta-zones.template.csv'],
+        notes: [
+          'Deux façons de faire : « Méta-zone » + « Zones » pour un groupe, ou un CSV (zoneKey,metaZone) pour poser tout un découpage d\'un coup.',
+          'Laisser « Méta-zone » vide et cocher « Retirer » détache les zones visées ; dans un CSV, une cellule metaZone vide fait la même chose.',
+          'Le regroupement ne sert pas qu\'aux prix : un bon cadeau peut être limité à une méta-zone (--zones=S_LOW), et il suit alors les zones rattachées ensuite.',
+          'Une ligne de prix visant explicitement une zone l\'emporte sur sa méta-zone, tarif par tarif : on peut excepter S3/NORMAL sans détacher S3.',
+          'Cocher « Lister » affiche les zones, leur méta-zone et les grilles déjà définies par méta-zone — sans rien écrire.',
+          'Une zone inconnue fait échouer le script : une faute de frappe rendrait la grille inopérante sans le dire.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu',
+              placeholder: 'stadium',
+              required: true,
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'meta',
+              label: 'Méta-zone (ex: S_LOW)',
+              placeholder: 'S_LOW',
+              arg: { type: 'option', template: '--meta=${value}' }
+            },
+            {
+              name: 'zones',
+              label: 'Zones visées (séparées par des virgules)',
+              placeholder: 'S1,S3',
+              arg: { type: 'option', template: '--zones=${value}' }
+            },
+            {
+              name: 'csv',
+              label: 'CSV zoneKey,metaZone (alternative aux deux champs ci-dessus)',
+              placeholder: 'data/inputs/meta-zones.csv',
+              arg: { type: 'option', template: '--csv=${value}' }
+            },
+            {
+              name: 'clear',
+              label: 'Détacher les zones visées de leur méta-zone',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--clear' }
+            },
+            {
+              name: 'list',
+              label: 'Lister seulement (aucune écriture)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--list' }
             }
           ]
         }
@@ -1413,19 +1518,22 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'set-season-phases',
-        label: 'Configure Season Phases',
-        order: 0.2,
-        path: 'scripts/03-season-management/set-season-phases.js',
-        command: 'node scripts/03-season-management/set-season-phases.js <seasonCode> --phase=<renewal|fanclub|public> [--open=ISO] [--close=ISO] [--enabled=true|false]',
+        id: 'publish-season',
+        label: 'Publish Season (renew / subscribe)',
+        order: 0.1,
+        path: 'scripts/03-season-management/publish-season.js',
+        command: 'node scripts/03-season-management/publish-season.js --season=<code> [--activity=<state>] [--renew=<state>] [--subscribe=<state>] [--show]',
         run: {
-          script: 'scripts/03-season-management/set-season-phases.js',
+          script: 'scripts/03-season-management/publish-season.js',
           args: []
         },
-        description: 'Manages phase scheduling/enabling for a season (renewal, fanclub, public).',
+        description: 'Ouvre ou ferme les portes de vente d\'une saison (renouvellement, abonnement public) et son état de publication. Pendant de « Publish Event » pour les matchs.',
         notes: [
-          'Open/close dates expect ISO format (e.g., 2025-08-01T00:00:00Z).',
-          'Use enabled=true|false to toggle each phase.'
+          'Une saison a plusieurs portes qui ne bougent pas ensemble : fermer le renouvellement pendant que la vente publique tourne est le cas courant. Chaque porte a donc son état, on ne pilote que celles qu\'on nomme.',
+          'activity=active est nécessaire pour que QUOI QUE CE SOIT soit accessible : une porte ouverte sur une saison en brouillon ne montre rien. Le script prévient si les deux se contredisent.',
+          'Les portes servent /season/<code>/renew et /season/<code>/subscribe. Les anciens liens /renew?id= restent servis : ils redirigent vers le chemin explicite.',
+          'Remplace `set-season-phases.js` (dont le middleware n\'a jamais été monté), `enableRenewal` (écrit, jamais lu) et la notion de « saison active » basée sur un champ inexistant.',
+          'Cocher « Afficher » lit l\'état courant sans rien écrire.'
         ],
         form: {
           fields: [
@@ -1434,40 +1542,51 @@ export const adminScriptGroups = [
               label: 'Code saison',
               placeholder: '2025-2026',
               required: true,
-              arg: { type: 'positional', index: 0 }
+              arg: { type: 'option', template: '--season=${value}' }
             },
             {
-              name: 'phase',
-              label: 'Phase',
-              required: true,
-              arg: { type: 'option', template: '--phase=${value}' },
+              name: 'activity',
+              label: 'Publication (optionnel)',
+              arg: { type: 'option', template: '--activity=${value}' },
               options: [
-                { label: 'Renouvellement', value: 'renewal' },
-                { label: 'Fanclub', value: 'fanclub' },
-                { label: 'Public', value: 'public' }
+                { label: '— (ne pas changer)', value: '' },
+                { label: 'Brouillon', value: 'draft' },
+                { label: 'Active', value: 'active' },
+                { label: 'Archivée', value: 'archived' }
               ]
             },
             {
-              name: 'open',
-              label: 'Ouverture (ISO)',
-              placeholder: '2025-08-01T00:00:00Z',
-              arg: { type: 'option', template: '--open=${value}' }
+              name: 'renew',
+              label: 'Renouvellement (optionnel)',
+              arg: { type: 'option', template: '--renew=${value}' },
+              options: [
+                { label: '— (ne pas changer)', value: '' },
+                { label: 'Pas encore ouvert', value: 'notopen' },
+                { label: 'Ouvert', value: 'open' },
+                { label: 'Clos', value: 'closed' }
+              ]
             },
             {
-              name: 'close',
-              label: 'Fermeture (ISO)',
-              placeholder: '2025-09-15T22:00:00Z',
-              arg: { type: 'option', template: '--close=${value}' }
+              name: 'subscribe',
+              label: 'Abonnement public (optionnel)',
+              arg: { type: 'option', template: '--subscribe=${value}' },
+              options: [
+                { label: '— (ne pas changer)', value: '' },
+                { label: 'Pas encore ouvert', value: 'notopen' },
+                { label: 'Ouvert', value: 'open' },
+                { label: 'Clos', value: 'closed' }
+              ]
             },
             {
-              name: 'enabled',
-              label: 'Activer ? (true/false)',
-              placeholder: 'true',
-              arg: { type: 'option', template: '--enabled=${value}' }
+              name: 'show',
+              label: 'Afficher l\'état courant (sans rien changer)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--show' }
             }
           ]
         }
       },
+
       {
         id: 'set-season-custo',
         label: 'Set Season Customization',
@@ -1571,12 +1690,15 @@ export const adminScriptGroups = [
         label: 'Instantiate Ad Campaigns for Season',
         order: 2.2,
         path: 'scripts/03-season-management/instantiate-ad-campaigns.js',
-        command: 'node scripts/03-season-management/instantiate-ad-campaigns.js <seasonCode> <venueSlug> --catalog=<slug[,slug2]> [--clear] [--dry-run]',
+        command: 'node scripts/03-season-management/instantiate-ad-campaigns.js <seasonCode> <venueSlug> --catalog=<slug[,slug2]> [--clear] [--dry-run] [--set-theme=<value>]',
         run: {
           script: 'scripts/03-season-management/instantiate-ad-campaigns.js',
           args: []
         },
         description: 'Applies one or more ad campaign catalogs as the season-wide default for tickets that don\'t have an event-specific placement (e.g. subscription/public tickets). Add --clear to purge existing rows first.',
+        notes: [
+          'Set "theme" to also switch this season\'s ticket/email to the matching themed template (see Set Season Theme) — optional, leave blank to only instantiate the placements.'
+        ],
         form: {
           fields: [
             {
@@ -1599,6 +1721,50 @@ export const adminScriptGroups = [
               placeholder: 'sponsors-2026',
               required: true,
               arg: { type: 'option', template: '--catalog=${value}' }
+            },
+            {
+              name: 'theme',
+              label: 'Thème à appliquer (optionnel)',
+              placeholder: 'ads',
+              arg: { type: 'option', template: '--set-theme=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-season-theme',
+        label: 'Set Season Theme',
+        order: 2.3,
+        path: 'scripts/03-season-management/set-season-theme.js',
+        command: 'node scripts/03-season-management/set-season-theme.js --season=<code> [--theme=<value>|--clear] [--dry-run]',
+        run: {
+          script: 'scripts/03-season-management/set-season-theme.js',
+          args: []
+        },
+        description: 'Sets (or clears) Season.templateTheme — an explicit override checked before the customization-layered "theme" key, driving both the ticket PDF and confirmation email for subscription/public orders in this season.',
+        notes: [
+          'A theme only does anything once a matching file exists (tickets/<file>.<theme>.svg and/or email/<file>.<theme>.html) — see Set Ticket Template / Set Email Template with --theme=.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'theme',
+              label: 'Thème (vide + effacer = retombe sur la customization)',
+              placeholder: 'ads',
+              arg: { type: 'option', template: '--theme=${value}' }
+            },
+            {
+              name: 'clear',
+              label: 'Effacer le thème',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--clear' }
             }
           ]
         }
@@ -2041,12 +2207,15 @@ export const adminScriptGroups = [
         label: 'Instantiate Ad Campaigns for Event',
         order: 1.2,
         path: 'scripts/04-event-management/instantiate-ad-campaigns.js',
-        command: 'node scripts/04-event-management/instantiate-ad-campaigns.js --event=<slug> --catalog=<slug[,slug2]> [--clear] [--dry-run]',
+        command: 'node scripts/04-event-management/instantiate-ad-campaigns.js --event=<slug> --catalog=<slug[,slug2]> [--clear] [--dry-run] [--set-theme=<value>]',
         run: {
           script: 'scripts/04-event-management/instantiate-ad-campaigns.js',
           args: []
         },
         description: 'Clones one or more ad campaign catalogs into the event, so tickets pick up sponsor content matching their own tariffCode/zoneKey/zoneType. Takes priority over the season default (see Instantiate Ad Campaigns for Season) when both exist.',
+        notes: [
+          'Set "theme" to also switch this event\'s ticket/email to the matching themed template (see Set Event Theme) — optional, leave blank to only instantiate the placements.'
+        ],
         form: {
           fields: [
             {
@@ -2062,6 +2231,50 @@ export const adminScriptGroups = [
               placeholder: 'sponsors-2026',
               required: true,
               arg: { type: 'option', template: '--catalog=${value}' }
+            },
+            {
+              name: 'theme',
+              label: 'Thème à appliquer (optionnel)',
+              placeholder: 'ads',
+              arg: { type: 'option', template: '--set-theme=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'set-event-theme',
+        label: 'Set Event Theme',
+        order: 1.3,
+        path: 'scripts/04-event-management/set-event-theme.js',
+        command: 'node scripts/04-event-management/set-event-theme.js --event=<slug> [--theme=<value>|--clear] [--dry-run]',
+        run: {
+          script: 'scripts/04-event-management/set-event-theme.js',
+          args: []
+        },
+        description: 'Sets (or clears) Event.templateTheme — an explicit override checked before the customization-layered "theme" key, driving both the ticket PDF and confirmation email for this event.',
+        notes: [
+          'A theme only does anything once a matching file exists (tickets/<file>.<theme>.svg and/or email/<file>.<theme>.html) — see Set Ticket Template / Set Email Template with --theme=.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Slug ou ID de l’événement',
+              placeholder: 'match-2025-09-21-bts-vs-xxx',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'theme',
+              label: 'Thème (vide + effacer = retombe sur la customization)',
+              placeholder: 'ads',
+              arg: { type: 'option', template: '--theme=${value}' }
+            },
+            {
+              name: 'clear',
+              label: 'Effacer le thème',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--clear' }
             }
           ]
         }
@@ -2785,14 +2998,23 @@ export const adminScriptGroups = [
         label: 'Set Partner Pre-sale Quota',
         order: 5,
         path: 'scripts/05-partner-management/set-partner-presale.js',
-        command: 'node scripts/05-partner-management/set-partner-presale.js --partner=<slug> --event=<eventSlug> --quota=<number>',
+        command: 'node scripts/05-partner-management/set-partner-presale.js --partner=<slug> (--event=<eventSlug> | --season=<seasonCode>) --quota=<number>',
         run: { script: 'scripts/05-partner-management/set-partner-presale.js', args: [] },
-        description: 'Configure a partner-specific pre-sale quota for an event. If the event is not yet on sale, status will show as presale/open for that partner.',
+        description: 'Ouvre à un partenaire une fenêtre de vente anticipée, sur UN événement ou sur UNE saison.',
+        notes: [
+          '--event : le quota se compte en PLACES sur ce match.',
+          '--season : le quota se compte en ABONNEMENTS sur cette saison — un abonné vaut 1, siège nominatif ou place en zone.',
+          'Renseignez exactement une cible : un quota places et un quota abonnements ne se déduisent pas l\'un de l\'autre.',
+          'Quota = 0 retire la prévente. --show affiche les quotas déjà posés sans rien changer.',
+          'Pour une saison, le quota reste un plafond même après l\'ouverture publique (allocation contractuelle) ; côté événement il ne borne que la prévente.'
+        ],
         form: {
           fields: [
             { name: 'partner', label: 'Partner', placeholder: 'partner01', required: true, arg: { type: 'option', template: '--partner=${value}' } },
-            { name: 'event', label: 'Événement', placeholder: 'match-2026-02-14', required: true, arg: { type: 'option', template: '--event=${value}' } },
-            { name: 'quota', label: 'Quota (places)', placeholder: '100', required: true, arg: { type: 'option', template: '--quota=${value}' } }
+            { name: 'event', label: 'Événement (quota en places)', placeholder: 'match-2026-02-14', arg: { type: 'option', template: '--event=${value}' } },
+            { name: 'season', label: 'Saison (quota en abonnements)', placeholder: '2026-2027', arg: { type: 'option', template: '--season=${value}' } },
+            { name: 'quota', label: 'Quota', placeholder: '100', arg: { type: 'option', template: '--quota=${value}' } },
+            { name: 'show', label: 'Afficher les quotas existants', type: 'checkbox', arg: { type: 'flag', flag: '--show' } }
           ]
         }
       },
