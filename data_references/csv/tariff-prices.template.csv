@@ -1,4 +1,15 @@
 # zoneKey,tariffCode,priceCents,partnerPriceCents,currency,channels
+#
+# Une ligne cible SOIT une zone (zoneKey), SOIT une META-ZONE (metaZone) —
+# jamais les deux, jamais aucune. Une meta-zone est un regroupement logique de
+# zones, absent du plan (aucun selecteur SVG, aucun siege) : ecrire la grille
+# une fois pour la meta-zone evite de la recopier sur chaque zone, et une zone
+# rattachee plus tard herite du prix sans retoucher ce fichier. Une ligne
+# zoneKey l'emporte sur sa meta-zone, tarif par tarif.
+# Exemple de grille par meta-zone :
+#   metaZone,tariffCode,priceCents
+#   S_LOW,NORMAL,10000
+#   S_LOW,CHILD,1000
 S1,NORMAL,18000,,EUR,public
 S1,REDUCED,14000,,EUR,public
 S1,CHILD,9000,,EUR,public

@@ -81,7 +81,7 @@ deliberately doesn't touch that collection (see its final log line).
 node scripts/03-season-management/create-season.js 2026-2027 --name="Saison 2026-2027" --venue=stadium
 node scripts/03-season-management/instantiate-venue-for-season.js 2026-2027 stadium
 node scripts/03-season-management/instantiate-tariffs.js 2026-2027 stadium --catalog=stadium-season
-node scripts/03-season-management/set-season-phases.js 2026-2027 --phase=renewal --enabled=true
+node scripts/03-season-management/publish-season.js --season=2026-2027 --activity=active --renew=open
 ```
 
 ### 3. Import the renewal CSV — the actual ask
@@ -121,12 +121,13 @@ Expected: `scanned=7 provisioned=5 booked_skipped=1 not_found=1`
 node scripts/03-season-management/export-renew-groups.js 2026-2027 --venue=stadium --base=https://localhost:8080/bts
 node scripts/03-season-management/export-renew-seats.js 2026-2027 --base=https://localhost:8080
 
-# once the renewal window ends, release anything still only 'provisioned'
-# (i.e. subscribers who never clicked through to confirm)
-node scripts/03-season-management/renewal-close-phase.js 2026-2027 --venue=stadium
+# once the renewal window ends: close the door, then release anything still
+# only 'provisioned' (i.e. subscribers who never clicked through to confirm)
+node scripts/03-season-management/publish-season.js --season=2026-2027 --renew=closed
+node scripts/03-season-management/release-unrenewed-seats.js 2026-2027 --venue=stadium
 ```
 
-`renewal-close-phase.js` flips any seat still at `status: 'provisioned'`
+`release-unrenewed-seats.js` flips any seat still at `status: 'provisioned'`
 back to `available` — in this dataset that's whichever of the 5 provisioned
 seats you *don't* separately confirm through the renewal UI/route before
 running it, which is the easiest way to see a subscriber who started a

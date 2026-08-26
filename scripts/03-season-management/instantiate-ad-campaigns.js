@@ -4,12 +4,15 @@
  *
  * Usage:
  *   node scripts/03-season-management/instantiate-ad-campaigns.js <seasonCode> <venueSlug> --catalog=<slug[,slug2,...]>
- *     [--clear] [--dry-run]
+ *     [--clear] [--dry-run] [--set-theme=<value>]
  *
  * Behaviour:
  *   - Loads entries from AdCampaignCatalog (global + venue-specific) for each provided slug.
  *   - Upserts AdCampaignPlacement documents for the given seasonCode + venueSlug (priceTableKey: null).
  *   - Use --clear to remove existing season-scoped AdCampaignPlacement rows first.
+ *   - --set-theme=<value>: also sets Season.templateTheme (see set-season-theme.js),
+ *     so subscription/public tickets+emails switch to the matching themed
+ *     template — opt-in, not automatic; omit to leave it untouched.
  */
 
 import mongoose from 'mongoose';
@@ -17,6 +20,7 @@ import dotenv from 'dotenv';
 
 import { AdCampaignCatalog } from '../../src/models/AdCampaignCatalog.js';
 import { AdCampaignPlacement } from '../../src/models/AdCampaignPlacement.js';
+import { Season } from '../../src/models/Season.js';
 
 dotenv.config();
 
@@ -119,6 +123,13 @@ function hasFlag(argv, name) {
   }
 
   console.log(`[instantiate-ad-campaigns] Upserts=${upserts} (entries processed=${entries.length}) for season=${seasonCode} venue=${venueSlug}`);
+
+  const setThemeOpt = optionValue(argv, 'set-theme');
+  if (setThemeOpt) {
+    const nextTheme = setThemeOpt.trim();
+    await Season.updateOne({ code: seasonCode }, { $set: { templateTheme: nextTheme } });
+    console.log(`[instantiate-ad-campaigns] Season.templateTheme="${nextTheme}" (ticket + email switch to this theme if it exists)`);
+  }
 
   await mongoose.disconnect();
   process.exit(0);

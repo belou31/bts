@@ -20,18 +20,18 @@ nav_order: 120
 | `AutomationJob` | Audience / opérations | 14 | 3 |
 | `Campaign` | Audience / opérations | 8 | 1 |
 | `Counter` | Audience / opérations | 4 | 1 |
-| `Event` | Événements et contrôle | 12 | 5 |
+| `Event` | Événements et contrôle | 14 | 6 |
 | `Order` | Runtime saison / vente | 21 | 18 |
-| `Season` | Runtime saison / vente | 7 | 1 |
+| `Season` | Runtime saison / vente | 10 | 4 |
 | `Seat` | Runtime saison / vente | 8 | 11 |
 | `SeatCatalog` | Catalogue | 9 | 2 |
 | `SeatHold` | Événements et contrôle | 12 | 9 |
 | `Subscriber` | Audience / opérations | 17 | 6 |
-| `Tariff` | Autres | 11 | 5 |
-| `TariffPrice` | Autres | 11 | 6 |
-| `TariffPriceCatalog` | Catalogue | 10 | 2 |
+| `Tariff` | Autres | 11 | 4 |
+| `TariffPrice` | Autres | 12 | 7 |
+| `TariffPriceCatalog` | Catalogue | 11 | 3 |
 | `Venue` | Catalogue | 6 | 1 |
-| `Zone` | Runtime saison / vente | 13 | 5 |
+| `Zone` | Runtime saison / vente | 14 | 6 |
 | `ZoneHold` | Runtime saison / vente | 8 | 4 |
 
 ## Autres
@@ -139,7 +139,7 @@ nav_order: 120
 
 #### Indexes
 
-`priceTableKey:1`<br>`active:1, sortOrder:1`<br>`code:1` (name=uniq_code_global_when_no_priceTableKey, unique)<br>`code:1` (name=uniq_code_global_when_priceTableKey_null, unique)<br>`priceTableKey:1, code:1` (name=uniq_code_per_priceTableKey, unique)
+`priceTableKey:1`<br>`active:1, sortOrder:1`<br>`code:1` (name=uniq_code_global_when_priceTableKey_null, unique)<br>`priceTableKey:1, code:1` (name=uniq_code_per_priceTableKey, unique)
 
 ### TariffPrice
 
@@ -148,6 +148,7 @@ nav_order: 120
 - `channels`: `Array<String>`
 - `createdAt`: `Date`
 - `currency`: `String`
+- `metaZone`: `String`
 - `partnerPriceCents`: `Number`
 - `priceCents`: `Number`
 - `priceTableKey`: `String`
@@ -159,7 +160,7 @@ nav_order: 120
 
 #### Indexes
 
-`seasonCode:1`<br>`venueSlug:1`<br>`zoneKey:1`<br>`priceTableKey:1`<br>`seasonCode:1, venueSlug:1, zoneKey:1, tariffCode:1` (name=uniq_season_venue_zone_tariff, unique)<br>`priceTableKey:1, zoneKey:1, tariffCode:1` (name=uniq_priceTable_zone_tariff, unique)
+`seasonCode:1`<br>`venueSlug:1`<br>`zoneKey:1`<br>`metaZone:1`<br>`priceTableKey:1`<br>`seasonCode:1, venueSlug:1, zoneKey:1, metaZone:1, tariffCode:1` (name=uniq_season_venue_zone_tariff, unique)<br>`priceTableKey:1, zoneKey:1, metaZone:1, tariffCode:1` (name=uniq_priceTable_zone_tariff, unique)
 
 ## Audience / opérations
 
@@ -257,13 +258,15 @@ nav_order: 120
 - `seasonCode`: `String`
 - `slug`: `String`
 - `startsAt`: `Date`
+- `tags`: `Array<String>`
+- `templateTheme`: `String`
 - `updatedAt`: `Date`
 - `venueSlug`: `String`
 - `venueView`: `String`
 
 #### Indexes
 
-`slug:1` (unique)<br>`seasonCode:1`<br>`venueSlug:1`<br>`sale:1`<br>`activity:1`
+`slug:1` (unique)<br>`seasonCode:1`<br>`venueSlug:1`<br>`sale:1`<br>`activity:1`<br>`tags:1`
 
 ### SeatHold
 
@@ -323,16 +326,19 @@ nav_order: 120
 #### Top-level fields
 
 - `active`: `Boolean`
+- `activity`: `String`
 - `code`: `String`
 - `createdAt`: `Date`
 - `name`: `String`
-- `phases`: `Array`
+- `renew`: `String`
+- `subscribe`: `String`
+- `templateTheme`: `String`
 - `updatedAt`: `Date`
 - `venueSlug`: `String`
 
 #### Indexes
 
-`code:1` (unique)
+`code:1` (unique)<br>`activity:1`<br>`renew:1`<br>`subscribe:1`
 
 ### Seat
 
@@ -361,6 +367,7 @@ nav_order: 120
 - `createdAt`: `Date`
 - `isActive`: `Boolean`
 - `key`: `String`
+- `metaZone`: `String`
 - `name`: `String`
 - `quota`: `Number`
 - `seasonCode`: `String`
@@ -371,7 +378,7 @@ nav_order: 120
 
 #### Indexes
 
-`key:1`<br>`seasonCode:1`<br>`venueSlug:1`<br>`access:1`<br>`seasonCode:1, venueSlug:1, key:1` (name=uniq_zone_season_venue_key, unique)
+`key:1`<br>`metaZone:1`<br>`seasonCode:1`<br>`venueSlug:1`<br>`access:1`<br>`seasonCode:1, venueSlug:1, key:1` (name=uniq_zone_season_venue_key, unique)
 
 ### ZoneHold
 
@@ -418,6 +425,7 @@ nav_order: 120
 - `channels`: `Array<String>`
 - `createdAt`: `Date`
 - `currency`: `String`
+- `metaZone`: `String`
 - `partnerPriceCents`: `Number`
 - `priceCents`: `Number`
 - `tariffCode`: `String`
@@ -427,7 +435,7 @@ nav_order: 120
 
 #### Indexes
 
-`venueSlug:1`<br>`catalogSlug:1, venueSlug:1, zoneKey:1, tariffCode:1` (name=uniq_tariff_price_catalog_entry, unique)
+`venueSlug:1`<br>`metaZone:1`<br>`catalogSlug:1, venueSlug:1, zoneKey:1, metaZone:1, tariffCode:1` (name=uniq_tariff_price_catalog_entry, unique)
 
 ### Venue
 

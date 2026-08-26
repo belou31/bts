@@ -3,6 +3,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Tariff } from '../models/Tariff.js';
+import { Event } from '../models/Event.js';
+import { Season } from '../models/Season.js';
 import { hexToQrSvg } from './qr.js';
 import { currentPaymentProviderLabel } from './payments/index.js';
 import { buildTicketsPdfBuffer as buildTicketsPdfBufferFromService } from './tickets-pdf.js';
@@ -33,11 +35,7 @@ function humanInstallments(n, locale) {
 }
 
 function resolveOrderKind(order) {
-  const normalize = (val) => {
-    const k = String(val || '').toLowerCase();
-    if (k === 'fanclub') return 'subscription';
-    return k;
-  };
+  const normalize = (val) => String(val || '').toLowerCase();
 
   // ➤ Priorité: une commande “match” porte meta.eventId → kind = 'event'
   if (order?.meta?.eventId) return 'event';
@@ -170,11 +168,19 @@ function getTariffLabel(code, map) {
 }
 
 // ——— Normalisation d'une ligne, utilisée pour un rendu unique (4 colonnes)
-function normalizeLine(l, tariffsMap, locale) {
+function normalizeLine(l, tariffsMap, locale, { amountNotApplicable = false, amountLabel = '' } = {}) {
   const seat = lineSeatOrZone(l);
   const beneficiary = [l.holderFirstName, l.holderLastName].filter(Boolean).join(' ').trim();
   const tariff = getTariffLabel(l.tariffCode, tariffsMap);
   const priceCents = Number(l.priceCents)||0;
+  if (amountNotApplicable) {
+    // Voir renderOrderEmail : le prix porté par la ligne est celui de
+    // l'abonnement, il ne veut rien dire à l'échelle d'un match. Plutôt qu'un
+    // tiret muet, on nomme la raison — la colonne répond alors à la question
+    // qu'elle posait.
+    const label = amountLabel || t('common.subscriber', locale);
+    return { seat, beneficiary, tariff, pricePlain: label, priceRich: label };
+  }
   return {
     seat, beneficiary, tariff,
     pricePlain: fmtEuroPlain(priceCents, locale), priceRich: fmtEuroWithSymbol(priceCents, locale)
@@ -232,7 +238,12 @@ async function buildTicketsHtml(order) {
   const ticketsRaw = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
   const tickets = ticketsRaw.filter(tk => tk && tk.hex);
   if (!tickets.length) {
-    throw new Error('No QR codes available for tickets');
+    // Pas de QR n'est pas une erreur : une commande d'ABONNEMENT n'en a
+    // légitimement aucun, ses billets étant émis match par match par
+    // event-season-sync. Lever ici faisait échouer renderOrderEmail, donc
+    // l'envoi complet — l'abonné ne recevait aucune confirmation, alors même
+    // que subscription-confirmation.html n'affiche pas de billets.
+    return '';
   }
 
   // Génère les SVG en parallèle
@@ -311,15 +322,32 @@ export async function subjectForOrder(order) {
   * Render email HTML for an Order, using the right template and context.
   * Works with your two current templates:
   *  - renew-confirmation.html (expects {{linesRows}}, {{installmentsInfo}}, etc.)
- *  - fanclub-confirmation.html / subscription-confirmation.html
+ *  - subscription-confirmation.html
   *    (expect {{LINES_HTML}} and nested objects)
   */
+
+// Same priority as tickets-pdf.js's resolveTemplateTheme: an explicit
+// Event/Season.templateTheme wins over the customization-layered theme —
+// see Event.js's field comment for the full contract. mailer.js doesn't
+// already hold an Event doc the way buildTicketsPdfBuffer does, so this
+// adds one small lookup (only when the order has an eventId/seasonCode).
+async function resolveTemplateTheme(order) {
+  const eventId = order?.meta?.eventId;
+  if (eventId) {
+    const ev = await Event.findById(eventId).select({ templateTheme: 1 }).lean().catch(() => null);
+    if (ev?.templateTheme) return ev.templateTheme;
+  } else if (order?.seasonCode) {
+    const season = await Season.findOne({ code: order.seasonCode }).select({ templateTheme: 1 }).lean().catch(() => null);
+    if (season?.templateTheme) return season.templateTheme;
+  }
+  return resolveThemeForOrder(order);
+}
 
 export async function renderOrderEmail(order) {
   const kind = resolveOrderKind(order);
   const config = await getEmailConfig();
   const tplName = config[kind]?.file || config.renew.file;
-  const theme = resolveThemeForOrder(order);
+  const theme = await resolveTemplateTheme(order);
   const includeTicketsInline = kind !== 'event';
   const locale = order.locale || 'fr';
 
@@ -328,6 +356,34 @@ export async function renderOrderEmail(order) {
   // Common derived fields
   const totalCents = Number(order.totalCents || 0);
   const split = Number(order.paymentSplit || order.installments || 1);
+
+  // Commande de match DÉRIVÉE d'un abonnement (créée par event-season-sync à
+  // partir de la commande saison) : ses lignes reprennent telles quelles le
+  // prix de l'ABONNEMENT, pas un prix de match. Les afficher ferait croire à
+  // l'abonné qu'il a payé sa saison entière pour cette seule rencontre. Le
+  // tarif reste affiché — c'est un rappel utile de son type d'abonnement — mais
+  // le montant devient un tiret : rien n'a été payé pour ce match.
+  //
+  // ⚠ Volontairement PLUS étroit que isSubscriptionOrder() : ce prédicat-là est
+  // vrai aussi pour la commande d'abonnement elle-même, dont le montant est
+  // parfaitement légitime. Ne masquer que la commande de match DÉRIVÉE.
+  const seasonDerived = Boolean(order?.parentOrderId || order?.meta?.seasonParentOrderId);
+  // Un bon cadeau ne fabrique pas non plus de montant : la ligne est à 0 et
+  // afficher « 0,00 € » ferait croire à une erreur de facturation.
+  const isVoucher = String(order?.origin?.flow || '').toLowerCase() === 'voucher';
+  const AMOUNT_NA = isVoucher ? t('common.invitation', locale) : t('common.subscriber', locale);
+  const amountHidden = seasonDerived || isVoucher;
+  const totalDisplay = amountHidden ? AMOUNT_NA : fmtEuroWithSymbol(totalCents, locale);
+  const totalPlainDisplay = amountHidden ? AMOUNT_NA : fmtEuroPlain(totalCents, locale);
+
+  // (C) Encart expliquant l'absence de montant. Le texte vient de la chaîne de
+  // customization (défaut dans data/customization/default.json), donc modifiable
+  // par saison/évènement/partenaire sans toucher au code ; vide hors abonné,
+  // pour que {{subscriberNote}} disparaisse simplement des autres mails.
+  const custoForNote = resolveCustomizationForOrder(order);
+  const subscriberNote = isVoucher
+    ? String(custoForNote['event.voucherNote'] || '')
+    : (seasonDerived ? String(custoForNote['event.subscriberNote'] || '') : '');
 
   const haOrderId =
     order.paymentProviderMeta?.haOrderId ||
@@ -341,7 +397,7 @@ export async function renderOrderEmail(order) {
 
   // Rendu unique (4 colonnes) → LINES_HTML
   const _lines = Array.isArray(order.lines) ? order.lines : [];
-  const normalized = _lines.map(l => normalizeLine(l, tariffsMap, locale));
+  const normalized = _lines.map(l => normalizeLine(l, tariffsMap, locale, { amountNotApplicable: amountHidden, amountLabel: AMOUNT_NA }));
   const LINES_HTML = normalized.map(c =>
     `<tr><td>${c.seat}</td><td>${c.beneficiary}</td><td>${c.tariff}</td><td>${c.priceRich}</td></tr>`
   ).join('');
@@ -362,13 +418,14 @@ export async function renderOrderEmail(order) {
         id: String(order._id),
         seasonCode: order.seasonCode || '',
         venueSlug: order.venueSlug || '',
-        totalEuro: fmtEuroWithSymbol(totalCents, locale),
+        totalEuro: totalDisplay,
         split,
         installmentsHuman: humanInstallments(split, locale),
         createdAt: formatDateFR(order.createdAt, locale),
         eventName: ename
       },
       LINES_HTML,
+      subscriberNote,
       TICKETS_HTML: '',   // pas de QR inline pour les events (PDF joint)
       t: getCatalog(locale),
       // compat héritée
@@ -376,8 +433,8 @@ export async function renderOrderEmail(order) {
       payerLastName:  order.payerLastName  || order?.payer?.lastName  || '',
       payerEmail:     order.payerEmail     || order?.payer?.email     || '',
       orderId:        String(order._id),
-      totalEuro:      fmtEuroWithSymbol(totalCents, locale),
-      totalEuroPlain: fmtEuroPlain(totalCents, locale),
+      totalEuro:      totalDisplay,
+      totalEuroPlain: totalPlainDisplay,
       installmentsInfo: humanInstallments(split, locale),
       haOrderBlock,
       clubName: resolveOrganizationName(),
@@ -398,12 +455,13 @@ export async function renderOrderEmail(order) {
       id: String(order._id),
       seasonCode: order.seasonCode || '',
       venueSlug: order.venueSlug || '',
-      totalEuro: fmtEuroWithSymbol(totalCents, locale),
+      totalEuro: totalDisplay,
       split,
       installmentsHuman: humanInstallments(split, locale),
       createdAt: formatDateFR(order.createdAt, locale)
     },
     LINES_HTML: LINES_HTML,
+    subscriberNote,
     TICKETS_HTML: ticketsHtml,
     t: getCatalog(locale),
     // compat héritée
@@ -411,8 +469,8 @@ export async function renderOrderEmail(order) {
     payerLastName:  order.payerLastName  || order?.payer?.lastName  || '',
     payerEmail:     order.payerEmail     || order?.payer?.email     || '',
     orderId:        String(order._id),
-    totalEuro:      fmtEuroWithSymbol(totalCents, locale),
-    totalEuroPlain: fmtEuroPlain(totalCents, locale),
+    totalEuro:      totalDisplay,
+    totalEuroPlain: totalPlainDisplay,
     installmentsInfo: humanInstallments(split, locale),
     haOrderBlock,
     clubName: resolveOrganizationName(),

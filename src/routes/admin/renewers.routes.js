@@ -86,7 +86,8 @@ async function buildRenewLink(subscriber, req) {
   );
 
   const base = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-  const url = `${base.replace(/\/+$/, '')}/renew?id=${token}`;
+  // Chemin explicite (voir export-renew-groups.js).
+  const url = `${base.replace(/\/+$/, '')}/season/${encodeURIComponent(subscriber.seasonCode)}/renew?id=${token}`;
 
   return { url, token, groupKey, seatIds, groupSize: members.length, expiresAt: new Date(exp * 1000) };
 }
@@ -128,7 +129,7 @@ router.post('/:id/cancel', async (req, res) => {
     sub.status = 'canceled';
     await sub.save();
 
-    // Mirrors renewal-close-phase.js: only release a seat this cancellation
+    // Mirrors release-unrenewed-seats.js: only release a seat this cancellation
     // actually owns (provisionedFor === this subscriber, still 'provisioned').
     let seatReleased = false;
     if (sub.prefSeatId) {

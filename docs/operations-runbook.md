@@ -126,13 +126,32 @@ node scripts/03-season-management/instantiate-venue-for-season.js 2025-2026 pati
 node scripts/03-season-management/instantiate-tariffs.js 2025-2026 patinoire-blagnac --catalog=abonnement-2025
 ```
 
-### Régler les phases
+### Ouvrir la vente
 
-Quand les scripts ou l'admin console sont utilisés pour piloter le calendrier, la logique attend les phases :
+Une saison naît en `activity: 'draft'`, toutes portes fermées : `create-season.js`
+ne publie rien. L'ouverture est explicite, porte par porte.
 
-- `renewal`
-- `fanclub`
-- `public`
+```bash
+# publier la saison et ouvrir le renouvellement
+node scripts/03-season-management/publish-season.js --season=2025-2026 --activity=active --renew=open
+
+# plus tard : fermer le renouvellement et ouvrir la vente publique
+node scripts/03-season-management/publish-season.js --season=2025-2026 --renew=closed --subscribe=open
+
+# état courant
+node scripts/03-season-management/publish-season.js --season=2025-2026 --show
+```
+
+- `activity` : `draft` → `active` → `archived` (interrupteur général : hors `active`, toutes les portes restent fermées)
+- `renew` : `notopen` → `open` → `closed` — pilote `/season/<code>/renew`
+- `subscribe` : `notopen` → `open` → `closed` — pilote `/season/<code>/subscribe`
+
+Les deux portes sont indépendantes : fermer le renouvellement pendant que la
+vente publique tourne est le cas courant.
+
+> Remplace `set-season-phases.js` et le champ `phases`, supprimés : le
+> middleware `checkPhase` qui devait les lire n'a jamais été monté, si bien
+> qu'aucune phase n'a jamais rien bloqué.
 
 ## 5. Exécuter une campagne de renouvellement
 
@@ -206,16 +225,24 @@ node scripts/03-season-management/send-renew-invites.js data/outputs/renew-group
 node scripts/03-season-management/export-renew-seats.js 2025-2026 --venue=patinoire-blagnac --out=data/outputs/renew-seats.csv
 ```
 
-### Clore la phase
+### Clore le renouvellement
+
+Deux étapes distinctes, volontairement séparées : on ferme souvent la porte
+avant de libérer les sièges, le temps de relancer les retardataires.
 
 ```bash
-node scripts/03-season-management/renewal-close-phase.js 2025-2026 --venue=patinoire-blagnac
+# 1. fermer la porte
+node scripts/03-season-management/publish-season.js --season=2025-2026 --renew=closed
+
+# 2. rendre au public les sièges jamais confirmés (--dry-run pour compter d'abord)
+node scripts/03-season-management/release-unrenewed-seats.js 2025-2026 --venue=patinoire-blagnac
 ```
 
 Effet attendu :
 
-- désactivation de la phase de renouvellement
-- libération des sièges non renouvelés
+- `/season/2025-2026/renew` répond 403 avec un message explicite
+- les sièges encore `provisioned` repassent `available` (un siège renouvelé est
+  `booked` et n'est jamais touché)
 
 ## 6. Exploiter les abonnements saison
 
@@ -318,6 +345,144 @@ fois par environnement :
 node scripts/migrations/migrate-seathold-unique-event-seat.js          # dry-run
 node scripts/migrations/migrate-seathold-unique-event-seat.js --apply
 ```
+
+## Index : à faire à chaque déploiement
+
+```bash
+npm run db:sync-indexes            # liste ce qui manque
+npm run db:sync-indexes -- --apply
+```
+
+Également dans `/admin/operate` → *00 — System* → **Synchroniser les index
+(MongoDB)**, juste sous « Reset MongoDB Database » : les deux vont ensemble, un
+reset sans resynchronisation laisse la base sans contraintes. Sans cocher
+« Appliquer », le script se contente d'un inventaire.
+
+**Obligatoire sur INT et PROD après tout `reset-db.js`.** `reset-db.js` fait un
+`dropDatabase()` : les index disparaissent avec le reste. Or
+`src/loaders/mongoose.js` connecte avec `autoIndex: APP_ENV === 'development'`
+— hors développement, **Mongoose ne recrée aucun index de lui-même**.
+
+Ce qui se passe alors n'est pas une erreur visible : l'application démarre et
+fonctionne, mais sans une seule contrainte d'unicité. Vérifié en simulant une
+base PROD fraîche : un prix en double et deux verrous sur le même siège sont
+acceptés sans broncher. Après `--apply`, les deux sont rejetés (E11000).
+
+À exécuter aussi après un déploiement qui change un index : `syncIndexes()`
+recrée ceux dont les options ont changé, ce que Mongoose ne fait jamais seul.
+
+Si un index est refusé par MongoDB, le script le signale sur `stderr` et
+poursuit avec les autres modèles — un modèle en échec n'empêche pas les 23
+autres d'être synchronisés.
+
+### Méta-zones
+
+Une **méta-zone** regroupe des zones. Elle n'existe pas sur le plan — aucun
+sélecteur SVG, aucun siège : c'est un regroupement logique, posé en gestion de
+lieu, pas en tarification. La tarification n'en est que le premier usage.
+
+```bash
+# 1. rattacher des zones à une méta-zone
+node scripts/01-venue-management/set-zone-meta.js --season=2025-2026 --venue=stadium \
+  --meta=S_LOW --zones=S1,S3
+
+# 2. tout un découpage d'un coup (gabarit : data_references/csv/meta-zones.template.csv)
+node scripts/01-venue-management/set-zone-meta.js --season=2025-2026 --venue=stadium \
+  --csv=meta-zones.csv
+
+# 3. état des lieux (zones, méta-zones, grilles définies par méta-zone)
+node scripts/01-venue-management/set-zone-meta.js --season=2025-2026 --venue=stadium --list
+```
+
+Également exposé dans `/admin/operate` → *01 — Venue* → **Set Zone Meta-Zone**.
+
+#### Usage 1 — écrire une grille tarifaire une seule fois
+
+Dans un CSV de prix (`import-tariff-prices.js`, format liste), une ligne cible
+**soit** `zoneKey` **soit** `metaZone` — jamais les deux, jamais aucun :
+
+```csv
+metaZone,tariffCode,priceEuro
+S_LOW,NORMAL,100.00
+S_LOW,CHILD,10.00
+```
+
+Trois règles à retenir :
+
+- **une zone rattachée plus tard hérite du prix** sans retoucher la grille —
+  c'est le gain principal, et ce qui évite d'oublier une zone en cours de
+  saison ;
+- **une ligne visant explicitement une zone l'emporte** sur sa méta-zone, et ce
+  tarif par tarif : `S3/NORMAL` peut faire exception pendant que `S3/CHILD`
+  continue d'hériter ;
+- le dépliage a lieu **au chargement** (`src/utils/meta-zones.js`), donc tout le
+  reste — index de prix, zones achetables, paniers, page publique — voit une
+  simple grille par zone.
+
+#### Usage 2 — limiter un bon cadeau
+
+Un bon peut être limité à une méta-zone plutôt qu'à une liste de zones
+(`--zones=S_LOW`) : il suit alors les zones rattachées ensuite, sans réédition
+des cartes déjà imprimées.
+
+C'est ce second usage qui a fait renommer le concept : ce n'est pas une
+« catégorie tarifaire », c'est un regroupement de zones dont les prix ne sont
+qu'un des consommateurs.
+
+⚠ **Index à synchroniser** — voir § *Index : à faire à chaque déploiement*.
+Sur une base qui existe déjà, `npm run db:sync-indexes -- --apply` suffit (il
+recrée aussi les index qui ont dérivé du schéma) ; la migration dédiée
+`scripts/migrations/migrate-tariffprice-meta-zone.js --apply` reste disponible
+si l'on veut ne toucher qu'aux deux collections tarifaires.
+
+### Bons cadeaux (invitations)
+
+Un bon = un droit à N places, échangeable par le bénéficiaire lui-même. Il
+remplace la contremarque papier qu'il fallait rapporter au club.
+
+```bash
+node scripts/06-misc/create-voucher.js --total=4 --label="École Jean Moulin" \
+  --max-per-event=2 --zones=S1,S3 --tags=regular --expires=2027-06-30
+```
+
+Le script imprime le lien à encoder dans le QR (`/voucher?id=<jwt>`). Le
+bénéficiaire y voit son solde et les matchs éligibles, choisit ses places sur le
+plan, et reçoit ses billets par email. Aucun paiement : les lignes sont à 0 et
+la commande porte `origin.flow='gift'`, pour qu'un bon n'apparaisse jamais comme
+du chiffre d'affaires.
+
+**Cadrage d'un bon**
+
+- `--total` : le pool global ; `--max-per-event` : le plafond par match. Les deux
+  se combinent — 20 places dont 4 par rencontre, par exemple.
+- `--zones` : périmètre de placement. Accepte une clé de zone **ou une
+  méta-zone** (voir § *Méta-zones*) : un bon libellé « S_LOW » suit
+  automatiquement les zones rattachées ensuite à cette méta-zone, sans
+  réédition des cartes déjà imprimées.
+- Éligibilité : les **règles** (`--seasons`, `--tags`, `--from/--to`) cadrent,
+  la **liste** (`--events`) restreint. Un bon émis en fin de saison ne connaît
+  pas le calendrier suivant : il part sur des règles, et les matchs précis
+  peuvent être épinglés plus tard sans réimprimer la carte.
+- `--expires` : échéance, prolongeable ensuite depuis l'admin.
+
+**Suivi** : `/admin/vouchers` (catégorie *Advanced*) liste les bons avec leur
+solde, leur portée et le journal des retraits — c'est la réponse au guichet à
+« ce bon a-t-il déjà servi ? ». On y suspend, réactive, prolonge, et on y
+récupère le lien à réimprimer.
+
+⚠ Un bon est un titre au porteur : la carte peut être photographiée. Ce qui
+protège réellement, c'est le solde consommé (une place prise ne peut pas l'être
+deux fois), l'échéance, et l'email exigé au retrait — qui laisse une trace.
+
+
+**Achat d'un bon** — `/voucher/buy`. Le barème vit dans
+`data/customization/voucher-purchase.json` (prix par place, bornes, validité,
+portée). Le bon n'est créé **qu'au paiement confirmé**, dans la branche « sans
+siège » de la finalisation : rien n'est émis tant que la commande est
+`pending`, et rejouer la finalisation (retour navigateur, webhook, relance)
+n'émet pas un second bon.
+
+Jeu d'essai : `data_examples/stadium_vouchers/`.
 
 ### Charger des QR si nécessaire
 

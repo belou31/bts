@@ -4,6 +4,7 @@ import path from 'path';
 import PDFDocument from 'pdfkit';
 import SVGtoPDF from 'svg-to-pdfkit';
 import { Event } from '../models/Event.js';
+import { Season } from '../models/Season.js';
 import { Venue } from '../models/Venue.js';
 import { hexToQrSvg, renderQrSvg, signCode } from './qr.js';
 import { resolveLinePlacement } from '../utils/event-attendance.js';
@@ -405,6 +406,20 @@ function parseSvgBoxSize(svg) {
 
 
 
+// Explicit Event/Season.templateTheme wins over the customization-layered
+// theme (resolveThemeForOrder) — most specific, deliberately-set-for-this-
+// event/season override. `ev` is passed in since buildTicketsPdfBuffer
+// already has it loaded; the Season lookup only fires for orders with no
+// event (subscription/public), where nothing else already queries Season.
+async function resolveTemplateTheme(order, ev) {
+  if (ev?.templateTheme) return ev.templateTheme;
+  if (!ev && order?.seasonCode) {
+    const season = await Season.findOne({ code: order.seasonCode }).select({ templateTheme: 1 }).lean().catch(() => null);
+    if (season?.templateTheme) return season.templateTheme;
+  }
+  return resolveThemeForOrder(order);
+}
+
 export async function buildTicketsPdfBuffer(order) {
   const tickets = Array.isArray(order?.meta?.tickets) ? order.meta.tickets : [];
   if (!tickets.length) return null;
@@ -421,7 +436,7 @@ export async function buildTicketsPdfBuffer(order) {
   const kind = ev ? 'event' : (subscriptionMode ? 'subscription' : 'public');
   const config = await loadTicketConfig();
   const tplEntry = config[kind] || config.default;
-  const theme = resolveThemeForOrder(order);
+  const theme = await resolveTemplateTheme(order, ev);
 
   // --- Charge le template & le logo (fichiers)
   const tplPathEnv = process.env.TICKET_SVG_TEMPLATE;
@@ -510,6 +525,15 @@ export async function buildTicketsPdfBuffer(order) {
         BENEFICIARY: beneficiary,
         TARIFF_LABEL: resolvedTariffLabel,
         TARIFF_TITLE: tariffTitle,
+        // Badge "ABONNÉ" à placer librement dans le SVG. Vide hors abonné :
+        // applyVars remplace tout {{TOKEN}} inconnu ou nul par une chaîne vide,
+        // donc un gabarit qui contient ce placeholder reste correct pour un
+        // acheteur classique — rien ne s'affiche, aucune accolade résiduelle.
+        SUBSCRIBER_LABEL: subscriptionMode ? translate('common.subscriber', order?.locale).toUpperCase() : '',
+        // Pendant pour les billets issus d'un bon cadeau. Même principe :
+        // vide hors invitation, donc sans effet sur les gabarits existants.
+        VOUCHER_LABEL: String(order?.origin?.flow || '').toLowerCase() === 'voucher'
+          ? translate('common.invitation', order?.locale).toUpperCase() : '',
         LABEL_VENUE: translate('common.venue', order?.locale),
         LABEL_SEAT: translate('common.seat', order?.locale),
         LABEL_BENEFICIARY: translate('common.beneficiary', order?.locale),

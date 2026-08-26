@@ -9,8 +9,8 @@ import { Order } from '../../src/models/Order.js';
 import { buildTicketsPdfBuffer } from '../../src/services/tickets-pdf.js';
 import { renderOrderEmail, subjectForOrder, attachQrFromBank } from '../../src/services/mailer.js';
 import { sendMail } from '../../src/loaders/mailer.js';
-import { ensureTicketsForEventOrder, generateTicketHex } from '../../src/services/order-finalization.js';
-import { signSeatChangeToken } from '../../src/routes/seat-change.js';
+import { ensureTicketsForEventOrder, generateTicketHex, sendSeatPendingNotice } from '../../src/services/order-finalization.js';
+import { buildSeatChangeUrlForOrder } from '../../src/services/seat-change-link.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -73,21 +73,7 @@ async function deliverOrder({ order, eventDoc, dryRun }) {
   const subject = await subjectForOrder(order) || defaultSubject;
 
   // Lien de changement de place (même zone, une fois, jusqu'au coup d'envoi).
-  // Expire au coup d'envoi : inutile de le proposer pour un match commencé.
-  let seatChangeUrl = '';
-  try {
-    if (process.env.JWT_SECRET && eventDoc.startsAt && new Date(eventDoc.startsAt) > new Date()) {
-      const token = signSeatChangeToken({
-        eventId: eventDoc._id,
-        orderId: order._id,
-        startsAt: eventDoc.startsAt
-      });
-      const base = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
-      seatChangeUrl = `${base}/seat-change?id=${token}`;
-    }
-  } catch (err) {
-    console.warn('[send-all-season-tickets] seat-change link skipped:', err?.message || err);
-  }
+  const seatChangeUrl = await buildSeatChangeUrlForOrder(order, { startsAt: eventDoc.startsAt });
 
   const seatChangeBlock = seatChangeUrl
     ? `<p style="margin:.75rem 0">
@@ -158,8 +144,12 @@ async function main() {
   }
 
   const eventIdStr = String(eventDoc._id);
+  // 'torelocate' inclus : ces abonnés ont payé mais n'ont pas de place pour ce
+  // match. Ils ne reçoivent pas de billet — ils reçoivent l'invitation à en
+  // choisir une. Les exclure revenait à ne rien envoyer à ceux qui en ont le
+  // plus besoin.
   const query = {
-    status: 'paid',
+    status: { $in: ['paid', 'torelocate'] },
     payerEmail: { $ne: null },
     $or: [
       { eventId: eventDoc._id },
@@ -175,7 +165,10 @@ const stats = {
   dryRun: argv['dry-run'] ? 0 : null,
   skipped: 0,
   errors: 0,
-  alreadySent: 0
+  alreadySent: 0,
+  toRelocate: 0,
+  toRelocateNotified: 0,
+  toRelocateAlreadySent: 0
 };
 
   const processedRecipients = new Set();
@@ -184,6 +177,39 @@ const stats = {
   for await (const order of cursor) {
     stats.scanned += 1;
     if (limitRemaining > 0 && stats.sent >= limitRemaining) break;
+
+    // Pas de place → pas de billet : on envoie l'avertissement et le lien de
+    // choix de place, en reprenant le message reçu au moment de l'abonnement.
+    //
+    // Traité AVANT la déduplication par destinataire : ce n'est pas une
+    // livraison de billets, et le groupKey des commandes issues d'un
+    // abonnement est commun à toute la saison — un abonné ayant deux
+    // commandes verrait la seconde écartée comme un doublon.
+    if (String(order.status).toLowerCase() === 'torelocate') {
+      stats.toRelocate += 1;
+      const alreadyNotified = order?.paymentProviderMeta?.seatPendingNoticeSentAt;
+      if (alreadyNotified && !argv.force) {
+        stats.toRelocateAlreadySent += 1;
+        continue;
+      }
+      if (argv['dry-run']) {
+        console.log(`[dry-run] à replacer order=${order._id} email=${order.payerEmail}`);
+        stats.toRelocateNotified += 1;
+        continue;
+      }
+      try {
+        const ok = await sendSeatPendingNotice(order, {
+          source: 'send-all-season-tickets',
+          seatChangeUrl: await buildSeatChangeUrlForOrder(order, { startsAt: eventDoc.startsAt })
+        });
+        if (ok) stats.toRelocateNotified += 1;
+        else stats.errors += 1;
+      } catch (err) {
+        stats.errors += 1;
+        console.error('[send-season-tickets] relocate notice failed', String(order._id), err?.message || err);
+      }
+      continue;
+    }
 
     const key = `${String(order.payerEmail || '').trim().toLowerCase()}::${order.groupKey || ''}`;
     if (processedRecipients.has(key)) {
@@ -278,6 +304,9 @@ const stats = {
   console.log(`Envoyés : ${stats.sent}${argv['dry-run'] ? ' (dry-run)' : ''}`);
   console.log(`Ignorés : ${stats.skipped}`);
   console.log(`Déjà envoyés : ${stats.alreadySent}`);
+  console.log(`À replacer (sans place) : ${stats.toRelocate}`);
+  console.log(`  → invités à choisir une place : ${stats.toRelocateNotified}${argv['dry-run'] ? ' (dry-run)' : ''}`);
+  console.log(`  → déjà invités : ${stats.toRelocateAlreadySent}`);
   console.log(`Erreurs : ${stats.errors}`);
 }
 

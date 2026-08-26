@@ -13,6 +13,7 @@ import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from 
 import { makeTokenHash } from '../utils/ha-token.js';
 import { findSingleGaps }      from '../utils/no-single-gap.js';
 import { isVirtualZoneSeatId, zoneKeyFromSeatId as zoneKeyOf } from '../utils/seat-id.js';
+import { withMetaZonePrices } from '../utils/meta-zones.js';
 import {
   buildZonesWithRemaining,
   selectZoneAllocatedZones,
@@ -249,7 +250,10 @@ router.get('/renew', async (req, res) => {
 
     // Tarifs & prix
     const tariffs = await Tariff.find({ seasonCode, venueSlug, isActive: true }).lean();
-    const prices  = await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean();
+    const prices  = await withMetaZonePrices(
+      await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean(),
+      { seasonCode, venueSlug }
+    );
 
     // Zones : une place supplémentaire peut aussi être prise en zone, pas
     // seulement sur un siège numéroté. Même calcul de disponibilité que
@@ -477,7 +481,10 @@ router.post('/renew', async (req, res) => {
     }
 
     // Prix (index)
-    const prices   = await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean();
+    const prices   = await withMetaZonePrices(
+      await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean(),
+      { seasonCode, venueSlug }
+    );
     const pricesIx = buildPricesIndex(prices);
 
     // Construire les lignes + total

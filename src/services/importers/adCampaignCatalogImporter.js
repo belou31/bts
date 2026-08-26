@@ -71,7 +71,7 @@ export async function importAdCampaignCatalog({
     }
 
     const zoneTypeRaw = normalizeLower(pick(rawEntry, 'zoneType', 'zone_type', 'zonetype'));
-    const zoneType = ['seated', 'standing', 'fanclub'].includes(zoneTypeRaw) ? zoneTypeRaw : null;
+    const zoneType = ['seated', 'standing'].includes(zoneTypeRaw) ? zoneTypeRaw : null;
 
     normalizedEntries.push({
       campaignSlug,

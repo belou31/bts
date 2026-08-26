@@ -13,16 +13,19 @@ import { loadCustomization, resolveOrganizationName } from '../services/customiz
 import { formatDate } from '../utils/format.js';
 import { getPartnerConfig } from '../config/partners.js';
 import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
+import { seasonDoorStatus } from '../utils/season-sale.js';
+import { resolveSeasonSubscribeAccess, seasonAccessMessage } from '../services/season-access.js';
 
 import renewApi from './renew.js';   // <- API: GET/POST /s/renew …
 import seatChangeApi from './seat-change.js';   // <- API: GET/POST /s/seat-change
-import fanclubRouter from './fanclub.js';
+import voucherApi from './voucher.js';          // <- API: /s/voucher, /s/voucher/event/:slug, /s/voucher/redeem
 import subscriptionRouter from './subscription.js';
 import eventRoutes from './event.js';
 import partnerRoutes, { adminRouter as partnerAdminRouter } from './partner.js';
 import adminRoutes from './admin/index.js';
 import supervisionRoutes from './admin/supervision.routes.js';
 import renewersRoutes from './admin/renewers.routes.js';
+import adminVouchersRoutes from './admin/vouchers.routes.js';
 import payRoutes from './pay.js';      
 import controlGuestlistRoutes from './control/guestlist.js';
 import qrRoutes   from './qr.js';
@@ -110,23 +113,68 @@ function formatEventDateLabel(startsAt, locale) {
 }
 
 
+// Message honnête plutôt qu'un 404 muet : le visiteur doit pouvoir distinguer
+// « pas encore ouvert » de « c'est fini » — et le club, comprendre quel levier
+// il lui manque (publish-season.js).
+function seasonGateMessage(reason, door) {
+  const labels = { renew: 'Le renouvellement', subscribe: 'L\'abonnement' };
+  const what = labels[door] || 'La vente';
+  switch (reason) {
+    case 'season_not_found':     return 'Saison introuvable.';
+    case 'season_archived':      return 'Cette saison est archivée.';
+    case 'season_not_published': return `${what} n'est pas encore ouvert.`;
+    case `${door}_notopen`:      return `${what} n'est pas encore ouvert.`;
+    case `${door}_closed`:       return `${what} est clos pour cette saison.`;
+    default:                     return `${what} n'est pas accessible.`;
+  }
+}
+
 export default function routes(router) {
   // Page HTML "renew"
+  // Ancien chemin, conservé : des liens /renew?id=… sont déjà partis par mail et
+  // imprimés. On résout la saison depuis le jeton et on redirige vers le chemin
+  // explicite, plutôt que de casser ce qui circule.
   router.get('/renew', async (req, res) => {
+    const token = String(req.query.id || '').trim();
+    if (token && process.env.JWT_SECRET) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded?.seasonCode) {
+          const target = path.posix.join(BASE_PATH || '/', 'season',
+            encodeURIComponent(decoded.seasonCode), 'renew') + `?id=${encodeURIComponent(token)}`;
+          return res.redirect(302, target);
+        }
+      } catch { /* jeton illisible : on retombe sur la page générique ci-dessous */ }
+    }
+    return renderRenewPage(req, res, null);
+  });
+
+  // Chemin explicite.
+  router.get('/season/:seasonCode/renew', async (req, res) => {
+    const code = String(req.params.seasonCode || '').trim();
+    const season = await Season.findOne({ $or: [{ code }, { seasonCode: code }] }).lean();
+    const gate = seasonDoorStatus(season, 'renew');
+    if (!gate.open) return res.status(gate.reason === 'season_not_found' ? 404 : 403).send(seasonGateMessage(gate.reason, 'renew'));
+    return renderRenewPage(req, res, season);
+  });
+
+  async function renderRenewPage(req, res, seasonDoc) {
     const providerName = currentPaymentProviderLabel();
     const qsIndex = req.originalUrl.indexOf('?');
     const suffix = qsIndex >= 0 ? req.originalUrl.slice(qsIndex) : '';
 
     // The season isn't known server-side otherwise — it's only carried inside
     // the renewal JWT (?id=), same token decoded by src/routes/renew.js.
-    let seasonName = '';
+    let seasonName = seasonDoc?.name || '';
     const token = String(req.query.id || '').trim();
-    if (token && process.env.JWT_SECRET) {
+    if (!seasonName && token && process.env.JWT_SECRET) {
+      // Chemin hérité (/renew sans saison résolue) : le code de saison n'est
+      // porté que par le jeton.
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         if (decoded?.seasonCode) {
-          const seasonDoc = await Season.findOne({ code: decoded.seasonCode }).lean().catch(() => null);
-          seasonName = seasonDoc?.name || decoded.seasonCode;
+          const fromToken = await Season.findOne({ code: decoded.seasonCode }).lean().catch(() => null);
+          seasonName = fromToken?.name || decoded.seasonCode;
         }
       } catch { /* invalid/expired token: fall back to season-agnostic copy below */ }
     }
@@ -171,9 +219,17 @@ export default function routes(router) {
       // automatically instead of requiring a click. See public/static/js/renew.js.
       customJs: [STATIC_PREFIX + 'js/renew.js']
     });
+  }
+
+  // /season/<code> reste un point d'entrée naturel : on l'envoie vers le chemin
+  // explicite plutôt que d'y servir silencieusement la page d'abonnement.
+  router.get('/season/:seasonCode', (req, res) => {
+    const code = String(req.params.seasonCode || '').trim();
+    const qs = req.originalUrl.indexOf('?') >= 0 ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+    return res.redirect(302, path.posix.join(BASE_PATH || '/', 'season', encodeURIComponent(code), 'subscribe') + qs);
   });
 
-  router.get('/season/:seasonCode', async (req, res, next) => {
+  router.get('/season/:seasonCode/subscribe', async (req, res, next) => {
     try {
       const rawSeason = String(req.params.seasonCode || '').trim();
       if (!rawSeason) return res.status(400).send('Season code required');
@@ -182,6 +238,9 @@ export default function routes(router) {
         $or: [{ code: rawSeason }, { seasonCode: rawSeason }]
       }).lean();
       if (!seasonDoc) return res.status(404).send('Season not found');
+
+      const gate = seasonDoorStatus(seasonDoc, 'subscribe');
+      if (!gate.open) return res.status(403).send(seasonGateMessage(gate.reason, 'subscribe'));
 
       const seasonCode = seasonDoc.code || seasonDoc.seasonCode || rawSeason;
       const seasonName = seasonDoc.name || `Saison ${seasonCode}`;
@@ -259,10 +318,13 @@ export default function routes(router) {
 
   router.get('/subscription', async (_req, res, next) => {
     try {
-      const seasonDoc = await Season.findOne({ isActive: true }).lean();
-      if (!seasonDoc) return res.status(503).send('No active season');
+      // Saison courante = la seule publiée dont l'abonnement est ouvert.
+      // (Remplace `{ isActive: true }`, qui portait sur un champ inexistant :
+      // strictQuery le supprimait et renvoyait une saison arbitraire.)
+      const seasonDoc = await Season.findOne({ activity: 'active', subscribe: 'open' }).lean();
+      if (!seasonDoc) return res.status(503).send('Aucune saison n\'est ouverte à l\'abonnement.');
       const code = seasonDoc.code || seasonDoc.seasonCode;
-      const target = path.posix.join(BASE_PATH || '/', 'season', encodeURIComponent(code));
+      const target = path.posix.join(BASE_PATH || '/', 'season', encodeURIComponent(code), 'subscribe');
       return res.redirect(target);
     } catch (err) {
       next(err);
@@ -396,6 +458,103 @@ export default function routes(router) {
     });
   });
 
+
+  // ——— Bons cadeaux (retrait par le bénéficiaire) ———
+  // Le QR imprimé mène ici : solde + matchs éligibles.
+  router.get('/voucher', async (req, res) => {
+    const token = String(req.query.id || '').trim();
+    if (!token) return res.status(400).send('Missing token');
+    try {
+      const { loadVoucherByToken, voucherUsability, remainingOf, listEligibleEvents,
+              allowanceForEvent, usedOnEvent } = await import('../services/vouchers.js');
+      const voucher = await loadVoucherByToken(token);
+      if (!voucher) return res.status(404).send('Bon introuvable ou lien invalide.');
+
+      const usable = voucherUsability(voucher);
+      const reasonText = {
+        voucher_expired: 'Ce bon a expiré.',
+        voucher_spent: 'Ce bon a déjà été entièrement utilisé.',
+        voucher_suspended: 'Ce bon est momentanément suspendu. Contactez le club.',
+        voucher_canceled: 'Ce bon a été annulé.'
+      }[usable.reason] || 'Ce bon n’est pas utilisable.';
+
+      const evs = usable.ok ? await listEligibleEvents(voucher) : [];
+      const base = BASE_PATH || '/';
+      const events = evs.map(ev => ({
+        slug: ev.slug,
+        name: ev.name || ev.slug,
+        startsAt: ev.startsAt,
+        allowance: allowanceForEvent(voucher, ev.slug),
+        alreadyTaken: usedOnEvent(voucher, ev.slug),
+        link: path.posix.join(base, 'voucher', encodeURIComponent(ev.slug)) + `?id=${encodeURIComponent(token)}`
+      }));
+
+      res.render(path.resolve(VIEWS_DIR, 'voucher-events'), {
+        title: 'Votre invitation',
+        assets: ASSETS_BASE,
+        brand: { logo: path.posix.join(ASSETS_BASE.media, 'logo.svg'), alt: resolveOrganizationName() },
+        usable: usable.ok,
+        reasonText,
+        voucher: {
+          code: voucher.code, label: voucher.label || '',
+          remaining: remainingOf(voucher),
+          total: Number(voucher.balance?.total || 0),
+          used: Number(voucher.balance?.used || 0),
+          maxPerEvent: Number(voucher.maxPerEvent || 0),
+          expiresAt: voucher.expiresAt || null
+        },
+        events
+      });
+    } catch (err) {
+      console.error('[voucher] error:', err?.message || err);
+      res.status(500).send('Error loading voucher');
+    }
+  });
+
+  // Achat d'un bon (amont). DÉCLARÉ AVANT /voucher/:eventSlug, sinon "buy"
+  // serait pris pour un slug de match.
+  router.get('/voucher/buy', async (req, res) => {
+    const { loadPurchaseConfig } = await import('../services/vouchers.js');
+    const cfg = loadPurchaseConfig();
+    res.render(path.resolve(VIEWS_DIR, 'voucher-buy'), {
+      title: 'Offrir des places',
+      assets: ASSETS_BASE,
+      brand: { logo: path.posix.join(ASSETS_BASE.media, 'logo.svg'), alt: resolveOrganizationName() },
+      cfg,
+      apiPath: path.posix.join(BASE_PATH || '/', 's', 'voucher', 'purchase')
+    });
+  });
+
+  // Choix des places pour UN match : même écran que la billetterie (plan
+  // zoomable), colonne de droite remplacée par le panneau du bon.
+  router.get('/voucher/:eventSlug', (req, res) => {
+    const token = String(req.query.id || '').trim();
+    const eventSlug = String(req.params.eventSlug || '').trim();
+    if (!token || !eventSlug) return res.status(400).send('Missing token or event');
+    const base = BASE_PATH || '/';
+    const statusPath = path.posix.join(base, 's', 'voucher', 'event', encodeURIComponent(eventSlug)) +
+      `?id=${encodeURIComponent(token)}`;
+    const redeemPath = path.posix.join(base, 's', 'voucher', 'redeem') + `?id=${encodeURIComponent(token)}`;
+
+    res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
+      title: 'Votre invitation — choisir vos places',
+      heading: 'Choisir vos places',
+      planHelp: 'Cliquez les places souhaitées sur le plan, dans la limite de votre invitation.',
+      sidePanel: path.resolve(VIEWS_DIR, 'voucher', 'panel'),
+      scheduleOptions: null,
+      showSchedule: false,
+      assets: ASSETS_BASE,
+      config: {
+        api: { status: statusPath, checkout: redeemPath },
+        selection: { type: 'seats' },
+        buildRowsFromData: false,
+        voucher: { redeem: redeemPath, eventSlug }
+      },
+      orderPageConfig: {},
+      customJs: [STATIC_PREFIX + 'js/voucher.js']
+    });
+  });
+
   // Public: list all events, open ones link straight to /event/:slug
   router.get('/events', async (req, res) => {
     try {
@@ -508,6 +667,140 @@ export default function routes(router) {
     } catch (err) {
       console.error('[partner/events] error:', err?.message || err);
       res.status(500).send('Error loading partner events');
+    }
+  });
+
+  // Abonnement saison vendu par un partenaire.
+  //
+  // Pendant de /partner/:slug/event/:slug, mais côté saison : la page est la
+  // même vue partenaire, branchée sur l'API d'abonnement au lieu de celle des
+  // événements. Le quota, lui, se compte en ABONNEMENTS et non en places —
+  // voir services/partner-presale.js.
+  router.get('/partner/:partnerSlug/season/:seasonCode', async (req, res, next) => {
+    try {
+      const partnerSlug = String(req.params.partnerSlug || '').trim();
+      const seasonParam = String(req.params.seasonCode || '').trim();
+      if (!partnerSlug || !seasonParam) return res.status(400).send('Missing partner or season code');
+
+      const partnerCfg = getPartnerConfig(partnerSlug);
+      if (!partnerCfg) return res.status(404).send('Partner not found');
+
+      // Même garde que le flux événement : jeton global du partenaire.
+      const expectedToken = expectedPartnerToken(partnerCfg, null);
+      const providedToken = (req.query?.token || '').trim();
+      if (expectedToken && providedToken !== expectedToken) {
+        return res.status(403).send('Access restricted for this partner.');
+      }
+      if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
+        return res.status(403).send('Access restricted for this partner.');
+      }
+      applyPartnerFrameAncestorsHeaders(res, partnerCfg.frameAncestors);
+
+      const seasonDoc = await Season.findOne({
+        $or: [{ code: seasonParam }, { seasonCode: seasonParam }]
+      }).lean();
+      if (!seasonDoc) return res.status(404).send('Season not found');
+
+      const seasonCode = seasonDoc.code || seasonDoc.seasonCode || seasonParam;
+      const seasonName = seasonDoc.name || `Saison ${seasonCode}`;
+      const venueSlug = seasonDoc.venueSlug || seasonDoc.venue || '';
+
+      // Même règle que l'API (services/season-access.js) : sans quoi la page
+      // s'ouvrirait sur un formulaire qui échouerait au paiement.
+      const access = await resolveSeasonSubscribeAccess({
+        season: seasonDoc, seasonCode, partnerCfg, partnerSlug
+      });
+      if (!access.allowed) {
+        return res.status(403).send(seasonAccessMessage(access.reason));
+      }
+      const quota = access.partner?.quota || 0;
+      const remaining = access.partner?.remaining ?? null;
+      const doorOpen = seasonDoorStatus(seasonDoc, 'subscribe').open;
+
+      const providerName = currentPaymentProviderLabel();
+      const venueDoc = venueSlug ? await Venue.findOne({ slug: venueSlug }).lean().catch(() => null) : null;
+      const customization = loadCustomization({ seasonCode, partnerSlug, locale: req.locale });
+      const tmplVars = {
+        seasonCode, seasonName, venueSlug,
+        venueName: venueDoc?.name || venueSlug || '',
+        partnerSlug,
+        partnerName: partnerCfg.name || partnerSlug
+      };
+
+      const encodedPartner = encodeURIComponent(partnerSlug);
+      const encodedSeason = encodeURIComponent(seasonCode);
+      const baseForJoin = BASE_PATH || '/';
+      const tokenSuffix = providedToken ? `?token=${encodeURIComponent(providedToken)}` : '';
+      const statusPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'season', encodedSeason, 'status') + tokenSuffix;
+      const checkoutPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'season', encodedSeason, 'checkout') + tokenSuffix;
+
+      // Vue de salle : préférence saison du partenaire, puis sa vue par défaut.
+      const seasonsMap = partnerCfg?.venueViews?.seasons || {};
+      const resolvedVenueView =
+        seasonsMap[seasonCode] || seasonsMap[seasonCode.toLowerCase()] || partnerCfg.venueView || null;
+
+      const partnerOptions = {
+        slug: partnerCfg.slug,
+        invoiceMode: partnerCfg.paymentMode === 'psp' ? 'psp' : 'invoice',
+        reserveApi: null,
+        payButtonLabel: customization['subscription.payButton'] || partnerCfg?.reserve?.payButtonLabel
+          || (partnerCfg.paymentMode === 'psp' ? 'Procéder au paiement' : 'Envoyer la demande'),
+        successMessage: partnerCfg?.reserve?.successMessage || 'Demande envoyée. Vous recevrez une confirmation prochainement.',
+        errorMessage: partnerCfg?.reserve?.errorMessage || 'Impossible d’enregistrer votre demande. Réessayez.'
+      };
+
+      const headingCustom = Boolean(customization['subscription.title']);
+      const heading = headingCustom
+        ? tmpl(customization['subscription.title'], tmplVars)
+        : `${partnerCfg.name || partnerSlug} — Abonnements ${seasonCode}`;
+      const lead = customization['subscription.lead']
+        ? tmpl(customization['subscription.lead'], tmplVars)
+        : (partnerCfg?.ui?.lead || `Réservez vos abonnements ${seasonName} via la billetterie dédiée partenaire.`);
+      const planHelp = customization['subscription.help']
+        ? tmpl(customization['subscription.help'], tmplVars)
+        : 'Sélectionnez un siège sur le plan ou ajoutez des places en zone.';
+      const isInvoiceMode = partnerCfg.paymentMode !== 'psp';
+      const paymentHelp = partnerCfg?.ui?.paymentHelp ||
+        (isInvoiceMode
+          ? 'Demande enregistrée puis facturation différée. Aucun paiement en ligne n’est requis.'
+          : `Paiement sécurisé ${providerName}.`);
+
+      res.render(path.resolve(VIEWS_DIR, 'partner', 'index'), {
+        title: `${partnerCfg.name || 'Billetterie Partenaire'} — Abonnements ${seasonCode}`,
+        heading,
+        lead,
+        planHelp,
+        scheduleOptions: [1, 2, 3],
+        paymentHelp,
+        assets: ASSETS_BASE,
+        zoneSelector: {
+          enabled: true,
+          label: 'Choisir sur Plan ou Ajouter Zone:',
+          addLabel: 'Ajouter',
+          options: []
+        },
+        config: {
+          title: `${partnerCfg.name || partnerSlug} — Abonnements ${seasonCode}`,
+          seasonCode,
+          seasonName,
+          api: { status: statusPath, checkout: checkoutPath, reserve: null },
+          selection: { type: 'seats' },
+          buildRowsFromData: false,
+          svgSeatClasses: { allowed: 'seat-allowed' },
+          venueView: resolvedVenueView,
+          partnerSlug,
+          partner: partnerOptions,
+          presale: { quota, remaining, active: quota > 0 && !doorOpen },
+          headingCustom
+        },
+        headingCustom,
+        payButtonLabel: partnerOptions.payButtonLabel,
+        orderPageConfig: { focusField: 'payerEmail' },
+        customJs: [STATIC_PREFIX + 'js/subscription.js'],
+        partnerOptions
+      });
+    } catch (err) {
+      next(err);
     }
   });
 
@@ -683,40 +976,12 @@ export default function routes(router) {
   });
 
 
-  router.get('/fanclub', (_req, res) => {
-  
-    res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
-      title: 'Fanclub — Abonnements',
-      heading: 'Abonnements Fanclub',
-      lead: 'Rejoignez le fan club : choisissez votre zone dédiée et finalisez votre inscription en quelques clics.',
-      planHelp: 'Sélectionnez votre zone fanclub directement sur le plan ou via les boutons dédiés.',
-      scheduleOptions: [1, 2, 3],
-      paymentHelp: 'Un email de confirmation vous sera envoyé dès validation du paiement.',
-      assets: ASSETS_BASE,
-      config: {
-        title: 'Fanclub — Abonnements',
-        api: {
-          status: 'api/fanclub/status',
-          checkout: 'api/fanclub/checkout'
-        },
-        selection: { type: 'zones' },
-        buildRowsFromData: false,
-        svgSeatClasses: { allowed: 'seat-allowed' }
-      },
-      orderPageConfig: {
-        focusField: 'payerEmail'
-      }
-    });
-  });
-
   router.use('/api/automation', automationRoutes);
 
 
   router.use(`/api`, qrRoutes);
 
   // API JSON
-  router.use('/api/fanclub', fanclubRouter);
-
   router.use('/api/partner', partnerRoutes);
   // Partner admin CSV/JSON
   router.use('/partner', partnerAdminRouter);
@@ -738,6 +1003,7 @@ export default function routes(router) {
   router.use('/admin/supervision', supervisionRoutes);
 
   router.use('/admin/renewers', renewersRoutes);
+  router.use('/admin/vouchers', adminVouchersRoutes);
 
   router.use('/', scanRoutes);
   router.use('/', controlGuestlistRoutes);
@@ -748,6 +1014,7 @@ export default function routes(router) {
   // API sous /s
   router.use('/s', renewApi);
   router.use('/s', seatChangeApi);   // GET/POST /s/seat-change
+  router.use('/s', voucherApi);      // bons cadeaux
 
 
   // ✨ Routes paiement (return, back, error, webhook)

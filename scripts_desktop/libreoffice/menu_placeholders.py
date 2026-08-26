@@ -69,7 +69,7 @@ _COMMAND_SPECS = [
     ("renew_provision_seats", "Provision seats for renewal", "node scripts/03-season-management/renewal-provision-seats.js <season> --venue=<slug> [--apply]"),
     ("renew_export_groups", "Export renewal groups (CSV)", "node scripts/03-season-management/export-renew-groups.js <season> --venue=<slug> --base=<https://host/bts>"),
     ("renew_export_seats", "Export renewal seats (CSV)", "node scripts/03-season-management/export-renew-seats.js <season> --venue=<slug>"),
-    ("renew_close_phase", "Close renewal phase", "node scripts/03-season-management/renewal-close-phase.js <season> [--venue=<slug>]"),
+    ("release_unrenewed_seats", "Release unrenewed seats", "node scripts/03-season-management/release-unrenewed-seats.js <season> [--venue=<slug>] [--dry-run]"),
     # 04 — Event Management
     ("event_create", "Create event", "node scripts/04-event-management/create.js --slug=... --name=\"...\" --date=ISO --season=<code> --venue=<slug> [--price-table=<key>]"),
     ("event_instantiate_tariffs", "Instantiate event tariffs", "node scripts/04-event-management/instantiate-tariffs.js --event=<slug> --catalog=<slug[,slug2]> [--clear] [--dry-run]"),

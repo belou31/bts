@@ -1,6 +1,7 @@
 // src/routes/partner.js
 import { Router } from 'express';
 import createEventFlowRouter from './event-flow.factory.js';
+import subscriptionRouter from './subscription.js';
 import { getPartnerConfig } from '../config/partners.js';
 import { Order } from '../models/Order.js';
 
@@ -53,7 +54,8 @@ const partnerEventRouter = createEventFlowRouter({
   }
 });
 
-router.use('/:partnerSlug/event', (req, res, next) => {
+// Garde commune aux deux flux partenaire : partenaire connu + jeton valide.
+function requireKnownPartner(req, res, next) {
   const cfg = getPartnerConfig(req.params.partnerSlug);
   if (!cfg) {
     if (req.accepts('json')) {
@@ -69,7 +71,18 @@ router.use('/:partnerSlug/event', (req, res, next) => {
   }
   req.partnerConfig = cfg;
   next();
-}, partnerEventRouter);
+}
+
+// Abonnements saison vendus par un partenaire.
+//
+// C'est le MÊME routeur que /api/season/... : le flux d'abonnement (prix,
+// zones, quotas de zone, holds, commande) est identique, seul le canal change.
+// Le monter deux fois plutôt que le réécrire évite d'avoir un jour deux
+// abonnements qui ne se comportent pas pareil. subscriptionRouter lit
+// req.partnerConfig pour savoir qu'il sert un partenaire.
+router.use('/:partnerSlug/season/:seasonCode', requireKnownPartner, subscriptionRouter);
+
+router.use('/:partnerSlug/event', requireKnownPartner, partnerEventRouter);
 
 function requirePartnerAdmin(cfg) {
   return (req, res, next) => {

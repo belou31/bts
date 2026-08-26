@@ -37,7 +37,7 @@ const AdCampaignCatalogSchema = new mongoose.Schema({
   // equals the ticket's own value; null/absent = wildcard (matches anything).
   tariffCode: { type: String, default: null, trim: true, uppercase: true },
   zoneKey:    { type: String, default: null, trim: true, uppercase: true },
-  zoneType:   { type: String, enum: ['seated', 'standing', 'fanclub', null], default: null },
+  zoneType:   { type: String, enum: ['seated', 'standing', null], default: null },
 
   // When several placements match the same ticket/slot, highest priority wins.
   priority: { type: Number, default: 100 },

@@ -19,6 +19,19 @@ const EventSchema = new mongoose.Schema({
   },
   // Vue spécifique du plan (ex: variante partenaire)
   venueView: { type: String, default: null },
+  // Explicit per-event override for the ticket/email "theme" suffix (same
+  // <name>.<theme>.ext file-existence convention already used by
+  // resolveThemeForOrder in src/services/customization.js) — checked BEFORE
+  // that customization-layered theme, so it's the most specific override.
+  // null = no override, falls through to the existing customization system
+  // unchanged. Set via scripts/04-event-management/set-event-theme.js, or
+  // as a side effect of instantiate-ad-campaigns.js --set-theme=.
+  templateTheme: { type: String, default: null, trim: true },
+  // Étiquettes libres servant à cibler un lot d'évènements sans les
+  // énumérer : "regular", "playoff", "friendly"… Un bon cadeau émis en fin
+  // de saison ne connaît pas encore le calendrier suivant, il doit pouvoir
+  // dire "saison régulière" plutôt que lister des slugs qui n'existent pas.
+  tags:       { type: [String], default: [], index: true },
   // Optionnel : description courte affichable côté front
   description: { type: String, default: '' }
 }, { timestamps: true });

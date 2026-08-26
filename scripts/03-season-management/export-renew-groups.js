@@ -112,7 +112,9 @@ async function main() {
       exp: Math.floor(Date.now()/1000) + 60*60*24*30 // 30 jours
     };
     const token = jwt.sign(payload, secret);
-    const url = `${base.replace(/\/+$/,'')}/renew?id=${token}`;
+    // Chemin explicite : /renew?id= reste servi (redirection) pour les liens
+    // déjà partis, mais tout nouveau lien porte la saison.
+    const url = `${base.replace(/\/+$/,'')}/season/${encodeURIComponent(seasonCode)}/renew?id=${token}`;
     lines.push([groupKey, email, seatIds.join(','), extra, quota, token, url].join(';'));
   }
 

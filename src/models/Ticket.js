@@ -12,7 +12,7 @@ const TicketSchema = new mongoose.Schema({
   unitType:     { type: String, enum: ['seat', 'zone'] },
   // Mirrors Order.LineSchema.zoneType — the zone's physical seating
   // character, independent of unitType. Use this for display/i18n labels.
-  zoneType:     { type: String, enum: ['seated', 'standing', 'fanclub'] },
+  zoneType:     { type: String, enum: ['seated', 'standing'] },
   tariffCode:   { type: String },
   holder: {
     firstName:  String,

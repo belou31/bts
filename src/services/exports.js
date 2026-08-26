@@ -122,7 +122,8 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
     'payerFirstName','payerLastName','payerEmail',
     'seasonCode','venueSlug','paymentSplit','totalCents',
     'providerName','haOrderId','checkoutIntentId','lastReturnCode','lastWebhookEvent','attestationSentAt',
-    'lineIndex','seatId','zoneKey','tariffCode','priceCents','holderFirstName','holderLastName'
+    'lineIndex','seatId','zoneKey','tariffCode','priceCents','holderFirstName','holderLastName',
+    'justif','justificationField','info'
   ].join(',');
   if (includeHeader) out.write(header + '\n');
 
@@ -134,7 +135,9 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
     const baseFields = [
       o._id,
       o.createdAt?.toISOString?.() || '',
-      o.phase || '',
+      // The Order model has no top-level `phase` field (strict:true, only
+      // `origin.flow` exists) — `o.phase` was always undefined here.
+      o.origin?.flow || '',
       o.status || '',
       o.payerFirstName || '',
       o.payerLastName  || '',
@@ -153,8 +156,8 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
 
     const lines = Array.isArray(o.lines) ? o.lines : [];
     if (!lines.length) {
-      // 7 colonnes ligne: lineIndex..holderLastName → valeurs vides
-      const rowFields = [...baseFields, 0, '', '', '', 0, '', ''];
+      // 10 colonnes ligne: lineIndex..info → valeurs vides
+      const rowFields = [...baseFields, 0, '', '', '', 0, '', '', '', '', ''];
       out.write(rowFields.map(csvEscape).join(',') + '\n');
 
       continue;
@@ -169,7 +172,10 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
         l.tariffCode || '',
         l.priceCents || 0,
         l.holderFirstName || '',
-        l.holderLastName  || ''
+        l.holderLastName  || '',
+        l.justif || '',
+        l.justificationField || '',
+        l.info || ''
       ];
       out.write(rowFields.map(csvEscape).join(',') + '\n');
 

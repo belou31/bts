@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ticket-ads.svg — reference "ads version" of ticket.svg: the same base
+  layout plus the advertising zone from ticket.newmodel.svg (see
+  data/templates/tickets/ticket.newmodel.svg for the working design file
+  this was reproduced from — including a sample base64 background image,
+  intentionally NOT reproduced here; keep this file text-only / fill="none"
+  so it stays a lightweight, functional starting point).
+
+  Canvas is 210mm x 279mm (viewBox 634x842) — the print-safe INTERSECTION of
+  A4 (210x297mm) and US Letter (216x279mm). Everything is placed inside
+  that box so nothing clips regardless of which paper size a printer
+  actually feeds — A4 leaves ~18mm of blank margin at the bottom, Letter
+  leaves ~6mm on the right, neither cuts content.
+
+  Ad slots (see src/models/AdCampaignCatalog.js for the full contract —
+  contentType per AdCampaignCatalog/AdCampaignPlacement row, resolved by
+  buildTicketsPdfBuffer in src/services/tickets-pdf.js):
+    - id="adFull" contentType=image -> full-bleed sponsor image, spans the
+                  whole ad zone (overlaps adPict below — use one or the
+                  other per campaign, not both, unless you want them to
+                  literally overlap)
+    - id="adPict" contentType=image -> smaller picture-only zone, sized to
+                  sit alongside adQr
+    - id="adQr"   contentType=qr    -> that row's own qrValue if set (raw,
+                  untracked), else the campaign's targetUrl (trackable
+                  /promo/ redirect)
+    - {{AD_TEXT}} contentType=text  -> flat copy, e.g. a coupon tagline
+  All are independent and optional per ticket: a placement only wins its
+  slot when it matches that specific ticket's tariffCode/zoneKey/zoneType.
+  No matching placement = the slot/token stays blank — this template prints
+  fine with zero ad campaigns configured.
+
+  {{...}} tokens only match [A-Z0-9_] — keep custom token names uppercase.
+
+  Adopt this file as the live "ticket" template via
+  scripts/00-system-management/import-templates.js, with flags (each
+  prefixed with two hyphens) resource=ticket, file=data_references/templates/
+  tickets/ticket-ads.svg, kind=<default|event|...>.
+-->
+<svg width="210mm" height="279mm" viewBox="0 0 634 842" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .h1{font:700 22px system-ui, -apple-system, Segoe UI, Roboto, Arial;}
+      .h2{font:600 14px system-ui, -apple-system, Segoe UI, Roboto, Arial;}
+      .p {font:400 12px system-ui, -apple-system, Segoe UI, Roboto, Arial;}
+      .muted{fill:#666}
+      .text{fill:#111}
+      .chip{fill:#f3f4f6; stroke:#e5e7eb}
+      .card{fill:#fff; stroke:#e5e7eb}
+      .divider{stroke:#e5e7eb; stroke-width:1}
+    </style>
+  </defs>
+
+  <!-- Fond -->
+  <rect x="0" y="0" width="634" height="842" fill="#ffffff"/>
+  <!-- Carte -->
+  <rect x="28" y="28" width="578" height="786" rx="12" class="card"/>
+
+  <!-- En-tête -->
+  <text x="44" y="64" class="h2 text">{{CLUB_NAME}}</text>
+  <text x="44" y="92" class="h2 text">{{EVENT_NAME}}</text>
+  <text x="44" y="112" class="p muted">{{EVENT_DATE}}</text>
+  <text x="44" y="130" class="p muted">Lieu : {{VENUE_NAME}}</text>
+
+  <!-- Slot logo (en haut à droite) -->
+  <rect id="logo" x="498" y="44" width="92" height="92" fill="none"/>
+
+  <!-- Bloc info billet -->
+  <text x="44" y="170" class="h4 text">{{TARIFF_TITLE}}</text>
+  <text x="44" y="200" class="h1 text">{{TARIFF_LABEL}}</text>
+
+  <text x="44" y="230" class="h4 text">Place</text>
+  <text x="44" y="260" class="h1 text">{{SEAT}}</text>
+
+  <text x="44" y="310" class="h4 text">Bénéficiaire</text>
+  <text x="44" y="340" class="h1 text">{{BENEFICIARY}}</text>
+
+  <!-- Slot QR à droite (carré) -->
+  <rect id="qr" x="420" y="160" width="150" height="150" fill="none"/>
+
+  <!-- Séparateur avant la zone publicitaire -->
+  <line x1="44" y1="380" x2="590" y2="380" class="divider"/>
+
+  <!-- Zone publicitaire (sponsor) : image plein cadre OU image+QR, plus texte — tous optionnels -->
+  <rect id="adFull" x="44" y="400" width="546" height="370" fill="none"/>
+  <rect id="adPict" x="44" y="400" width="400" height="300" fill="none"/>
+  <rect id="adQr" x="460" y="480" width="130" height="130" fill="none"/>
+  <text id="adText" x="44" y="730" class="p muted">{{AD_TEXT}}</text>
+
+  <!-- Pied de page -->
+  <text x="44" y="800" class="p muted">Commande : {{ORDER_ID}} — Présentez ce billet (QR) à l’entrée.</text>
+</svg>

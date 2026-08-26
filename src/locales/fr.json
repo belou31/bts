@@ -30,6 +30,8 @@
     "seatingPlan": "Plan",
     "partner": "Partenaire",
     "subscription": "Abonnement",
+    "subscriber": "Abonné",
+    "invitation": "Invitation",
     "email": "Email",
     "add": "Ajouter"
   },
@@ -155,7 +157,13 @@
     "conflictSubject": "Votre commande n’a pas pu aboutir",
     "conflictBody1": "Votre commande n’a pas pu aboutir : votre paiement a dépassé le temps de blocage de vos sièges et une autre commande s’est insérée.",
     "conflictBody2": "Veuillez réessayer. Si votre paiement est passé, vous serez remboursé.",
-    "conflictOrderRef": "Référence commande"
+    "conflictOrderRef": "Référence commande",
+    "seatPendingSubject": "Votre paiement est confirmé — votre place reste à finaliser",
+    "seatPendingIntro": "Votre paiement est bien enregistré. En revanche, la place que vous aviez choisie a été attribuée entre-temps à une autre commande : nous devons vous en réaffecter une.",
+    "seatPendingNoAction": "Vous n'avez rien à payer de plus. Notre équipe revient vers vous très vite pour finaliser votre placement.",
+    "seatPendingRelocate": "Vous pouvez choisir vous-même une autre place :",
+    "seatPendingRelocateLink": "Choisir une autre place",
+    "seatPendingRecap": "Récapitulatif de votre commande"
   },
   "ticket": {
     "footerNote": "Commande : {{orderId}} — Présentez ce billet (QR) à l’entrée."

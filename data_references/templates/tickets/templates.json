@@ -2,7 +2,6 @@
   "templates": {
     "subscription": { "file": "my-season-ticket.svg", "logo": "my-logo.svg" },
     "event": { "file": "my-event-ticket.svg", "logo": "my-event-logo.svg" },
-    "fanclub": { "file": "my-fanclub-ticket.svg", "logo": "my-fanclub-logo.svg" },
     "default": { "file": "ticket.svg", "logo": "dynamic/assets/logo.svg" }
   }
 }

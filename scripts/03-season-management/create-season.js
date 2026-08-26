@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
- * Upsert a season and its phases.
+ * Upsert a season.
+ *
+ * Ne publie rien : une saison naît en `activity: 'draft'`, portes fermées.
+ * L'ouverture au public est le travail de `publish-season.js`.
  *
  * Usage:
  *   node scripts/03-season-management/create-season.js <seasonCode> [--name="Saison ..."] [--active=true] [--venue=<slug>]
@@ -15,8 +18,6 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 dotenv.config();
 import { Season } from '../../src/models/Season.js';
-
-const PHASE_NAMES = ['renewal', 'fanclub', 'public'];
 
 function parseArgs(argv) {
   const positional = [];
@@ -66,10 +67,7 @@ function parseBoolean(value, fallback = null) {
   let season = await Season.findOne({ code });
   const isNew = !season;
   if (!season) {
-    season = new Season({
-      code,
-      phases: PHASE_NAMES.map(name => ({ name, enabled: true }))
-    });
+    season = new Season({ code });
   }
 
   if (options.name) {
@@ -85,15 +83,13 @@ function parseBoolean(value, fallback = null) {
     season.active = true;
   }
 
-  season.phases = Array.isArray(season.phases) && season.phases.length
-    ? season.phases
-    : PHASE_NAMES.map(name => ({ name, enabled: true }));
-
-  await season.save();
-
+  // venueSlug doit être posé AVANT le save : il l'était après, si bien que
+  // --venue était perdu en base tout en s'affichant dans le récapitulatif.
   if (venueSlug) {
     season.venueSlug = venueSlug;
   }
+
+  await season.save();
 
   if (season.active) {
     await Season.updateMany({ _id: { $ne: season._id } }, { $set: { active: false } });
@@ -104,8 +100,11 @@ function parseBoolean(value, fallback = null) {
     name: season.name,
     active: season.active,
     venueSlug: season.venueSlug,
-    phases: season.phases
+    activity: season.activity,
+    renew: season.renew,
+    subscribe: season.subscribe
   });
+  console.log(`  → ouvrir la vente : node scripts/03-season-management/publish-season.js --season=${season.code} --activity=active --renew=open`);
 
   await mongoose.disconnect();
   process.exit(0);

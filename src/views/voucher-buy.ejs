@@ -1,0 +1,143 @@
+<!doctype html>
+<%
+  const normalizeBase = (value, fallback) => {
+    if (!value) return fallback;
+    const val = String(value);
+    return val.endsWith('/') ? val : `${val}/`;
+  };
+  const staticBase = normalizeBase(assets && assets.static, 'static/');
+  const euro = (cents) => formatCurrency(cents);
+%>
+<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'fr' %>">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title || 'Offrir des places' %></title>
+  <link rel="stylesheet" href="<%= staticBase %>styles/generic-view.css">
+  <link rel="stylesheet" href="<%= staticBase %>styles/order.css">
+  <style>
+    .buy-wrap { max-width: 720px; margin: 0 auto; padding: 24px 20px 48px; }
+    .buy-card {
+      background: #0f1720; border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 20px; color: #e8eef5; margin-bottom: 18px;
+    }
+    .buy-qty { display: flex; align-items: center; gap: 14px; margin: 14px 0; }
+    .buy-qty button {
+      width: 42px; height: 42px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2);
+      background: transparent; color: #e8eef5; font-size: 1.3rem; cursor: pointer;
+    }
+    .buy-qty button:disabled { opacity: .35; cursor: not-allowed; }
+    .buy-qty output { font-size: 2rem; font-weight: 800; min-width: 2.5ch; text-align: center; }
+    .buy-total { font-size: 1.5rem; font-weight: 800; }
+    .buy-muted { color: rgba(255,255,255,0.6); font-size: .9rem; line-height: 1.5; }
+    .buy-scope { margin: 12px 0 0; padding-left: 18px; }
+    .buy-scope li { margin: 3px 0; }
+    .buy-actions { margin-top: 18px; }
+    .buy-msg { margin-top: 12px; }
+    .buy-off { background: rgba(239,68,68,0.14); border: 1px solid rgba(239,68,68,0.45); color: #f3b4b4;
+               padding: 12px 14px; border-radius: 10px; }
+  </style>
+</head>
+<body class="order-view">
+  <header class="site-header">
+    <div class="header-row">
+      <div class="brand">
+        <% if (brand && brand.logo) { %>
+          <img src="<%= brand.logo %>" alt="<%= brand.alt || 'Logo' %>" class="logo">
+        <% } %>
+        <h1 id="pageTitle"><%= title || 'Offrir des places' %></h1>
+      </div>
+    </div>
+    <div class="lead">Offrez un bon : le bénéficiaire choisit lui-même son match et ses places.</div>
+  </header>
+
+  <main class="buy-wrap">
+    <% if (!cfg.enabled) { %>
+      <div class="buy-off">La vente de bons n'est pas ouverte pour le moment.</div>
+    <% } else { %>
+      <form id="buyForm" autocomplete="on">
+        <section class="buy-card">
+          <h2 style="margin:0 0 4px;font-size:1rem;">Combien de places ?</h2>
+          <div class="buy-qty">
+            <button type="button" id="qtyMinus" aria-label="Retirer une place">−</button>
+            <output id="qtyOut" for="qtyMinus qtyPlus"><%= cfg.minPlaces %></output>
+            <button type="button" id="qtyPlus" aria-label="Ajouter une place">+</button>
+            <span class="buy-muted">× <%= euro(cfg.pricePerPlaceCents) %> la place</span>
+          </div>
+          <div class="buy-total">Total : <span id="totalOut"><%= euro(cfg.pricePerPlaceCents * cfg.minPlaces) %></span></div>
+
+          <p class="buy-muted" style="margin-top:14px">Ce que le bon permet :</p>
+          <ul class="buy-scope buy-muted">
+            <li>Valable <%= cfg.validityDays %> jours à compter de l'achat.</li>
+            <li>
+              <% if (cfg.allowedZones && cfg.allowedZones.length) { %>
+                Places en <%= cfg.allowedZones.join(', ') %>.
+              <% } else { %>
+                Places dans toutes les zones ouvertes à la vente.
+              <% } %>
+            </li>
+            <li>
+              <% if (cfg.maxPerEvent > 0) { %>
+                Jusqu'à <%= cfg.maxPerEvent %> place(s) par match — utilisable sur plusieurs matchs.
+              <% } else { %>
+                Utilisable en une fois ou réparti sur plusieurs matchs.
+              <% } %>
+            </li>
+          </ul>
+        </section>
+
+        <section class="buy-card">
+          <h2 style="margin:0 0 10px;font-size:1rem;">Pour qui ?</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="recipient">Nom du bénéficiaire (optionnel)</label>
+              <input type="text" id="recipient" placeholder="École Jean Moulin, Camille…">
+            </div>
+            <div class="form-group">
+              <label for="message">Petit mot (optionnel)</label>
+              <input type="text" id="message" placeholder="Joyeux anniversaire !">
+            </div>
+          </div>
+          <p class="buy-muted">
+            Le bon vous est envoyé par email, à remettre au bénéficiaire — carte, impression ou simple transfert.
+          </p>
+        </section>
+
+        <section class="buy-card">
+          <h2 style="margin:0 0 10px;font-size:1rem;">Vos coordonnées</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="buyerLast">Nom</label>
+              <input type="text" id="buyerLast" autocomplete="family-name" required>
+            </div>
+            <div class="form-group">
+              <label for="buyerFirst">Prénom</label>
+              <input type="text" id="buyerFirst" autocomplete="given-name" required>
+            </div>
+            <div class="form-group">
+              <label for="buyerEmail">Email</label>
+              <input type="email" id="buyerEmail" autocomplete="email" placeholder="email@exemple.com" required>
+            </div>
+          </div>
+
+          <div class="buy-actions">
+            <button type="submit" id="buyBtn" class="pay-btn">Procéder au paiement</button>
+          </div>
+          <p id="buyMsg" class="feedback buy-msg"></p>
+        </section>
+      </form>
+    <% } %>
+  </main>
+
+  <script>
+    window.VOUCHER_BUY = {
+      api: <%- JSON.stringify(apiPath) %>,
+      unitCents: <%- JSON.stringify(cfg.pricePerPlaceCents) %>,
+      min: <%- JSON.stringify(cfg.minPlaces) %>,
+      max: <%- JSON.stringify(cfg.maxPlaces) %>,
+      locale: <%- JSON.stringify(lang || 'fr') %>
+    };
+  </script>
+  <script src="<%= staticBase %>js/voucher-buy.js"></script>
+</body>
+</html>

@@ -96,7 +96,10 @@ async function loadContext(id) {
   if (String(order.eventId || order?.meta?.eventId || '') !== String(ev._id)) {
     return { error: 'order_event_mismatch', code: 400 };
   }
-  if (!['paid', 'tobepaid'].includes(String(order.status || '').toLowerCase())) {
+  // 'torelocate' : abonnement payé dont la place de ce match n'a pas pu être
+  // attribuée (siège pris entre-temps). C'est précisément l'abonné qui a le
+  // plus besoin de cette page — la refuser le laissait sans issue.
+  if (!['paid', 'tobepaid', 'torelocate'].includes(String(order.status || '').toLowerCase())) {
     return { error: 'order_not_payable', code: 409 };
   }
 
@@ -123,8 +126,14 @@ router.get('/seat-change', async (req, res) => {
     const states = await computeEventSeatStates(ev);
     // Les sièges du porteur du lien sont 'booked' (par sa propre commande) :
     // ils doivent rester visibles comme SIENS, pas comme occupés par autrui.
+    //
+    // Sauf pour une commande 'torelocate' : justement, elle n'occupe rien. Le
+    // siège inscrit sur ses lignes est celui qu'elle N'A PAS obtenu, et il est
+    // désormais à quelqu'un d'autre. Le montrer comme disponible ferait cliquer
+    // l'abonné sur la seule place qu'il ne peut pas prendre.
+    const ownsItsSeats = String(order.status || '').toLowerCase() !== 'torelocate';
     const seats = states.map((s) => (
-      mySeatIds.has(s.seatId) ? { ...s, status: 'available', mine: true } : s
+      ownsItsSeats && mySeatIds.has(s.seatId) ? { ...s, status: 'available', mine: true } : s
     ));
 
     res.json({
@@ -247,6 +256,17 @@ router.post('/seat-change', async (req, res) => {
     }
     order.markModified('lines');
     if (metaTickets.length) order.markModified('meta');
+    // L'abonné vient de choisir une place : la commande cesse d'être « à
+    // replacer » et redevient une commande de match ordinaire, qui occupe son
+    // siège et donne droit au billet.
+    if (String(order.status || '').toLowerCase() === 'torelocate') {
+      order.status = 'paid';
+      if (order.meta?.relocate) {
+        order.meta = { ...order.meta, relocate: undefined };
+        delete order.meta.relocate;
+        order.markModified('meta');
+      }
+    }
     await order.save();
     // Le QR déjà envoyé reste valable : le contrôle d'accès résout le billet
     // par son hash puis lit le siège en base. Recaler Ticket.seatId suffit

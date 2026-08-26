@@ -71,15 +71,17 @@ function hasFlag(argv, name) {
   for (const slug of catalogSlugs) {
     const globalDocs = await TariffPriceCatalog.find({ catalogSlug: slug, venueSlug: null }).lean();
     for (const doc of globalDocs) {
-      const key = `${doc.zoneKey}::${doc.tariffCode}`;
+      // La clé porte la cible ENTIÈRE (zone ou méta-zone) : sans cela une
+      // grille par méta-zone écraserait une grille par zone du même tarif.
+      const key = `${doc.zoneKey || ''}::${doc.metaZone || ''}::${doc.tariffCode}`;
       if (!entryMap.has(key)) {
-        entryMap.set(key, { priceCents: doc.priceCents, catalogSlug: slug, channels: doc.channels });
+        entryMap.set(key, { priceCents: doc.priceCents, catalogSlug: slug, channels: doc.channels, metaZone: doc.metaZone || null });
       }
     }
     const venueDocs = await TariffPriceCatalog.find({ catalogSlug: slug, venueSlug }).lean();
     for (const doc of venueDocs) {
-      const key = `${doc.zoneKey}::${doc.tariffCode}`;
-      entryMap.set(key, { priceCents: doc.priceCents, catalogSlug: slug, channels: doc.channels });
+      const key = `${doc.zoneKey || ''}::${doc.metaZone || ''}::${doc.tariffCode}`;
+      entryMap.set(key, { priceCents: doc.priceCents, catalogSlug: slug, channels: doc.channels, metaZone: doc.metaZone || null });
     }
   }
 
@@ -90,9 +92,10 @@ function hasFlag(argv, name) {
   }
 
   const entries = Array.from(entryMap.entries()).map(([key, value]) => {
-    const [zoneKey, tariffCode] = key.split('::');
+    const [zoneKey, , tariffCode] = key.split('::');
     return {
-      zoneKey,
+      zoneKey: zoneKey || null,
+      metaZone: value.metaZone || null,
       tariffCode,
       priceCents: value.priceCents,
       catalogSlug: value.catalogSlug,
@@ -122,6 +125,7 @@ function hasFlag(argv, name) {
       seasonCode,
       venueSlug,
       zoneKey: entry.zoneKey,
+      metaZone: entry.metaZone,
       tariffCode: entry.tariffCode,
       priceCents: entry.priceCents,
       priceTableKey: null
@@ -133,7 +137,7 @@ function hasFlag(argv, name) {
       updateDoc.$unset = { channels: '' };
     }
     const res = await TariffPrice.updateOne(
-      { seasonCode, venueSlug, zoneKey: entry.zoneKey, tariffCode: entry.tariffCode, priceTableKey: null },
+      { seasonCode, venueSlug, zoneKey: entry.zoneKey, metaZone: entry.metaZone, tariffCode: entry.tariffCode, priceTableKey: null },
       updateDoc,
       { upsert: true }
     );
