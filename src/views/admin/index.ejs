@@ -2825,16 +2825,54 @@
           <noscript><button type="submit" class="btn btn-small">Afficher</button></noscript>
         </form>
 
+        <h3 style="margin-top:18px;">Méta-zones</h3>
+      <p class="muted" style="margin-top:-6px;">
+        Une méta-zone regroupe des zones sans exister sur le plan : elle sert à écrire
+        une grille tarifaire une seule fois pour le groupe. Définie ici, au niveau du lieu,
+        elle est recopiée sur les zones de chaque saison instanciée ensuite.
+      </p>
+      <% if (monitoring.lists.venueMetaZones && monitoring.lists.venueMetaZones.length) { %>
+        <div class="scroll-table" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Méta-zone</th><th>Zones</th><th>Nb zones</th><th>Capacité</th><th>Sièges</th><th>Remarque</th></tr>
+            <% for (const mz of monitoring.lists.venueMetaZones) { %>
+              <tr>
+                <td><code><%= mz.key %></code></td>
+                <td><%= mz.zones.join(', ') %></td>
+                <td><%= mz.zoneCount %></td>
+                <td><%= mz.capacity %></td>
+                <td><%= mz.seatCount %></td>
+                <td>
+                  <% if (mz.inactive && mz.inactive.length) { %>
+                    <span class="muted">zone(s) inactive(s) : <%= mz.inactive.join(', ') %></span>
+                  <% } else { %>
+                    <span class="muted">—</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else if (monitoring.lists.selectedMonitorVenueSlug) { %>
+        <div class="empty-state" style="margin-bottom:16px;">
+          Aucune méta-zone pour ce lieu — les zones se tarifent une par une.
+          Pour en créer une : <code>01-venue-management/set-zone-meta.js --venue=<%= monitoring.lists.selectedMonitorVenueSlug %> --meta=&lt;NOM&gt; --zones=&lt;A,B&gt;</code>
+        </div>
+      <% } %>
+
+
+        <h3>Zones</h3>
         <% if (monitoring.lists.venueZoneDetails && monitoring.lists.venueZoneDetails.length) { %>
           <div class="scroll-table" style="margin-top:12px;">
             <table>
-              <tr><th>Clé</th><th>Nom</th><th>Type</th><th>Accès</th><th>Capacité</th><th>Quota</th><th>Sièges</th><th>Active</th></tr>
+              <tr><th>Clé</th><th>Nom</th><th>Type</th><th>Accès</th><th>Méta-zone</th><th>Capacité</th><th>Quota</th><th>Sièges</th><th>Active</th></tr>
               <% for (const z of monitoring.lists.venueZoneDetails) { %>
                 <tr>
                   <td><code><%= z.key %></code></td>
                   <td><%= z.name || '—' %></td>
                   <td><%= z.type %></td>
                   <td><%= z.access %></td>
+                  <td><% if (z.metaZone) { %><code><%= z.metaZone %></code><% } else { %><span class="muted">—</span><% } %></td>
                   <td><%= z.capacity %></td>
                   <td><%= z.quota %></td>
                   <td><%= z.seatCount %></td>

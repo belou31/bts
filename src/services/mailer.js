@@ -151,9 +151,15 @@ async function loadTemplateHtml(nameOrPath, theme) {
   throw new Error(`Email template not found: ${nameOrPath} (searched in data/templates)`);
 }
 
-async function buildTariffsMap(seasonCode, venueSlug) {
+// Table code -> libellé, pour l'affichage seulement.
+//
+// Les paramètres sont conservés pour la signature d'appel, mais `Tariff` est
+// global : ni seasonCode ni venueSlug au schéma (strictQuery les supprimait
+// déjà). On ne restreint donc pas non plus sur priceTableKey — une commande de
+// match utilise des tarifs événementiels, et leur libellé doit être trouvé.
+async function buildTariffsMap(_seasonCode, _venueSlug) {
   try {
-    const tar = await Tariff.find({ seasonCode, venueSlug, active: true }).lean();
+    const tar = await Tariff.find({ active: true }).lean();
     const map = new Map();
     for (const t of tar) map.set(String(t.code || '').toUpperCase(), t.label || t.code);
     return map;
