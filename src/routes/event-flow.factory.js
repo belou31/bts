@@ -156,7 +156,11 @@ async function loadTariffsAndPrices(ev, channelCtx) {
     const filtered = filterTariffsAndPricesByChannel(evTariffs, evPrices, channelCtx, { fallbackToPublic: false });
     return { ...filtered, scope: 'event' };
   }
-  const fbTariffs = await Tariff.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, active: true }).lean();
+  // Repli sur les tarifs de SAISON quand le match n'a pas de table dédiée.
+  // `Tariff` est global : seasonCode/venueSlug n'existent pas au schéma et
+  // étaient supprimés par strictQuery. Le bon critère est `priceTableKey: null`,
+  // qui isole précisément les tarifs hors table événementielle.
+  const fbTariffs = await Tariff.find({ priceTableKey: null, active: true }).lean();
   const fbPrices = await withMetaZonePrices(
     await TariffPrice.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }).lean(),
     { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }

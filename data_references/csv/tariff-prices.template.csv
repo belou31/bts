@@ -1,21 +1,28 @@
-# zoneKey,tariffCode,priceCents,partnerPriceCents,currency,channels
+# Grille tarifaire — un seul fichier pour les zones ET les meta-zones.
 #
-# Une ligne cible SOIT une zone (zoneKey), SOIT une META-ZONE (metaZone) —
-# jamais les deux, jamais aucune. Une meta-zone est un regroupement logique de
-# zones, absent du plan (aucun selecteur SVG, aucun siege) : ecrire la grille
-# une fois pour la meta-zone evite de la recopier sur chaque zone, et une zone
-# rattachee plus tard herite du prix sans retoucher ce fichier. Une ligne
-# zoneKey l'emporte sur sa meta-zone, tarif par tarif.
-# Exemple de grille par meta-zone :
-#   metaZone,tariffCode,priceCents
-#   S_LOW,NORMAL,10000
-#   S_LOW,CHILD,1000
-S1,NORMAL,18000,,EUR,public
-S1,REDUCED,14000,,EUR,public
-S1,CHILD,9000,,EUR,public
-S2,NORMAL,15000,,EUR,public
-S2,REDUCED,12000,,EUR,public
-S2,CHILD,7500,,EUR,public
-DEBOUT,NORMAL,8000,,EUR,public
-DEBOUT,REDUCED,6000,,EUR,public
-ZONE_S3,CS_PARTNER,11000,9500,EUR,"partner:csebla"
+# Chaque ligne cible SOIT une zone (colonne zoneKey), SOIT une META-ZONE
+# (colonne metaZone) : exactement une des deux colonnes est remplie, l'autre
+# reste vide. Une ligne qui remplit les deux, ou aucune, est refusee.
+#
+# Une meta-zone est un regroupement logique de zones, absent du plan (aucun
+# selecteur SVG, aucun siege) : ecrire la grille une fois pour la meta-zone
+# evite de la recopier sur chaque zone, et une zone rattachee plus tard herite
+# du prix sans retoucher ce fichier.
+#
+# Une ligne zoneKey l'emporte sur la meta-zone de cette zone, tarif par tarif :
+# on peut donc tarifer tout un groupe puis excepter une seule zone.
+#
+# Les meta-zones se definissent au niveau du LIEU :
+#   node scripts/01-venue-management/set-zone-meta.js --venue=<lieu> --meta=S_LOW --zones=S1,S3
+zoneKey,metaZone,tariffCode,priceCents,partnerPriceCents,currency,channels
+# --- par meta-zone : une seule ligne pour toutes les zones du groupe
+,S_LOW,NORMAL,18000,,EUR,public
+,S_LOW,REDUCED,14000,,EUR,public
+,S_LOW,CHILD,9000,,EUR,public
+,S_HIGH,NORMAL,15000,,EUR,public
+,S_HIGH,REDUCED,12000,,EUR,public
+,S_HIGH,CHILD,7500,,EUR,public
+# --- par zone : pour une zone hors groupe, ou pour excepter une zone du groupe
+DEBOUT,,NORMAL,8000,,EUR,public
+DEBOUT,,REDUCED,6000,,EUR,public
+ZONE_S3,,CS_PARTNER,11000,9500,EUR,"partner:csebla"

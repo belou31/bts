@@ -50,10 +50,22 @@ export function expandMetaZonePrices(prices, zones) {
     explicit.add(cell(p?.zoneKey, p?.tariffCode));
   }
 
+  const orphans = new Set();
   for (const p of rows) {
     const cat = up(p?.metaZone);
     if (!cat) continue;
-    for (const zoneKey of (zonesByMetaZone.get(cat) || [])) {
+    const targets = zonesByMetaZone.get(cat) || [];
+    // Une grille écrite pour une méta-zone qu'aucune zone ne porte ne produit
+    // AUCUNE ligne : la zone se retrouve sans prix, le tarif disparaît ensuite
+    // du filtre par canal (« garder les tarifs ayant au moins un prix »), et
+    // l'acheteur voit un siège sans tarif. Le silence rendait ce cas très
+    // difficile à diagnostiquer — le plus souvent, la méta-zone est posée sur
+    // le catalogue du lieu sans avoir été propagée aux zones de la saison.
+    if (!targets.length) {
+      orphans.add(cat);
+      continue;
+    }
+    for (const zoneKey of targets) {
       if (explicit.has(cell(zoneKey, p?.tariffCode))) continue;   // la zone prime
       const materialized = (typeof p.toObject === 'function') ? p.toObject() : { ...p };
       materialized.zoneKey = zoneKey;
@@ -62,6 +74,14 @@ export function expandMetaZonePrices(prices, zones) {
       materialized.fromMetaZone = cat;
       out.push(materialized);
     }
+  }
+
+  if (orphans.size) {
+    console.warn(
+      `[meta-zones] Grille ignorée : aucune zone ne porte ${[...orphans].join(', ')}. `
+      + 'Ces zones resteront sans tarif. Vérifier Zone.metaZone pour la saison '
+      + '(set-zone-meta.js --venue=<lieu> --list --season=<code>).'
+    );
   }
   return out;
 }

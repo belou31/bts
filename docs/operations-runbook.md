@@ -415,14 +415,21 @@ node scripts/01-venue-management/set-zone-meta.js --venue=stadium --list --seaso
 
 #### Usage 1 — écrire une grille tarifaire une seule fois
 
-Dans un CSV de prix (`import-tariff-prices.js`, format liste), une ligne cible
-**soit** `zoneKey` **soit** `metaZone` — jamais les deux, jamais aucun :
+Un **seul fichier** porte toute la grille : zones et méta-zones cohabitent, une
+ligne remplissant **soit** `zoneKey` **soit** `metaZone` — jamais les deux,
+jamais aucun. Gabarit : `data_references/csv/tariff-prices.template.csv`.
 
 ```csv
-metaZone,tariffCode,priceEuro
-S_LOW,NORMAL,100.00
-S_LOW,CHILD,10.00
+zoneKey,metaZone,tariffCode,priceCents,partnerPriceCents,currency,channels
+,S_LOW,NORMAL,10000,,EUR,public
+,S_LOW,CHILD,1000,,EUR,public
+DEBOUT,,NORMAL,8000,,EUR,public
 ```
+
+Les lignes commençant par `#` sont ignorées. Avec `--venue=<lieu>`, l'import
+vérifie chaque cible contre le catalogue de zones : une méta-zone écrite par
+erreur dans la colonne `zoneKey` interrompt l'import au lieu de produire une
+grille qui ne s'applique à aucun siège.
 
 Trois règles à retenir :
 

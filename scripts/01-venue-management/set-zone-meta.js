@@ -47,12 +47,14 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
 import { Zone } from '../../src/models/Zone.js';
+import { Event } from '../../src/models/Event.js';
 import { ZoneCatalog } from '../../src/models/ZoneCatalog.js';
 import { TariffPrice } from '../../src/models/TariffPrice.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
 
+const up = (v) => String(v || '').trim().toUpperCase();
 const list = (v) => String(v || '').split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
 
 async function main() {
@@ -113,9 +115,16 @@ async function main() {
       const seasonZones = await Zone.find({ seasonCode, venueSlug }, 'key metaZone').sort({ key: 1 }).lean();
       console.log(`\nZones instanciées pour ${seasonCode} :`);
       if (!seasonZones.length) console.log('  (saison non instanciée)');
+      const catByKey = new Map(zones.map(z => [up(z.key), up(z.metaZone)]));
+      const drifted = [];
       for (const z of seasonZones) {
-        console.log(`  ${String(z.key).padEnd(10)} ${String(z.metaZone || '—')}`);
+        const here = up(z.metaZone);
+        const atCatalog = catByKey.get(up(z.key)) || '';
+        const flag = here === atCatalog ? '' : `   ⚠ catalogue : ${atCatalog || '—'}`;
+        if (here !== atCatalog) drifted.push(z.key);
+        console.log(`  ${String(z.key).padEnd(10)} ${String(z.metaZone || '—').padEnd(8)}${flag}`);
       }
+
       const prices = await TariffPrice.find(
         { seasonCode, venueSlug, metaZone: { $ne: null } },
         'metaZone tariffCode priceCents'
@@ -127,6 +136,70 @@ async function main() {
         }
       } else {
         console.log('\n(aucune grille par méta-zone pour cette saison)');
+      }
+
+      // Le diagnostic qui compte : une grille par méta-zone que PLUS AUCUNE
+      // zone ne porte ne produit aucun prix, silencieusement. Le siège
+      // s'affiche alors sans tarif à l'achat.
+      const carried = new Set(seasonZones.map(z => up(z.metaZone)).filter(Boolean));
+      const orphans = [...new Set(prices.map(p => up(p.metaZone)))].filter(c => !carried.has(c));
+
+      // Erreur de saisie la plus fréquente : avoir mis le nom de la méta-zone
+      // dans la colonne zoneKey. La ligne est alors parfaitement valide, mais
+      // vise une zone qui n'existe pas — donc ne s'applique à aucun siège.
+      //
+      // On inspecte AUSSI les tables de prix par événement : elles ne portent
+      // ni seasonCode ni venueSlug (seulement priceTableKey), donc une requête
+      // par saison les manquait entièrement — une grille d'événement pouvait
+      // être cassée pendant que ce diagnostic affichait « tout va bien ».
+      const eventTableKeys = (await Event.find(
+        { seasonCode, venueSlug, priceTableKey: { $ne: null } },
+        'slug priceTableKey'
+      ).lean()) || [];
+      const zonePriced = await TariffPrice.find(
+        {
+          zoneKey: { $ne: null },
+          $or: [
+            { seasonCode, venueSlug },
+            ...(eventTableKeys.length
+              ? [{ priceTableKey: { $in: eventTableKeys.map(e => e.priceTableKey) } }]
+              : [])
+          ]
+        },
+        'zoneKey priceTableKey'
+      ).lean();
+      const realZones = new Set(seasonZones.map(z => up(z.key)));
+      const ghostZones = [...new Set(zonePriced.map(p => up(p.zoneKey)))].filter(k => k && !realZones.has(k));
+      const ghostByTable = new Map();
+      for (const row of zonePriced) {
+        const k = up(row.zoneKey);
+        if (!k || realZones.has(k)) continue;
+        const where = row.priceTableKey
+          ? (eventTableKeys.find(e => e.priceTableKey === row.priceTableKey)?.slug || row.priceTableKey)
+          : 'saison';
+        if (!ghostByTable.has(where)) ghostByTable.set(where, new Set());
+        ghostByTable.get(where).add(k);
+      }
+      console.log('');
+      if (ghostZones.length) {
+        console.log(`❌ Prix visant une zone inexistante dans ${seasonCode} : ${ghostZones.join(', ')}`);
+        for (const [where, keys] of ghostByTable) {
+          console.log(`     • ${where} : ${[...keys].sort().join(', ')}`);
+        }
+        console.log('   → si ce sont des méta-zones, elles ont été saisies dans la colonne zoneKey');
+        console.log('     au lieu de metaZone : ces lignes ne s\'appliquent à aucun siège.');
+        const carriedMeta = [...carried].sort();
+        if (carriedMeta.length) console.log(`   → méta-zones réellement portées : ${carriedMeta.join(', ')}`);
+      }
+      if (orphans.length) {
+        console.log(`❌ Méta-zone(s) tarifée(s) mais portée(s) par aucune zone de ${seasonCode} : ${orphans.join(', ')}`);
+        console.log('   → ces zones seront SANS TARIF à l\'achat.');
+        console.log(`   → corriger : set-zone-meta.js --venue=${venueSlug} --meta=<META> --zones=<A,B> --season=${seasonCode}`);
+      } else if (drifted.length) {
+        console.log(`⚠ Zone(s) dont la méta-zone diffère du catalogue : ${drifted.join(', ')}`);
+        console.log(`   → répercuter : set-zone-meta.js --venue=${venueSlug} … --season=${seasonCode}`);
+      } else {
+        console.log('✅ Chaque méta-zone tarifée est portée par au moins une zone de la saison.');
       }
     }
     await mongoose.disconnect();

@@ -249,9 +249,16 @@ router.get('/renew', async (req, res) => {
     const tokenSet = new Set(seatIds.map(normSeatId));
 
     // Tarifs & prix
-    const tariffs = await Tariff.find({ seasonCode, venueSlug, isActive: true }).lean();
+    //
+    // `Tariff` est global : ni seasonCode ni venueSlug au schéma, et son champ
+    // d'état est `active`. `TariffPrice` n'a aucun état. Les critères qui
+    // figuraient ici étaient supprimés par strictQuery — la requête renvoyait
+    // tous les tarifs, inactifs et propres à un match compris. Même définition
+    // que routes/subscription.js : renouvellement et abonnement doivent voir
+    // exactement la même grille.
+    const tariffs = await Tariff.find({ priceTableKey: null, active: true }).lean();
     const prices  = await withMetaZonePrices(
-      await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean(),
+      await TariffPrice.find({ seasonCode, venueSlug }).lean(),
       { seasonCode, venueSlug }
     );
 
@@ -482,7 +489,7 @@ router.post('/renew', async (req, res) => {
 
     // Prix (index)
     const prices   = await withMetaZonePrices(
-      await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean(),
+      await TariffPrice.find({ seasonCode, venueSlug }).lean(),
       { seasonCode, venueSlug }
     );
     const pricesIx = buildPricesIndex(prices);

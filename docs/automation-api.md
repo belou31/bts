@@ -37,7 +37,7 @@ nav_order: 70
 | `event.import-orders` | Importe des commandes d'évènement depuis un CSV (data/inputs) ou un payload JSON et les insère dans MongoDB. | `automation:jobs:write`, `automation:jobs:run`, `automation:events:write` | yes | `csv`, `orders`, `force`, `sendEmail`, `status`, `event`, `eventId`, `eventSlug` |
 | `season.send-renew-invites` | Envoie les invitations de renouvellement par e-mail à partir d’un CSV exporté. | `automation:jobs:write`, `automation:jobs:run`, `automation:renewals:write` | yes | `csv`, `subject`, `limit`, `offset`, `delayMs`, `separator`, `template`, `seasonCode`, `clubName`, `deadline`, `venue`, `fromName`, `providerLabel`, `invitees` |
 | `tariff.export-catalog` | Exporte le catalogue de tarifs (code/label/...) au format JSON. | `automation:jobs:write`, `automation:jobs:run` | yes | — |
-| `tariff.export-zone-tariffs` | Exporte les prix par zone (zoneKey/tariffCode/prix) pour une saison et un lieu donnés. | `automation:jobs:write`, `automation:jobs:run` | yes | `seasonCode`, `venueSlug` |
+| `tariff.export-zone-tariffs` | Exporte les prix par zone ou méta-zone (zoneKey/metaZone/tariffCode/prix) pour une saison et un lieu donnés. | `automation:jobs:write`, `automation:jobs:run` | yes | `seasonCode`, `venueSlug` |
 | `tariff.import-catalog` | Importe le catalogue de tarifs (code/label...) depuis un tableur ou JSON. | `automation:jobs:write`, `automation:jobs:run` | yes | `entries` |
 | `tariff.import-prices` | Importe un catalogue de prix (zone / tarif / prix). | `automation:jobs:write`, `automation:jobs:run`, `automation:events:write` | yes | `catalogSlug`, `venueSlug`, `append`, `entries` |
 
@@ -71,7 +71,7 @@ nav_order: 70
 ## tariff.export-zone-tariffs
 
 - Version: `1.0.0`
-- Summary: Exporte les prix par zone (zoneKey/tariffCode/prix) pour une saison et un lieu donnés.
+- Summary: Exporte les prix par zone ou méta-zone (zoneKey/metaZone/tariffCode/prix) pour une saison et un lieu donnés.
 - Dry-run: supported
 - Scopes: `automation:jobs:write`, `automation:jobs:run`
 - Tags: `tariff`, `zone`, `prices`

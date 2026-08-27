@@ -8,7 +8,7 @@ function euro(cents) {
 export const exportZoneTariffsTask = {
   id: 'tariff.export-zone-tariffs',
   version: '1.0.0',
-  summary: 'Exporte les prix par zone (zoneKey/tariffCode/prix) pour une saison et un lieu donnés.',
+  summary: 'Exporte les prix par zone ou méta-zone (zoneKey/metaZone/tariffCode/prix) pour une saison et un lieu donnés.',
   chapter: '02 — Tariff Management',
   tags: ['tariff', 'zone', 'prices'],
   scopes: ['automation:jobs:write', 'automation:jobs:run'],
@@ -30,12 +30,15 @@ export const exportZoneTariffsTask = {
     const venueSlug = String(params.venueSlug);
 
     const docs = await TariffPrice.find({ seasonCode, venueSlug }).lean();
-    docs.sort((a, b) => (a.zoneKey || '').localeCompare(b.zoneKey || '') || (a.tariffCode || '').localeCompare(b.tariffCode || ''));
+    // Cible effective : une ligne par méta-zone n'a pas de zoneKey.
+    const target = (d) => d.zoneKey || d.metaZone || '';
+    docs.sort((a, b) => target(a).localeCompare(target(b)) || (a.tariffCode || '').localeCompare(b.tariffCode || ''));
 
     const entries = docs.map((d) => {
       const partnerCents = Number(d.partnerPriceCents);
       return {
-        zoneKey: d.zoneKey,
+        zoneKey: d.zoneKey || '',
+        metaZone: d.metaZone || '',
         tariffCode: d.tariffCode,
         priceCents: d.priceCents,
         priceEuro: euro(d.priceCents),

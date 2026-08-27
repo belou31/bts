@@ -139,10 +139,13 @@ async function resolveAdAssetPath(assetPath) {
 
 // util pour récupérer le label depuis l'évènement (fallback saison/lieu)
 async function loadTariffLabelMap(ev) {
+  // Sans table dédiée au match, on retombe sur les tarifs globaux :
+  // `Tariff` ne porte ni seasonCode ni venueSlug (ces critères étaient
+  // supprimés par strictQuery), `priceTableKey: null` est le bon filtre.
   const qEvent = ev?.priceTableKey ? { priceTableKey: ev.priceTableKey, active: true } : null;
   const tariffs = (qEvent
     ? await Tariff.find(qEvent).lean()
-    : await Tariff.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, active: true }).lean()
+    : await Tariff.find({ priceTableKey: null, active: true }).lean()
   ) || [];
   const m = {};
   for (const t of tariffs) {

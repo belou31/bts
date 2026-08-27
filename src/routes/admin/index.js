@@ -1899,6 +1899,7 @@ router.get('/monitor', async (req, res) => {
   const selectedMonitorVenueSlug = selectedMonitorVenue ? selectedMonitorVenue.slug : '';
 
   let venueZoneDetails = [];
+  let venueMetaZones = [];
   if (selectedMonitorVenueSlug) {
     const [zonesRaw, zoneSeatCountsAgg] = await Promise.all([
       ZoneCatalog.find({ venueSlug: selectedMonitorVenueSlug }).sort({ key: 1 }).lean(),
@@ -1913,11 +1914,32 @@ router.get('/monitor', async (req, res) => {
       name: z.name || '',
       type: z.type,
       access: z.access,
+      metaZone: z.metaZone || null,
       capacity: z.capacity || 0,
       quota: z.quota || 0,
       isActive: z.isActive,
       seatCount: zoneSeatCounts.get(z.key) || 0
     }));
+
+    // Regroupement par méta-zone. Vu du lieu, une méta-zone n'est rien d'autre
+    // que l'ensemble des zones qui la portent : c'est la seule chose à
+    // vérifier d'un coup d'œil avant d'écrire une grille tarifaire pour elle.
+    const byMetaZone = new Map();
+    for (const z of venueZoneDetails) {
+      if (!z.metaZone) continue;
+      if (!byMetaZone.has(z.metaZone)) byMetaZone.set(z.metaZone, []);
+      byMetaZone.get(z.metaZone).push(z);
+    }
+    venueMetaZones = [...byMetaZone.entries()]
+      .map(([key, zonesInMeta]) => ({
+        key,
+        zones: zonesInMeta.map(z => z.key),
+        zoneCount: zonesInMeta.length,
+        capacity: zonesInMeta.reduce((a, z) => a + (z.capacity || 0), 0),
+        seatCount: zonesInMeta.reduce((a, z) => a + (z.seatCount || 0), 0),
+        inactive: zonesInMeta.filter(z => !z.isActive).map(z => z.key)
+      }))
+      .sort((a, b) => a.key.localeCompare(b.key));
   }
 
   const seasonsList = seasonsRaw.map(s => ({
@@ -2260,6 +2282,7 @@ router.get('/monitor', async (req, res) => {
       venues: venuesList,
       selectedMonitorVenueSlug,
       venueZoneDetails,
+      venueMetaZones,
       seasons: seasonsList,
       events: eventsList,
       tariffs: tariffsFull,

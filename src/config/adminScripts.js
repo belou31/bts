@@ -991,6 +991,10 @@ export const adminScriptGroups = [
         },
         description: 'Loads reusable tariff prices (list CSV by default) that can later be instantiated for seasons or events.',
         notes: [
+          'Un seul fichier pour tout : en-tête `zoneKey,metaZone,tariffCode,priceCents,partnerPriceCents,currency,channels`. Chaque ligne remplit SOIT zoneKey, SOIT metaZone — jamais les deux, jamais aucune.',
+          'Une ligne zoneKey l\'emporte sur la méta-zone de cette zone, tarif par tarif : on peut tarifer tout un groupe puis excepter une zone.',
+          'Les lignes commençant par # sont ignorées (commentaires du gabarit).',
+          'Avec --venue, les zones et méta-zones du fichier sont vérifiées contre le catalogue du lieu : une méta-zone placée par erreur dans la colonne zoneKey interrompt l\'import.',
           'Supports list and matrix CSV formats; override detection with --format=list|matrix.',
           'Use --venue=<slug> to scope prices to a specific arena; omit to keep them global.'
         ],

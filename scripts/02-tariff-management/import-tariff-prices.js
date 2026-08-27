@@ -7,7 +7,10 @@
  *     [--venue=<slug>] [--format=list|matrix] [--delimiter=,|;] [--append] [--dry-run]
  *
  * Supported CSV formats:
- *   LIST   : zoneKey,tariffCode,priceCents|priceEuro
+ *   LIST   : zoneKey,metaZone,tariffCode,priceCents|priceEuro
+ *            Un SEUL fichier pour les deux : chaque ligne remplit soit
+ *            zoneKey, soit metaZone — jamais les deux, jamais aucune.
+ *            Les lignes commençant par # sont ignorées.
  *   MATRIX : first column tariffCode, subsequent columns zone keys
  *
  * Notes:
@@ -26,6 +29,7 @@ dotenv.config();
 
 import { Tariff } from '../../src/models/Tariff.js';
 import { TariffPriceCatalog } from '../../src/models/TariffPriceCatalog.js';
+import { ZoneCatalog } from '../../src/models/ZoneCatalog.js';
 import { serializeChannelList } from '../../src/utils/channel-scopes.js';
 
 const INPUT_DIR = path.resolve(process.cwd(), 'data/inputs');
@@ -175,6 +179,11 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
   for await (const rawLine0 of rl) {
     const rawLine = rawLine0.replace(/\r$/, '');
     if (!rawLine.trim()) continue;
+    // Lignes de commentaire, comme dans les autres gabarits CSV du projet.
+    // Sans cela, un gabarit commenté voyait sa première ligne `# zoneKey,…`
+    // prise pour l'en-tête : la colonne s'appelait « # zonekey », plus aucune
+    // ligne n'était reconnue, et l'import rejetait tout le fichier.
+    if (rawLine.trimStart().startsWith('#')) continue;
 
     if (!headerInfo.header) {
       headerInfo.header = parseCSVLine(rawLine, delimiter).map(stripBOM);
@@ -336,6 +345,57 @@ async function loadEntriesFromCsv(resolvedCsv, delimiter, explicitFormat) {
   }
 
   const venueSlug = venueOpt ? String(venueOpt).trim() || null : null;
+
+  // Cohérence des zones — même exigence que set-zone-meta.js.
+  //
+  // Une ligne visant une zone qui n'existe pas s'importe sans broncher puis ne
+  // s'applique à aucun siège : la zone reste sans tarif, donc non sélectionnable
+  // à l'achat, sans que rien ne l'ait signalé.
+  //
+  // Le cas le plus fréquent est d'avoir mis une MÉTA-ZONE dans la colonne
+  // zoneKey (l'en-tête du gabarit commence par `zoneKey`, et la variante
+  // méta-zone n'y est qu'en commentaire). C'est une erreur sans ambiguïté :
+  // on refuse l'import plutôt que de produire un catalogue inopérant.
+  if (venueSlug) {
+    const catalogZones = await ZoneCatalog.find({ venueSlug }, 'key metaZone').lean();
+    if (!catalogZones.length) {
+      console.warn(`[import-tariff-prices] Aucune zone au catalogue de "${venueSlug}" : contrôle des zones ignoré.`);
+    } else {
+      const knownZones = new Set(catalogZones.map(z => String(z.key || '').toUpperCase()));
+      const knownMetaZones = new Set(
+        catalogZones.map(z => String(z.metaZone || '').toUpperCase()).filter(Boolean)
+      );
+
+      const usedZones = [...new Set(entries.map(e => String(e.zoneKey || '').toUpperCase()).filter(Boolean))];
+      const metaInZoneColumn = usedZones.filter(k => !knownZones.has(k) && knownMetaZones.has(k));
+      const unknownZones = usedZones.filter(k => !knownZones.has(k) && !knownMetaZones.has(k));
+
+      // On signale TOUT avant de s'arrêter : s'arrêter au premier problème
+      // ferait relancer l'import autant de fois qu'il y a d'erreurs.
+      if (unknownZones.length) {
+        console.warn(`[import-tariff-prices] ⚠ Zone(s) inconnue(s) au catalogue de "${venueSlug}" : ${unknownZones.join(', ')}`);
+        console.warn('    Ces lignes ne s\'appliqueront à aucun siège.');
+        if (knownMetaZones.size) {
+          console.warn(`    Méta-zones existantes sur ce lieu : ${[...knownMetaZones].sort().join(', ')}`);
+        }
+      }
+      if (metaInZoneColumn.length) {
+        console.error(`[import-tariff-prices] ❌ ${metaInZoneColumn.join(', ')} : ce sont des MÉTA-ZONES de "${venueSlug}", pas des zones.`);
+        console.error('    Elles sont dans la colonne zoneKey ; elles doivent être dans la colonne metaZone.');
+        console.error('    En-tête attendu pour une grille par méta-zone : metaZone,tariffCode,priceCents');
+        console.error('    En l\'état, aucune zone du groupe ne recevrait de tarif : import interrompu.');
+        await mongoose.disconnect();
+        process.exit(1);
+      }
+
+      const usedMetaZones = [...new Set(entries.map(e => String(e.metaZone || '').toUpperCase()).filter(Boolean))];
+      const orphanMetaZones = usedMetaZones.filter(c => !knownMetaZones.has(c));
+      if (orphanMetaZones.length) {
+        console.warn(`[import-tariff-prices] ⚠ Méta-zone(s) qu'aucune zone de "${venueSlug}" ne porte : ${orphanMetaZones.join(', ')}`);
+        console.warn(`    Rattacher des zones : set-zone-meta.js --venue=${venueSlug} --meta=<META> --zones=<A,B>`);
+      }
+    }
+  }
 
   if (dryRun) {
     console.log('[import-tariff-prices] Dry-run terminé. Aucun write effectué.');

@@ -153,12 +153,18 @@ router.get('/status', async (req, res, next) => {
 
     // --- Tarifs & Prix applicables (TOUS les prix / tarifs actifs pour la salle)
     const allPrices = await withMetaZonePrices(
-      await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean(),
+      // TariffPrice n'a ni `isActive` ni `active` : le filtre qui figurait ici
+      // était supprimé par strictQuery et n'a jamais rien filtré. Retiré plutôt
+      // que corrigé — il n'y a pas d'état actif sur une ligne de prix.
+      await TariffPrice.find({ seasonCode, venueSlug }).lean(),
       { seasonCode, venueSlug }
     );
-    const allTariffs = await Tariff.find({
-      seasonCode, venueSlug, isActive: true
-    }).lean();
+  // Tarifs de saison : `Tariff` ne porte NI seasonCode NI venueSlug (ils sont
+  // globaux, `priceTableKey` isolant les tarifs propres à un match), et son
+  // champ d'état s'appelle `active`, pas `isActive`. Les trois critères qui
+  // figuraient ici étaient donc supprimés par strictQuery : la requête
+  // renvoyait TOUS les tarifs, y compris inactifs et propres à un événement.
+    const allTariffs = await Tariff.find({ priceTableKey: null, active: true }).lean();
     // Un partenaire voit ses propres tarifs ; on retombe sur le public quand
     // aucun tarif ne lui est spécifiquement réservé.
     const channelCtx = channelOf(req);
@@ -221,10 +227,10 @@ router.post('/checkout', async (req, res) => {
 
     const channelCtx = channelOf(req);
     const allPrices = await withMetaZonePrices(
-      await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean(),
+      await TariffPrice.find({ seasonCode, venueSlug }).lean(),
       { seasonCode, venueSlug }
     );
-    const allTariffs = await Tariff.find({ seasonCode, venueSlug, isActive: true }).lean();
+    const allTariffs = await Tariff.find({ priceTableKey: null, active: true }).lean();
     const prices = filterTariffsAndPricesByChannel(
       allTariffs, allPrices, channelCtx,
       { fallbackToPublic: channelCtx.kind === 'partner' }
