@@ -856,7 +856,7 @@ export const adminScriptGroups = [
         label: 'Set Zone Meta-Zone',
         order: 4,
         path: 'scripts/01-venue-management/set-zone-meta.js',
-        command: 'node scripts/01-venue-management/set-zone-meta.js --season=<code> --venue=<slug> [--meta=<META> --zones=<A,B>] [--csv=<file>] [--clear] [--list]',
+        command: 'node scripts/01-venue-management/set-zone-meta.js --venue=<slug> [--meta=<META> --zones=<A,B>] [--csv=<file>] [--season=<code>] [--clear] [--list]',
         run: {
           script: 'scripts/01-venue-management/set-zone-meta.js',
           args: []
@@ -864,22 +864,18 @@ export const adminScriptGroups = [
         description: 'Rattache des zones à une méta-zone : un regroupement logique de zones, qui n\'existe PAS sur le plan (aucun sélecteur SVG, aucun siège). Premier usage : la grille tarifaire s\'écrit UNE fois pour la méta-zone (colonne metaZone d\'Import Tariff Prices Catalog) au lieu d\'être recopiée zone par zone, et une zone rattachée plus tard hérite du prix sans retoucher la grille.',
         templates: ['data_references/csv/meta-zones.template.csv'],
         notes: [
+          'La méta-zone décrit la SALLE : elle se pose sur le catalogue de zones du lieu, avant qu\'aucune saison n\'existe. Aucun code saison n\'est donc requis.',
+          'Instantiate Venue For Season recopie ensuite la méta-zone sur les zones de la saison : les saisons créées après en héritent automatiquement.',
+          'Le champ « Saison » ne sert qu\'à répercuter un changement sur une saison DÉJÀ instanciée, sans la réinstancier.',
           'Deux façons de faire : « Méta-zone » + « Zones » pour un groupe, ou un CSV (zoneKey,metaZone) pour poser tout un découpage d\'un coup.',
           'Laisser « Méta-zone » vide et cocher « Retirer » détache les zones visées ; dans un CSV, une cellule metaZone vide fait la même chose.',
           'Le regroupement ne sert pas qu\'aux prix : un bon cadeau peut être limité à une méta-zone (--zones=S_LOW), et il suit alors les zones rattachées ensuite.',
           'Une ligne de prix visant explicitement une zone l\'emporte sur sa méta-zone, tarif par tarif : on peut excepter S3/NORMAL sans détacher S3.',
-          'Cocher « Lister » affiche les zones, leur méta-zone et les grilles déjà définies par méta-zone — sans rien écrire.',
+          'Cocher « Lister » affiche le catalogue du lieu et ses méta-zones — sans rien écrire. Avec une saison, il montre aussi ses zones instanciées et les grilles définies par méta-zone.',
           'Une zone inconnue fait échouer le script : une faute de frappe rendrait la grille inopérante sans le dire.'
         ],
         form: {
           fields: [
-            {
-              name: 'season',
-              label: 'Code saison',
-              placeholder: '2025-2026',
-              required: true,
-              arg: { type: 'option', template: '--season=${value}' }
-            },
             {
               name: 'venue',
               label: 'Slug du lieu',
@@ -898,6 +894,12 @@ export const adminScriptGroups = [
               label: 'Zones visées (séparées par des virgules)',
               placeholder: 'S1,S3',
               arg: { type: 'option', template: '--zones=${value}' }
+            },
+            {
+              name: 'season',
+              label: 'Saison déjà instanciée à mettre à jour (optionnel)',
+              placeholder: '2025-2026',
+              arg: { type: 'option', template: '--season=${value}' }
             },
             {
               name: 'csv',

@@ -9,20 +9,32 @@
  * grille — mais ce n'est qu'un usage : un bon cadeau peut aussi être limité à
  * une méta-zone.
  *
+ * Une méta-zone décrit la SALLE, pas une saison : elle se pose sur le
+ * catalogue de zones du lieu (ZoneCatalog), avant qu'aucune saison n'existe.
+ * `instantiate-venue-for-season.js` la recopie ensuite sur les zones de chaque
+ * saison instanciée. D'où l'absence de --season ici : dans l'ordre logique du
+ * paramétrage, la saison vient après.
+ *
+ * --season reste disponible, mais uniquement pour répercuter un changement sur
+ * une saison DÉJÀ instanciée, sans avoir à la réinstancier.
+ *
  * Usage:
- *   node scripts/01-venue-management/set-zone-meta.js --season=2025-2026 --venue=stadium \
+ *   node scripts/01-venue-management/set-zone-meta.js --venue=stadium \
  *     --meta=S_LOW --zones=S1,S3
  *
  *   # retirer les zones d'une méta-zone
- *   node scripts/01-venue-management/set-zone-meta.js --season=2025-2026 --venue=stadium \
- *     --clear --zones=S3
+ *   node scripts/01-venue-management/set-zone-meta.js --venue=stadium --clear --zones=S3
  *
  *   # depuis un CSV (zoneKey,metaZone) — metaZone vide = retire
- *   node scripts/01-venue-management/set-zone-meta.js --season=2025-2026 --venue=stadium \
+ *   node scripts/01-venue-management/set-zone-meta.js --venue=stadium \
  *     --csv=data/inputs/meta-zones.csv
  *
- *   # état des lieux
- *   node scripts/01-venue-management/set-zone-meta.js --season=2025-2026 --venue=stadium --list
+ *   # répercuter aussi sur une saison déjà instanciée
+ *   node scripts/01-venue-management/set-zone-meta.js --venue=stadium \
+ *     --meta=S_LOW --zones=S1,S3 --season=2025-2026
+ *
+ *   # état des lieux (ajouter --season pour voir aussi les grilles tarifaires)
+ *   node scripts/01-venue-management/set-zone-meta.js --venue=stadium --list
  *
  * Environment:
  *   - MONGO_URI ou MONGODB_URI (requis)
@@ -35,6 +47,7 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
 import { Zone } from '../../src/models/Zone.js';
+import { ZoneCatalog } from '../../src/models/ZoneCatalog.js';
 import { TariffPrice } from '../../src/models/TariffPrice.js';
 
 import dotenv from 'dotenv';
@@ -44,8 +57,8 @@ const list = (v) => String(v || '').split(',').map(x => x.trim().toUpperCase()).
 
 async function main() {
   const argv = yargs(hideBin(process.argv))
-    .option('season', { type: 'string', demandOption: true, desc: 'Code saison' })
     .option('venue', { type: 'string', demandOption: true, desc: 'Slug du lieu' })
+    .option('season', { type: 'string', desc: 'Répercuter aussi sur cette saison déjà instanciée (optionnel)' })
     .option('zones', { type: 'string', desc: 'Zones visées, séparées par des virgules' })
     .option('meta', { type: 'string', desc: 'Méta-zone à poser (ex: S_LOW)' })
     .option('clear', { type: 'boolean', default: false, desc: 'Retire la méta-zone des zones visées' })
@@ -60,27 +73,61 @@ async function main() {
   if (process.env.MONGODB_DB) opts.dbName = process.env.MONGODB_DB;
   await mongoose.connect(uri, opts);
 
-  const seasonCode = argv.season;
   const venueSlug = argv.venue;
+  const seasonCode = argv.season || null;   // propagation explicite, facultative
+
+  /** Écrit sur le catalogue du lieu, puis — si demandé — sur la saison. */
+  async function applyMeta(zoneKeys, metaZone) {
+    const cat = await ZoneCatalog.updateMany(
+      { venueSlug, key: { $in: zoneKeys } },
+      { $set: { metaZone } }
+    );
+    let season = null;
+    if (seasonCode) {
+      const res = await Zone.updateMany(
+        { seasonCode, venueSlug, key: { $in: zoneKeys } },
+        { $set: { metaZone } }
+      );
+      season = res.modifiedCount ?? 0;
+    }
+    return { catalog: cat.modifiedCount ?? 0, season };
+  }
+
+  /** Les zones du lieu — le catalogue fait foi, la saison n'existe pas encore. */
+  async function knownZoneKeys() {
+    const rows = await ZoneCatalog.find({ venueSlug }, 'key').lean();
+    return new Set(rows.map(z => String(z.key).toUpperCase()));
+  }
 
   if (argv.list) {
-    const zones = await Zone.find({ seasonCode, venueSlug }, 'key name metaZone').sort({ key: 1 }).lean();
-    const prices = await TariffPrice.find(
-      { seasonCode, venueSlug, metaZone: { $ne: null } },
-      'metaZone tariffCode priceCents'
-    ).lean();
-
-    console.log(`Zones de ${seasonCode} / ${venueSlug} :`);
+    const zones = await ZoneCatalog.find({ venueSlug }, 'key name metaZone').sort({ key: 1 }).lean();
+    console.log(`Catalogue de zones de ${venueSlug} :`);
+    if (!zones.length) console.log('  (aucune zone — lancer import-zones.js d\'abord)');
     for (const z of zones) {
       console.log(`  ${String(z.key).padEnd(10)} ${String(z.metaZone || '—').padEnd(8)} ${z.name || ''}`);
     }
-    if (prices.length) {
-      console.log('\nGrilles définies par méta-zone :');
-      for (const p of prices) {
-        console.log(`  ${String(p.metaZone).padEnd(8)} ${String(p.tariffCode).padEnd(10)} ${(p.priceCents / 100).toFixed(2)} €`);
+
+    // Les grilles tarifaires par méta-zone sont, elles, propres à une saison :
+    // on ne les affiche que si l'on en nomme une.
+    if (seasonCode) {
+      const seasonZones = await Zone.find({ seasonCode, venueSlug }, 'key metaZone').sort({ key: 1 }).lean();
+      console.log(`\nZones instanciées pour ${seasonCode} :`);
+      if (!seasonZones.length) console.log('  (saison non instanciée)');
+      for (const z of seasonZones) {
+        console.log(`  ${String(z.key).padEnd(10)} ${String(z.metaZone || '—')}`);
       }
-    } else {
-      console.log('\n(aucune grille par méta-zone pour l\'instant)');
+      const prices = await TariffPrice.find(
+        { seasonCode, venueSlug, metaZone: { $ne: null } },
+        'metaZone tariffCode priceCents'
+      ).lean();
+      if (prices.length) {
+        console.log('\nGrilles définies par méta-zone :');
+        for (const p of prices) {
+          console.log(`  ${String(p.metaZone).padEnd(8)} ${String(p.tariffCode).padEnd(10)} ${(p.priceCents / 100).toFixed(2)} €`);
+        }
+      } else {
+        console.log('\n(aucune grille par méta-zone pour cette saison)');
+      }
     }
     await mongoose.disconnect();
     return;
@@ -108,30 +155,28 @@ async function main() {
     }
     if (!rows.length) throw new Error('CSV vide (aucune ligne exploitable)');
 
-    const known = new Set(
-      (await Zone.find({ seasonCode, venueSlug }, 'key').lean()).map(z => String(z.key).toUpperCase())
-    );
+    const known = await knownZoneKeys();
     const missing = rows.map(r => r.zoneKey).filter(k => !known.has(k));
     if (missing.length) {
       // Même exigence qu'en mode --zones : une faute de frappe rendrait la
       // grille par méta-zone inopérante sans le dire.
-      throw new Error(`Zone(s) introuvable(s) pour ${seasonCode}/${venueSlug} : ${[...new Set(missing)].join(', ')}`);
+      throw new Error(`Zone(s) introuvable(s) dans le catalogue de ${venueSlug} : ${[...new Set(missing)].join(', ')}`);
     }
 
     let changed = 0;
+    let changedSeason = 0;
     for (const row of rows) {
       console.log(`${argv['dry-run'] ? '·' : '✅'} ${row.zoneKey} → ${row.metaZone || '—'}`);
       if (!argv['dry-run']) {
-        const res = await Zone.updateOne(
-          { seasonCode, venueSlug, key: row.zoneKey },
-          { $set: { metaZone: row.metaZone } }
-        );
-        changed += (res.modifiedCount ?? 0);
+        const res = await applyMeta([row.zoneKey], row.metaZone);
+        changed += res.catalog;
+        changedSeason += (res.season ?? 0);
       }
     }
     console.log(argv['dry-run']
       ? `\n${rows.length} ligne(s) — dry-run, relancer sans --dry-run pour écrire.`
-      : `${changed} zone(s) mise(s) à jour sur ${rows.length} ligne(s).`);
+      : `${changed} zone(s) mise(s) à jour au catalogue sur ${rows.length} ligne(s).`
+        + (seasonCode ? ` ${changedSeason} répercutée(s) sur ${seasonCode}.` : ''));
     await mongoose.disconnect();
     return;
   }
@@ -142,13 +187,13 @@ async function main() {
 
   const metaZone = argv.clear ? null : String(argv.meta).trim().toUpperCase();
 
-  const existing = await Zone.find({ seasonCode, venueSlug, key: { $in: zones } }, 'key metaZone').lean();
+  const existing = await ZoneCatalog.find({ venueSlug, key: { $in: zones } }, 'key metaZone').lean();
   const found = new Set(existing.map(z => String(z.key).toUpperCase()));
   const missing = zones.filter(z => !found.has(z));
   if (missing.length) {
     // Bloquant : une faute de frappe passerait sinon inaperçue, et la grille
     // par méta-zone ne s'appliquerait jamais à la zone qu'on croyait viser.
-    throw new Error(`Zone(s) introuvable(s) pour ${seasonCode}/${venueSlug} : ${missing.join(', ')}`);
+    throw new Error(`Zone(s) introuvable(s) dans le catalogue de ${venueSlug} : ${missing.join(', ')}`);
   }
 
   for (const z of existing) {
@@ -157,11 +202,13 @@ async function main() {
   }
 
   if (!argv['dry-run']) {
-    const res = await Zone.updateMany(
-      { seasonCode, venueSlug, key: { $in: zones } },
-      metaZone ? { $set: { metaZone } } : { $set: { metaZone: null } }
-    );
-    console.log(`${res.modifiedCount} zone(s) mise(s) à jour.`);
+    const res = await applyMeta(zones, metaZone);
+    console.log(`${res.catalog} zone(s) mise(s) à jour au catalogue de ${venueSlug}.`);
+    if (seasonCode) {
+      console.log(`${res.season} zone(s) répercutée(s) sur ${seasonCode}.`);
+    } else {
+      console.log('→ les saisons instanciées ensuite hériteront de ces méta-zones.');
+    }
   } else {
     console.log('\nDry-run uniquement — relancer sans --dry-run pour écrire.');
   }

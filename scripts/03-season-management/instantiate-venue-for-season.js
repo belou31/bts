@@ -122,6 +122,9 @@ function zoneFromSeatId(seatId) {
                 capacity: zone.capacity ?? 0,
                 quota: zone.quota ?? 0,
                 svgSelector: zone.svgSelector || null,
+                // La méta-zone est définie sur le catalogue (niveau lieu) et
+                // suit la zone dans chaque saison instanciée.
+                metaZone: zone.metaZone || null,
                 isActive: zone.isActive !== false
               }
             },

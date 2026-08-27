@@ -381,17 +381,34 @@ Une **méta-zone** regroupe des zones. Elle n'existe pas sur le plan — aucun
 sélecteur SVG, aucun siège : c'est un regroupement logique, posé en gestion de
 lieu, pas en tarification. La tarification n'en est que le premier usage.
 
+Elle décrit la **salle**, pas une saison : elle se pose donc sur le catalogue de
+zones du lieu (`ZoneCatalog`), avant qu'aucune saison n'existe — le paramétrage
+suit l'ordre logique 01 → 03, et aucun code saison n'est requis.
+`instantiate-venue-for-season.js` recopie ensuite la méta-zone sur les zones de
+la saison, si bien que toute saison créée après en hérite.
+
 ```bash
-# 1. rattacher des zones à une méta-zone
-node scripts/01-venue-management/set-zone-meta.js --season=2025-2026 --venue=stadium \
+# 1. rattacher des zones à une méta-zone (niveau lieu, aucune saison requise)
+node scripts/01-venue-management/set-zone-meta.js --venue=stadium \
   --meta=S_LOW --zones=S1,S3
 
 # 2. tout un découpage d'un coup (gabarit : data_references/csv/meta-zones.template.csv)
-node scripts/01-venue-management/set-zone-meta.js --season=2025-2026 --venue=stadium \
-  --csv=meta-zones.csv
+node scripts/01-venue-management/set-zone-meta.js --venue=stadium --csv=meta-zones.csv
 
-# 3. état des lieux (zones, méta-zones, grilles définies par méta-zone)
-node scripts/01-venue-management/set-zone-meta.js --season=2025-2026 --venue=stadium --list
+# 3. état des lieux du catalogue
+node scripts/01-venue-management/set-zone-meta.js --venue=stadium --list
+```
+
+Une saison **déjà instanciée** ne suit pas d'elle-même un changement de
+découpage : il faut le lui répercuter explicitement, plutôt que de la
+réinstancier.
+
+```bash
+node scripts/01-venue-management/set-zone-meta.js --venue=stadium \
+  --meta=S_LOW --zones=S1,S3 --season=2025-2026
+
+# avec --list, une saison affiche aussi ses zones et ses grilles par méta-zone
+node scripts/01-venue-management/set-zone-meta.js --venue=stadium --list --season=2025-2026
 ```
 
 Également exposé dans `/admin/operate` → *01 — Venue* → **Set Zone Meta-Zone**.
