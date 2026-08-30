@@ -676,7 +676,20 @@ export default function routes(router) {
   // même vue partenaire, branchée sur l'API d'abonnement au lieu de celle des
   // événements. Le quota, lui, se compte en ABONNEMENTS et non en places —
   // voir services/partner-presale.js.
-  router.get('/partner/:partnerSlug/season/:seasonCode', async (req, res, next) => {
+  // Même forme que le public : /partner/<slug>/season/<code> renvoie vers le
+  // chemin explicite. Un partenaire n'a aujourd'hui qu'une porte (l'abonnement),
+  // mais nommer l'action dans l'URL vaut aussi ici — c'est ce qui permettra
+  // d'en ajouter une autre sans que l'ancienne URL change de sens.
+  router.get('/partner/:partnerSlug/season/:seasonCode', (req, res) => {
+    const slug = String(req.params.partnerSlug || '').trim();
+    const code = String(req.params.seasonCode || '').trim();
+    const qs = req.originalUrl.indexOf('?') >= 0 ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+    return res.redirect(302, path.posix.join(
+      BASE_PATH || '/', 'partner', encodeURIComponent(slug), 'season', encodeURIComponent(code), 'subscribe'
+    ) + qs);
+  });
+
+  router.get('/partner/:partnerSlug/season/:seasonCode/subscribe', async (req, res, next) => {
     try {
       const partnerSlug = String(req.params.partnerSlug || '').trim();
       const seasonParam = String(req.params.seasonCode || '').trim();
