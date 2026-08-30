@@ -36,7 +36,20 @@ export function customizationLayers({ seasonCode = '', eventSlug = '', partnerSl
   const layers = [{ label: 'default', path: path.join(CUSTOM_BASE, 'default.json') }];
   if (seasonCode) layers.push({ label: `season:${seasonCode}`, path: path.join(CUSTOM_BASE, 'seasons', `${seasonCode}.json`) });
   if (eventSlug) layers.push({ label: `event:${eventSlug}`, path: path.join(CUSTOM_BASE, 'events', `${eventSlug}.json`) });
-  if (partnerSlug) layers.push({ label: `partner:${partnerSlug}`, path: path.join(CUSTOM_BASE, 'partners', `${partnerSlug}.json`) });
+  if (partnerSlug) {
+    // Habillage commun à TOUS les partenaires, avant celui du partenaire précis.
+    //
+    // Le texte partenaire générique est déjà écrit avec {{partnerName}} : sans
+    // cette couche, chaque partenaire devait recopier les mêmes lignes juste
+    // pour obtenir cette variable — précisément la duplication que le reste du
+    // système cherche à éviter (une correction de formulation n'atteignait
+    // alors plus aucun partenaire déjà créé).
+    //
+    // Placée APRÈS saison/événement : une page partenaire doit se lire comme
+    // une page partenaire, pas reprendre le chapô public de la saison.
+    layers.push({ label: 'partner:_default', path: path.join(CUSTOM_BASE, 'partners', '_default.json') });
+    layers.push({ label: `partner:${partnerSlug}`, path: path.join(CUSTOM_BASE, 'partners', `${partnerSlug}.json`) });
+  }
   if (partnerSlug && seasonCode) layers.push({ label: `partner:${partnerSlug}/season:${seasonCode}`, path: path.join(CUSTOM_BASE, 'partners', partnerSlug, 'seasons', `${seasonCode}.json`) });
   if (partnerSlug && eventSlug) layers.push({ label: `partner:${partnerSlug}/event:${eventSlug}`, path: path.join(CUSTOM_BASE, 'partners', partnerSlug, 'events', `${eventSlug}.json`) });
   return layers.map(l => ({ ...l, exists: fs.existsSync(l.path), data: readJson(l.path) }));

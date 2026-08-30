@@ -424,7 +424,7 @@ router.post('/checkout', async (req, res) => {
       origin: partner
         ? {
             flow: 'partner',
-            uiPath: `/partner/${encodeURIComponent(partner.slug)}/season/${encodeURIComponent(seasonCode)}`,
+            uiPath: `/partner/${encodeURIComponent(partner.slug)}/season/${encodeURIComponent(seasonCode)}/subscribe`,
             apiPath: `${req.baseUrl||''}${req.path}`
           }
         : { flow: 'subscription', uiPath: seasonPath, apiPath: `${req.baseUrl||''}${req.path}` },
