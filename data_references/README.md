@@ -27,16 +27,21 @@ Use `csv/subscribers-export.template.csv` as the target schema for the **Export 
 
 ## Customization files
 
-Page/email text (titles, lead paragraphs, help text, button labels — see `customization/default.json`, `event.json`, `partner.json`, `season.json` in this directory) is resolved by `src/services/customization.js` at request time by layering up to six JSON files, **narrowest wins**:
+Page/email text (titles, lead paragraphs, help text, button labels — see `customization/default.json`, `event.json`, `partner.json`, `season.json` in this directory) is resolved by `src/services/customization.js` at request time by layering up to seven JSON files, **narrowest wins**:
 
 ```
 data/customization/default.json
   → seasons/<seasonCode>.json
     → events/<eventSlug>.json
-      → partners/<partnerSlug>.json
-        → partners/<partnerSlug>/seasons/<seasonCode>.json
-          → partners/<partnerSlug>/events/<eventSlug>.json
+      → partners/_default.json                       (tous les partenaires)
+        → partners/<partnerSlug>.json
+          → partners/<partnerSlug>/seasons/<seasonCode>.json
+            → partners/<partnerSlug>/events/<eventSlug>.json
 ```
+
+`partners/_default.json` applies to **every** partner and sits above the
+season/event layers on purpose: a partner page should read as a partner page,
+not inherit the public season wording.
 
 **Only `default.json` should contain every key.** Every other layer should contain *only the keys that actually differ* for that season/event/partner — not a full copy of `default.json`. If you paste the whole baseline into e.g. `events/Match.json`, a later wording fix in `default.json` will silently stop reaching that event, because the event file already forked its own copy of every key. The `event.json` / `partner.json` / `season.json` files here list the *menu* of keys available at that level — copy the one or two you need, not the whole file.
 
@@ -44,7 +49,8 @@ data/customization/default.json
 
 **Two unrelated "partners" files — don't confuse them:**
 - `data/customization/partners.json` (singular, one file) — partner *business config*: `paymentMode`, `accessToken`, `presale` quotas, `venueViews`. Managed by the `scripts/05-partner-management/*.js` scripts other than `set-partner-custo.js`.
-- `data/customization/partners/<slug>.json` (plural dir, one file per partner) — partner *text overrides*, written by `set-partner-custo.js`.
+- `data/customization/partners/_default.json` — text shared by **every** partner, written by `set-partner-custo.js --all-partners --file=...`. The generic partner wording is already written with `{{partnerName}}`, so it belongs here once instead of being duplicated into each partner file.
+- `data/customization/partners/<slug>.json` (plural dir, one file per partner) — overrides for **one** partner, written by `set-partner-custo.js --partner=<slug> --file=...`; wins over `_default.json`.
 
 To check what a page will actually render without spinning up the server, load `src/services/customization.js` and call `loadCustomization({ seasonCode, eventSlug, partnerSlug, locale })` directly — it returns the fully merged, locale-resolved object. Or run `node scripts/00-system-management/resolve-custo.js [--season=...] [--event=...] [--partner=...]` for the same thing with provenance (which file won each key) and typo detection.
 

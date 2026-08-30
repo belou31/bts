@@ -71,7 +71,17 @@ function printDiff(previous, next) {
 // targetPath: where it lands under data/customization/
 // scopeLabel: human label for the confirmation line ("Event", "Partner", ...)
 export function writeCustoFile({ sourcePath, targetPath, scopeLabel, dryRun = false }) {
-  const { data } = loadCustoFile(sourcePath);
+  const { data: raw } = loadCustoFile(sourcePath);
+
+  // Les clés en «_» annotent les gabarits de data_references (« _comment » y
+  // explique quoi copier). Elles n'ont aucun sens une fois le fichier en place :
+  // aucune page ne les lit, et le texte d'aide décrit alors un fichier qui n'est
+  // plus celui qu'on regarde. On les laisse au gabarit.
+  const data = Object.fromEntries(Object.entries(raw).filter(([k]) => !k.startsWith('_')));
+  const dropped = Object.keys(raw).filter(k => k.startsWith('_'));
+  if (dropped.length) {
+    console.log(`  (annotation(s) de gabarit non recopiée(s) : ${dropped.join(', ')})`);
+  }
 
   const notes = checkKeys(data);
   if (notes.length) {

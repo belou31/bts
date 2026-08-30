@@ -2879,13 +2879,22 @@ export const adminScriptGroups = [
         label: 'Set Partner Customization',
         order: 1,
         path: 'scripts/05-partner-management/set-partner-custo.js',
-        command: 'node scripts/05-partner-management/set-partner-custo.js --partner=<slug> --file=<customization.json> [--season=<code>] [--event=<slug>]',
+        command: 'node scripts/05-partner-management/set-partner-custo.js (--partner=<slug> | --all-partners) --file=<customization.json> [--season=<code>] [--event=<slug>]',
         run: {
           script: 'scripts/05-partner-management/set-partner-custo.js',
           args: []
         },
-        description: 'Stores partner-level UI/email customization keys under data/customization/partners/<slug>.json (or scoped files under partners/<slug>/seasons/ or partners/<slug>/events/ when provided).',
+        description: 'Enregistre l\'habillage (titres, chapôs, libellés) d\'un partenaire, ou de TOUS les partenaires à la fois.',
+        notes: [
+          'Cochez « Tous les partenaires » pour écrire data/customization/partners/_default.json : le texte partenaire générique est déjà rédigé avec {{partnerName}}, il n\'a donc pas à être recopié pour chaque partenaire.',
+          'Sinon, indiquez un slug : le fichier du partenaire surcharge la couche commune.',
+          'Exactement une des deux portées à la fois. « Tous les partenaires » ne se combine pas avec saison/événement, qui sont propres à un partenaire.',
+          'N\'y copier que les clés réellement différentes : recopier tout le gabarit fige une version de chaque texte, et une correction ultérieure ne l\'atteindrait plus.',
+          'Gabarit des clés disponibles : data_references/customization/partner.json (ses annotations « _… » ne sont pas recopiées).'
+        ],
         templates: [
+          'data_references/customization/partner.json',
+          'data/customization/partners/_default.json',
           'data/customization/partners/<slug>.json',
           'data/customization/partners/<slug>/seasons/<code>.json',
           'data/customization/partners/<slug>/events/<event>.json'
@@ -2893,10 +2902,15 @@ export const adminScriptGroups = [
         form: {
           fields: [
             {
+              name: 'allPartners',
+              label: 'Tous les partenaires (habillage commun)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--all-partners' }
+            },
+            {
               name: 'partner',
-              label: 'Slug du partenaire',
+              label: 'Slug du partenaire (si non « tous »)',
               placeholder: 'cseairbus',
-              required: true,
               arg: { type: 'option', template: '--partner=${value}' }
             },
             {
