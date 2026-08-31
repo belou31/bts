@@ -180,6 +180,7 @@ Miscellaneous operational scripts: exports, audits, order management, and sentin
 | `scripts/06-misc/reports/export-seats.js`<br><small>Export Seats (CSV)</small> | Streams seats with provisioning and booking metadata to CSV. | `node scripts/06-misc/reports/export-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>]` | cli | `data_references/csv/seats-export.template.csv` |
 | `scripts/sentinels/pending-orders.js`<br><small>Sentinel: Pending Orders</small> | Reports orders stuck in pending state beyond the expected delay. | `node scripts/sentinels/pending-orders.js [--max-age-minutes=60]` | cli | — |
 | `scripts/06-misc/audit-missing-seats.js`<br><small>Audit Missing Seats</small> | Checks for discrepancies between seat provisioning and subscriptions. | `node scripts/06-misc/audit-missing-seats.js <seasonCode> --venue=<slug>` | cli | — |
+| `scripts/06-misc/resend-order-email.js`<br><small>Resend Order Email</small> | Diagnostique puis renvoie le courriel de confirmation d'une commande, quel que soit son flux (abonnement, renouvellement, match, partenaire). | `node scripts/06-misc/resend-order-email.js --order=<id> [--commit] [--force]` | cli | — |
 
 ## Console d'administration
 
