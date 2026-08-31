@@ -3335,6 +3335,44 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'resend-order-email',
+        label: 'Resend Order Email',
+        order: 6,
+        path: 'scripts/06-misc/resend-order-email.js',
+        command: 'node scripts/06-misc/resend-order-email.js --order=<id> [--commit] [--force]',
+        run: { script: 'scripts/06-misc/resend-order-email.js', args: [] },
+        description: 'Diagnostique puis renvoie le courriel de confirmation d\'une commande, quel que soit son flux (abonnement, renouvellement, match, partenaire).',
+        notes: [
+          'Sans « Envoyer », rien n\'est expédié : le script affiche le destinataire, la date du dernier envoi, le mode courriel (SMTP ou EMAIL_STUB) et tente le rendu du message.',
+          'Un échec de rendu est la cause la plus fréquente d\'un courriel manquant : il est signalé ici avec son message exact, sans avoir à fouiller les journaux.',
+          'Une commande déjà marquée comme envoyée n\'est pas réexpédiée : cocher « Forcer » pour cela.',
+          'Complète 04-event-management/resend-event-tickets.js, qui exige un match et ne couvre donc ni les abonnements ni les renouvellements.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'order',
+              label: 'Identifiant de commande',
+              placeholder: '6a95b8572f671ff8b35b4de8',
+              required: true,
+              arg: { type: 'option', template: '--order=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Envoyer (sinon diagnostic seul)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            },
+            {
+              name: 'force',
+              label: 'Forcer même si déjà envoyé',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--force' }
+            }
+          ]
+        }
+      },
+      {
         id: 'audit-missing-seats',
         label: 'Audit Missing Seats',
         order: 5,
