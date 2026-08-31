@@ -9,11 +9,21 @@ const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const translate = window.t || ((key) => key);
 
 /* ========= Contexte / Config ========= */
+// Le repli ne pointe plus vers une API.
+//
+// Il visait `s/renew` en RELATIF : une page qui aurait oublié de définir
+// window.BTS_VIEW_CONFIG appelait donc l'API de renouvellement, résolue contre
+// l'URL courante — soit un 404 muet dès que la page n'était pas à la racine,
+// soit, pire, la mauvaise API. Toutes les vues définissent ce config ; si l'une
+// l'oublie, mieux vaut le dire que deviner une URL.
 const CONFIG = (window.BTS_VIEW_CONFIG || {
   title: 'Billetterie',
-  api: { status: 's/renew'+(location.search||''), checkout: 's/renew'+(location.search||'') },
+  api: { status: '', checkout: '' },
   selection: { type: 'seats' } // seats | zones
 });
+if (!window.BTS_VIEW_CONFIG) {
+  console.error('[BTS] window.BTS_VIEW_CONFIG absent : la vue ne sait pas quelle API interroger.');
+}
 const PAGE_TITLE = CONFIG.pageTitle || CONFIG.title || 'Billetterie';
 document.title = PAGE_TITLE + ' — BTS';
 
@@ -1009,8 +1019,13 @@ function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win }) {
 
 /* ========= Chargement ========= */
 async function loadData() {
+  if (!CONFIG.api || !CONFIG.api.status) {
+    throw new Error('[BTS] Aucune URL d\'API dans BTS_VIEW_CONFIG.api.status — la page n\'a rien à interroger.');
+  }
   const res = await fetch(CONFIG.api.status, { headers:{ 'Accept':'application/json' }, credentials:'same-origin' });
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text().catch(()=>res.status)}`);
+  // L'URL appelée dans le message : sans elle, un 404 ne dit pas SI le chemin
+  // demandé était le bon, ce qui est justement la question à trancher.
+  if (!res.ok) throw new Error(`API ${res.status} sur ${res.url}: ${await res.text().catch(()=>res.status)}`);
   const data = await res.json();
 
 dlog('status payload keys:', Object.keys(data||{}));

@@ -14,6 +14,7 @@ import { makeTokenHash } from '../utils/ha-token.js';
 import { findSingleGaps }      from '../utils/no-single-gap.js';
 import { isVirtualZoneSeatId, zoneKeyFromSeatId as zoneKeyOf } from '../utils/seat-id.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
+import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import {
   buildZonesWithRemaining,
   selectZoneAllocatedZones,
@@ -256,10 +257,17 @@ router.get('/renew', async (req, res) => {
     // tous les tarifs, inactifs et propres à un match compris. Même définition
     // que routes/subscription.js : renouvellement et abonnement doivent voir
     // exactement la même grille.
-    const tariffs = await Tariff.find({ priceTableKey: null, active: true }).lean();
-    const prices  = await withMetaZonePrices(
+    // Le filtrage par canal manquait ici : la page de renouvellement exposait
+    // les tarifs réservés aux partenaires (NORMAL_P01, CS_PARTNER…) et les
+    // tarifs 'private' (INVITATION), qu'aucun renouveleur ne doit voir. Un
+    // renouvellement est un abonnement : même canal que /subscribe.
+    const allTariffs = await Tariff.find({ priceTableKey: null, active: true }).lean();
+    const allPrices  = await withMetaZonePrices(
       await TariffPrice.find({ seasonCode, venueSlug }).lean(),
       { seasonCode, venueSlug }
+    );
+    const { tariffs, prices } = filterTariffsAndPricesByChannel(
+      allTariffs, allPrices, { kind: 'subscription' }
     );
 
     // Zones : une place supplémentaire peut aussi être prise en zone, pas

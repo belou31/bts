@@ -182,6 +182,8 @@ export default function routes(router) {
       ? `Renouvelez votre abonnement pour conserver vos sièges et accéder à l’ensemble des rencontres à domicile de la ${seasonName}.`
       : 'Renouvelez votre abonnement pour conserver vos sièges et accéder à l’ensemble des rencontres à domicile.';
 
+    const renewApiPath = path.posix.join(BASE_PATH || '/', 's', 'renew') + suffix;
+
     res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
       title: 'Renouvellement d’abonnement — BTS',
       heading: 'Renouvellement d’abonnement',
@@ -201,8 +203,16 @@ export default function routes(router) {
       assets: ASSETS_BASE,
       config: {
         api: {
-          status: `s/renew${suffix}`,
-          checkout: `s/renew${suffix}`
+          // Chemin ABSOLU, pas relatif.
+          //
+          // `s/renew` fonctionnait tant que la page vivait à /renew : le
+          // navigateur le résolvait contre la racine. Depuis le passage au
+          // chemin explicite /season/<code>/renew, il se résout contre
+          // /season/<code>/ et vise /season/<code>/s/renew — d'où un 404 au
+          // chargement du plan. Les autres vues construisent déjà leurs
+          // chemins avec path.posix.join(BASE_PATH, …) pour cette raison.
+          status: renewApiPath,
+          checkout: renewApiPath
         },
         selection: { type: 'seats' },
         // Le panier ne se déduit plus des sièges renvoyés : /s/renew expose
