@@ -92,13 +92,21 @@ async function main() {
 
     if (!seatIds.length) continue; // rien à renouveler
 
+    // Le quota se compte en PLACES, pas en identifiants distincts.
+    //
+    // Une place en zone n'a pas d'identifiant propre : deux places en « TBH7 »
+    // sont deux fois le même seatId, que uniq() ci-dessus réduit à un — ce qui
+    // est correct pour l'affichage du plan, mais amputerait le quota. Chaque
+    // ligne d'abonné porte donc son nombre de places (Subscriber.places).
+    const places = arr.reduce((sum, x) => sum + Math.max(1, Number(x.places) || 1), 0);
+
     // Un groupe = un lien = un quota. Les lignes du CSV d'import sont par
     // SIÈGE, donc sommer les extra d'une famille de 3 personnes marquées
     // extra=1 accorderait 3 places au lieu d'1 : on prend le MAX, qui donne le
     // même résultat que l'extra soit renseigné sur une seule ligne du groupe
     // ou répété sur toutes.
     const extra = Math.max(0, ...arr.map(x => Number(x.extra) || 0));
-    const quota = seatIds.length + extra;
+    const quota = places + extra;
 
     const payload = {
       seasonCode,
