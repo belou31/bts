@@ -25,6 +25,17 @@ const SubscriberSchema = new mongoose.Schema({
   // historique sièges
   previousSeasonSeats: { type: [String], default: [] },
 
+  // Nombre de places que représente CETTE ligne.
+  //
+  // Un siège numéroté vaut toujours 1 : il est identifié, donc une ligne = une
+  // place. Une place en ZONE n'est pas identifiable — « TBH7 » désigne la zone,
+  // pas un siège précis — si bien que deux places dans la même zone pour le
+  // même abonné produisaient deux lignes CSV rigoureusement identiques, donc
+  // une seule ligne en base (la clé d'upsert contient prefSeatId) et un quota
+  // amputé d'autant. C'est ce compte qui porte la quantité, pas le nombre de
+  // documents.
+  places: { type: Number, default: 1, min: 1 },
+
   // places supplémentaires accordées à ce renouveleur, au-delà de ses sièges
   // précédents (quota du lien = previousSeasonSeats + extra). Agrégé par MAX
   // sur le groupKey à l'export du token — voir export-renew-groups.js.

@@ -158,16 +158,25 @@ function normGroupKey(v) {
   if (!fs.existsSync(full)) die(`CSV not found: ${csvPath} (cherché dans ${full} et data/inputs)`);
 
   // Lire la 1ère ligne pour trouver le délimiteur
-  const firstLine = stripBOM(fs.readFileSync(full, 'utf8').split(/\r?\n/).find(l => l.trim().length));
+  // Le délimiteur se déduit de l'EN-TÊTE, donc de la première ligne utile :
+  // une ligne de commentaire fausserait la détection.
+  const firstLine = stripBOM(
+    fs.readFileSync(full, 'utf8').split(/\r?\n/)
+      .find(l => l.trim().length && !l.trimStart().startsWith('#'))
+  );
   if (!firstLine) die('CSV vide');
   const delim = detectDelimiter(firstLine);
 
   const rl = readline.createInterface({ input: fs.createReadStream(full, 'utf8'), crlfDelay: Infinity });
 
   let header = null, cols = null, scanned = 0, upserts = 0, modified = 0, skipped = 0;
+  const rows = new Map();   // clé (email, saison, lieu, seatId) -> ligne agrégée
   for await (const raw of rl) {
     const line = raw.replace(/\r$/, '');
     if (!line.trim()) continue;
+    // Lignes de commentaire du gabarit. Sans cela, la première ligne « # … »
+    // serait prise pour l'en-tête et aucune colonne ne serait reconnue.
+    if (line.trimStart().startsWith('#')) continue;
 
     if (!header) {
       header = line;
@@ -204,19 +213,39 @@ function normGroupKey(v) {
 
     const groupKey = normGroupKey(groupRaw || email);
 
-    const where = { email, seasonCode: season, venueSlug: venue, prefSeatId: seatId };
+    // On agrège AVANT d'écrire, au lieu d'upserter ligne à ligne.
+    //
+    // La clé d'upsert contient prefSeatId : deux places dans la même zone
+    // donnent deux lignes CSV identiques, donc la seconde écrasait la première
+    // et la place disparaissait. Compter d'abord, écrire ensuite, garde aussi
+    // l'import idempotent — relancer le même fichier REMET le compte, il ne
+    // l'incrémente pas.
+    const key = [email, season, venue, seatId].join('\u0000');
+    const found = rows.get(key);
+    if (found) {
+      found.places += 1;
+      // Dernière ligne gagnante sur les champs d'identité, comme avant.
+      Object.assign(found, { firstName, lastName, phone, groupKey, extra });
+    } else {
+      rows.set(key, { email, season, venue, seatId, firstName, lastName, phone, groupKey, extra, places: 1 });
+    }
+  }
+
+  for (const r of rows.values()) {
+    const where = { email: r.email, seasonCode: r.season, venueSlug: r.venue, prefSeatId: r.seatId };
     const update = {
-      firstName,
-      lastName,
-      email,
-      phone,
-      prefSeatId: seatId,
-      seasonCode: season,
-      venueSlug: venue,
-      groupKey,
-      extra,
+      firstName: r.firstName,
+      lastName: r.lastName,
+      email: r.email,
+      phone: r.phone,
+      prefSeatId: r.seatId,
+      seasonCode: r.season,
+      venueSlug: r.venue,
+      groupKey: r.groupKey,
+      extra: r.extra,
+      places: r.places,
       status: 'invited',
-      $addToSet: { previousSeasonSeats: seatId }
+      $addToSet: { previousSeasonSeats: r.seatId }
     };
 
     const res = await Subscriber.updateOne(where, update, { upsert: true });
@@ -224,7 +253,12 @@ function normGroupKey(v) {
     else if (res.modifiedCount > 0) modified++;
   }
 
-  console.log(`Done. scanned=${scanned} upserts=${upserts} modified=${modified} skipped=${skipped}`);
+  const grouped = [...rows.values()].filter(r => r.places > 1);
+  if (grouped.length) {
+    console.log('Places multiples sur une même cible (zones) :');
+    for (const r of grouped) console.log(`  ${r.email} — ${r.seatId} : ${r.places} places`);
+  }
+  console.log(`Done. scanned=${scanned} lignes=${rows.size} upserts=${upserts} modified=${modified} skipped=${skipped}`);
   await mongoose.disconnect();
 })().catch(async (e) => {
   console.error('ERROR', e);

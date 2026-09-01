@@ -486,6 +486,51 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'remove-renewers',
+        label: 'Remove Renewers (clean restart)',
+        order: 5,
+        path: 'scripts/03-season-management/remove-renewers.js',
+        command: 'node scripts/03-season-management/remove-renewers.js --season=<code> [--venue=<slug>] [--commit] [--release-seats]',
+        run: { script: 'scripts/03-season-management/remove-renewers.js', args: [] },
+        description: 'Supprime les lignes de renouvellement d\'une saison pour repartir d\'un import propre.',
+        danger: true,
+        notes: [
+          'Sans « Supprimer », rien n\'est écrit : le script affiche le nombre de lignes, de places, de sièges provisionnés et de renouvellements déjà payés.',
+          'Refuse de supprimer tant que des sièges sont provisionnés pour ces renouveleurs : les effacer laisserait des places bloquées pointant vers des abonnés inexistants. Cocher « Libérer les sièges » pour faire les deux.',
+          'Ne touche ni aux sièges `booked` ni aux commandes : un renouvellement déjà payé le reste.',
+          'Enchaîner ensuite avec Import Renewers (flat CSV).'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2026-2027',
+              required: true,
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu (optionnel)',
+              placeholder: 'stadium',
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Supprimer (sinon état des lieux)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            },
+            {
+              name: 'releaseSeats',
+              label: 'Libérer aussi les sièges provisionnés',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--release-seats' }
+            }
+          ]
+        }
+      },
+      {
         id: 'release-unrenewed-seats',
         label: 'Release Unrenewed Seats',
         order: 4,
@@ -614,6 +659,8 @@ export const adminScriptGroups = [
             {
               name: 'deadline',
               label: 'Date limite (optionnel)',
+              type: 'datetime',
+              hint: 'Heure locale ; le décalage horaire est ajouté automatiquement.',
               placeholder: '2025-08-31T23:00:00Z',
               arg: { type: 'option', template: '--deadline=${value}' }
             }
@@ -2030,7 +2077,9 @@ export const adminScriptGroups = [
             },
             {
               name: 'date',
-              label: 'Date ISO',
+              label: 'Date et heure du match',
+              type: 'datetime',
+              hint: 'Heure locale ; le décalage horaire est ajouté automatiquement.',
               placeholder: '2025-09-21T16:00:00+02:00',
               required: true,
               arg: { type: 'option', template: '--date=${value}' }
@@ -2094,7 +2143,9 @@ export const adminScriptGroups = [
             },
             {
               name: 'date',
-              label: 'Date ISO',
+              label: 'Date et heure du match',
+              type: 'datetime',
+              hint: 'Heure locale ; le décalage horaire est ajouté automatiquement.',
               placeholder: '2025-10-05T16:00:00+02:00',
               required: true,
               arg: { type: 'option', template: '--date=${value}' }
