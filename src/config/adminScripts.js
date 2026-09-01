@@ -357,6 +357,22 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'check-payment-provider',
+        label: 'Check Payment Provider Credentials',
+        order: 0.6,
+        path: 'scripts/00-system-management/check-payment-provider.js',
+        command: 'node scripts/00-system-management/check-payment-provider.js',
+        run: { script: 'scripts/00-system-management/check-payment-provider.js', args: [] },
+        description: 'Interroge SumUp pour vérifier que les identifiants configurés sont acceptés, sans créer de commande.',
+        notes: [
+          'À lancer quand un paiement échoue en 401 : le message du prestataire ne dit pas LEQUEL des réglages est en cause.',
+          'Vérifie le mode d\'authentification, la base d\'API visée, et compare le compte auquel la clé donne accès avec SUMUP_MERCHANT_CODE.',
+          'Signale les espaces ou retours-ligne parasites dans la clé — un .env en CRLF suffit à provoquer un 401.',
+          'N\'affiche jamais la clé : seulement sa longueur et sa présence.'
+        ],
+        form: { fields: [] }
+      },
+      {
         id: 'set-payment-provider',
         label: 'Set Payment Provider',
         order: 3,

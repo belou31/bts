@@ -2,6 +2,7 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { connectMongo, readCsv, logDryRun } from '../_utils.js';
+import { compileSeatPattern, explainNoMatch } from '../lib/seat-pattern.js';
 import { SeatHold } from '../../src/models/SeatHold.js';
 import { Event } from '../../src/models/Event.js';
 import { Seat } from '../../src/models/Seat.js';
@@ -21,18 +22,6 @@ function patternForId(id) {
   const prefix = parts.join('-').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const num = String(parseInt(last, 10));
   return new RegExp(`^${prefix}-0*${num}$`, 'i');
-}
-
-function compileRegex(pattern) {
-  const raw = String(pattern || '').trim();
-  if (!raw) return null;
-  const m = raw.match(/^\/(.*)\/([a-z]*)$/i);
-  try {
-    return m ? new RegExp(m[1], m[2]) : new RegExp(raw, 'i');
-  } catch (e) {
-    console.warn(`⏭️  regex invalide "${raw}" (${e?.message || e}), ligne ignorée`);
-    return null;
-  }
 }
 
 function parseDate(value) {
@@ -78,7 +67,7 @@ function parseDate(value) {
     const reason = r.reason ? String(r.reason) : '';
     const expiresAt = parseDate(r.expiresAt);
 
-    const seatIdRegex = seatPattern ? compileRegex(seatPattern) : (seatId ? patternForId(seatId) : null);
+    const seatIdRegex = seatPattern ? compileSeatPattern(seatPattern) : (seatId ? patternForId(seatId) : null);
     if (seatPattern && !seatIdRegex) continue;
 
     if (!seatIdRegex && !zoneKey) {
@@ -98,7 +87,7 @@ function parseDate(value) {
       : (seatId ? [{ seatId }] : []);
 
     if (!seatsToTarget.length && seatPattern) {
-      console.warn('⚠️  Aucun siège trouvé pour seatPattern:', seatPattern);
+      await explainNoMatch({ pattern: seatPattern, Seat, filter: seatFilter });
       continue;
     }
 
