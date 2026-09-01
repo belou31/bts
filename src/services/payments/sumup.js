@@ -27,14 +27,18 @@ function assertEnv() {
 async function getAccessToken() {
   assertEnv();
   // API Key auth: use directly as Bearer token (no OAuth step)
+  //
+  // .trim() : une clé collée dans .env emporte souvent un espace final, et un
+  // fichier en CRLF y ajoute un \r. L'en-tête « Bearer <clé>\r » est alors
+  // malformé et SumUp répond 401 — indiscernable d'une clé révoquée.
   if (process.env.SUMUP_API_KEY) {
-    return process.env.SUMUP_API_KEY;
+    return String(process.env.SUMUP_API_KEY).trim();
   }
   // OAuth client_credentials flow
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
-    client_id: process.env.SUMUP_CLIENT_ID,
-    client_secret: process.env.SUMUP_CLIENT_SECRET
+    client_id: String(process.env.SUMUP_CLIENT_ID || '').trim(),
+    client_secret: String(process.env.SUMUP_CLIENT_SECRET || '').trim()
   });
   if (process.env.SUMUP_OAUTH_SCOPES) {
     body.set('scope', process.env.SUMUP_OAUTH_SCOPES);
@@ -150,6 +154,15 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     console.error('[sumup] payload sent:', JSON.stringify(payload));
+    if (r.status === 401) {
+      // 401 = la requête est bien partie, SumUp refuse l'identité. Ce n'est
+      // donc jamais le panier ni les URLs de retour : inutile de les relire.
+      console.error('[sumup] 401 — identifiants refusés. À vérifier, dans cet ordre :');
+      console.error(`[sumup]   mode d'auth : ${process.env.SUMUP_API_KEY ? 'SUMUP_API_KEY' : 'OAuth client_credentials'}`);
+      console.error(`[sumup]   api base    : ${apiBase()}`);
+      console.error(`[sumup]   merchant    : ${process.env.SUMUP_MERCHANT_CODE || '(non défini)'}`);
+      console.error('[sumup]   diagnostic  : node scripts/00-system-management/check-payment-provider.js');
+    }
     throw new Error(`SumUp checkout ${r.status} ${JSON.stringify(j)}`);
   }
   // SumUp sometimes only returns links on GET, not POST — fetch to get the real checkout URL

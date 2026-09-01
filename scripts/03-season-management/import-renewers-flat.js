@@ -8,7 +8,7 @@
  *   node scripts/03-season-management/import-renewers-flat.js <csvPath> <seasonCode> --venue=<slug> [--extra=<n>]
  *
  * Accepted columns (case-insensitive):
- *   firstName,lastName,email,phone,seasonCode,venueSlug,seatId|prefSeatId|seat,group,extra
+ *   firstName,lastName,email,phone,seasonCode,venueSlug,seatId|prefSeatId|seat,group,extra,partner
  * - If group is empty → groupKey falls back to a normalized email.
  * - Upsert key: (email, seasonCode, venueSlug, prefSeatId)
  * - extra = places supplémentaires que ce renouveleur peut prendre en plus de
@@ -124,6 +124,7 @@ function headersIndex(headerLine, delim) {
   const email     = pick('email','mail');
   const phone     = pick('phone','tel','telephone');
   const seatId    = pick('seatid','prefseatid','seat');
+  const partnerCol = pick('partner','partnerslug');
   const group     = pick('group','groupkey','groupe');
   const seasonCol = pick('seasoncode','season','saison');
   const venueCol  = pick('venueslug','venue','lieu');
@@ -135,7 +136,7 @@ function headersIndex(headerLine, delim) {
   if (missing.length) {
     throw new Error(`Colonnes manquantes: ${missing.join(', ')}. Vues: ${h.join(', ')}`);
   }
-  return { header: h, lc, firstName, lastName, email, phone, seatId, group, seasonCol, venueCol, extraCol, delim };
+  return { header: h, lc, firstName, lastName, email, phone, seatId, group, seasonCol, venueCol, extraCol, partnerCol, delim };
 }
 
 function normGroupKey(v) {
@@ -197,6 +198,7 @@ function normGroupKey(v) {
     const seasonCSV = take(cols.seasonCol);
     const venueCSV  = take(cols.venueCol);
     const extraCSV  = take(cols.extraCol);
+    const partner   = take(cols.partnerCol).toLowerCase() || null;
     const extra     = extraCSV !== '' ? normExtra(extraCSV) : extraDefault;
 
     const season = seasonCSV || seasonCode;
@@ -225,9 +227,9 @@ function normGroupKey(v) {
     if (found) {
       found.places += 1;
       // Dernière ligne gagnante sur les champs d'identité, comme avant.
-      Object.assign(found, { firstName, lastName, phone, groupKey, extra });
+      Object.assign(found, { firstName, lastName, phone, groupKey, extra, partner });
     } else {
-      rows.set(key, { email, season, venue, seatId, firstName, lastName, phone, groupKey, extra, places: 1 });
+      rows.set(key, { email, season, venue, seatId, firstName, lastName, phone, groupKey, extra, partner, places: 1 });
     }
   }
 
@@ -243,6 +245,7 @@ function normGroupKey(v) {
       venueSlug: r.venue,
       groupKey: r.groupKey,
       extra: r.extra,
+      partnerSlug: r.partner,
       places: r.places,
       status: 'invited',
       $addToSet: { previousSeasonSeats: r.seatId }

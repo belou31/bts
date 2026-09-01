@@ -41,7 +41,15 @@ async function countPartnerUnits(match, partnerSlug) {
       $match: {
         ...match,
         'meta.partner.slug': partnerSlug,
-        status: { $nin: ['canceled', 'failed'] }
+        status: { $nin: ['canceled', 'failed'] },
+        // Un RENOUVELLEMENT ne consomme pas l'allocation du partenaire.
+        //
+        // Le quota plafonne les abonnements NOUVEAUX qu'un partenaire peut
+        // placer. Y compter les renouvellements réduirait son allocation
+        // chaque saison pour des bénéficiaires qu'il a déjà — au bout de
+        // quelques années il ne pourrait plus recruter personne, alors même
+        // que son contrat n'a pas changé.
+        'origin.flow': { $ne: 'renew' }
       }
     },
     { $unwind: '$lines' },

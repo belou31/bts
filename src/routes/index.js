@@ -158,7 +158,48 @@ export default function routes(router) {
     return renderRenewPage(req, res, season);
   });
 
-  async function renderRenewPage(req, res, seasonDoc) {
+  // Renouvellement d'un bénéficiaire PARTENAIRE.
+  //
+  // Le partenaire fait autorité par le JETON, jamais par l'URL : le segment
+  // /partner/<slug>/ n'est qu'un habillage, et une URL qui désignerait un autre
+  // partenaire que le jeton est refusée. Sans ce contrôle, n'importe quel
+  // renouveleur s'attribuerait les tarifs réservés d'un partenaire en éditant
+  // son propre lien — ces tarifs existent précisément pour ne pas être publics.
+  router.get('/partner/:partnerSlug/season/:seasonCode/renew', async (req, res) => {
+    const urlPartner = String(req.params.partnerSlug || '').trim().toLowerCase();
+    const code = String(req.params.seasonCode || '').trim();
+
+    const partnerCfg = getPartnerConfig(urlPartner);
+    if (!partnerCfg) return res.status(404).send('Partner not found');
+    if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
+      return res.status(403).send('Access restricted for this partner.');
+    }
+    applyPartnerFrameAncestorsHeaders(res, partnerCfg.frameAncestors);
+
+    const token = String(req.query.id || '').trim();
+    let tokenPartner = null;
+    if (token && process.env.JWT_SECRET) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        tokenPartner = decoded?.partnerSlug ? String(decoded.partnerSlug).toLowerCase() : null;
+      } catch { /* jeton illisible : traité comme absent ci-dessous */ }
+    }
+    if (tokenPartner !== urlPartner) {
+      return res.status(403).send(
+        "Ce lien de renouvellement n'est pas rattaché à ce partenaire."
+      );
+    }
+
+    const season = await Season.findOne({ $or: [{ code }, { seasonCode: code }] }).lean();
+    const gate = seasonDoorStatus(season, 'renew');
+    if (!gate.open) {
+      return res.status(gate.reason === 'season_not_found' ? 404 : 403)
+        .send(seasonGateMessage(gate.reason, 'renew'));
+    }
+    return renderRenewPage(req, res, season, partnerCfg);
+  });
+
+  async function renderRenewPage(req, res, seasonDoc, partnerCfg = null) {
     const providerName = currentPaymentProviderLabel();
     const qsIndex = req.originalUrl.indexOf('?');
     const suffix = qsIndex >= 0 ? req.originalUrl.slice(qsIndex) : '';
@@ -178,15 +219,45 @@ export default function routes(router) {
         }
       } catch { /* invalid/expired token: fall back to season-agnostic copy below */ }
     }
-    const lead = seasonName
+    // Habillage partenaire : mêmes clés que partout ailleurs (subscription.*),
+    // avec la couche partners/<slug>.json par-dessus — voir customization.js.
+    const partnerSlug = partnerCfg?.slug || '';
+    const customization = loadCustomization({
+      seasonCode: seasonDoc?.code || seasonDoc?.seasonCode || '',
+      partnerSlug,
+      locale: req.locale
+    });
+    const tmplVars = {
+      seasonCode: seasonDoc?.code || seasonDoc?.seasonCode || '',
+      seasonName: seasonName || '',
+      partnerSlug,
+      partnerName: partnerCfg?.name || partnerSlug
+    };
+
+    const defaultLead = seasonName
       ? `Renouvelez votre abonnement pour conserver vos sièges et accéder à l’ensemble des rencontres à domicile de la ${seasonName}.`
       : 'Renouvelez votre abonnement pour conserver vos sièges et accéder à l’ensemble des rencontres à domicile.';
+    // Le chapô partenaire (« billetterie réservée aux ayants-droits de X »)
+    // reste juste sur une page de renouvellement : on le reprend.
+    const lead = partnerCfg && customization['subscription.lead']
+      ? tmpl(customization['subscription.lead'], tmplVars)
+      : defaultLead;
+    // Le TITRE, lui, ne se reprend pas : subscription.title annonce un
+    // « Abonnement », alors que cette page renouvelle un abonnement existant.
+    // Il n'existe pas de clé renew.title ; on compose donc le nom du partenaire
+    // avec le libellé de renouvellement plutôt que d'afficher un intitulé faux.
+    const heading = partnerCfg
+      ? `${partnerCfg.name || partnerSlug} — Renouvellement d’abonnement`
+      : 'Renouvellement d’abonnement';
 
     const renewApiPath = path.posix.join(BASE_PATH || '/', 's', 'renew') + suffix;
 
     res.render(path.resolve(VIEWS_DIR, 'order', 'index'), {
-      title: 'Renouvellement d’abonnement — BTS',
-      heading: 'Renouvellement d’abonnement',
+      // La vue ajoute déjà « — BTS » : le répéter ici donnait « … — BTS — BTS ».
+      title: partnerCfg
+        ? `${partnerCfg.name || partnerSlug} — Renouvellement`
+        : 'Renouvellement d’abonnement',
+      heading,
       lead,
       planHelp: 'Cliquez sur votre siège pour le renouveler. Les zones TBH7 et Debout restent accessibles via le plan.',
       scheduleOptions: null,

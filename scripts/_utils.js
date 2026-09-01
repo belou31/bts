@@ -1,12 +1,26 @@
 // scripts/_utils.js
 import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+
+// Chargé ici plutôt que dans chaque script : la moitié des appelants de
+// connectMongo() ne le faisaient pas, et repartaient donc sur l'URI de repli
+// ci-dessous — une base vide, où toute requête « ne trouve rien » au lieu
+// d'échouer. Le diagnostic était trompeur à tous les coups.
+dotenv.config();
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { existsSync, promises as fsPromises } from 'fs';
 
 export async function connectMongo() {
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/arena';
+  // Pas d'URI de repli : « mongodb://localhost:27017/arena » était codé en dur
+  // et se connectait sans broncher à une base inexistante. Un script y lisait
+  // zéro siège, zéro commande, et l'annonçait comme un résultat. Mieux vaut
+  // refuser de démarrer que travailler sur le vide.
+  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  if (!uri) {
+    throw new Error('MONGO_URI / MONGODB_URI non défini (ni dans l\'environnement, ni dans .env) — connexion refusée.');
+  }
   const connectOpts = {};
   if (process.env.MONGODB_DB) connectOpts.dbName = process.env.MONGODB_DB;
   mongoose.set('strictQuery', false);

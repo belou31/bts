@@ -15,6 +15,7 @@ import { findSingleGaps }      from '../utils/no-single-gap.js';
 import { isVirtualZoneSeatId, zoneKeyFromSeatId as zoneKeyOf } from '../utils/seat-id.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
+import { getPartnerConfig } from '../config/partners.js';
 import {
   buildZonesWithRemaining,
   selectZoneAllocatedZones,
@@ -274,8 +275,16 @@ router.get('/renew', async (req, res) => {
       await TariffPrice.find({ seasonCode, venueSlug }).lean(),
       { seasonCode, venueSlug }
     );
+    // Canal tarifaire. Le partenaire vient du JETON SIGNÉ, jamais de l'URL :
+    // sans quoi n'importe quel renouveleur s'attribuerait les tarifs réservés
+    // d'un partenaire en ajoutant /partner/<slug>/ à son propre lien.
+    // fallbackToPublic : un partenaire sans grille propre garde les tarifs
+    // publics plutôt que de se retrouver sans aucun tarif.
+    const channelCtx = tok.partnerSlug
+      ? { kind: 'partner', partnerSlug: String(tok.partnerSlug).toLowerCase() }
+      : { kind: 'subscription' };
     const { tariffs, prices } = filterTariffsAndPricesByChannel(
-      allTariffs, allPrices, { kind: 'subscription' }
+      allTariffs, allPrices, channelCtx, { fallbackToPublic: Boolean(tok.partnerSlug) }
     );
 
     // Zones : une place supplémentaire peut aussi être prise en zone, pas
@@ -554,8 +563,16 @@ router.post('/renew', async (req, res) => {
 
 
     // Créer la commande (pending)
+    // Un renouvellement partenaire reste un RENOUVELLEMENT : il ne consomme pas
+    // l'allocation de vente du partenaire (presale.seasons[...].quota), qui
+    // plafonne les abonnements NOUVEAUX. Compter les renouvellements réduirait
+    // chaque année l'allocation d'un partenaire pour des abonnés qu'il a déjà.
+    // meta.partner.slug est néanmoins posé : c'est ce qui rattache la commande
+    // au partenaire dans /partner/<slug>/admin et les exports.
+    const partnerSlug = tok.partnerSlug ? String(tok.partnerSlug).toLowerCase() : null;
+
     const order = await Order.create({
-      itemName:`RENEW_${seasonCode}`,
+      itemName: partnerSlug ? `RENEW_${seasonCode}_${partnerSlug.toUpperCase()}` : `RENEW_${seasonCode}`,
       seasonCode,
       venueSlug,
       phase: 'renew',
@@ -571,10 +588,15 @@ router.post('/renew', async (req, res) => {
       paymentProviderMeta: {},
       origin: {
         flow:   'renew',
-        uiPath: '/renew',
+        uiPath: partnerSlug
+          ? `/partner/${encodeURIComponent(partnerSlug)}/season/${encodeURIComponent(seasonCode)}/renew`
+          : `/season/${encodeURIComponent(seasonCode)}/renew`,
         apiPath:`${req.baseUrl || ''}${req.path}`
       },
-      mailTemplateKind: 'renew'
+      mailTemplateKind: 'renew',
+      ...(partnerSlug
+        ? { meta: { partner: { slug: partnerSlug, name: getPartnerConfig(partnerSlug)?.name || partnerSlug, renewal: true } } }
+        : {})
     });
 
     // Verrouillage des sièges réels. Avant le changement de place, un lien ne
