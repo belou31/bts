@@ -119,6 +119,7 @@ Renewal-focused tooling: import legacy subscribers, provision their seats, publi
 | `scripts/03-season-management/send-renew-invites.js`<br><small>Send Renewal Invitations</small> | Sends renewal invitation emails using the automation job runner (supports dry-run). | `node scripts/03-season-management/send-renew-invites.js <renew-groups.csv> [--subject="..."] [--season=...] [--deadline=ISO] [--venue=...] [--dry]` | automation (season.send-renew-invites) | `data_references/csv/renew-groups.template.csv` |
 | `scripts/03-season-management/export-renew-seats.js`<br><small>Export Renewal Seats</small> | Exports the list of seats involved in the renewal campaign for auditing. | `node scripts/03-season-management/export-renew-seats.js <seasonCode> --venue=<slug> --out=<file.csv>` | cli | `data_references/csv/renew-seats.template.csv` |
 | `scripts/03-season-management/release-unrenewed-seats.js`<br><small>Release Unrenewed Seats</small> | Rend au public les sièges provisionnés qu'un abonné n'a pas renouvelés. | `node scripts/03-season-management/release-unrenewed-seats.js <seasonCode> [--venue=<slug>] [--dry-run]` | cli | — |
+| `scripts/03-season-management/remove-renewers.js`<br><small>Remove Renewers (clean restart)</small> | Supprime les lignes de renouvellement d'une saison pour repartir d'un import propre. | `node scripts/03-season-management/remove-renewers.js --season=<code> [--venue=<slug>] [--commit] [--release-seats]` | cli | — |
 
 ## 04 — Event
 
