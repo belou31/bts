@@ -109,9 +109,12 @@ async function subscribersForToken(tok) {
   if (groupKey) or.push({ groupKey });
   if (email) or.push({ email });
   if (!or.length) return [];
+  // `places` fait partie du quota au même titre qu'`extra` : l'omettre de la
+  // projection le laissait à undefined, donc compté pour 1, et un abonné ayant
+  // plusieurs places dans une même zone en perdait autant.
   return Subscriber.find(
     { seasonCode, venueSlug, $or: or },
-    { _id: 1, extra: 1 }
+    { _id: 1, extra: 1, places: 1 }
   ).lean();
 }
 
@@ -137,7 +140,12 @@ function resolveQuota(tok, subs) {
 
   if (Array.isArray(subs) && subs.length) {
     const extra = Math.max(0, ...subs.map(s => Number(s.extra) || 0));
-    return { previousSeats, extra, quota: previousSeats.length + extra };
+    // Somme des PLACES, pas nombre de sièges distincts : une place en zone n'a
+    // pas d'identifiant propre, donc deux places dans la même zone tiennent en
+    // un seul seatId. Compter les identifiants retirait silencieusement une
+    // place à tout abonné ayant plusieurs places dans une même zone.
+    const places = subs.reduce((sum, s) => sum + Math.max(1, Number(s.places) || 1), 0);
+    return { previousSeats, extra, quota: places + extra };
   }
 
   const extra = Math.max(0, Number(tok.extra) || 0);

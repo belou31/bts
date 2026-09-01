@@ -614,6 +614,8 @@ export const adminScriptGroups = [
             {
               name: 'deadline',
               label: 'Date limite (optionnel)',
+              type: 'datetime',
+              hint: 'Heure locale ; le décalage horaire est ajouté automatiquement.',
               placeholder: '2025-08-31T23:00:00Z',
               arg: { type: 'option', template: '--deadline=${value}' }
             }
@@ -2030,7 +2032,9 @@ export const adminScriptGroups = [
             },
             {
               name: 'date',
-              label: 'Date ISO',
+              label: 'Date et heure du match',
+              type: 'datetime',
+              hint: 'Heure locale ; le décalage horaire est ajouté automatiquement.',
               placeholder: '2025-09-21T16:00:00+02:00',
               required: true,
               arg: { type: 'option', template: '--date=${value}' }
@@ -2094,7 +2098,9 @@ export const adminScriptGroups = [
             },
             {
               name: 'date',
-              label: 'Date ISO',
+              label: 'Date et heure du match',
+              type: 'datetime',
+              hint: 'Heure locale ; le décalage horaire est ajouté automatiquement.',
               placeholder: '2025-10-05T16:00:00+02:00',
               required: true,
               arg: { type: 'option', template: '--date=${value}' }

@@ -400,6 +400,15 @@
       gap: 8px 12px;
       margin-top: 4px;
     }
+    /* Date et fuseau côte à côte : le fuseau qualifie l'heure saisie, les
+       séparer sur deux lignes laisserait croire à deux réglages sans rapport. */
+    .datetime-field {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .datetime-field input[type="datetime-local"] { flex: 1 1 auto; min-width: 0; }
+    .datetime-field select { flex: 0 1 auto; max-width: 46%; }
     .script-form-grid label {
       display: flex;
       flex-direction: column;
@@ -2353,6 +2362,21 @@
                               <% } %>
                             </select>
                             <small class="field-hint">Choisissez un fichier existant ou saisissez un chemin personnalisé.</small>
+                          <% } else if (fieldType === 'datetime') { %>
+                            <div class="datetime-field">
+                              <input
+                                type="datetime-local"
+                                data-role="<%= inputRole %>"
+                                data-datetime="1"
+                                step="60"
+                                <%= field.required ? 'required' : '' %> />
+                              <select data-datetime-tz="<%= inputRole %>" aria-label="Fuseau horaire">
+                                <option value="">— fuseau —</option>
+                              </select>
+                            </div>
+                            <small class="field-hint" data-datetime-preview="<%= inputRole %>">
+                              Heure saisie dans le fuseau choisi ; le décalage est ajouté automatiquement.
+                            </small>
                           <% } else { %>
                             <input
                               type="text"
@@ -3590,6 +3614,109 @@
         input.addEventListener('input', applyFilter);
       });
 
+      // ---- Date + fuseau explicite -------------------------------------
+      //
+      // <input type="datetime-local"> ne rend qu'une heure murale, sans fuseau.
+      // Le script attend une date ISO complète. On compose les deux : l'heure
+      // saisie est lue DANS le fuseau choisi, et le décalage correspondant y
+      // est ajouté.
+
+      const TZ_LOCAL = (() => {
+        try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+        catch { return 'UTC'; }
+      })();
+
+      // Décalage (en minutes) d'un fuseau à un INSTANT donné. On reformate
+      // l'instant dans le fuseau visé puis on relit les composantes comme si
+      // elles étaient UTC : l'écart est le décalage. C'est la seule façon de
+      // l'obtenir pour un fuseau arbitraire sans embarquer de base tzdata.
+      const tzOffsetMinutesAt = (tz, instant) => {
+        const dtf = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz, hour12: false,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+        const p = {};
+        for (const part of dtf.formatToParts(instant)) p[part.type] = part.value;
+        // hour peut valoir "24" à minuit selon les moteurs.
+        const hour = Number(p.hour) % 24;
+        const asUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), hour, Number(p.minute), Number(p.second));
+        return (asUtc - instant.getTime()) / 60000;
+      };
+
+      // Heure murale + fuseau -> chaîne ISO décalée.
+      //
+      // Deux passes : la première estime le décalage en traitant l'heure
+      // saisie comme de l'UTC, la seconde le recalcule sur l'instant obtenu.
+      // Sans cette reprise, une date située le jour d'un changement d'heure
+      // recevrait le décalage de la veille.
+      const isoWithOffset = (local, tz) => {
+        if (!local) return '';
+        const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(local);
+        if (!m) return local;               // saisie inattendue : on la laisse passer telle quelle
+        const [, Y, Mo, D, H, Mi, Sec] = m;
+        const naive = Date.UTC(+Y, +Mo - 1, +D, +H, +Mi, +(Sec || 0));
+        const zone = tz || TZ_LOCAL;
+        let offset;
+        try {
+          offset = tzOffsetMinutesAt(zone, new Date(naive));
+          offset = tzOffsetMinutesAt(zone, new Date(naive - offset * 60000));
+        } catch {
+          offset = -new Date(local).getTimezoneOffset();   // repli : fuseau du poste
+        }
+        const sign = offset >= 0 ? '+' : '-';
+        const abs = Math.abs(offset);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${Y}-${Mo}-${D}T${H}:${Mi}:${pad(+(Sec || 0))}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+      };
+
+      // Liste des fuseaux : celle du navigateur si elle est exposée, sinon un
+      // repli court. Le fuseau du poste est proposé en tête et présélectionné —
+      // le cas de très loin le plus fréquent reste « ici, maintenant ».
+      const TZ_CHOICES = (() => {
+        let all = [];
+        try { all = Intl.supportedValuesOf('timeZone') || []; } catch { all = []; }
+        if (!all.length) {
+          all = ['UTC', 'Europe/Paris', 'Europe/London', 'Europe/Madrid', 'Europe/Berlin',
+                 'America/New_York', 'America/Toronto', 'America/Los_Angeles'];
+        }
+        const head = [TZ_LOCAL, 'UTC'].filter((v, i, a) => v && a.indexOf(v) === i);
+        return head.concat(all.filter(z => !head.includes(z)));
+      })();
+
+      const selectedTzFor = (role) => {
+        const sel = document.querySelector(`[data-datetime-tz="${role}"]`);
+        return (sel && sel.value) || TZ_LOCAL;
+      };
+
+      document.querySelectorAll('input[data-datetime="1"]').forEach((input) => {
+        const role = input.getAttribute('data-role');
+        const preview = document.querySelector(`[data-datetime-preview="${role}"]`);
+        const tzSelect = document.querySelector(`[data-datetime-tz="${role}"]`);
+
+        if (tzSelect && tzSelect.options.length <= 1) {
+          tzSelect.innerHTML = '';
+          for (const zone of TZ_CHOICES) {
+            const o = document.createElement('option');
+            o.value = zone;
+            o.textContent = zone === TZ_LOCAL ? `${zone} (ce poste)` : zone;
+            tzSelect.appendChild(o);
+          }
+          tzSelect.value = TZ_LOCAL;
+        }
+
+        if (!preview) return;
+        const base = preview.textContent;
+        const render = () => {
+          const iso = isoWithOffset((input.value || '').trim(), selectedTzFor(role));
+          preview.textContent = iso ? `→ ${iso}` : base;
+        };
+        input.addEventListener('input', render);
+        input.addEventListener('change', render);
+        if (tzSelect) tzSelect.addEventListener('change', render);
+        render();
+      });
+
       const collectScriptArgs = (form, argLine) => {
         const scriptId = form.dataset.scriptId;
         if (!scriptId) return { args: [], values: {}, anyFieldValue: false };
@@ -3619,6 +3746,14 @@
             const joiner = el.dataset?.join ?? ',';
             value = selected.join(joiner || ',');
             hasValue = selected.length > 0;
+          } else if (fieldType === 'datetime') {
+            // <input type="datetime-local"> ne rend QUE l'heure murale, sans
+            // fuseau : "2026-09-16T18:30". Le script attend une date ISO
+            // complète. On la qualifie avec le fuseau choisi à côté du champ,
+            // et le décalage retenu est celui de CETTE DATE dans CE fuseau —
+            // +02:00 en été à Paris, +01:00 en hiver.
+            value = isoWithOffset((el.value || '').trim(), selectedTzFor(`${scriptId}:${field.name}`));
+            hasValue = value !== '';
           } else {
             value = (el.value || '').trim();
             hasValue = value !== '';

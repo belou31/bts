@@ -1,4 +1,19 @@
+# Une ligne = une PLACE a renouveler.
+#
+# seatId accepte deux formes :
+#   - un siege numerote  : "S1-A-012" — une ligne par siege, ids distincts
+#   - une ZONE           : "TBH7" — repeter la ligne autant de fois qu'il y a
+#     de places dans cette zone. Ces lignes sont identiques par nature (une
+#     place en zone n'a pas d'identifiant propre) : l'import les agrege et
+#     retient le NOMBRE de places, il ne les ecrase pas.
+#
+# group : tout ce qui partage un group recoit UN SEUL lien de renouvellement,
+#         dont le quota est la somme des places du groupe.
+# extra : places supplementaires accordees, au-dela des places ci-dessus.
+#         Agrege par MAX sur le group, jamais par somme.
 firstName,lastName,email,phone,seatId,group,extra
 Jane,Doe,jane.doe@example.org,0600000001,A1-001,FAMILY-DOE,2
 John,Doe,john.doe@example.org,0600000002,A1-002,FAMILY-DOE,0
 Alex,Fan,fan.club@example.org,0600000003,TBH7_NORD-015,TBH7-CLUB,0
+Marc,Zone,marc.zone@example.org,0600000004,TBH7,ZONE-MARC,0
+Marc,Zone,marc.zone@example.org,0600000004,TBH7,ZONE-MARC,0
