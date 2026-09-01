@@ -41,6 +41,15 @@ const SubscriberSchema = new mongoose.Schema({
   // sur le groupKey à l'export du token — voir export-renew-groups.js.
   extra: { type: Number, default: 0, min: 0 },
 
+  // Partenaire dont cet abonné est bénéficiaire (CSE, club…), s'il y en a un.
+  //
+  // Source d'autorité du renouvellement partenaire : c'est CE champ, importé
+  // depuis le fichier des renouveleurs, qui est repris dans le jeton signé.
+  // Le segment /partner/<slug>/ de l'URL ne fait qu'habiller la page — le
+  // déduire de l'URL laisserait n'importe quel renouveleur s'attribuer les
+  // tarifs réservés d'un partenaire en éditant son propre lien.
+  partnerSlug: { type: String, default: null, index: true, lowercase: true, trim: true },
+
   // contexte
   seasonCode: { type: String, index: true },
   venueSlug:  { type: String, index: true },

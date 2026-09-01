@@ -11,9 +11,16 @@
 #         dont le quota est la somme des places du groupe.
 # extra : places supplementaires accordees, au-dela des places ci-dessus.
 #         Agrege par MAX sur le group, jamais par somme.
-firstName,lastName,email,phone,seatId,group,extra
-Jane,Doe,jane.doe@example.org,0600000001,A1-001,FAMILY-DOE,2
-John,Doe,john.doe@example.org,0600000002,A1-002,FAMILY-DOE,0
-Alex,Fan,fan.club@example.org,0600000003,TBH7_NORD-015,TBH7-CLUB,0
-Marc,Zone,marc.zone@example.org,0600000004,TBH7,ZONE-MARC,0
-Marc,Zone,marc.zone@example.org,0600000004,TBH7,ZONE-MARC,0
+# partner : slug du partenaire dont l'abonne est beneficiaire (CSE, club...),
+#         vide sinon. Il ouvre les tarifs reserves de ce partenaire ET l'habillage
+#         de ses pages. C'est CE fichier qui fait autorite : le slug est repris
+#         dans le jeton signe du lien, jamais deduit de l'URL.
+#         Un renouvellement partenaire ne consomme PAS l'allocation de vente
+#         du partenaire (elle plafonne les abonnements nouveaux).
+firstName,lastName,email,phone,seatId,group,extra,partner
+Jane,Doe,jane.doe@example.org,0600000001,A1-001,FAMILY-DOE,2,
+John,Doe,john.doe@example.org,0600000002,A1-002,FAMILY-DOE,0,
+Alex,Fan,fan.club@example.org,0600000003,TBH7_NORD-015,TBH7-CLUB,0,
+Marc,Zone,marc.zone@example.org,0600000004,TBH7,ZONE-MARC,0,
+Marc,Zone,marc.zone@example.org,0600000004,TBH7,ZONE-MARC,0,
+Lea,Cse,lea.cse@example.org,0600000005,S1-A-012,CSE-LEA,0,partner01

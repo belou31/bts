@@ -77,7 +77,7 @@ async function main() {
 
   const lines = [];
   // En-tête CSV
-  lines.push(['groupKey','email','seatIds','extra','quota','token','url'].join(';'));
+  lines.push(['groupKey','email','seatIds','extra','quota','partner','token','url'].join(';'));
 
   for (const [groupKey, arr] of groups.entries()) {
     // Email "contact" = premier ayant un email
@@ -108,6 +108,15 @@ async function main() {
     const extra = Math.max(0, ...arr.map(x => Number(x.extra) || 0));
     const quota = places + extra;
 
+    // Partenaire du groupe. Un lien = un groupe = un partenaire : si les lignes
+    // d'un même groupe en désignent plusieurs, on ne devine pas — on prend le
+    // premier et on le signale, car le tarif appliqué en dépend.
+    const partnerSlugs = [...new Set(arr.map(x => String(x.partnerSlug || '').trim().toLowerCase()).filter(Boolean))];
+    const partnerSlug = partnerSlugs[0] || null;
+    if (partnerSlugs.length > 1) {
+      console.warn(`⚠ groupe ${groupKey} : plusieurs partenaires (${partnerSlugs.join(', ')}) — « ${partnerSlug} » retenu.`);
+    }
+
     const payload = {
       seasonCode,
       venueSlug,
@@ -116,14 +125,20 @@ async function main() {
       seatIds,
       extra,
       quota,
+      ...(partnerSlug ? { partnerSlug } : {}),
       iat: Math.floor(Date.now()/1000),
       exp: Math.floor(Date.now()/1000) + 60*60*24*30 // 30 jours
     };
     const token = jwt.sign(payload, secret);
     // Chemin explicite : /renew?id= reste servi (redirection) pour les liens
     // déjà partis, mais tout nouveau lien porte la saison.
-    const url = `${base.replace(/\/+$/,'')}/season/${encodeURIComponent(seasonCode)}/renew?id=${token}`;
-    lines.push([groupKey, email, seatIds.join(','), extra, quota, token, url].join(';'));
+    // Le lien partenaire n'est qu'un habillage : le serveur relit le partenaire
+    // dans le jeton et refuse toute URL qui en désignerait un autre.
+    const root = base.replace(/\/+$/, '');
+    const url = partnerSlug
+      ? `${root}/partner/${encodeURIComponent(partnerSlug)}/season/${encodeURIComponent(seasonCode)}/renew?id=${token}`
+      : `${root}/season/${encodeURIComponent(seasonCode)}/renew?id=${token}`;
+    lines.push([groupKey, email, seatIds.join(','), extra, quota, partnerSlug || '', token, url].join(';'));
   }
 
   const OUTPUT_DIR = path.resolve(process.cwd(), 'data/outputs');
