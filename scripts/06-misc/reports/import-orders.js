@@ -18,6 +18,7 @@ import readline from 'node:readline';
 import mongoose from 'mongoose';
 import { Order } from '../../../src/models/Order.js';
 import { Seat }  from '../../../src/models/Seat.js';
+import { isVirtualZoneSeatId, resolveUnitType } from '../../../src/utils/seat-id.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -72,7 +73,6 @@ function toDateSafe(s) {
   const d = new Date(String(s || ''));
   return isNaN(d.getTime()) ? null : d;
 }
-const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 
 
 // ---------- Flow / Phase helpers ----------
@@ -83,7 +83,7 @@ function looksLikeSeatId(v) {
 function normalizeFlow(v) {
   const x = String(v || '').trim().toLowerCase();
   if (x === 'renew') return 'renew';
-  if (x === 'subscription' || x === 'sub' || x === 'fanclub' || x === 'public') return 'subscription';
+  if (x === 'subscription' || x === 'sub' || x === 'public') return 'subscription';
   if (looksLikeSeatId(x)) {
     console.warn(`[import-orders] phase ressemble à un seatId ("${v}") → fallback "subscription"`);
     return 'subscription';
@@ -224,6 +224,7 @@ async function run() {
       lines: lines.map(l => ({
         seatId: l.seatId,
         zoneKey: l.zoneKey || (l.seatId ? String(l.seatId).split('-')[0] : ''),
+        unitType: resolveUnitType({ seatId: l.seatId }),
         tariffCode: l.tariffCode,
         priceCents: l.priceCents,
         holderFirstName: l.holderFirstName,

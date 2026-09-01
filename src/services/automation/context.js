@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import * as models from '../../models/index.js';
+import { resolveOrganizationName } from '../customization.js';
 
 const ROOT_DIR = process.cwd();
 const DATA_DIR = path.resolve(ROOT_DIR, 'data');
@@ -65,9 +66,7 @@ export function createExecutionContext({ job, logger, dryRun = false, task } = {
     logger,
     models,
     env: {
-      seasonCode: process.env.SEASON_CODE || '',
-      venueSlug: process.env.VENUE_SLUG || '',
-      clubName: process.env.CLUB_NAME || '',
+      clubName: resolveOrganizationName(),
       appEnv: process.env.APP_ENV || '',
       basePath: process.env.BASE_PATH || '',
       host: process.env.HOST || ''

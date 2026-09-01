@@ -1,8 +1,7 @@
 {
   "templates": {
-    "renew": { "file": "renew-confirmation.html", "subject": "Confirmation – Abonnement (Renouvellement)" },
-    "subscription": { "file": "subscription-confirmation.html", "subject": "Confirmation – Abonnement" },
-    "fanclub": { "file": "fanclub-confirmation.html", "subject": "Confirmation" },
-    "event": { "file": "event-confirmation.html", "subject": "Confirmation – Billetterie" }
+    "renew": { "file": "renew-confirmation.html" },
+    "subscription": { "file": "subscription-confirmation.html" },
+    "event": { "file": "event-confirmation.html" }
   }
 }

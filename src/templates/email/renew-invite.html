@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>{{clubName}} — Renouvellement de votre abonnement</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+  body{margin:0;padding:0;background:#0b0f17;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial,sans-serif}
+  .wrap{max-width:720px;margin:0 auto;padding:24px}
+  .card{background:#0f1622;border:1px solid #111827;border-radius:12px;padding:20px}
+  h1{margin:0 0 12px 0;font-size:20px;color:#caabab}
+  h2{margin:16px 0 6px 0;font-size:16px;color:#fff}
+  p{margin:0 0 10px 0;line-height:1.5;color:#fff}
+  .muted{color:#cbd5e1}
+  ul{margin:0 0 10px 0;padding-left:20px;color:#fff}
+  .cta{display:inline-block;margin:16px 0;padding:12px 22px;border-radius:8px;background:#caabab;color:#0b0f17;font-weight:600;text-decoration:none}
+  .note{margin-top:12px;padding:10px;border:1px dashed #1f2937;border-radius:8px;background:#0b1220}
+  a{color:#fff}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Renouvelez votre abonnement</h1>
+      <p>Bonjour <b>{{firstName}} {{lastName}}</b>,</p>
+      <p>La campagne de renouvellement pour la <b>{{seasonName}}</b> ({{venueSlug}}) est ouverte. Vous disposez d'une priorité pour conserver votre/vos place(s) de la saison précédente.</p>
+
+      {{seatsBlock}}
+
+      <p><a class="cta" href="{{renewUrl}}">Renouveler mon abonnement</a></p>
+      <p class="muted">Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur :<br>{{renewUrl}}</p>
+
+      {{deadlineBlock}}
+
+      <div class="note">
+        Paiement sécurisé via {{paymentProviderLabel}}. Ce lien est personnel, ne le partagez pas.
+      </div>
+
+      <p class="muted" style="margin-top:12px">{{clubName}} — Merci de votre fidélité ❤️🖤</p>
+    </div>
+  </div>
+</body>
+</html>

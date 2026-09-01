@@ -3,14 +3,22 @@ import fs from 'fs/promises';
 import path from 'path';
 import nodemailer from 'nodemailer';
 
-const EMAIL_STUB = String(process.env.EMAIL_STUB || 'false').toLowerCase() === 'true';
-const FROM = process.env.FROM_EMAIL || 'Billetterie <noreply@localhost>';
-const OUTBOX = path.resolve(process.cwd(), 'data/outputs/outbox');
+// Ces trois valeurs sont lues À L'APPEL, pas au chargement du module.
+//
+// Les imports ESM sont évalués avant le corps du script, donc avant son
+// `dotenv.config()` : lues ici au chargement, EMAIL_STUB valait `undefined`
+// pour tout script CLI, qui basculait alors sur le SMTP réel. Autrement dit,
+// lancer un script d'envoi en DEV expédiait de vrais courriels.
+const isStub = () => String(process.env.EMAIL_STUB || 'false').toLowerCase() === 'true';
+const fromAddress = () => process.env.FROM_EMAIL || 'Billetterie <noreply@localhost>';
+const outboxDir = () => path.resolve(process.cwd(), 'data/outputs/outbox');
 
 let transporter = null;
 
 export async function sendMail({ to, subject, html, attachments = [] }) {
-  if (EMAIL_STUB) {
+  const FROM = fromAddress();
+  const OUTBOX = outboxDir();
+  if (isStub()) {
     await fs.mkdir(OUTBOX, { recursive: true });
     const boundary = '=_BTS_' + Math.random().toString(36).slice(2);
     const dateStr  = new Date().toISOString().replace(/[:.]/g,'-');

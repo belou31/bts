@@ -77,7 +77,7 @@ async function main() {
 
   const lines = [];
   // En-tête CSV
-  lines.push(['groupKey','email','seatIds','token','url'].join(';'));
+  lines.push(['groupKey','email','seatIds','extra','quota','token','url'].join(';'));
 
   for (const [groupKey, arr] of groups.entries()) {
     // Email "contact" = premier ayant un email
@@ -92,18 +92,30 @@ async function main() {
 
     if (!seatIds.length) continue; // rien à renouveler
 
+    // Un groupe = un lien = un quota. Les lignes du CSV d'import sont par
+    // SIÈGE, donc sommer les extra d'une famille de 3 personnes marquées
+    // extra=1 accorderait 3 places au lieu d'1 : on prend le MAX, qui donne le
+    // même résultat que l'extra soit renseigné sur une seule ligne du groupe
+    // ou répété sur toutes.
+    const extra = Math.max(0, ...arr.map(x => Number(x.extra) || 0));
+    const quota = seatIds.length + extra;
+
     const payload = {
       seasonCode,
       venueSlug,
       email,
       groupKey,
       seatIds,
+      extra,
+      quota,
       iat: Math.floor(Date.now()/1000),
       exp: Math.floor(Date.now()/1000) + 60*60*24*30 // 30 jours
     };
     const token = jwt.sign(payload, secret);
-    const url = `${base.replace(/\/+$/,'')}/renew?id=${token}`;
-    lines.push([groupKey, email, seatIds.join(','), token, url].join(';'));
+    // Chemin explicite : /renew?id= reste servi (redirection) pour les liens
+    // déjà partis, mais tout nouveau lien porte la saison.
+    const url = `${base.replace(/\/+$/,'')}/season/${encodeURIComponent(seasonCode)}/renew?id=${token}`;
+    lines.push([groupKey, email, seatIds.join(','), extra, quota, token, url].join(';'));
   }
 
   const OUTPUT_DIR = path.resolve(process.cwd(), 'data/outputs');

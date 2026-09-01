@@ -18,6 +18,17 @@ const AttendanceSchema = new mongoose.Schema({
 const LineSchema = new mongoose.Schema({
   seatId:          { type: String, default: '' },
   zoneKey:         { type: String, default: '' },   // ← needed for TBH7 / standing zones
+  // Allocation mechanism: 'seat' = individually locked against the Seat
+  // collection; 'zone' = zone-quota-tracked (standing AND seated-but-
+  // zone-allocated zones like VIP both use this — see src/utils/seat-id.js).
+  // Deliberately no default: lines created before this field existed must
+  // read back as unset (not silently 'seat') so resolveUnitType() falls
+  // back to its seatId-shape heuristic instead of trusting a fabricated value.
+  unitType:        { type: String, enum: ['seat', 'zone'] },
+  // The zone's own physical seating character at booking time (mirrors
+  // Zone.type). This is what display/i18n code should key off for labeling
+  // — never `unitType`, which only reflects the allocation mechanism.
+  zoneType:        { type: String, enum: ['seated', 'standing'] },
   tariffCode:      { type: String, index: true },
   priceCents:      { type: Number, default: 0 },
   // Partner billing override (what the partner pays/subsidizes)
@@ -42,7 +53,7 @@ const LineSchema = new mongoose.Schema({
 
 /* ----- Optional sub-schema for origin ----- */
 const OriginSchema = new mongoose.Schema({
-  flow:   { type: String, enum: ['renew','fanclub','vip','subscription','vip','partner','public','event'], default: null },
+  flow:   { type: String, enum: ['renew','vip','subscription','partner','public','event','voucher','voucher-purchase'], default: null },
   uiPath: { type: String, default: null },
   apiPath:{ type: String, default: null }
 }, { _id:false });
@@ -69,11 +80,16 @@ const OrderSchema = new mongoose.Schema({
   lines:      { type: [LineSchema], default: [] },
   totalCents: { type: Number, default: 0 },
 
-  status: { type: String, enum: ['pending','tobepaid','paid','failed','canceled','refunded'], default: 'pending', index: true },
+  // 'torelocate' : l'abonnement est payé mais la place de ce match n'a pas pu
+  // être attribuée (siège déjà pris). La commande existe pour que l'abonné
+  // soit joignable et puisse choisir une autre place ; elle n'occupe aucun
+  // siège tant qu'elle n'est pas passée 'paid' (voir event-seat-states.js, qui
+  // ne compte que paid/tobepaid).
+  status: { type: String, enum: ['pending','tobepaid','paid','failed','canceled','refunded','torelocate'], default: 'pending', index: true },
 
   paymentProvider:     { type: String, default: process.env.PAYMENT_PROVIDER || 'helloasso' },
 
-  // ✅ New canonical provider meta bag (used by renew/fanclub routes & pay.js)
+  // ✅ New canonical provider meta bag (used by renew/subscription routes & pay.js)
   paymentProviderMeta: { type: mongoose.Schema.Types.Mixed, default: {} },
 
   // ⬅ Legacy (keep for compatibility with older data/logic if any)
@@ -83,13 +99,21 @@ const OrderSchema = new mongoose.Schema({
   // Email/template routing
    origin: {
     // ajout de "event" pour distinguer le flux billetterie évènement
-    flow:   { type:String, enum:['renew','subscription','public','event','partner','vip','fanclub'], default:'subscription', index:true },
+    flow:   { type:String, enum:['renew','subscription','public','event','partner','vip','voucher','voucher-purchase'], default:'subscription', index:true },
      uiPath: { type:String },
      apiPath:{ type:String }
    },
 
   // ajout de "event" pour les emails de match
   mailTemplateKind: { type:String, enum:['renew','subscription','public','event'], default:'subscription', index:true },
+
+  // Locale captured at checkout time (see src/middlewares/locale.js) so
+  // confirmation emails/tickets render in the language the buyer actually
+  // used, even on a later resend/regeneration. Defaults to 'fr': every
+  // order predating this field genuinely was placed in French, so — unlike
+  // unitType/zoneType — a schema default here reflects real history rather
+  // than fabricating an unknown value.
+  locale: { type: String, enum: ['fr', 'en'], default: 'fr' },
 
 }, { timestamps: true, strict: true });
 

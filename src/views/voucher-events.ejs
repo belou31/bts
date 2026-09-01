@@ -1,0 +1,117 @@
+<!doctype html>
+<%
+  const normalizeBase = (value, fallback) => {
+    if (!value) return fallback;
+    const val = String(value);
+    return val.endsWith('/') ? val : `${val}/`;
+  };
+  const staticBase = normalizeBase(assets && assets.static, 'static/');
+%>
+<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'fr' %>">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= title || 'Votre invitation' %></title>
+  <link rel="stylesheet" href="<%= staticBase %>styles/generic-view.css">
+  <link rel="stylesheet" href="<%= staticBase %>styles/order.css">
+  <style>
+    .vc-wrap { max-width: 1000px; margin: 0 auto; padding: 24px 20px 40px; }
+    .vc-card {
+      background: #0f1720; border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 18px 20px; color: #e8eef5; margin-bottom: 18px;
+    }
+    .vc-balance { font-size: 1.6rem; font-weight: 800; letter-spacing: .02em; }
+    .vc-muted { color: rgba(255,255,255,0.6); }
+    .events-table {
+      width: 100%; border-collapse: collapse; background: #0f1720;
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden;
+    }
+    .events-table th, .events-table td {
+      padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.08);
+      color: #e8eef5; text-align: left;
+    }
+    .events-table th {
+      background: #111a24; text-transform: uppercase; letter-spacing: .08em;
+      font-size: .8rem; color: rgba(255,255,255,0.7);
+    }
+    .events-table tr:last-child td { border-bottom: none; }
+    .btn-status {
+      padding: 8px 14px; border-radius: 10px; font-weight: 800; letter-spacing: .08em;
+      text-transform: uppercase; text-decoration: none; display: inline-block; border: none;
+    }
+    .btn-open { background: #1abc63; color: #06120b; }
+    .btn-close { background: #33414f; color: rgba(255,255,255,0.55); cursor: not-allowed; }
+    .vc-empty { color: rgba(255,255,255,0.6); padding: 24px 4px; }
+    .vc-err {
+      background: rgba(239,68,68,0.14); border: 1px solid rgba(239,68,68,0.45);
+      color: #f3b4b4; padding: 12px 14px; border-radius: 10px;
+    }
+  </style>
+</head>
+<body class="order-view">
+  <header class="site-header">
+    <div class="header-row">
+      <div class="brand">
+        <% if (brand && brand.logo) { %>
+          <img src="<%= brand.logo %>" alt="<%= brand.alt || 'Logo' %>" class="logo">
+        <% } %>
+        <h1 id="pageTitle"><%= title || 'Votre invitation' %></h1>
+      </div>
+    </div>
+  </header>
+
+  <main class="vc-wrap">
+    <% if (!usable) { %>
+      <div class="vc-err"><%= reasonText %></div>
+    <% } else { %>
+      <div class="vc-card">
+        <div class="vc-balance"><%= voucher.remaining %> place<%= voucher.remaining > 1 ? 's' : '' %> à utiliser</div>
+        <div class="vc-muted">
+          <%= voucher.label ? voucher.label + ' — ' : '' %>bon <%= voucher.code %>
+          <% if (voucher.total !== voucher.remaining) { %>
+            · <%= voucher.used %> déjà utilisée<%= voucher.used > 1 ? 's' : '' %> sur <%= voucher.total %>
+          <% } %>
+        </div>
+        <% if (voucher.expiresAt) { %>
+          <div class="vc-muted">À utiliser avant le <%= formatDate(voucher.expiresAt, { dateStyle: 'long' }) %>.</div>
+        <% } %>
+        <% if (voucher.maxPerEvent > 0) { %>
+          <div class="vc-muted">Maximum <%= voucher.maxPerEvent %> place<%= voucher.maxPerEvent > 1 ? 's' : '' %> par match.</div>
+        <% } %>
+      </div>
+
+      <% if (!events.length) { %>
+        <p class="vc-empty">Aucun match n'est ouvert à la réservation pour le moment. Revenez plus tard.</p>
+      <% } else { %>
+        <table class="events-table">
+          <thead>
+            <tr><th>Match</th><th>Date</th><th>Places</th><th></th></tr>
+          </thead>
+          <tbody>
+            <% events.forEach(ev => { %>
+              <tr>
+                <td><%= ev.name %></td>
+                <td><%= ev.startsAt ? formatDate(ev.startsAt, { dateStyle:'medium', timeStyle:'short' }) : '' %></td>
+                <td>
+                  <% if (ev.alreadyTaken) { %>
+                    <span class="vc-muted"><%= ev.alreadyTaken %> déjà prise<%= ev.alreadyTaken > 1 ? 's' : '' %></span>
+                  <% } else { %>
+                    <span class="vc-muted">—</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (ev.allowance > 0) { %>
+                    <a class="btn-status btn-open" href="<%= ev.link %>">Choisir mes places</a>
+                  <% } else { %>
+                    <span class="btn-status btn-close">Complet pour ce bon</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } %>
+    <% } %>
+  </main>
+</body>
+</html>

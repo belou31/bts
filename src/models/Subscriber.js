@@ -25,6 +25,11 @@ const SubscriberSchema = new mongoose.Schema({
   // historique sièges
   previousSeasonSeats: { type: [String], default: [] },
 
+  // places supplémentaires accordées à ce renouveleur, au-delà de ses sièges
+  // précédents (quota du lien = previousSeasonSeats + extra). Agrégé par MAX
+  // sur le groupKey à l'export du token — voir export-renew-groups.js.
+  extra: { type: Number, default: 0, min: 0 },
+
   // contexte
   seasonCode: { type: String, index: true },
   venueSlug:  { type: String, index: true },
@@ -33,7 +38,13 @@ const SubscriberSchema = new mongoose.Schema({
     type: String,
     enum: ['none', 'invited', 'pending', 'active', 'partial', 'canceled'],
     default: 'none'
-  }
+  },
+
+  // annotation libre admin (déjà attendue par subscribers-export.template.csv)
+  notes: { type: String, default: '' },
+
+  // dernier envoi de l'invitation de renouvellement (admin/renewers)
+  lastInviteSentAt: { type: Date, default: null }
 }, {
   timestamps: true,
   strict: true

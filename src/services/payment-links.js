@@ -5,13 +5,7 @@ import {
   currentPaymentProviderLabel
 } from './payments/index.js';
 import { sendMail } from '../loaders/mailer.js';
-
-function fmtEuro(cents) {
-  return (Number(cents || 0) / 100).toLocaleString('fr-FR', {
-    style: 'currency',
-    currency: 'EUR'
-  });
-}
+import { formatCurrency } from '../utils/format.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -35,7 +29,7 @@ export function renderPaymentLinkEmailHtml({
     order?.meta?.eventSlug ||
     order?.itemName ||
     'votre evenement';
-  const amount = fmtEuro(order?.totalCents || 0);
+  const amount = formatCurrency(order?.totalCents || 0, order?.locale);
   const orderId = String(order?._id || '');
 
   const safeName = escapeHtml(payerName || '');

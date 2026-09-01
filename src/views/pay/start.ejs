@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="fr">
+<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'fr' %>">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Paiement — BTS</title>
+  <title><%= t('pay.title') %></title>
   <link rel="icon" href="<%= assets.media %>favicon.ico">
   <style>
     :root { color-scheme: dark; }
@@ -86,7 +86,7 @@
 
     <div class="pay-header">
       <img src="<%= assets.media %>logo.svg" alt="BTS" onerror="this.style.display='none'">
-      <p class="pay-title">Finaliser le paiement</p>
+      <p class="pay-title"><%= t('pay.finalizeTitle') %></p>
     </div>
 
     <div class="pay-recap">
@@ -96,14 +96,14 @@
         <% lines.forEach(function(ln) { %>
         <div class="line">
           <span><%= ln.zoneKey %><% if (ln.seatId) { %> · <%= ln.seatId %><% } %> — <%= ln.tariffCode %></span>
-          <span><%= ((Number(ln.priceCents)||0)/100).toFixed(2) %> €</span>
+          <span><%= formatCurrency(ln.priceCents) %></span>
         </div>
         <% }); %>
       </div>
       <% } %>
       <div class="total">
-        <span>Total</span>
-        <span><%= totalEur %> €</span>
+        <span><%= t('common.total') %></span>
+        <span><%= formatCurrency(totalCents) %></span>
       </div>
     </div>
 
@@ -114,27 +114,27 @@
         <div id="pay-error" class="pay-error"></div>
         <div id="payBtnZone" class="pay-btn-zone" hidden>
           <a id="payBtn" class="pay-open-btn" href="<%- providerRedirectUrl %>">
-            Payer avec <%= providerLabel %>
+            <%= t('pay.payWith', { provider: providerLabel }) %>
           </a>
           <div id="pollStatus" class="pay-poll-status" hidden>
-            <span class="spinner"></span>En attente de confirmation…
+            <span class="spinner"></span><%= t('order.awaitingConfirmation') %>
           </div>
         </div>
       <% } else { %>
         <%# Redirect mode: button always visible %>
         <div class="pay-btn-zone">
           <a id="payBtn" class="pay-open-btn" href="<%- providerRedirectUrl %>">
-            Payer avec <%= providerLabel %>
+            <%= t('pay.payWith', { provider: providerLabel }) %>
           </a>
           <div id="pollStatus" class="pay-poll-status" hidden>
-            <span class="spinner"></span>En attente de confirmation…
+            <span class="spinner"></span><%= t('order.awaitingConfirmation') %>
           </div>
         </div>
       <% } %>
     </div>
 
     <div class="pay-back">
-      <a href="<%= backUrl %>">← Annuler et revenir</a>
+      <a href="<%= backUrl %>"><%= t('pay.cancelAndReturn') %></a>
     </div>
 
   </div>
@@ -157,7 +157,7 @@
         if (attempts > maxAttempts) {
           clearInterval(pollTimer);
           if (pollEl) {
-            pollEl.innerHTML = 'Vérification expirée. <a href="' + returnUrl + '" style="color:#3ba0ff">Vérifier le statut</a>';
+            pollEl.innerHTML = <%- JSON.stringify(t('pay.verificationExpired') + ' ') %> + '<a href="' + returnUrl + '" style="color:#3ba0ff">' + <%- JSON.stringify(t('pay.checkStatus')) %> + '</a>';
           }
           return;
         }
@@ -167,7 +167,7 @@
             if (d && d.paid) {
               clearInterval(pollTimer);
               if (pollEl) {
-                pollEl.innerHTML = '<span class="pay-poll-success">Paiement confirmé ✓</span> — redirection…';
+                pollEl.innerHTML = '<span class="pay-poll-success">' + <%- JSON.stringify(t('pay.paymentConfirmed')) %> + '</span> ' + <%- JSON.stringify(t('pay.redirecting')) %>;
               }
               setTimeout(function () { window.location.href = returnUrl; }, 800);
             }
@@ -220,7 +220,7 @@
 
     function showError(msg) {
       if (!errEl) return;
-      errEl.textContent = msg || 'Une erreur est survenue. Réessayez.';
+      errEl.textContent = msg || <%- JSON.stringify(t('pay.genericError')) %>;
       errEl.style.display = 'block';
     }
 
@@ -242,7 +242,7 @@
           // Widget confirmed payment inline — redirect directly to return page
           window.location.href = returnUrl + '&status=PAID';
         } else if (type === 'error') {
-          showError('Le paiement a échoué. Vérifiez vos informations et réessayez.');
+          showError(<%- JSON.stringify(t('pay.paymentFailed')) %>);
         }
         // 'sent' = submitted, waiting for webhook — stay on page
       }

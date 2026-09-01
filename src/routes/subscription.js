@@ -14,6 +14,16 @@ import { makeTokenHash }        from '../utils/ha-token.js';
 import { findSingleGaps }       from '../utils/no-single-gap.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { loadCustomization } from '../services/customization.js';
+import { isVirtualZoneSeatId } from '../utils/seat-id.js';
+import { withMetaZonePrices } from '../utils/meta-zones.js';
+import { partnerSeasonQuota, partnerSeasonPresaleRemaining } from '../services/partner-presale.js';
+import { resolveSeasonSubscribeAccess, seasonAccessMessage } from '../services/season-access.js';
+import {
+  buildZonesWithRemaining,
+  selectZoneAllocatedZones,
+  computeZoneUsageAllOrders,
+  computeProvisionalZoneClaims
+} from '../utils/zone-availability.js';
 
 const router = express.Router({ mergeParams: true });
 
@@ -22,14 +32,42 @@ const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 10); // durée du hold en minutes
 const HOLD_MS  = HOLD_MIN * 60 * 1000;
-const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 
 /* ====== Helpers ====== */
 const norm  = s => String(s || '').trim();
 const upper = s => norm(s).toUpperCase();
 
+/* ====== Canal ======
+ * Ce routeur sert deux montages : /api/season/... (public) et
+ * /api/partner/:partnerSlug/season/... (partenaire). Le montage partenaire
+ * pose req.partnerConfig ; tout le reste du flux est identique, ce qui évite
+ * une seconde implémentation de l'abonnement qui divergerait de celle-ci.
+ */
+function partnerCtx(req) {
+  const cfg = req.partnerConfig || null;
+  if (!cfg) return null;
+  return { cfg, slug: String(req.params?.partnerSlug || cfg.slug || '').trim().toLowerCase() };
+}
+
+function channelOf(req) {
+  const p = partnerCtx(req);
+  return p ? { kind: 'partner', partnerSlug: p.slug } : { kind: 'subscription' };
+}
+
+/** Délègue au service partagé, avec le contexte partenaire du montage. */
+async function resolveSubscribeAccess(req, season, seasonCode) {
+  const p = partnerCtx(req);
+  return resolveSeasonSubscribeAccess({
+    season, seasonCode,
+    partnerCfg: p?.cfg || null,
+    partnerSlug: p?.slug || ''
+  });
+}
+
 async function getActiveSeasonAndVenue() {
-  const s = await Season.findOne({ isActive: true }).lean();
+  // `isActive` n'existe pas au schéma : strictQuery le supprimait de la requête,
+  // qui renvoyait alors une saison arbitraire. On lit l'état réel.
+  const s = await Season.findOne({ activity: 'active', subscribe: 'open' }).lean();
   if (!s) { const e = new Error('No active season/venue'); e.status = 503; throw e; }
   const seasonCode = s.code || s.seasonCode;
   const venueSlug  = s.venueSlug || s.venue;
@@ -83,28 +121,8 @@ function zoneKeyFromSeatId(seatId) {
   return i > 0 ? s.slice(0, i) : s;
 }
 
-async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, statusIn = ['paid'] }) {
-  // Conso = nombre de lignes de commandes groupées par zone.
-  // Par défaut, on retient UNIQUEMENT les commandes "paid" pour le quota subscription.
-  const baseMatch = {
-    seasonCode,
-    venueSlug,
-    phase: 'subscription', // ne pas compter les ventes “event” dans le quota saison
-    'lines.zoneKey': { $in: zoneKeys }
-  };
-  const statusMatch = (Array.isArray(statusIn) && statusIn.length)
-    ? { status: { $in: statusIn } }                 // ex: ['paid']
-    : { status: { $nin: ['canceled', 'failed'] } }; // fallback historique
-
-  const rows = await Order.aggregate([
-    { $match: { ...baseMatch, ...statusMatch } },
-    { $unwind: '$lines' },
-    { $match: { 'lines.zoneKey': { $in: zoneKeys } } },
-    { $group: { _id: '$lines.zoneKey', count: { $sum: 1 } } }
-  ]);
-  const usage = new Map(rows.map(r => [String(r._id || ''), Number(r.count || 0)]));
-  return usage;
-}
+// Zone availability lives in src/utils/zone-availability.js: the renewal flow
+// draws from the same zone quota and must not disagree on what "used" means.
 
 
 /* ====== GET /api/season/:seasonCode/status ======
@@ -121,53 +139,58 @@ router.get('/status', async (req, res, next) => {
       { _id:0, seatId:1, status:1, zoneKey:1 }
     ).lean();
 
-    // --- Zones actives (avec svgSelector si fourni)
+    // --- Zones actives (avec svgSelector si fourni), vendues en bloc
+    // uniquement : une tribune dont les sièges se choisissent un par un sur le
+    // plan n'a pas à proposer en plus un bouton "ajouter une place".
     const zonesAll = await Zone.find({
       seasonCode, venueSlug,
       isActive: true
     }).lean();
-    const zones = zonesAll.filter(z => z?.svgSelector);
-    const zoneKeys = zones.map(z => String(z.key || '').toUpperCase()).filter(Boolean);
+    const zones = await selectZoneAllocatedZones({
+      seasonCode, venueSlug,
+      zones: zonesAll.filter(z => z?.svgSelector)
+    });
 
     // --- Tarifs & Prix applicables (TOUS les prix / tarifs actifs pour la salle)
-    const allPrices = await TariffPrice.find({
-      seasonCode, venueSlug, isActive: true
-    }).lean();
-    const allTariffs = await Tariff.find({
-      seasonCode, venueSlug, isActive: true
-    }).lean();
+    const allPrices = await withMetaZonePrices(
+      // TariffPrice n'a ni `isActive` ni `active` : le filtre qui figurait ici
+      // était supprimé par strictQuery et n'a jamais rien filtré. Retiré plutôt
+      // que corrigé — il n'y a pas d'état actif sur une ligne de prix.
+      await TariffPrice.find({ seasonCode, venueSlug }).lean(),
+      { seasonCode, venueSlug }
+    );
+  // Tarifs de saison : `Tariff` ne porte NI seasonCode NI venueSlug (ils sont
+  // globaux, `priceTableKey` isolant les tarifs propres à un match), et son
+  // champ d'état s'appelle `active`, pas `isActive`. Les trois critères qui
+  // figuraient ici étaient donc supprimés par strictQuery : la requête
+  // renvoyait TOUS les tarifs, y compris inactifs et propres à un événement.
+    const allTariffs = await Tariff.find({ priceTableKey: null, active: true }).lean();
+    // Un partenaire voit ses propres tarifs ; on retombe sur le public quand
+    // aucun tarif ne lui est spécifiquement réservé.
+    const channelCtx = channelOf(req);
     const { tariffs, prices } = filterTariffsAndPricesByChannel(
       allTariffs,
       allPrices,
-      { kind: 'subscription' }
+      channelCtx,
+      { fallbackToPublic: channelCtx.kind === 'partner' }
     );
 
-    const customization = loadCustomization({ seasonCode });
+    const customization = loadCustomization({ seasonCode, locale: req.locale });
 
-    // --- Calcul “remaining” zone = plafond - USAGE(only paid)
-    const usage = zoneKeys.length
-      ? await computeZoneUsageAllOrders({
-          seasonCode, venueSlug, zoneKeys, statusIn: ['paid']
-        })
-      : new Map();
-    const zonesOut = (zones || []).map(z => {
-      const quota     = Number(z.quota || 0);
-      const capacity  = Number(z.capacity || 0);
-      const plafond   = quota > 0 ? quota : capacity;
-      const used      = usage.get(z.key) || 0;
-      const remaining = plafond > 0 ? Math.max(0, plafond - used) : Math.max(0, capacity - used);
-      return {
-        key: z.key,
-        name: z.name || z.key,
-        type: z.type || 'public',
-        quota,
-        capacity,
-        remaining,
-        svgSelector: z.svgSelector || null
-      };
+    // --- “remaining” zone = plafond - USAGE(only paid) - claims de renouvellement en attente
+    const zonesOut = await buildZonesWithRemaining({ seasonCode, venueSlug, zones });
+
+    const access = await resolveSubscribeAccess(req, season, seasonCode);
+
+    res.json({
+      seasonCode,
+      seasonName: season?.name || null,
+      venueSlug, tariffs, prices, seats, zones: zonesOut, customization,
+      // Le front a besoin de savoir s'il peut ouvrir le panier, et le
+      // partenaire de voir ce qu'il lui reste.
+      access: { allowed: access.allowed, reason: access.reason, message: access.allowed ? null : seasonAccessMessage(access.reason) },
+      partner: access.partner
     });
-
-    res.json({ seasonCode, seasonName: season?.name || null, venueSlug, tariffs, prices, seats, zones: zonesOut, customization });
   } catch (e) { next(e); }
 });
 
@@ -195,7 +218,23 @@ router.post('/checkout', async (req, res) => {
     if (![1,2,3].includes(schedule)) return res.status(400).json({ error: 'invalid_schedule' });
 
     // Prix / Tarifs
-    const prices = await TariffPrice.find({ seasonCode, venueSlug, isActive: true }).lean();
+    // Porte d'entrée : refusée avant toute écriture. Le quota partenaire est
+    // revérifié plus bas, une fois le nombre de lignes connu.
+    const access = await resolveSubscribeAccess(req, season, seasonCode);
+    if (!access.allowed) {
+      return res.status(403).json({ error: access.reason || 'subscribe_closed', message: seasonAccessMessage(access.reason) });
+    }
+
+    const channelCtx = channelOf(req);
+    const allPrices = await withMetaZonePrices(
+      await TariffPrice.find({ seasonCode, venueSlug }).lean(),
+      { seasonCode, venueSlug }
+    );
+    const allTariffs = await Tariff.find({ priceTableKey: null, active: true }).lean();
+    const prices = filterTariffsAndPricesByChannel(
+      allTariffs, allPrices, channelCtx,
+      { fallbackToPublic: channelCtx.kind === 'partner' }
+    ).prices;
     const pricesIdx = buildPricesIndex(prices);
 
     // Pré-charge sièges demandés (pour distinguer siège réel vs “zone virtuelle”)
@@ -205,12 +244,17 @@ router.post('/checkout', async (req, res) => {
       : [];
     const seatMap = new Map(dbSeats.map(s => [s.seatId, s]));
 
-    // Prépare contrôle quotas pour zones explicitement demandées
+    // Prépare contrôle quotas pour zones explicitement demandées, + zoneType
+    // lookup pour toutes les zones concernées (y compris celles des sièges
+    // réels, pour peupler zoneType même sur les lignes "SIÈGE").
     const requestedZoneKeys = new Set(
       items
         .map(it => norm(it.zoneKey))
         .filter(Boolean)
     );
+    for (const s of dbSeats) {
+      if (s.zoneKey) requestedZoneKeys.add(s.zoneKey);
+    }
     const zones = requestedZoneKeys.size
       ? await Zone.find({
           seasonCode,
@@ -241,6 +285,8 @@ router.post('/checkout', async (req, res) => {
         lines.push({
           seatId,
           zoneKey: s.zoneKey || zoneKey || '',
+          unitType: 'seat',
+          zoneType: (zoneMap.get(s.zoneKey) || {}).type || null,
           holderFirstName: norm(it.firstName),
           holderLastName:  norm(it.lastName),
           tariffCode,
@@ -256,6 +302,8 @@ router.post('/checkout', async (req, res) => {
         lines.push({
           seatId,
           zoneKey,
+          unitType: 'zone',
+          zoneType: (zoneMap.get(zoneKey) || {}).type || null,
           holderFirstName: norm(it.firstName),
           holderLastName:  norm(it.lastName),
           tariffCode,
@@ -290,17 +338,42 @@ router.post('/checkout', async (req, res) => {
 
 
 
+    // ----- CONTRÔLE DU QUOTA PARTENAIRE -----
+    // Recompté ici et pas seulement à l'entrée : entre les deux, on connaît le
+    // nombre d'abonnements demandés, et une autre commande a pu passer.
+    {
+      const p = partnerCtx(req);
+      const quota = p ? partnerSeasonQuota(p.cfg, seasonCode) : 0;
+      if (p && quota > 0) {
+        const remaining = await partnerSeasonPresaleRemaining({
+          cfg: p.cfg, partnerSlug: p.slug, seasonCode
+        });
+        if (lines.length > (remaining ?? 0)) {
+          return res.status(409).json({
+            error: 'partner_quota_exceeded',
+            message: `Quota partenaire dépassé : ${remaining ?? 0} abonnement(s) restant(s) pour ${lines.length} demandé(s).`,
+            quota,
+            remaining: remaining ?? 0,
+            requested: lines.length
+          });
+        }
+      }
+    }
+
     // ----- CONTRÔLE QUOTAS SUR LES ZONES -----
     if (requestedPerZone.size) {
       const zoneKeys = Array.from(requestedPerZone.keys());
-      // Garde-fou anti-oversell : ne compter que le "paid" pour autoriser la vente
-      const usage = await computeZoneUsageAllOrders({
+      // Garde-fou anti-oversell : ne compter que le "paid" pour autoriser la vente,
+      // + les claims de renouvellement en attente (sinon un checkout public pourrait
+      // encore vendre une place déjà réservée pour un renouvellement non payé).
+      const { usage, coveredSeatIds } = await computeZoneUsageAllOrders({
         seasonCode, venueSlug, zoneKeys, statusIn: ['paid']
       });
+      const provisionalUsage = await computeProvisionalZoneClaims({ seasonCode, venueSlug, zoneKeys, coveredSeatIds });
 
       for (const [zoneKey, count] of requestedPerZone) {
         const z        = zoneMap.get(zoneKey);
-        const used     = usage.get(zoneKey) || 0;
+        const used     = (usage.get(zoneKey) || 0) + (provisionalUsage.get(zoneKey) || 0);
         const quota    = Number(z.quota || 0);
         const capacity = Number(z.capacity || 0);
         const plafond  = quota > 0 ? quota : capacity;
@@ -319,11 +392,25 @@ router.post('/checkout', async (req, res) => {
     // Créer l’order (pending)
     const seasonPath = `/season/${encodeURIComponent(seasonCode)}`;
 
+    // meta.partner.slug est la clé sur laquelle se compte le quota : sans lui,
+    // une commande partenaire n'est comptée nulle part et le quota ne descend
+    // jamais. Voir services/partner-presale.js.
+    const partner = partnerCtx(req);
+    const partnerMeta = partner
+      ? {
+          partner: {
+            slug: partner.slug,
+            name: partner.cfg?.name || partner.slug,
+            presale: access.partner?.presale === true
+          }
+        }
+      : {};
+
     const order = await Order.create({
-      itemName:`SUBSCRIPTION_${seasonCode}`,
+      itemName: partner ? `PARTNER_SUBSCRIPTION_${seasonCode}` : `SUBSCRIPTION_${seasonCode}`,
       seasonCode, venueSlug,
       phase: 'subscription',
-      groupKey: `SUBSCRIPTION-${seasonCode}`,
+      groupKey: partner ? `PARTNER-${partner.slug.toUpperCase()}-${seasonCode}` : `SUBSCRIPTION-${seasonCode}`,
       payerFirstName: norm(payer.firstName || ''),
       payerLastName:  norm(payer.lastName  || ''),
       payerEmail:     norm(payer.email     || ''),
@@ -331,12 +418,23 @@ router.post('/checkout', async (req, res) => {
       lines, totalCents, status: 'pending',
       paymentProvider: PAYMENT_PROVIDER_ID,
       paymentProviderMeta: {},
-      origin: { flow: 'subscription', uiPath: seasonPath, apiPath: `${req.baseUrl||''}${req.path}` },
+      // origin ne retient que flow/uiPath/apiPath (voir Order.js) : le
+      // partenaire s'identifie par meta.partner.slug, qui est aussi la clé du
+      // quota. Y ajouter un champ ici serait silencieusement perdu.
+      origin: partner
+        ? {
+            flow: 'partner',
+            uiPath: `/partner/${encodeURIComponent(partner.slug)}/season/${encodeURIComponent(seasonCode)}/subscribe`,
+            apiPath: `${req.baseUrl||''}${req.path}`
+          }
+        : { flow: 'subscription', uiPath: seasonPath, apiPath: `${req.baseUrl||''}${req.path}` },
       mailTemplateKind: 'subscription',
+      locale: req.locale,
       meta: {
         seasonCode,
         seasonName: season?.name || null,
-        source: 'season-subscription'
+        source: partner ? 'partner-season-subscription' : 'season-subscription',
+        ...partnerMeta
       }
     });
 

@@ -15,6 +15,10 @@ import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { finalizePaidIfNoConflict, sendOrderAttestationIfNeeded } from '../services/order-finalization.js';
 import { matchesChannel } from '../utils/channel-scopes.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
+import { computeEventSeatStates as computeSeatStates } from '../services/event-seat-states.js';
+import { claimEventSeatHolds } from '../services/event-seat-holds.js';
+import { withMetaZonePrices } from '../utils/meta-zones.js';
+import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
@@ -38,8 +42,6 @@ function buildPayReturnUrl(orderId, checkoutId) {
   return `${app}/pay/return?oid=${oid}${ci}`;
 }
 
-// Helper: reconnaît un ID virtuel de zone (ex: DEBOUT-Z001)
-const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid || ''));
 async function loadEvent(eventIdOrSlug) {
   const q = isValidObjectId(eventIdOrSlug)
     ? { $or: [{ _id: new mongoose.Types.ObjectId(eventIdOrSlug) }, { slug: String(eventIdOrSlug) }] }
@@ -120,7 +122,12 @@ function resolveVenueViewForEvent(ev, channelCtx) {
 async function loadTariffsAndPrices(ev, channelCtx) {
   const evTariffs = await Tariff.find({ priceTableKey: ev.priceTableKey, active: true }).lean();
   if (evTariffs.length > 0) {
-    const evPrices = await TariffPrice.find({ priceTableKey: ev.priceTableKey }).lean();
+    // Les zones restent celles de la saison/lieu, même pour une grille
+    // dédiée à l'évènement : c'est là que vivent les méta-zones.
+    const evPrices = await withMetaZonePrices(
+      await TariffPrice.find({ priceTableKey: ev.priceTableKey }).lean(),
+      { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }
+    );
     if (shouldFallbackToPublic(channelCtx)) {
       const partnerFiltered = filterTariffsAndPricesByChannel(evTariffs, evPrices, channelCtx, { fallbackToPublic: false });
       const publicFiltered = filterTariffsAndPricesByChannel(evTariffs, evPrices, { kind: 'public' }, { fallbackToPublic: false });
@@ -149,8 +156,15 @@ async function loadTariffsAndPrices(ev, channelCtx) {
     const filtered = filterTariffsAndPricesByChannel(evTariffs, evPrices, channelCtx, { fallbackToPublic: false });
     return { ...filtered, scope: 'event' };
   }
-  const fbTariffs = await Tariff.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, active: true }).lean();
-  const fbPrices = await TariffPrice.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }).lean();
+  // Repli sur les tarifs de SAISON quand le match n'a pas de table dédiée.
+  // `Tariff` est global : seasonCode/venueSlug n'existent pas au schéma et
+  // étaient supprimés par strictQuery. Le bon critère est `priceTableKey: null`,
+  // qui isole précisément les tarifs hors table événementielle.
+  const fbTariffs = await Tariff.find({ priceTableKey: null, active: true }).lean();
+  const fbPrices = await withMetaZonePrices(
+    await TariffPrice.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }).lean(),
+    { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }
+  );
   if (shouldFallbackToPublic(channelCtx)) {
     const partnerFiltered = filterTariffsAndPricesByChannel(fbTariffs, fbPrices, channelCtx, { fallbackToPublic: false });
     const publicFiltered = filterTariffsAndPricesByChannel(fbTariffs, fbPrices, { kind: 'public' }, { fallbackToPublic: false });
@@ -196,61 +210,8 @@ function buildAllowedFromPrices(prices) {
   };
 }
 
-async function computeSeatStates(ev, sessionToken = '') {
-  // Base: états des sièges pour la saison/lieu (provisions/holds abonnements, VIP, etc.)
-  const base = await Seat.find(
-    { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug },
-    { seatId: 1, zoneKey: 1, status: 1, _id: 0 }
-  ).lean();
-
-  const byId = new Map(base.map(s => [String(s.seatId), { seatId: s.seatId, zoneKey: s.zoneKey, status: String(s.status || 'available').toLowerCase() }]));
-
-  // Surcouche: ordres paid/tobepaid pour CET évènement -> booked
-  const paid = await Order.find(
-    {
-      status: { $in: ['paid', 'tobepaid'] },
-      $or: [
-        { eventId: ev._id },
-        { 'meta.eventId': String(ev._id) }
-      ]
-    },
-    { lines: 1, _id: 0 }
-  ).lean();
-
-  for (const ord of (paid || [])) {
-    for (const ln of (ord.lines || [])) {
-      const placement = resolveLinePlacement(ln);
-      if (placement.released) continue;
-      const sid = String(placement.seatId || '').trim();
-      if (!sid) continue;                 // lignes de zone → pas de seatId
-      if (isVirtualZoneSeatId(sid)) continue; // IDs virtuels (zones) → ignorer
-      if (!byId.has(sid)) continue;       // ⛔ ne crée PAS de siège fantôme
-      const rec = byId.get(sid);
-      rec.status = 'booked';
-      byId.set(sid, rec);
-    }
-  }
-
-  // Surcouche: SeatHold actifs (sélections en cours d'autres sessions) -> busy
-  const holds = await SeatHold.find(
-    { eventId: ev._id, expiresAt: { $gt: new Date() } },
-    { seatId: 1, sessionToken: 1, _id: 0 }
-  ).lean();
-
-  for (const hold of holds) {
-    const sid = String(hold.seatId || '').trim();
-    if (!sid) continue;
-    if (sessionToken && hold.sessionToken === sessionToken) continue; // propre sélection → reste available
-    if (!byId.has(sid)) continue;
-    const rec = byId.get(sid);
-    if (rec.status === 'available') {
-      rec.status = 'busy';
-      byId.set(sid, rec);
-    }
-  }
-
-  return Array.from(byId.values());
-}
+// computeSeatStates lives in src/services/event-seat-states.js — the
+// seat-change flow must score availability with exactly the same rules.
 
 function buildOrigin(flowKey, uiPath, extraOrigin) {
   return (req) => ({
@@ -312,6 +273,19 @@ export function createEventFlowRouter({
       return [key, { display, partner }];
     }));
 
+    // zoneType (the zone's physical seating character) is independent of
+    // unitType (the allocation mechanism) — see src/utils/seat-id.js. A VIP
+    // zone can be Zone.type === 'seated' while still being zone-allocated.
+    const requestedZoneKeys = Array.from(new Set(items.map(it => String(it.zoneKey || '').trim().toUpperCase()).filter(Boolean)));
+    const zoneTypeByKey = new Map();
+    if (requestedZoneKeys.length) {
+      const zoneDocs = await Zone.find(
+        { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, key: { $in: requestedZoneKeys } },
+        { key: 1, type: 1, _id: 0 }
+      ).lean();
+      for (const z of zoneDocs) zoneTypeByKey.set(String(z.key || '').toUpperCase(), z.type || 'seated');
+    }
+
     const lines = items.map(it => {
       const z = String(it.zoneKey || '').toUpperCase();
       const t = String(it.tariffCode || '').toUpperCase();
@@ -329,6 +303,8 @@ export function createEventFlowRouter({
       return {
         seatId: sid,
         zoneKey: z,
+        unitType: sid ? 'seat' : 'zone',
+        zoneType: zoneTypeByKey.get(z) || null,
         tariffCode: t,
         priceCents: displayPrice,
         partnerPriceCents: partnerPrice,
@@ -385,8 +361,9 @@ export function createEventFlowRouter({
         ? Number(channelCtx?.partnerConfig?.presale?.events?.[ev?.slug]?.quota || 0)
         : 0;
       const saleStatus = (() => {
-        if (ev.isOnSale === true) return 'sale_opened';
-        if (isPartnerPresaleAllowed(ev, channelCtx)) {
+        if (isEventOnSale(ev)) return 'sale_opened';
+        if (ev.sale === 'soldout') return 'sold_out';
+        if (!isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx)) {
           if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
           return 'presale_opened';
         }
@@ -408,7 +385,7 @@ export function createEventFlowRouter({
 
       // 2) Récupère meta zones
       let zonesMeta = {};
-      let zonesKind = {}; // { KEY: 'seated'|'standing'|'fanclub' }
+      let zonesKind = {}; // { KEY: 'seated'|'standing' }
       let publics = [];
       try {
         const zoneMatch = (flowKey === 'partner')
@@ -544,7 +521,7 @@ export function createEventFlowRouter({
           slug: ev.slug,
           name: ev.name,
           startsAt: ev.startsAt,
-          isOnSale: ev.isOnSale,
+          sale: ev.sale,
           venueView: resolvedVenueView,
           saleStatus
         },
@@ -673,12 +650,13 @@ export function createEventFlowRouter({
     try {
       const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
-      const presale = isPartnerPresaleAllowed(ev, channelCtx);
+      const onSale = isEventOnSale(ev);
+      const presale = !isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx);
       const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
-      assert(ev.isOnSale === true || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
+      assert(onSale || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
 
       const ctxData = await prepareOrderContext(req, ev, channelCtx);
-      if (ev.isOnSale !== true && presale) {
+      if (!onSale && presale) {
         const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
         if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
           return res.status(400).json({
@@ -691,12 +669,18 @@ export function createEventFlowRouter({
       }
       const payerInfo = ctxData.payer;
       const scheduleValue = ctxData.schedule;
-      const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
+      // slug is stamped for every partner-channel order (not just split-payment
+      // ones) so meta.partner.slug is reliable wherever it's queried: presale
+      // quota tracking (getPartnerPresaleRemaining above), the admin partner
+      // orders listing, and theme resolution (resolveThemeForOrder).
+      const partnerMeta = (channelCtx?.kind === 'partner')
         ? {
             slug: channelCtx.partnerSlug || null,
-            displayTotalCents: ctxData.partnerTotals.displayTotal,
-            partnerContributionCents: ctxData.partnerTotals.partnerContribution,
-            partnerTotalCents: ctxData.partnerTotals.partnerTotal
+            ...(ctxData.partnerTotals ? {
+              displayTotalCents: ctxData.partnerTotals.displayTotal,
+              partnerContributionCents: ctxData.partnerTotals.partnerContribution,
+              partnerTotalCents: ctxData.partnerTotals.partnerTotal
+            } : {})
           }
         : null;
 
@@ -742,16 +726,40 @@ export function createEventFlowRouter({
 
         origin: resolvedOrigin,
         mailTemplateKind,
+        locale: req.locale,
         hold: { until }
       });
 
-      // Libère les SeatHolds pre-checkout de cette session (remplacés par le hold Order)
       const checkoutSessionToken = String(req.query.sessionToken || req.body?.sessionToken || '').trim().slice(0, 64);
+      const holdSeatIds = ctxData.holdable.map(ln => String(ln.seatId));
+
+      // Libère les SeatHolds pre-checkout de cette session pour les places
+      // RETIRÉES du panier ; celles qui restent sont converties en hold de
+      // commande juste après (les supprimer d'abord rouvrirait une fenêtre où
+      // un autre acheteur pourrait les prendre).
       if (checkoutSessionToken) {
-        SeatHold.deleteMany({ eventId: ev._id, sessionToken: checkoutSessionToken }).catch(() => {});
+        SeatHold.deleteMany({
+          eventId: ev._id,
+          sessionToken: checkoutSessionToken,
+          seatId: { $nin: holdSeatIds }
+        }).catch(() => {});
       }
 
-      // Pose des holds uniquement pour les VRAIS sièges (présents dans statusIdx)
+      // Verrou faisant autorité (voir claimEventSeatHolds).
+      if (holdSeatIds.length) {
+        const claim = await claimEventSeatHolds({
+          ev, order: ord, seatIds: holdSeatIds, sessionToken: checkoutSessionToken, until
+        });
+        if (!claim.ok) {
+          ord.status = 'failed';
+          ord.paymentProviderMeta = { ...(ord.paymentProviderMeta || {}), reason: 'seat_hold_conflict', seats: claim.conflicts };
+          await ord.save();
+          return res.status(409).json({ ok: false, error: 'seat_unavailable', seatIds: claim.conflicts });
+        }
+      }
+
+      // Hold historique côté Seat, conservé pour les places dont l'état saison
+      // le permet (best-effort : il ne couvre pas les places rendues).
       if (ctxData.holdable.length) {
         await Promise.all(ctxData.holdable.map(ln =>
           Seat.updateOne(
@@ -821,12 +829,13 @@ export function createEventFlowRouter({
 
       try {
         const ev = await loadEvent(req.params.eventId);
-        const presale = isPartnerPresaleAllowed(ev, channelCtx);
+        const onSale = isEventOnSale(ev);
+        const presale = !isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx);
         const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
-        assert(ev.isOnSale === true || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
+        assert(onSale || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
 
         const ctxData = await prepareOrderContext(req, ev, channelCtx);
-        if (ev.isOnSale !== true && presale) {
+        if (!onSale && presale) {
           const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
           if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
             return res.status(400).json({
@@ -845,12 +854,14 @@ export function createEventFlowRouter({
         const resolvedOrigin = typeof originResolver === 'function'
           ? originResolver(req, baseOrigin, channelCtx) || baseOrigin
           : baseOrigin;
-        const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
+        const partnerMeta = (channelCtx?.kind === 'partner')
           ? {
               slug: channelCtx.partnerSlug || null,
-              displayTotalCents: ctxData.partnerTotals.displayTotal,
-              partnerContributionCents: ctxData.partnerTotals.partnerContribution,
-              partnerTotalCents: ctxData.partnerTotals.partnerTotal
+              ...(ctxData.partnerTotals ? {
+                displayTotalCents: ctxData.partnerTotals.displayTotal,
+                partnerContributionCents: ctxData.partnerTotals.partnerContribution,
+                partnerTotalCents: ctxData.partnerTotals.partnerTotal
+              } : {})
             }
           : null;
 
@@ -891,10 +902,25 @@ export function createEventFlowRouter({
           },
           origin: resolvedOrigin,
           mailTemplateKind: invoiceOpts.mailTemplateKind || mailTemplateKind,
+          locale: req.locale,
           hold: { until }
         });
 
         if (ctxData.holdable.length) {
+          const reserveSessionToken = String(req.query.sessionToken || req.body?.sessionToken || '').trim().slice(0, 64);
+          const claim = await claimEventSeatHolds({
+            ev, order: ord,
+            seatIds: ctxData.holdable.map(ln => String(ln.seatId)),
+            sessionToken: reserveSessionToken,
+            until
+          });
+          if (!claim.ok) {
+            ord.status = 'failed';
+            ord.paymentProviderMeta = { ...(ord.paymentProviderMeta || {}), reason: 'seat_hold_conflict', seats: claim.conflicts };
+            await ord.save();
+            return res.status(409).json({ ok: false, error: 'seat_unavailable', seatIds: claim.conflicts });
+          }
+
           await Promise.all(ctxData.holdable.map(ln =>
             Seat.updateOne(
               { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, seatId: ln.seatId, status: { $ne: 'booked' } },

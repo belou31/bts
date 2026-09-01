@@ -8,6 +8,7 @@ export const importEventOrdersTask = {
   version: '1.0.0',
   summary:
     "Importe des commandes d'évènement depuis un CSV (data/inputs) ou un payload JSON et les insère dans MongoDB.",
+  chapter: '04 — Event Management',
   tags: ['event', 'orders', 'import'],
   scopes: ['automation:jobs:write', 'automation:jobs:run', 'automation:events:write'],
   allowDryRun: true,

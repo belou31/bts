@@ -17,7 +17,9 @@ import { normalizePaymentStatus, isPaidLike, isRefundedLike,
          finalizePaidIfNoConflict,
          sendOrderAttestationIfNeeded,
          sendConflictEmail,
+         sendSeatPendingNotice,
          ensureTicketsForEventOrder } from '../services/order-finalization.js';
+import { buildSeatChangeUrlForOrder } from '../services/seat-change-link.js';
 import { buildTicketsPdfBuffer } from '../services/tickets-pdf.js';
 
 const router = express.Router();
@@ -161,7 +163,9 @@ function renderPaymentReturn({
   payerEmail,
   contactEmail,
   homeUrl,
-  ticketsUrl
+  ticketsUrl,
+  isSeasonOrder = false,
+  hasTickets = false
 }) {
   const safeOrderId = escapeHtml(orderId || '—');
   const safeProviderStatus = providerStatus ? escapeHtml(providerStatus) : '';
@@ -185,10 +189,17 @@ function renderPaymentReturn({
   const supportLine = `<p class="muted">En cas de problème, écrivez à <a href="${safeContactHref}">${safeContactEmail}</a>.</p>`;
   if (state === 'success') {
     title = 'Paiement confirmé ✅';
+    // Un abonnement ne donne aucun billet à ce stade : les billets sont émis
+    // match par match (event-season-sync puis l'envoi par match). Promettre
+    // ici des billets — et pire, un PDF à télécharger — annonçait un fichier
+    // vide et inquiétait l'abonné.
+    const deliveryLine = isSeasonOrder
+      ? `<p class="muted">Vous allez recevoir un email de confirmation de votre abonnement${safeEmail ? ` à l'adresse <strong>${safeEmail}</strong>` : ''}. Vos billets vous seront envoyés avant chaque match.</p>`
+      : `<p class="muted">Vous allez recevoir un email de confirmation accompagné de vos billets${safeEmail ? ` à l'adresse <strong>${safeEmail}</strong>` : ''}.</p>`;
     intro = `
       <p>Bravo&nbsp;! Le paiement a été validé et vos places sont désormais <strong>confirmées</strong>.</p>
-      <p class="muted">Vous allez recevoir un email de confirmation accompagné de vos billets${safeEmail ? ` à l'adresse <strong>${safeEmail}</strong>` : ''}.</p>
-      ${safeTicketsUrl ? `<p>Vous pouvez télécharger vos billets directement ici&nbsp;: <a href="${safeTicketsUrl}">billets-${safeOrderId}.pdf</a></p>` : ''}
+      ${deliveryLine}
+      ${(safeTicketsUrl && hasTickets) ? `<p>Vous pouvez télécharger vos billets directement ici&nbsp;: <a href="${safeTicketsUrl}">billets-${safeOrderId}.pdf</a></p>` : ''}
       ${supportLine}
     `;
   } else if (state === 'failure') {
@@ -216,10 +227,11 @@ function renderPaymentReturn({
   if (safeProviderOrderId) detailItems.push(`<li>${safeProviderLabel} — Commande : <code>${safeProviderOrderId}</code></li>`);
   if (safeProviderPaymentId) detailItems.push(`<li>${safeProviderLabel} — Paiement : <code>${safeProviderPaymentId}</code></li>`);
   if (finalizeInfo && typeof finalizeInfo === 'object') {
+    const finalizeLabel = isSeasonOrder ? 'Attribution des places' : 'Finalisation billets';
     if (finalizeInfo.ok) {
-      detailItems.push(`<li>Finalisation billets : ${finalizeInfo.alreadyFinalized ? 'déjà effectuée' : 'succès'}</li>`);
+      detailItems.push(`<li>${finalizeLabel} : ${finalizeInfo.alreadyFinalized ? 'déjà effectuée' : 'succès'}</li>`);
     } else {
-      detailItems.push(`<li>Finalisation billets : en attente (vérification manuelle requise)</li>`);
+      detailItems.push(`<li>${finalizeLabel} : en attente (vérification manuelle requise)</li>`);
     }
   }
 
@@ -361,9 +373,18 @@ router.get('/status', async (req, res) => {
         if (isPaidLike(normalized)) {
           // Re-fetch with a full Mongoose doc so finalize can save
           const liveOrder = await Order.findById(order._id);
-          if (liveOrder && liveOrder.status !== 'paid') {
+          if (!liveOrder) return res.json({ status: 'not_found', paid: false });
+
+          if (liveOrder.status !== 'paid') {
             const finalizeInfo = await finalizePaidIfNoConflict(liveOrder);
-            if (finalizeInfo.ok && !finalizeInfo.alreadyFinalized) {
+            if (!finalizeInfo.ok) {
+              // Provider confirmed payment but the seat(s) couldn't be booked
+              // (real conflict, or a race) — do NOT report paid:true, the
+              // booking itself failed. liveOrder.status is now 'failed';
+              // surface that instead of a false success.
+              return res.json({ status: liveOrder.status, paid: false });
+            }
+            if (!finalizeInfo.alreadyFinalized) {
               try { await sendOrderAttestationIfNeeded(liveOrder, { source: 'status-poll' }); } catch {}
             }
           }
@@ -400,7 +421,7 @@ router.get('/start', async (req, res) => {
   const statusUrl = urlFor(`/pay/status?orderId=${encodeURIComponent(orderId)}`);
   const backUrl = urlFor('/pay/back');
 
-  const totalEur = ((Number(order.totalCents) || 0) / 100).toFixed(2);
+  const totalCents = Number(order.totalCents) || 0;
   const description = order.meta?.eventName || order.itemName || String(order._id);
   const lines = Array.isArray(order.lines) ? order.lines : [];
 
@@ -414,7 +435,7 @@ router.get('/start', async (req, res) => {
     statusUrl,
     backUrl,
     orderId,
-    totalEur,
+    totalCents,
     description,
     lines,
     assets: {
@@ -575,6 +596,22 @@ router.get('/return', async (req, res) => {
           }
         } else {
           warnings.push("Le paiement est confirmé, mais la finalisation de vos sièges nécessite une intervention manuelle.");
+          // Sans cet envoi, l'acheteur ne gardait AUCUNE trace écrite : la page
+          // de retour affichait l'avertissement, puis plus rien. Le webhook,
+          // lui, envoyait déjà un courriel (sendConflictEmail) — le retour ne
+          // faisait rien, d'où un client prévenu ou non selon le chemin
+          // emprunté par le paiement.
+          if (!order.paymentProviderMeta?.seatPendingNoticeSentAt) {
+            try {
+              await sendSeatPendingNotice(order, {
+                source: 'return',
+                seatChangeUrl: await buildSeatChangeUrlForOrder(order)
+              });
+            } catch (err) {
+              console.warn('[pay/return] seat-pending notice failed:', err?.message || err);
+              warnings.push('Le courriel de confirmation n\'a pas pu être envoyé automatiquement.');
+            }
+          }
         }
       } catch (err) {
         console.error('[pay/return] finalize error:', err?.message || err);
@@ -621,7 +658,11 @@ router.get('/return', async (req, res) => {
     payerEmail: order?.payerEmail || order?.paymentProviderMeta?.payerEmail || order?.paymentProviderMeta?.lastPayerEmail || '',
     contactEmail,
     homeUrl,
-    ticketsUrl: (state === 'success' && order?.id) ? urlFor(`/pay/tickets/${encodeURIComponent(String(order.id))}.pdf`) : ''
+    ticketsUrl: (state === 'success' && order?.id) ? urlFor(`/pay/tickets/${encodeURIComponent(String(order.id))}.pdf`) : '',
+    // Même discriminant que mailer.js resolveOrderKind : une commande de match
+    // porte un eventId, un abonnement n'en a pas.
+    isSeasonOrder: Boolean(order) && !order?.eventId && !order?.meta?.eventId,
+    hasTickets: Array.isArray(order?.meta?.tickets) && order.meta.tickets.length > 0
   });
   return res.send(html);
 });

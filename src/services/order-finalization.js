@@ -2,12 +2,17 @@
 import mongoose from 'mongoose';
 import { Seat } from '../models/Seat.js';
 import { Order } from '../models/Order.js';
+import { Event } from '../models/Event.js';
+import { SeatHold } from '../models/SeatHold.js';
 import { Ticket } from '../models/Ticket.js';
+import { computeEventSeatStates } from './event-seat-states.js';
 import { renderOrderEmail, subjectForOrder, attachQrFromBank } from './mailer.js';
 import { buildTicketsPdfBuffer } from './tickets-pdf.js';
 import { sendMail } from '../loaders/mailer.js';
 import { normalizeStatus as providerNormalizeStatus } from './payments/index.js';
 import { resolveLinePlacement } from '../utils/event-attendance.js';
+import { resolveUnitType, zoneKeyFromSeatId } from '../utils/seat-id.js';
+import { t } from '../utils/i18n.js';
 
 export function normalizePaymentStatus(input, fallback) {
   return providerNormalizeStatus(input, fallback);
@@ -21,16 +26,6 @@ export const isPaidLike = (s) =>
 export const isRefundedLike = (s) =>
   /^(refunded|refund|reimbursed|reversed|chargeback|payment_refunded)$/i.test(String(s||''));
 
-const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid||''));
-const isRealSeatId        = (sid) => /^[A-Z0-9]+-[A-Z]+-\d{1,4}$/i.test(String(sid||''));
-const zoneKeyFromSeatId   = (seatId) => {
-  const raw = String(seatId || '').trim();
-  if (!raw) return '';
-  const idx = raw.indexOf('-');
-  return (idx === -1 ? raw : raw.slice(0, idx)).toUpperCase();
-};
-
-
 export function realSeatIdsFromOrder(order) {
   const seats = [];
   for (const line of (order?.lines || [])) {
@@ -38,8 +33,11 @@ export function realSeatIdsFromOrder(order) {
     if (placement.released) continue;
     const seatId = String(placement.seatId || '').trim();
     if (!seatId) continue;
-    if (!isRealSeatId(seatId)) continue;
-    if (isVirtualZoneSeatId(seatId)) continue;
+    // A "moved" attendance override reassigns the physical seat after the
+    // fact, so its resolved seatId is the newer truth — classify it by
+    // shape rather than trusting the line's original (now stale) unitType.
+    const unitType = placement.moved ? undefined : line?.unitType;
+    if (resolveUnitType({ unitType, seatId }) !== 'seat') continue;
     seats.push(seatId);
   }
   return Array.from(new Set(seats));
@@ -94,6 +92,21 @@ async function hydrateTicketsFromExistingDocs(order) {
   return true;
 }
 
+
+// Le siège effectif d'une ligne pour CET évènement. Un changement de place
+// (utils/event-attendance.js) est stocké en override et laisse line.seatId
+// intact : sans cette résolution, la normalisation ci-dessous réécrirait le
+// billet vers l'ancienne place, et le doc Ticket suivrait — le porteur
+// recevrait un PDF et un contrôle d'accès pointant le mauvais siège.
+// Volontairement limité au cas 'moved' : une ligne 'released' garde le
+// comportement historique.
+function effectiveLineSeatId(line) {
+  const placement = resolveLinePlacement(line);
+  return placement.moved && placement.seatId
+    ? String(placement.seatId).trim()
+    : String(line?.seatId || '').trim();
+}
+
 export async function ensureTicketsForEventOrder(order) {
   const eventIdRaw = order?.eventId || order?.meta?.eventId;
   if (!eventIdRaw) return { created: 0, updated: 0 };
@@ -138,7 +151,7 @@ export async function ensureTicketsForEventOrder(order) {
   if (!metaTickets.length && lines.length) {
     order.meta = order.meta || {};
     order.meta.tickets = lines.map((line, index) => {
-      const seatId = String(line?.seatId || '').trim();
+      const seatId = effectiveLineSeatId(line);
       const zoneKey = String(line?.zoneKey || '').trim().toUpperCase();
       const tariffCode = String(line?.tariffCode || line?.tariff || 'NORMAL').toUpperCase();
       const hex = generateTicketHex(orderId, index, seatId, zoneKey, tariffCode);
@@ -171,7 +184,7 @@ export async function ensureTicketsForEventOrder(order) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] || {};
-    const seatFromLine = String(line.seatId || '').trim();
+    const seatFromLine = effectiveLineSeatId(line);
     const zoneFromLine = String(line.zoneKey || '').trim().toUpperCase();
     const tariffFromLine = String(line.tariffCode || '').trim().toUpperCase() || 'NORMAL';
 
@@ -234,9 +247,13 @@ export async function ensureTicketsForEventOrder(order) {
 
     const zoneKey = String(metaTicket.zoneKey || line.zoneKey || '').toUpperCase();
     const seatFromMeta = String(metaTicket.seatId || '').trim();
-    const seatFromLine = String(line.seatId || '').trim();
+    const seatFromLine = effectiveLineSeatId(line);
     let seatId = seatFromMeta || seatFromLine;
     let usedPlaceholder = false;
+    // Computed from the pre-placeholder candidate so re-runs (e.g. resend)
+    // still classify correctly even once seatId already holds a synthesized
+    // GA-style id from a previous pass.
+    const unitType = resolveUnitType({ unitType: line.unitType, seatId });
 
     if (!seatId) {
       const suffix = String(orderId).slice(-6).toUpperCase();
@@ -260,6 +277,7 @@ export async function ensureTicketsForEventOrder(order) {
           eventId: String(eventIdRaw),
           orderId,
           seatId,
+          unitType,
           tariffCode,
           holder: {
             firstName: holderFirstName,
@@ -298,6 +316,10 @@ export async function ensureTicketsForEventOrder(order) {
       const seatIdTrimmed = String(ticketDoc.seatId || '').trim();
       if (seatIdTrimmed !== seatId) {
         ticketDoc.seatId = seatId;
+        docDirty = true;
+      }
+      if (ticketDoc.unitType !== unitType) {
+        ticketDoc.unitType = unitType;
         docDirty = true;
       }
       if (String(ticketDoc.tariffCode || '').toUpperCase() !== tariffCode) {
@@ -397,6 +419,19 @@ export async function finalizePaidIfNoConflict(order) {
   if (!seatIds.length) {
     order.status = 'paid';
     await order.save();
+    // Une commande payée SANS siège, c'est l'achat d'un bon : c'est ici, au
+    // moment exact où le paiement est acquis, que le bon doit naître. Le faire
+    // plus tôt offrirait des places non payées ; plus tard demanderait un
+    // second point de passage. issueVoucherForPurchase est idempotent, la
+    // finalisation pouvant être rejouée (retour, webhook, relance).
+    if (String(order?.origin?.flow || '').toLowerCase() === 'voucher-purchase') {
+      try {
+        const { issueVoucherForPurchase } = await import('./vouchers.js');
+        await issueVoucherForPurchase(order);
+      } catch (err) {
+        console.error('[finalize] voucher issue failed:', err?.message || err);
+      }
+    }
     return { ok: true, booked: 0, conflicts: [] };
   }
 
@@ -407,14 +442,41 @@ export async function finalizePaidIfNoConflict(order) {
   }).lean();
   const byId = new Map(seats.map(s => [String(s.seatId), s]));
 
+  const ownHold = (sid) => {
+    const holder = byId.get(sid)?.meta?.hold?.orderId;
+    return holder ? String(holder) === String(order._id) : false;
+  };
+
   const conflicts = [];
-  for (const sid of seatIds) {
-    const s = byId.get(sid);
-    if (!s) { conflicts.push({ seatId: sid, reason: 'not_found' }); continue; }
-    if (s.status === 'booked') { conflicts.push({ seatId: sid, reason: 'already_booked' }); continue; }
-    if (s.status === 'busy') {
-    const holder = s?.meta?.hold?.orderId ? String(s.meta.hold.orderId) : '';
-      if (holder && holder !== String(order._id)) {
+  if (isEvent) {
+    // Pour un ÉVÈNEMENT, la disponibilité n'est pas Seat.status : cette
+    // collection décrit la SAISON. Une place rendue par un abonné pour ce match
+    // précis y reste 'booked' — il la garde pour tous les autres matchs — donc
+    // juger le conflit sur l'état saison refusait la finalisation d'un achat
+    // pourtant légitime : paiement encaissé, commande en échec, "intervention
+    // manuelle". On interroge donc la même vue évènement que la billetterie.
+    const ev = await Event.findById(eventIdRaw).lean().catch(() => null);
+    const states = ev ? await computeEventSeatStates(ev) : [];
+    const stateById = new Map(states.map(s => [String(s.seatId), s]));
+    // Les SeatHold posés par CETTE commande ne peuvent pas lui être opposés.
+    const heldByThisOrder = new Set(
+      (await SeatHold.find({ orderId: order._id }, { seatId: 1, _id: 0 }).lean().catch(() => []))
+        .map(h => String(h.seatId))
+    );
+
+    for (const sid of seatIds) {
+      const st = stateById.get(sid);
+      if (!st) { conflicts.push({ seatId: sid, reason: 'not_found' }); continue; }
+      if (st.status === 'available') continue;
+      if (ownHold(sid) || heldByThisOrder.has(sid)) continue;
+      conflicts.push({ seatId: sid, reason: st.status === 'booked' ? 'already_booked' : 'busy_other' });
+    }
+  } else {
+    for (const sid of seatIds) {
+      const s = byId.get(sid);
+      if (!s) { conflicts.push({ seatId: sid, reason: 'not_found' }); continue; }
+      if (s.status === 'booked') { conflicts.push({ seatId: sid, reason: 'already_booked' }); continue; }
+      if (s.status === 'busy' && !ownHold(sid)) {
         conflicts.push({ seatId: sid, reason: 'busy_other' });
         continue;
       }
@@ -444,6 +506,11 @@ export async function finalizePaidIfNoConflict(order) {
       { runValidators: false }
     );
 
+    // Idem pour le verrou évènement : la commande est payée, c'est elle qui
+    // occupe désormais la place via l'overlay. Le laisser expirer tout seul
+    // (TTL) bloquerait inutilement une éventuelle correction entre-temps.
+    await SeatHold.deleteMany({ orderId: order._id }).catch(() => {});
+
     // L’état “booked” pour le plan du match sera géré en LECTURE
     // par /api/event/:id/status (overlay à partir des Orders paid).
     order.status = 'paid';
@@ -463,6 +530,10 @@ export async function finalizePaidIfNoConflict(order) {
       seatId:     { $in: seatIds },
       $or: [
         { status: 'available' },
+        // renouvellement : le siège a été réservé par renewal-provision-seats.js
+        // en amont de la campagne, avant même que cette commande existe — c'est
+        // l'état de départ NORMAL pour un paiement de renouvellement, pas un conflit.
+        { status: 'provisioned' },
         // busy tenu par cet ordre en ObjectId...
         { status: 'busy', 'meta.hold.orderId': order._id },
        // ...ou en String (cas /event et historiques)
@@ -470,7 +541,7 @@ export async function finalizePaidIfNoConflict(order) {
       ]
     },
 
-    { $set: { status: 'booked' }, $unset: { 'meta.hold': 1 } },
+    { $set: { status: 'booked' }, $unset: { 'meta.hold': 1, provisionedFor: 1 } },
       { runValidators: false }
     );
     const modified = Number(upd.modifiedCount ?? upd.nModified ?? 0);
@@ -679,14 +750,87 @@ export async function sendOrderAttestationIfNeeded(order, options = {}) {
   }
 }
 
+/**
+ * Le paiement est passé mais le siège n'a pas pu être verrouillé (quelqu'un
+ * d'autre l'a pris entre-temps).
+ *
+ * Ce cas n'envoyait RIEN sur le retour de paiement : l'abonné voyait
+ * l'avertissement « intervention manuelle » à l'écran, puis plus rien — aucune
+ * trace dans sa boîte mail de ce qu'il venait de payer. sendConflictEmail() ne
+ * convenait pas ici : il annonce un remboursement, alors qu'ici l'argent est
+ * bien encaissé et la commande honorée, seul le placement reste à faire.
+ *
+ * On renvoie donc le récapitulatif de commande, précédé de l'avertissement, et
+ * suivi du lien de changement de place quand il y en a un.
+ */
+export async function sendSeatPendingNotice(order, options = {}) {
+  const to = order?.payerEmail;
+  if (!to) {
+    console.warn('[finalize] seat-pending notice skipped: no payerEmail on order', String(order?._id || ''));
+    return false;
+  }
+  const { seatChangeUrl = '', source = 'auto' } = options;
+  const locale = order?.locale;
+
+  // Le récapitulatif reprend le rendu normal ; s'il échoue, on préfère un
+  // message court à pas de message du tout.
+  let recapHtml = '';
+  try {
+    recapHtml = await renderOrderEmail(order);
+  } catch (e) {
+    console.warn('[finalize] seat-pending recap render failed:', e?.message || e);
+  }
+
+  const relocate = seatChangeUrl
+    ? `<p style="margin:.75rem 0">${t('email.seatPendingRelocate', locale)}
+         <a href="${seatChangeUrl}">${t('email.seatPendingRelocateLink', locale)}</a></p>`
+    : `<p style="margin:.75rem 0">${t('email.seatPendingNoAction', locale)}</p>`;
+
+  const notice = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial">
+    <p>${t('email.greeting', locale)} ${[order?.payerFirstName, order?.payerLastName].filter(Boolean).join(' ') || ''},</p>
+    <div style="border-left:4px solid #b45309;background:#fef3c7;padding:.75rem 1rem;margin:1rem 0">
+      <p style="margin:0 0 .5rem"><strong>${t('email.seatPendingIntro', locale)}</strong></p>
+      ${relocate}
+    </div>
+    <p>${t('email.conflictOrderRef', locale)} : <strong>${order._id}</strong></p>
+  </div>`;
+
+  const html = recapHtml
+    ? `${notice}<hr style="margin:1.5rem 0;border:none;border-top:1px solid #ddd">
+       <h3 style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial">${t('email.seatPendingRecap', locale)}</h3>
+       ${recapHtml}`
+    : notice;
+
+  try {
+    await sendMail({ to, subject: t('email.seatPendingSubject', locale), html });
+  } catch (e) {
+    console.warn('[finalize] seat-pending mail failed:', e?.message || e);
+    return false;
+  }
+
+  // Trace d'envoi : sans elle, chaque rechargement de la page de retour
+  // renverrait le même courriel.
+  try {
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { 'paymentProviderMeta.seatPendingNoticeSentAt': new Date(),
+                'paymentProviderMeta.seatPendingNoticeSource': source } }
+    );
+  } catch (e) {
+    console.warn('[finalize] seat-pending stamp failed:', e?.message || e);
+  }
+  return true;
+}
+
 export async function sendConflictEmail(order) {
   const to = order?.payerEmail;
   if (!to) return;
-  const subject = 'Votre commande n’a pas pu aboutir';
-  const html = `<p>Bonjour ${[order?.payerFirstName, order?.payerLastName].filter(Boolean).join(' ') || ''},</p>
-  <p>Votre commande n’a pas pu aboutir&nbsp;: votre paiement a dépassé le temps de blocage de vos sièges et une autre commande s’est insérée.</p>
-  <p><strong>Veuillez réessayer.</strong> Si votre paiement est passé, vous serez remboursé.</p>
-  <p>Référence commande&nbsp;: <strong>${order._id}</strong></p>`;
+  const locale = order?.locale;
+  const subject = t('email.conflictSubject', locale);
+  const html = `<p>${t('email.greeting', locale)} ${[order?.payerFirstName, order?.payerLastName].filter(Boolean).join(' ') || ''},</p>
+  <p>${t('email.conflictBody1', locale)}</p>
+  <p><strong>${t('email.conflictBody2', locale)}</strong></p>
+  <p>${t('email.conflictOrderRef', locale)}&nbsp;: <strong>${order._id}</strong></p>`;
   try { await sendMail({ to, subject, html }); }
   catch (e) { console.warn('[finalize] conflict mail failed:', e.message); }
 }

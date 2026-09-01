@@ -1,8 +1,9 @@
 {
-  "subscription.title": "Saison {{seasonCode}}",
-  "subscription.lead": "Bienvenue pour la saison {{seasonCode}} — profitez de tous les matchs à domicile.",
-  "subscription.help": "Sélectionnez un siège sur le plan ou ajoutez des places par zone.",
-  "subscription.payButton": "Payer mon abonnement {{seasonCode}}",
-  "subscription.emailConfirmation": "Votre confirmation sera envoyée par email une fois le paiement validé.",
-  "subscription.ticket": "Votre billet saison sera disponible après confirmation."
+  "_comment": "Menu of keys available at the season level. Copy ONLY the ones you actually want to override for this season into data/customization/seasons/<code>.json — do not paste the whole file. See data_references/README.md > Customization files.",
+  "subscription.title": { "fr": "Saison {{seasonCode}}", "en": "Season {{seasonCode}}" },
+  "subscription.lead": { "fr": "Bienvenue pour la saison {{seasonCode}} — profitez de tous les matchs à domicile.", "en": "Welcome to the {{seasonCode}} season — enjoy every home match." },
+  "subscription.help": { "fr": "Sélectionnez un siège sur le plan ou ajoutez des places par zone.", "en": "Select a seat on the plan or add seats by zone." },
+  "subscription.payButton": { "fr": "Payer mon abonnement {{seasonCode}}", "en": "Pay for my {{seasonCode}} season pass" },
+  "subscription.emailConfirmation": { "fr": "Votre confirmation sera envoyée par email une fois le paiement validé.", "en": "Your confirmation will be emailed once payment is validated." },
+  "subscription.ticket": { "fr": "Votre billet saison sera disponible après confirmation.", "en": "Your season ticket will be available after confirmation." }
 }

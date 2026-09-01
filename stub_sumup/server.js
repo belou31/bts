@@ -18,7 +18,8 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-const checkouts = new Map();
+const checkouts = new Map();         // checkout_reference -> checkout
+const checkoutsById = new Map();     // id -> checkout (real SumUp's GET /v0.1/checkouts/{id} looks up by id, not by the merchant reference)
 const webhookTimers = new Map();
 let defaultScenario = 'manual'; // manual | success | failure
 
@@ -247,6 +248,7 @@ app.post('/v0.1/checkouts', (req, res) => {
   };
   checkout.installments = computeInstallmentPlan(checkout, body);
   checkouts.set(reference, checkout);
+  checkoutsById.set(id, checkout);
   res.json({
     id,
     checkout_reference: reference,
@@ -261,7 +263,7 @@ app.post('/v0.1/checkouts', (req, res) => {
 });
 
 function loadCheckout(ref, res) {
-  const checkout = checkouts.get(ref);
+  const checkout = checkouts.get(ref) || checkoutsById.get(ref);
   if (!checkout) {
     res.status(404).json({ error: 'checkout_not_found' });
     return null;

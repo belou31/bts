@@ -24,6 +24,7 @@ dotenv.config();
 import { Order } from '../../src/models/Order.js';
 import { Seat } from '../../src/models/Seat.js';
 import { sendOrderAttestationIfNeeded } from '../../src/services/order-finalization.js';
+import { isVirtualZoneSeatId } from '../../src/utils/seat-id.js';
 
 const args = minimist(process.argv.slice(2), {
   boolean: ['commit', 'force', 'sendEmails', 'dryRun'],
@@ -43,8 +44,6 @@ const COMMIT = !!args.commit;
 const FORCE  = !!args.force;
 const SEND_EMAILS = !!args.sendEmails && COMMIT;
 const DRY_RUN = args.dryRun === true ? true : !COMMIT;
-const VIRTUAL_ZONE_RE = /^.+-Z\d{3,}$/i;
-
 const buildVirtualSeatId = (zoneKey, lineIndex = 0) => {
   const zone = String(zoneKey || '').trim().toUpperCase();
   if (!zone) return '';
@@ -202,7 +201,7 @@ function orderFromRows(orderId, group) {
     const zoneKey = String(row.zoneKey || '').trim().toUpperCase();
     const needsVirtualSeat = !rawSeatId && !!zoneKey;
     const seatId = needsVirtualSeat ? buildVirtualSeatId(zoneKey, lineIndex) : rawSeatId;
-    const isVirtualSeat = needsVirtualSeat || VIRTUAL_ZONE_RE.test(seatId);
+    const isVirtualSeat = needsVirtualSeat || isVirtualZoneSeatId(seatId);
 
     return {
       lineIndex,
@@ -212,6 +211,12 @@ function orderFromRows(orderId, group) {
       priceCents: toNumber(row.priceCents || 0, 0),
       holderFirstName: row.holderFirstName || '',
       holderLastName: row.holderLastName || '',
+      // Optional — not in CSV_COLUMNS so older CSVs without them still import,
+      // but read them when present so a tariff requiring extra info (see
+      // Tariff.requiresField/fieldLabel) round-trips through export→import.
+      justif: row.justif || '',
+      justificationField: row.justificationField || '',
+      info: row.info || '',
       isVirtualSeat
     };
   }).sort((a, b) => a.lineIndex - b.lineIndex);
@@ -336,10 +341,14 @@ async function main() {
       lines: lines.map(l => ({
         seatId: l.seatId,
         zoneKey: l.zoneKey || (l.seatId ? String(l.seatId).split('-')[0] : ''),
+        unitType: l.isVirtualSeat ? 'zone' : 'seat',
         tariffCode: l.tariffCode || 'NORMAL',
         priceCents: l.priceCents || 0,
         holderFirstName: l.holderFirstName || '',
-        holderLastName:  l.holderLastName  || ''
+        holderLastName:  l.holderLastName  || '',
+        justif: l.justif || '',
+        justificationField: l.justificationField || '',
+        info: l.info || ''
       })),
       totalCents: parsed.totalCents || 0,
       status,

@@ -4,6 +4,7 @@ import { Seat }   from '../models/Seat.js';
 import { Ticket } from '../models/Ticket.js';
 import { Event }  from '../models/Event.js';
 import { Tariff } from '../models/Tariff.js';
+import { isZoneUnit, resolveUnitType } from '../utils/seat-id.js';
 
 const csvEscape = (v) => {
   if (v == null) return '';
@@ -11,7 +12,6 @@ const csvEscape = (v) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 };
 
-const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 const normalizeTariffCode = (value) => String(value || '').trim().toUpperCase();
 
 function chooseTariffForEvent(tariffDocs = [], eventDoc = null) {
@@ -122,7 +122,8 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
     'payerFirstName','payerLastName','payerEmail',
     'seasonCode','venueSlug','paymentSplit','totalCents',
     'providerName','haOrderId','checkoutIntentId','lastReturnCode','lastWebhookEvent','attestationSentAt',
-    'lineIndex','seatId','zoneKey','tariffCode','priceCents','holderFirstName','holderLastName'
+    'lineIndex','seatId','zoneKey','tariffCode','priceCents','holderFirstName','holderLastName',
+    'justif','justificationField','info'
   ].join(',');
   if (includeHeader) out.write(header + '\n');
 
@@ -134,7 +135,9 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
     const baseFields = [
       o._id,
       o.createdAt?.toISOString?.() || '',
-      o.phase || '',
+      // The Order model has no top-level `phase` field (strict:true, only
+      // `origin.flow` exists) — `o.phase` was always undefined here.
+      o.origin?.flow || '',
       o.status || '',
       o.payerFirstName || '',
       o.payerLastName  || '',
@@ -153,8 +156,8 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
 
     const lines = Array.isArray(o.lines) ? o.lines : [];
     if (!lines.length) {
-      // 7 colonnes ligne: lineIndex..holderLastName → valeurs vides
-      const rowFields = [...baseFields, 0, '', '', '', 0, '', ''];
+      // 10 colonnes ligne: lineIndex..info → valeurs vides
+      const rowFields = [...baseFields, 0, '', '', '', 0, '', '', '', '', ''];
       out.write(rowFields.map(csvEscape).join(',') + '\n');
 
       continue;
@@ -169,7 +172,10 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
         l.tariffCode || '',
         l.priceCents || 0,
         l.holderFirstName || '',
-        l.holderLastName  || ''
+        l.holderLastName  || '',
+        l.justif || '',
+        l.justificationField || '',
+        l.info || ''
       ];
       out.write(rowFields.map(csvEscape).join(',') + '\n');
 
@@ -438,7 +444,7 @@ export async function exportEventTicketsCsv({
       csvEscape(ticket.venueSlug || ''),
       csvEscape(ticket.seatId || ''),
       csvEscape(zoneFromSeatId(ticket.seatId || '')),
-      csvEscape(isVirtualZoneSeatId(ticket.seatId || '') ? '1' : '0'),
+      csvEscape(isZoneUnit({ unitType: ticket.unitType, seatId: ticket.seatId }) ? '1' : '0'),
       csvEscape(tariffCode),
       csvEscape(requiresOut),
       csvEscape(holder.firstName || ''),
@@ -507,6 +513,7 @@ export async function exportEventTicketsCsv({
         return `${zone}-GA-${suffix}-${index}`;
       })();
       const seatId = seatCandidate || fallbackSeat;
+      const unitType = resolveUnitType({ unitType: line.unitType, seatId: seatCandidate });
       const tariffCode = normalizeTariffCode(line.tariffCode || metaTicket.tariff || metaTicket.tariffCode);
       const createdAtOut = metaTicket.createdAt ? new Date(metaTicket.createdAt).toISOString()
         : (orderDoc.createdAt ? new Date(orderDoc.createdAt).toISOString() : '');
@@ -536,7 +543,7 @@ export async function exportEventTicketsCsv({
         csvEscape(orderDoc.venueSlug || ''),
         csvEscape(seatId),
         csvEscape(zoneFromSeatId(seatId)),
-        csvEscape(isVirtualZoneSeatId(seatId) ? '1' : '0'),
+        csvEscape(unitType === 'zone' ? '1' : '0'),
         csvEscape(tariffCode),
         csvEscape(requiresOut),
         csvEscape(holderFirst),

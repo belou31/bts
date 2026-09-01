@@ -1,0 +1,8 @@
+# campaignSlug,contentType,slot,qrValue,text,tariffCode,zoneKey,zoneType,priority,startsAt,endsAt,active
+club-partner,image,adPict,,,,,,10,,,true
+club-partner,qr,adQr,,,,,,10,,,true
+north-bank,image,adPict,,,,N,,100,,,true
+family-snacks,image,adPict,,,CHILD,,,100,,,true
+family-snacks,text,AD_TEXT,,"Kids eat free with this ticket!",CHILD,,,100,,,true
+fanzone-energy,image,adPict,,,,FAN_ZONE,,100,,,true
+fanzone-energy,qr,adQr,ENERGY-FREECAN-2026,,,FAN_ZONE,,100,,,true

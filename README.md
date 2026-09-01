@@ -22,13 +22,19 @@
 
 For the full reference (commands, environment variables, templates), read [docs/scripts-catalog.md](docs/scripts-catalog.md).
 
-## Spreadsheet Automations
+## Spreadsheet & Desktop Automations
 
-- `scripts_libreoffice/` — Python macros for LibreOffice Calc (DEV/local flows).
-- `scripts_google/` — Google Apps Script snippets for Google Sheets (INT/PROD).
-- `scripts_microsoft/` — VBA scaffolding for Microsoft Excel (future extension).
+- `automation_client/` — shared Python client (config resolution, JWT signing, HTTP calls to `/api/automation`, env/log helpers) used by every desktop surface below.
+- `scripts_desktop/` — surfaces that run on an operator's machine, all sharing `automation_client/`:
+  - `libreoffice/` — Python macros for LibreOffice/OpenOffice Calc (DEV/local flows).
+  - `microsoft_excel/` — VBA scaffolding for Microsoft Excel desktop (placeholder, not yet implemented).
+  - `apple_numbers/` — AppleScript scaffolding for Apple Numbers, macOS only (placeholder, not yet implemented).
+  - `cli/` — local command line, reading CSVs straight off disk (see [scripts_desktop/cli/README.md](scripts_desktop/cli/README.md)).
+- `scripts_online/` — surfaces that only exist in a browser/cloud runtime, each in its own scripting language by platform constraint:
+  - `google/` — Google Apps Script for Google Sheets (INT/PROD).
+  - `microsoft_excel/` — Office Scripts (TypeScript) for Excel Online/365.
 
-Each tree mirrors the `scripts/` lifecycle categories (`02-tariff-management`, `03-season-management`, `04-event-management`) so spreadsheet tooling stays aligned with the admin “Operate” catalog.
+Each tree mirrors the `scripts/` lifecycle categories (`02-tariff-management`, `03-season-management`, `04-event-management`) so spreadsheet/desktop tooling stays aligned with the admin “Operate” catalog.
 
 ### Shared automation secrets
 
@@ -42,7 +48,7 @@ AUTOMATION_JWT_SCOPES=automation:jobs:write automation:jobs:run
 BTS_BASE_URL=https://billetterie-test.belougas.fr/bts
 ```
 
-- LibreOffice macros automatically read this file via `env_loader.py` when present. Copy `scripts_libreoffice/env_loader.py`, `menu_placeholders.py`, and any automation macro (e.g. `03-season-management/send_renew_invites.py`) into your LibreOffice `Scripts/python/` directory so they can pick it up.
+- LibreOffice macros and the local CLI automatically read this file via `automation_client.ensure_env_loaded()` when present. For LibreOffice, symlink both `scripts_desktop/` and `automation_client/` into your LibreOffice `Scripts/python/` directory — see [scripts_desktop/libreoffice/README.md](scripts_desktop/libreoffice/README.md) — so any macro (e.g. `03-season-management/send_renew_invites.py`) can pick it up.
 - Node scripts can source the same file by prepending `-r ./tools/loadAutomationEnv.js` (alongside `-r dotenv/config` if you also load an environment-specific `.env`). For convenience set:
 
   ```bash

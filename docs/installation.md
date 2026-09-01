@@ -229,6 +229,24 @@ Le playbook historique VPS reste disponible ici :
 
 - [PLAYBOOK.md](PLAYBOOK.md)
 
+### Mettre à jour un déploiement existant (INT / PROD)
+
+Une fois BTS déjà installé, chaque mise à jour de code doit repasser par ces étapes — dans cet ordre. Sauter `npm install` est la cause la plus fréquente de 502 après déploiement : le process démarre avec l'ancien code en mémoire, puis crashe au premier redémarrage dès qu'une dépendance ajoutée entre-temps (ex. `marked`, `archiver`, `@google/clasp`) manque dans `node_modules/` — voir [troubleshooting.md](troubleshooting.md).
+
+```bash
+cd ~/bts
+git pull
+npm install
+node scripts/00-system-management/pm2-control.js --name=bts --action=restart
+```
+
+Puis vérifier que le process est bien reparti avant de considérer le déploiement terminé :
+
+```bash
+pm2 status
+pm2 logs bts --lines 30 --nostream
+```
+
 ## 10. Variables à connaître immédiatement
 
 ### Obligatoires en pratique
