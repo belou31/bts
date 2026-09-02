@@ -260,7 +260,12 @@ export default function routes(router) {
       heading,
       lead,
       planHelp: 'Cliquez sur votre siège pour le renouveler. Les zones TBH7 et Debout restent accessibles via le plan.',
-      scheduleOptions: null,
+      // Même échéancier que l'abonnement : un renouvellement porte le même
+      // montant annuel, il n'y a pas de raison d'en refuser le paiement en
+      // plusieurs fois. Le serveur l'acceptait déjà (POST /s/renew valide
+      // schedule 1|2|3 et l'écrit dans Order.paymentSplit) ; seule la liste
+      // d'options était vide, donc le sélecteur restait bloqué sur 1.
+      scheduleOptions: [1, 2, 3],
       // Une place supplémentaire peut être prise en zone debout, pas seulement
       // sur un siège numéroté : sans ce bloc, order/index.ejs ne rend pas le
       // conteneur #zoneButtons et renew.js n'a nulle part où poser les boutons.
