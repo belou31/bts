@@ -594,6 +594,32 @@ function buildEventOrderMatch(eventDoc = null) {
   };
 }
 
+// Ce qui vaut réservation de SAISON, par opposition à un match.
+//
+// Même définition que services/event-season-sync.js : un renouvellement est
+// une façon de reprendre son abonnement, pas un flux à part. Les trois champs
+// sont testés parce que les commandes anciennes n'ont pas toutes `origin.flow`.
+const SEASON_ORDER_FLOWS = ['subscription', 'renew'];
+
+// Valeur de l'option « Saison » du sélecteur d'événement.
+const SEASON_SCOPE = '__season__';
+
+function buildSeasonOrderMatch(seasonCode, venueSlug) {
+  if (!seasonCode) return null;
+  return {
+    seasonCode,
+    ...(venueSlug ? { venueSlug } : {}),
+    // Une commande de match dérivée d'un abonnement porte le seasonCode : on
+    // l'exclut, sans quoi le plan « saison » afficherait les places d'un match.
+    eventId: null,
+    $or: [
+      { 'origin.flow': { $in: SEASON_ORDER_FLOWS } },
+      { phase: { $in: SEASON_ORDER_FLOWS } },
+      { mailTemplateKind: { $in: SEASON_ORDER_FLOWS } }
+    ]
+  };
+}
+
 function prepareScriptCatalog() {
   const scriptGroups = adminScriptGroups
     .slice()
@@ -871,10 +897,17 @@ router.get('/plan', async (req, res) => {
   const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
     .sort({ startsAt: 1 })
     .lean();
+  // SEASON_SCOPE : « pas d'événement, montre-moi la saison ». Un `event=` vide
+  // ne suffit pas — il retombe sur le premier match, si bien qu'on ne pouvait
+  // jamais demander la vue saison. Une valeur explicite ne peut pas non plus
+  // être confondue avec un slug réel.
   const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
     ? req.query.event
     : (eventsRaw[0]?.slug || null);
-  const selectedEvent = eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null;
+  const seasonScope = selectedEventSlug === SEASON_SCOPE;
+  const selectedEvent = seasonScope
+    ? null
+    : (eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null);
 
   const effectiveSeasonCode = selectedEvent?.seasonCode || selectedSeasonCode || null;
   const effectiveVenueSlug = selectedEvent?.venueSlug || selectedSeason?.venueSlug || null;
@@ -905,18 +938,19 @@ router.get('/plan', async (req, res) => {
       seatStatusById.set(seatId, mapSeatStateForPlan(seat?.status));
     }
 
-    if (selectedEvent?._id) {
-      const eventId = String(selectedEvent._id);
-      const eventSlug = String(selectedEvent.slug || '').trim();
+    // Détail des réservations : par match si un match est choisi, sinon par
+    // SAISON. Auparavant ce bloc ne s'exécutait que pour un match, si bien
+    // qu'un plan de saison n'affichait que « booked », sans jamais dire par qui.
+    const detailMatch = selectedEvent?._id
+      ? { ...buildEventOrderMatch(selectedEvent), status: { $in: ['paid', 'tobepaid'] } }
+      : (() => {
+          const m = buildSeasonOrderMatch(effectiveSeasonCode, effectiveVenueSlug);
+          return m ? { ...m, status: { $in: ['paid', 'tobepaid'] } } : null;
+        })();
+
+    if (detailMatch) {
       const eventOrders = await Order.find(
-        {
-          status: { $in: ['paid', 'tobepaid'] },
-          $or: [
-            { eventId },
-            { 'meta.eventId': eventId },
-            ...(eventSlug ? [{ 'meta.eventSlug': eventSlug }] : [])
-          ]
-        },
+        detailMatch,
         {
           _id: 1,
           status: 1,
@@ -1012,7 +1046,9 @@ router.get('/plan', async (req, res) => {
         activity: ev.activity || 'draft'
       })),
       selectedSeasonCode,
-      selectedEventSlug: selectedEvent ? selectedEvent.slug : null,
+      // Renvoie le sentinelle quand la vue saison est demandée, pour que
+      // le <select> reste sur « Saison » après rechargement.
+      selectedEventSlug: seasonScope ? SEASON_SCOPE : (selectedEvent ? selectedEvent.slug : null),
       selectedEvent: selectedEvent
         ? {
             id: String(selectedEvent._id),
@@ -1050,15 +1086,27 @@ router.get('/orders', async (req, res) => {
   const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
     .sort({ startsAt: 1 })
     .lean();
+  // SEASON_SCOPE : « pas d'événement, montre-moi la saison ». Un `event=` vide
+  // ne suffit pas — il retombe sur le premier match, si bien qu'on ne pouvait
+  // jamais demander la vue saison. Une valeur explicite ne peut pas non plus
+  // être confondue avec un slug réel.
   const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
     ? req.query.event
     : (eventsRaw[0]?.slug || null);
-  const selectedEvent = eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null;
+  const seasonScope = selectedEventSlug === SEASON_SCOPE;
+  const selectedEvent = seasonScope
+    ? null
+    : (eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null);
 
   let rows = [];
-  if (selectedEvent) {
-    const eventMatch = buildEventOrderMatch(selectedEvent);
-    const orderMatch = eventMatch || {};
+  // Périmètre : un match, ou la SAISON (abonnements + renouvellements). Sans le
+  // second, sélectionner une saison sans match n'affichait aucune commande —
+  // alors que ce sont précisément celles-là qui remplissent le plan de saison.
+  const orderScopeMatch = seasonScope
+    ? buildSeasonOrderMatch(selectedSeasonCode, selectedSeason?.venueSlug || null)
+    : (selectedEvent ? buildEventOrderMatch(selectedEvent) : null);
+  if (orderScopeMatch) {
+    const orderMatch = orderScopeMatch;
     const ordersRaw = await Order.find(
       orderMatch,
       {
@@ -1165,7 +1213,9 @@ router.get('/orders', async (req, res) => {
         venueSlug: ev.venueSlug || null
       })),
       selectedSeasonCode,
-      selectedEventSlug: selectedEvent ? selectedEvent.slug : null,
+      // Renvoie le sentinelle quand la vue saison est demandée, pour que
+      // le <select> reste sur « Saison » après rechargement.
+      selectedEventSlug: seasonScope ? SEASON_SCOPE : (selectedEvent ? selectedEvent.slug : null),
       selectedEvent: selectedEvent
         ? {
             id: String(selectedEvent._id),
