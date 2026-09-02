@@ -4197,6 +4197,33 @@
         });
       };
 
+      // Interroge le job jusqu'à ce qu'il aboutisse, puis affiche son résumé.
+      const followAutomationJob = async (scriptId, jobId, output) => {
+        if (!jobId) return;
+        const deadline = Date.now() + 5 * 60 * 1000;   // garde-fou : 5 min
+        const container = document.querySelector(`[data-automation-jobs="${scriptId}"]`);
+        const jobsUrl = container && container.dataset.jobsUrl;
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 2000));
+          await refreshAutomationJobs(scriptId);
+          const jobs = AUTOMATION_JOBS_STATE[scriptId] || [];
+          const job = jobs.find(j => String(j.id) === String(jobId));
+          if (!job) { if (!jobsUrl) return; continue; }
+          if (job.status === 'succeeded' || job.status === 'failed') {
+            const mode = job.dryRun ? ' [simulation — rien envoyé]' : '';
+            // Le résumé de la tâche vit dans result.summary (voir
+            // serializeJob) ; « summary » à la racine désigne autre chose.
+            const summary = (job.result && job.result.summary) || 'Terminé';
+            output.textContent = job.status === 'succeeded'
+              ? `✔ ${summary}${mode}`
+              : `✖ Échec : ${job.error || 'voir le journal du job'}`;
+            return;
+          }
+          output.textContent = `⏳ Job ${jobId} (${job.status})…`;
+        }
+        output.textContent = `⏳ Job ${jobId} — toujours en cours, voir la liste ci-dessous.`;
+      };
+
       const setupAutomationForm = (form) => {
         const scriptId = form.dataset.scriptId;
         const defaultDryRun = form.dataset.defaultDryRun === 'true';
@@ -4240,9 +4267,14 @@
               output.textContent = `✖ ${data.error || response.statusText}`;
             } else {
               const job = data.job || {};
-              output.textContent = `✔ Job ${job.id || '—'} (${job.status || 'queued'})`;
+              output.textContent = `⏳ Job ${job.id || '—'} (${job.status || 'queued'})…`;
               refreshAutomationJobs(scriptId, { highlightJobId: job.id });
-              setTimeout(() => refreshAutomationJobs(scriptId), 4000);
+              // Suivi jusqu'à l'état final. Deux rafraîchissements (immédiat et
+              // à 4 s) ne suffisaient pas : une campagne d'invitations attend
+              // ~800 ms entre deux envois, donc 25 destinataires prennent une
+              // vingtaine de secondes. L'opérateur restait sur « queued » et
+              // croyait la tâche sans effet.
+              followAutomationJob(scriptId, job.id, output);
             }
           } catch (err) {
             output.textContent = `✖ ${err && err.message ? err.message : err}`;
