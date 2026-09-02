@@ -673,6 +673,17 @@ export const adminScriptGroups = [
               arg: { type: 'option', template: '--season=${value}' }
             },
             {
+              // Sans cette case, dryRun retombait toujours sur defaultDryRun
+              // (true) : la tâche s'exécutait, réussissait, et n'envoyait
+              // jamais rien — un « job succeeded » sans le moindre courriel.
+              // Cochée par défaut : l'envoi réel reste un geste délibéré.
+              name: 'dryRun',
+              label: 'Simulation (ne rien envoyer)',
+              type: 'checkbox',
+              default: true,
+              hint: 'Décochez pour envoyer réellement les invitations.'
+            },
+            {
               name: 'deadline',
               label: 'Date limite (optionnel)',
               type: 'datetime',
