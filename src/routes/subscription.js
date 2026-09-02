@@ -417,7 +417,16 @@ router.post('/checkout', async (req, res) => {
       itemName: partner ? `PARTNER_SUBSCRIPTION_${seasonCode}` : `SUBSCRIPTION_${seasonCode}`,
       seasonCode, venueSlug,
       phase: 'subscription',
-      groupKey: partner ? `PARTNER-${partner.slug.toUpperCase()}-${seasonCode}` : `SUBSCRIPTION-${seasonCode}`,
+      // groupKey UNIQUE par commande, comme le fait déjà le flux événement
+      // (event-flow.factory.js). Un groupKey constant par saison faisait porter
+      // à l'index uniq_paid_per_payer (saison, lieu, groupKey, payeur) le sens
+      // « un seul paiement abouti par personne et par saison » : la seconde
+      // commande d'un même acheteur — un siège ajouté en cours de saison —
+      // était rejetée APRÈS réservation des sièges.
+      // Le regroupement fonctionnel reste lisible via origin.flow et seasonCode.
+      groupKey: partner
+        ? `PARTNER-${partner.slug.toUpperCase()}-${seasonCode}-${new mongoose.Types.ObjectId().toString()}`
+        : `SUBSCRIPTION-${seasonCode}-${new mongoose.Types.ObjectId().toString()}`,
       payerFirstName: norm(payer.firstName || ''),
       payerLastName:  norm(payer.lastName  || ''),
       payerEmail:     norm(payer.email     || ''),

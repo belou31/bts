@@ -1,4 +1,5 @@
 // src/routes/renew.js
+import mongoose from 'mongoose';   // ObjectId pour un groupKey unique par commande
 import express from 'express';
 import jwt from 'jsonwebtoken';
 
@@ -583,7 +584,10 @@ router.post('/renew', async (req, res) => {
       seasonCode,
       venueSlug,
       phase: 'renew',
-      groupKey: `RENEW-${seasonCode}`, // regroupement fonctionnel
+      // Unique par commande — voir subscription.js : un groupKey constant
+      // transformait uniq_paid_per_payer en « un seul renouvellement payé par
+      // personne et par saison », rejetant tout second paiement légitime.
+      groupKey: `RENEW-${seasonCode}-${new mongoose.Types.ObjectId().toString()}`,
       payerFirstName: String(payer.firstName || ''),
       payerLastName:  String(payer.lastName  || ''),
       payerEmail:     String(payer.email     || ''),
