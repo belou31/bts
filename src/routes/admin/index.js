@@ -904,7 +904,12 @@ router.get('/plan', async (req, res) => {
   const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
     ? req.query.event
     : (eventsRaw[0]?.slug || null);
-  const seasonScope = selectedEventSlug === SEASON_SCOPE;
+  // Repli sur la saison quand le lieu n'a AUCUN match : pendant une campagne de
+  // renouvellement, les rencontres ne sont pas encore créées, donc
+  // selectedEventSlug est null — ni un match, ni le sentinelle. La vue ne
+  // montrait alors rien du tout, alors que ce sont précisément les seules
+  // commandes existantes.
+  const seasonScope = selectedEventSlug === SEASON_SCOPE || !eventsRaw.length;
   const selectedEvent = seasonScope
     ? null
     : (eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null);
@@ -1093,7 +1098,12 @@ router.get('/orders', async (req, res) => {
   const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
     ? req.query.event
     : (eventsRaw[0]?.slug || null);
-  const seasonScope = selectedEventSlug === SEASON_SCOPE;
+  // Repli sur la saison quand le lieu n'a AUCUN match : pendant une campagne de
+  // renouvellement, les rencontres ne sont pas encore créées, donc
+  // selectedEventSlug est null — ni un match, ni le sentinelle. La vue ne
+  // montrait alors rien du tout, alors que ce sont précisément les seules
+  // commandes existantes.
+  const seasonScope = selectedEventSlug === SEASON_SCOPE || !eventsRaw.length;
   const selectedEvent = seasonScope
     ? null
     : (eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null);

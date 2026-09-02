@@ -1926,7 +1926,7 @@ export const adminScriptGroups = [
         label: 'Export Season Orders (subscriptions + renewals)',
         order: 7,
         path: 'scripts/03-season-management/export-subscription-orders.js',
-        command: 'node scripts/03-season-management/export-subscription-orders.js [--season=...] [--venue=...] [--status=paid] [--flow=subscription|renew]',
+        command: 'node scripts/03-season-management/export-subscription-orders.js [--season=...] [--venue=...] [--status=paid] [--flow=subscription|renew] [--out=<fichier.csv>]',
         run: {
           script: 'scripts/03-season-management/export-subscription-orders.js',
           args: []
@@ -1962,6 +1962,12 @@ export const adminScriptGroups = [
                 { label: 'Souscriptions seulement', value: 'subscription' },
                 { label: 'Renouvellements seulement', value: 'renew' }
               ]
+            },
+            {
+              name: 'out',
+              label: 'Nom du fichier (optionnel)',
+              placeholder: 'data/outputs/season-orders.csv',
+              arg: { type: 'option', template: '--out=${value}' }
             }
           ]
         }
