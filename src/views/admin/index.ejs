@@ -1547,6 +1547,9 @@
           <label>
             Événement
             <select name="event" data-auto-submit="change">
+              <option value="__season__" <%= planView.selectedEventSlug === '__season__' ? 'selected' : '' %>>
+                — Saison (abonnements + renouvellements) —
+              </option>
               <% if (planView.events && planView.events.length) { %>
                 <% for (const ev of planView.events) { const eventDate = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
                   <option value="<%= ev.slug %>" <%= ev.slug === planView.selectedEventSlug ? 'selected' : '' %>>
@@ -1670,6 +1673,9 @@
           <label>
             Événement
             <select name="event" data-auto-submit="change">
+              <option value="__season__" <%= ordersView.selectedEventSlug === '__season__' ? 'selected' : '' %>>
+                — Saison (abonnements + renouvellements) —
+              </option>
               <% if (ordersView.events && ordersView.events.length) { %>
                 <% for (const ev of ordersView.events) { const eventDate = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
                   <option value="<%= ev.slug %>" <%= ev.slug === ordersView.selectedEventSlug ? 'selected' : '' %>>
