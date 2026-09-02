@@ -164,9 +164,15 @@ async function main() {
   console.log('\n✅ Identifiants acceptés.');
   console.log(`   compte SumUp    : ${account || '(code marchand non renvoyé)'}`);
   if (account && process.env.SUMUP_MERCHANT_CODE && account !== String(process.env.SUMUP_MERCHANT_CODE).trim()) {
-    console.log(`   ❌ mais SUMUP_MERCHANT_CODE vaut « ${process.env.SUMUP_MERCHANT_CODE} » : la clé n'appartient pas à ce marchand.`);
-    console.log('      C\'est précisément ce que SumUp refuse à la création du checkout.');
-    process.exitCode = 1;
+    // Signalé, pas condamné : un écart est NORMAL quand SUMUP_MERCHANT_CODE
+    // désigne un sous-compte (bac à sable) rattaché au compte de la clé.
+    // /me renvoie le compte propriétaire de la clé, pas le marchand facturé.
+    // Ne pas conclure à une panne : si les checkouts aboutissent, la
+    // combinaison est acceptée par SumUp telle quelle.
+    console.log(`   ⚠ SUMUP_MERCHANT_CODE vaut « ${process.env.SUMUP_MERCHANT_CODE} », la clé appartient à « ${account} ».`);
+    console.log('     Normal si le premier est un sous-compte (bac à sable) du second.');
+    console.log('     À vérifier seulement si la CRÉATION du checkout échoue en 401/403 :');
+    console.log('     les paiements qui aboutissent prouvent que SumUp accepte cette combinaison.');
   }
 }
 
