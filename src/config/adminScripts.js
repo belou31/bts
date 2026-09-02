@@ -1923,10 +1923,10 @@ export const adminScriptGroups = [
       },
       {
         id: 'export-subscription-orders',
-        label: 'Export Subscription Orders',
+        label: 'Export Season Orders (subscriptions + renewals)',
         order: 7,
         path: 'scripts/03-season-management/export-subscription-orders.js',
-        command: 'node scripts/03-season-management/export-subscription-orders.js [--season=...] [--venue=...] [--status=paid]',
+        command: 'node scripts/03-season-management/export-subscription-orders.js [--season=...] [--venue=...] [--status=paid] [--flow=subscription|renew]',
         run: {
           script: 'scripts/03-season-management/export-subscription-orders.js',
           args: []
@@ -1952,6 +1952,16 @@ export const adminScriptGroups = [
               label: 'Statut (optionnel)',
               placeholder: 'paid',
               arg: { type: 'option', template: '--status=${value}' }
+            },
+            {
+              name: 'flow',
+              label: 'Restreindre à un flux (optionnel)',
+              arg: { type: 'option', template: '--flow=${value}' },
+              options: [
+                { label: 'Les deux (défaut)', value: '' },
+                { label: 'Souscriptions seulement', value: 'subscription' },
+                { label: 'Renouvellements seulement', value: 'renew' }
+              ]
             }
           ]
         }
