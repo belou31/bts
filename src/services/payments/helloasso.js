@@ -225,6 +225,9 @@ const provider = {
   id: 'helloasso',
   label: 'HelloAsso',
   uxCapabilities: ['redirect'],
+  // HelloAsso accepte un échéancier natif : createCheckoutIntent construit
+  // terms[] avec les dates et les montants.
+  supportsInstallments: true,
   docs: {
     env: [
       'PAYMENT_PROVIDER',

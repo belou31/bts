@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 
-import { currentPaymentProviderLabel } from '../services/payments/index.js';
+import { currentPaymentProviderLabel, availableScheduleOptions } from '../services/payments/index.js';
 import { Event } from '../models/Event.js';
 import { Season } from '../models/Season.js';
 import { Venue } from '../models/Venue.js';
@@ -260,12 +260,11 @@ export default function routes(router) {
       heading,
       lead,
       planHelp: 'Cliquez sur votre siège pour le renouveler. Les zones TBH7 et Debout restent accessibles via le plan.',
-      // Même échéancier que l'abonnement : un renouvellement porte le même
-      // montant annuel, il n'y a pas de raison d'en refuser le paiement en
-      // plusieurs fois. Le serveur l'acceptait déjà (POST /s/renew valide
-      // schedule 1|2|3 et l'écrit dans Order.paymentSplit) ; seule la liste
-      // d'options était vide, donc le sélecteur restait bloqué sur 1.
-      scheduleOptions: [1, 2, 3],
+      // Même échéancier que l'abonnement — mais seulement si le prestataire
+      // sait l'encaisser. SumUp ne le sait pas : son API prend un montant et
+      // le prélève. Proposer « en 3 fois » débitait la totalité tout en
+      // annonçant trois échéances dans le courriel de confirmation.
+      scheduleOptions: availableScheduleOptions(),
       // Une place supplémentaire peut être prise en zone debout, pas seulement
       // sur un siège numéroté : sans ce bloc, order/index.ejs ne rend pas le
       // conteneur #zoneButtons et renew.js n'a nulle part où poser les boutons.
@@ -368,7 +367,7 @@ export default function routes(router) {
         heading,
         lead,
         planHelp,
-        scheduleOptions: [1, 2, 3],
+        scheduleOptions: availableScheduleOptions(),
         zoneSelector: {
           enabled: true,
           label: 'Choisir sur Plan ou Ajouter Zone:',
@@ -869,7 +868,7 @@ export default function routes(router) {
         heading,
         lead,
         planHelp,
-        scheduleOptions: [1, 2, 3],
+        scheduleOptions: availableScheduleOptions(),
         paymentHelp,
         assets: ASSETS_BASE,
         zoneSelector: {

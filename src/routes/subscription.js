@@ -9,7 +9,7 @@ import { Tariff }      from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Order }       from '../models/Order.js';
 
-import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId, currentPaymentSupportsInstallments } from '../services/payments/index.js';
 import { makeTokenHash }        from '../utils/ha-token.js';
 import { findSingleGaps }       from '../utils/no-single-gap.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
@@ -216,6 +216,13 @@ router.post('/checkout', async (req, res) => {
 
     if (!items.length) return res.status(400).json({ error: 'no_lines' });
     if (![1,2,3].includes(schedule)) return res.status(400).json({ error: 'invalid_schedule' });
+    // Garde-fou serveur : le sélecteur ne propose l'échéancier que si le
+    // prestataire sait l'encaisser, mais une requête forgée pourrait tout de
+    // même demander 3. On refuse plutôt que d'enregistrer un échéancier qui
+    // ne sera jamais honoré — le client serait débité en une fois.
+    if (schedule > 1 && !currentPaymentSupportsInstallments()) {
+      return res.status(400).json({ error: 'installments_unsupported' });
+    }
 
     // Prix / Tarifs
     // Porte d'entrée : refusée avant toute écriture. Le quota partenaire est
