@@ -83,6 +83,17 @@ async function inspect(order, { commit }) {
 
   const fin = await finalizePaidIfNoConflict(order);
   if (!fin.ok) {
+    if (fin.duplicate) {
+      // Cas courant en test comme en production : le payeur a déjà une commande
+      // payée pour cette saison. L'index uniq_paid_per_payer l'interdit — un
+      // seul paiement abouti par personne, par saison et par groupKey.
+      console.log('  ❌ Ce payeur a DÉJÀ une commande payée pour cette saison.');
+      console.log('     index uniq_paid_per_payer : (saison, lieu, groupKey, payeur) — un seul « paid ».');
+      console.log('     Soit ce paiement fait double emploi (à rembourser), soit il s\'agit d\'un');
+      console.log('     second achat légitime — et c\'est alors l\'index qu\'il faut revoir.');
+      console.log('     Les sièges ont été remis dans leur état antérieur ; la commande est « failed ».');
+      return;
+    }
     console.log(`  ❌ Finalisation impossible : ${fin.blocked ? 'bloquée' : 'conflit de sièges'} — ${JSON.stringify(fin.conflicts || [])}`);
     return;
   }

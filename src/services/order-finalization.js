@@ -418,7 +418,10 @@ export async function finalizePaidIfNoConflict(order) {
 
   if (!seatIds.length) {
     order.status = 'paid';
-    await order.save();
+    {
+      const failed = await commitPaidOrder(order, meta, now);
+      if (failed) return failed;
+    }
     // Une commande payée SANS siège, c'est l'achat d'un bon : c'est ici, au
     // moment exact où le paiement est acquis, que le bon doit naître. Le faire
     // plus tôt offrirait des places non payées ; plus tard demanderait un
@@ -492,6 +495,14 @@ export async function finalizePaidIfNoConflict(order) {
     return { ok: false, booked: 0, conflicts };
   }
 
+  // État des sièges AVANT toute écriture, pour pouvoir revenir en arrière si
+  // l'enregistrement de la commande échoue ensuite. Un 'provisioned' rendu
+  // 'available' priverait un renouveleur de sa place : on restaure à
+  // l'identique, pas à une valeur par défaut.
+  const priorSeatStates = new Map(
+    (seats || []).map(r => [String(r.seatId), { status: r.status, provisionedFor: r.provisionedFor ?? null }])
+  );
+
   if (isEvent) {
     // ⚽ Cas ÉVÈNEMENT : ne pas “booker” globalement dans Seat.
     // On libère le hold éventuel porté par CETTE commande (sinon il reste “busy” globalement).
@@ -519,7 +530,10 @@ export async function finalizePaidIfNoConflict(order) {
     if (seatIds.length) meta.finalizedSeatIds = seatIds;
     if (meta.conflict) delete meta.conflict;
     order.paymentProviderMeta = meta;
-    await order.save();
+    {
+      const failed = await commitPaidOrder(order, meta, now);
+      if (failed) return failed;
+    }
     return { ok: true, booked: seatIds.length, conflicts: [] };
   } else {
     // 🪑 Cas ABONNEMENT : on “booke” définitivement dans Seat (comportement historique)
@@ -560,9 +574,73 @@ export async function finalizePaidIfNoConflict(order) {
     if (seatIds.length) meta.finalizedSeatIds = seatIds;
     if (meta.conflict) delete meta.conflict;
     order.paymentProviderMeta = meta;
-    await order.save();
+
+    // Les sièges viennent d'être passés à 'booked' ; si l'enregistrement de la
+    // commande échoue APRÈS, on laisse des places réservées au nom d'une
+    // commande qui n'est pas payée — l'état le plus difficile à rattraper.
+    // Le cas réel : l'index uniq_paid_per_payer refuse une SECONDE commande
+    // payée pour le même (saison, lieu, groupKey, payeur).
+    {
+      const failed = await commitPaidOrder(order, meta, now, {
+        onFailure: () => restoreSeatStates(order, priorSeatStates)
+      });
+      if (failed) return failed;
+    }
     return { ok: true, booked: modified, conflicts: [] };
   }  
+}
+
+/**
+ * Enregistre le passage à 'paid', en traitant l'échec comme un cas prévu.
+ *
+ * L'index uniq_paid_per_payer refuse une SECONDE commande payée pour le même
+ * (saison, lieu, groupKey, payeur). Comme groupKey vaut « SUBSCRIPTION-<saison> »
+ * ou « RENEW-<saison> » pour tout le monde, cela revient à : un seul paiement
+ * abouti par personne et par saison. Le rejet arrive APRÈS l'écriture des
+ * sièges — d'où le repli fourni par l'appelant.
+ *
+ * @returns {null|object} null si tout va bien, sinon le résultat d'échec.
+ */
+async function commitPaidOrder(order, meta, now, { onFailure } = {}) {
+  try {
+    await order.save();
+    return null;
+  } catch (err) {
+    if (typeof onFailure === 'function') await onFailure();
+    const duplicate = err?.code === 11000;
+    order.status = 'failed';
+    meta.lastFinalizeResult = duplicate ? 'duplicate_paid_order' : 'save_failed';
+    meta.lastFinalizeConflictAt = now;
+    meta.conflict = {
+      source: 'finalize',
+      kind: duplicate ? 'duplicate_paid_order' : 'save_failed',
+      detail: err?.message || String(err),
+      checkedAt: now
+    };
+    order.paymentProviderMeta = meta;
+    await order.save().catch(() => { /* l'état d'échec est au mieux de nos moyens */ });
+    return {
+      ok: false,
+      booked: 0,
+      duplicate,
+      conflicts: [{ reason: duplicate ? 'duplicate_paid_order' : 'save_failed', detail: err?.message || String(err) }]
+    };
+  }
+}
+
+/** Remet les sièges dans l'état exact où ils étaient avant la finalisation. */
+async function restoreSeatStates(order, priorStates) {
+  for (const [seatId, prior] of priorStates) {
+    const set = { status: prior.status };
+    const update = prior.provisionedFor
+      ? { $set: { ...set, provisionedFor: prior.provisionedFor } }
+      : { $set: set };
+    await Seat.updateOne(
+      { seasonCode: order.seasonCode, venueSlug: order.venueSlug, seatId },
+      update,
+      { runValidators: false }
+    ).catch(() => { /* la restauration ne doit jamais masquer l'erreur d'origine */ });
+  }
 }
 
 export async function sendOrderAttestationIfNeeded(order, options = {}) {
