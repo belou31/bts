@@ -9,7 +9,7 @@ import { Tariff }      from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Order }       from '../models/Order.js';
 
-import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId, currentPaymentSupportsInstallments } from '../services/payments/index.js';
 import { makeTokenHash } from '../utils/ha-token.js';
 import { findSingleGaps }      from '../utils/no-single-gap.js';
 import { isVirtualZoneSeatId, zoneKeyFromSeatId as zoneKeyOf } from '../utils/seat-id.js';
@@ -439,6 +439,13 @@ router.post('/renew', async (req, res) => {
     if (!items.length)        return res.status(400).json({ error: 'empty_items' });
     if (!payer?.email)        return res.status(400).json({ error: 'payer_email_required' });
     if (![1,2,3].includes(schedule)) return res.status(400).json({ error: 'invalid_schedule' });
+    // Garde-fou serveur : le sélecteur ne propose l'échéancier que si le
+    // prestataire sait l'encaisser, mais une requête forgée pourrait tout de
+    // même demander 3. On refuse plutôt que d'enregistrer un échéancier qui
+    // ne sera jamais honoré — le client serait débité en une fois.
+    if (schedule > 1 && !currentPaymentSupportsInstallments()) {
+      return res.status(400).json({ error: 'installments_unsupported' });
+    }
 
     // Sièges vraiment demandés
     const seatIdsAsked = [...new Set(items.map(i => normSeatId(i.seatId)))];
