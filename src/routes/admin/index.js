@@ -1109,6 +1109,7 @@ router.get('/orders', async (req, res) => {
     : (eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null);
 
   let rows = [];
+  let seatStateBySeatId = new Map();
   // Périmètre : un match, ou la SAISON (abonnements + renouvellements). Sans le
   // second, sélectionner une saison sans match n'affichait aucune commande —
   // alors que ce sont précisément celles-là qui remplissent le plan de saison.
@@ -1133,6 +1134,30 @@ router.get('/orders', async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(2500)
       .lean();
+
+    // État RÉEL des sièges, pour le confronter au statut de la commande.
+    //
+    // Une commande « paid » dont les sièges ne sont pas 'booked' est le
+    // symptôme d'une finalisation à moitié faite ; une « pending » dont les
+    // sièges sont déjà 'booked' l'est tout autant. Le statut de commande seul
+    // ne dit rien de la réservation effective.
+    //
+    // Seulement en portée SAISON : pour un match, l'occupation ne se lit pas
+    // dans Seat (qui décrit la saison) mais dans la surcouche des commandes.
+    if (seasonScope && selectedSeasonCode) {
+      const wantedSeatIds = [...new Set(
+        ordersRaw.flatMap(o => (o.lines || [])
+          .map(l => String(l?.seatId || '').trim())
+          .filter(sid => sid && !isVirtualZoneSeatId(sid)))
+      )];
+      if (wantedSeatIds.length) {
+        const seatRows = await Seat.find(
+          { seasonCode: selectedSeasonCode, seatId: { $in: wantedSeatIds } },
+          { seatId: 1, status: 1, _id: 0 }
+        ).lean();
+        seatStateBySeatId = new Map(seatRows.map(r => [String(r.seatId), String(r.status || '')]));
+      }
+    }
 
     rows = ordersRaw.map((order) => {
       const beneficiaries = [];
@@ -1162,10 +1187,36 @@ router.get('/orders', async (req, res) => {
       ]
         .join(' ')
         .toLowerCase();
+      // Résumé de la réservation : « 3/3 réservés », « 0/2 réservés »…
+      let booking = null;
+      if (seasonScope) {
+        const seatIds = (order?.lines || [])
+          .map(l => String(l?.seatId || '').trim())
+          .filter(sid => sid && !isVirtualZoneSeatId(sid));
+        if (seatIds.length) {
+          const booked = seatIds.filter(sid => seatStateBySeatId.get(sid) === 'booked').length;
+          const orderStatus = String(order?.status || '');
+          booking = {
+            booked,
+            total: seatIds.length,
+            // On n'alerte que sur le cas réellement anormal : une commande
+            // PAYÉE dont les sièges ne sont pas réservés — la finalisation
+            // n'est pas allée au bout, le client a payé sans avoir sa place.
+            //
+            // L'inverse (commande non payée, sièges 'booked') n'est PAS une
+            // anomalie : c'est l'état normal d'un conflit, où la place
+            // appartient à une autre commande. Alerter dessus ferait clignoter
+            // chaque refus légitime.
+            mismatch: orderStatus === 'paid' && booked < seatIds.length
+          };
+        }
+      }
+
       return {
         id: String(order?._id || ''),
         createdAt: order?.createdAt || null,
         status: String(order?.status || ''),
+        booking,
         lineCount: Array.isArray(order?.lines) ? order.lines.length : 0,
         totalCents: Number(order?.totalCents || 0),
         beneficiaries,

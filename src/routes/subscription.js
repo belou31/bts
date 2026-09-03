@@ -37,6 +37,27 @@ const HOLD_MS  = HOLD_MIN * 60 * 1000;
 const norm  = s => String(s || '').trim();
 const upper = s => norm(s).toUpperCase();
 
+/* ====== URLs de paiement ======
+ * Mêmes helpers que routes/renew.js. Sans providerUrl + statusUrl, le front
+ * (generic-view.js) retombe sur la redirection pleine page héritée : le
+ * panneau « Statut de la réservation » n'apparaît jamais, et l'acheteur perd
+ * de vue son décompte comme sa confirmation.
+ */
+function buildPayStatusUrl(orderId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  return `${app}/pay/status?orderId=${encodeURIComponent(String(orderId))}`;
+}
+function buildPayStartUrl(orderId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  return `${app}/pay/start?orderId=${encodeURIComponent(String(orderId))}`;
+}
+function buildPayReturnUrl(orderId, checkoutId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  const oid = encodeURIComponent(String(orderId));
+  const ci  = checkoutId ? `&ci=${encodeURIComponent(String(checkoutId))}` : '';
+  return `${app}/pay/return?oid=${oid}${ci}`;
+}
+
 /* ====== Canal ======
  * Ce routeur sert deux montages : /api/season/... (public) et
  * /api/partner/:partnerSlug/season/... (partenaire). Le montage partenaire
@@ -209,6 +230,7 @@ router.post('/checkout', async (req, res) => {
     const payer    = req.body?.payer || {};
     const schedule = Number(req.body?.schedule || 1);
     // Accepte "items" (nouveau) ET "lines" (héritage generic-view)
+    let holdExpiresAt = null;   // renseigné à la pose des holds, renvoyé au front
     const items    = Array.isArray(req.body?.items)
       ? req.body.items
       : (Array.isArray(req.body?.lines) ? req.body.lines : []);
@@ -456,6 +478,7 @@ router.post('/checkout', async (req, res) => {
 
     // HOLD des sièges réels (status available -> busy + meta.hold)
     const holdUntil = new Date(Date.now() + HOLD_MS);
+    holdExpiresAt = holdUntil;
     const realSeatIds = lines
       .map(l => String(l.seatId || '').trim())
       .filter(sid => sid && !isVirtualZoneSeatId(sid));
@@ -536,7 +559,19 @@ router.post('/checkout', async (req, res) => {
       await order.save();
     }
 
-    return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
+    // holdExpiresAt : le front affiche le décompte « Places réservées pendant ».
+    // Sans lui, l'acheteur ne sait pas combien de temps ses places lui sont
+    // gardées pendant qu'il paie — et un abandon silencieux ressemble à un bug.
+    return res.json({
+      ok: true,
+      orderId: order._id,
+      totalCents,
+      redirectUrl: buildPayStartUrl(order._id),   // repli hérité
+      providerUrl: redirectUrl,                    // page de paiement du prestataire
+      statusUrl:   buildPayStatusUrl(order._id),   // polling
+      returnUrl:   buildPayReturnUrl(order._id, checkoutId),
+      holdExpiresAt
+    });
   } catch (e) {
     const code = e.status || 500;
     console.error('[POST /api/season/checkout] error:', e);

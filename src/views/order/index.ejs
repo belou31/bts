@@ -328,13 +328,18 @@
       <section id="bookingStatus" class="booking-status" hidden aria-live="polite">
         <div class="panel">
           <h2><%= t('order.bookingStatusTitle') %></h2>
-          <% if (hasEventJs) { %>
+          <%# Le décompte n'est plus réservé au flux évènement : abonnement et
+              renouvellement retiennent eux aussi les places pendant le paiement,
+              et l'acheteur a autant besoin de savoir combien de temps il lui
+              reste. Seul le bouton « prolonger » reste propre à l'évènement :
+              lui seul dispose d'un endpoint /hold à rappeler. %>
           <div id="holdTimer" class="hold-timer" hidden>
             <span class="hold-timer-label"><%= t('order.holdTimerLabel') %></span>
             <span class="timer-text">--:--</span>
+            <% if (hasEventJs) { %>
             <button id="holdExtendBtn" type="button" class="hold-extend-btn" hidden><%= t('order.extendHold') %></button>
+            <% } %>
           </div>
-          <% } %>
           <div id="paymentPanelBody" class="payment-panel-body" hidden>
             <div class="pay-status-row">
               <span class="pay-spinner"></span>
