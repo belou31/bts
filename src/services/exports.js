@@ -122,6 +122,7 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
     'payerFirstName','payerLastName','payerEmail',
     'seasonCode','venueSlug','paymentSplit','totalCents',
     'providerName','haOrderId','checkoutIntentId','lastReturnCode','lastWebhookEvent','attestationSentAt',
+      'providerStatusApi','providerStatusWebhook','providerStatusReturn','providerStatusCheckedAt','paidConfirmedAt','forcedFinalize',
     'lineIndex','seatId','zoneKey','tariffCode','priceCents','holderFirstName','holderLastName',
     'justif','justificationField','info'
   ].join(',');
@@ -151,7 +152,16 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
       o.paymentProviderMeta?.checkoutIntentId || '',
       o.paymentProviderMeta?.lastReturnCode || '',
       o.paymentProviderMeta?.lastWebhookEvent || '',
-      o.paymentProviderMeta?.attestationSentAt ? new Date(o.paymentProviderMeta.attestationSentAt).toISOString() : ''
+      o.paymentProviderMeta?.attestationSentAt ? new Date(o.paymentProviderMeta.attestationSentAt).toISOString() : '',
+      // Statut renvoyé par le prestataire, par canal : API (polling /pay/status
+      // ou check-order-payment), webhook, page de retour. C'est cette valeur —
+      // et non `status` — qui dit ce que SumUp/HelloAsso a réellement répondu.
+      o.paymentProviderMeta?.lastStatusFromApi || '',
+      o.paymentProviderMeta?.lastWebhookStatus || '',
+      o.paymentProviderMeta?.lastStatusFromReturn || o.paymentProviderMeta?.lastReturnProviderStatus || '',
+      o.paymentProviderMeta?.lastStatusCheckedAt ? new Date(o.paymentProviderMeta.lastStatusCheckedAt).toISOString() : '',
+      o.paymentProviderMeta?.lastSuccessfulFinalizeAt ? new Date(o.paymentProviderMeta.lastSuccessfulFinalizeAt).toISOString() : '',
+      o.paymentProviderMeta?.forcedFinalize ? 'yes' : ''
     ];
 
     const lines = Array.isArray(o.lines) ? o.lines : [];
