@@ -221,6 +221,12 @@ body.order-view {
   font-size: 18px;
 }
 /* ── Hold timer (inside booking-status) ── */
+/* `display:flex` d'une classe l'emporte sur le `display:none` que le
+   navigateur applique à [hidden] : sans cette règle, le décompte restait
+   visible en permanence et affichait « --:-- » même quand aucune place n'était
+   retenue (commande en zone, ou avant tout paiement). */
+.hold-timer[hidden] { display: none; }
+
 .hold-timer {
   display: flex;
   align-items: center;
