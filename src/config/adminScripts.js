@@ -3434,7 +3434,7 @@ export const adminScriptGroups = [
         label: 'Check Order Payment (provider)',
         order: 7,
         path: 'scripts/06-misc/check-order-payment.js',
-        command: 'node scripts/06-misc/check-order-payment.js (--order=<id> | --pending | --canceled) [--season=<code>] [--commit]',
+        command: 'node scripts/06-misc/check-order-payment.js (--order=<id> | --pending | --canceled) [--season=<code>] [--commit] [--force]',
         run: { script: 'scripts/06-misc/check-order-payment.js', args: [] },
         description: 'Confronte l\'état d\'une commande à ce que dit le prestataire de paiement, et finalise si celui-ci la déclare payée.',
         notes: [
@@ -3444,6 +3444,7 @@ export const adminScriptGroups = [
           '« Inclure les annulées » réanime une commande annulée à tort — typiquement annulée par la sentinelle sur expiration du délai pendant que le paiement aboutissait. Le prestataire doit la déclarer payée.',
           'Réanimer ne garantit pas la place : les sièges libérés à l\'annulation ont pu être repris. Le contrôle de conflit habituel tranche, et le script dit s\'il faut replacer ou rembourser le client.',
           'Les commandes REMBOURSÉES ne sont jamais réanimées.',
+          '« Forcer » finalise sans confirmation du prestataire — y compris si son API ne répond pas. Réservé au dépannage, APRÈS avoir vérifié le paiement dans le tableau de bord du prestataire ; la commande est marquée forcedFinalize.',
           'Sans « Finaliser », rien n\'est écrit. Avec, la commande n\'est finalisée que si le prestataire la déclare payée — les sièges sont réservés et le courriel part.'
         ],
         form: {
@@ -3477,6 +3478,13 @@ export const adminScriptGroups = [
               label: 'Finaliser si le prestataire dit payé',
               type: 'checkbox',
               arg: { type: 'flag', flag: '--commit' }
+            },
+            {
+              name: 'force',
+              label: 'Forcer (paiement vérifié au tableau de bord)',
+              type: 'checkbox',
+              hint: 'Finalise sans confirmation du prestataire. Laisse une trace forcedFinalize.',
+              arg: { type: 'flag', flag: '--force' }
             }
           ]
         }
