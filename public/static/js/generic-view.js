@@ -908,7 +908,7 @@ async function submitPayment() {
 
     if (providerUrl && statusUrl) {
       // ── New flow: navigate the pre-opened window to the provider, show inline status panel ──
-      openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl: returnUrl || fallbackUrl, win: preWin });
+      openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl: returnUrl || fallbackUrl, win: preWin, holdExpiresAt: out.holdExpiresAt || null });
     } else if (fallbackUrl) {
       // ── Legacy flow: navigate to /pay/start ──
       if (preWin && !preWin.closed) {
@@ -929,7 +929,39 @@ async function submitPayment() {
   }
 }
 
-function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win }) {
+// Décompte « Places réservées pendant : m:ss ».
+//
+// Le flux évènement a le sien (event.js), adossé aux holds posés au clic. Pour
+// l'abonnement et le renouvellement, les places ne sont retenues qu'à partir du
+// paiement : le décompte démarre donc ici, avec l'expiration renvoyée par le
+// checkout. Sans lui, l'acheteur ignore combien de temps ses places tiennent.
+function startHoldCountdown(expiresAtIso) {
+  const el = document.getElementById('holdTimer');
+  if (!el) return;
+  // Pas d'expiration = aucune place retenue (commande en zone, par exemple) :
+  // on masque explicitement plutôt que de laisser « --:-- » à l'écran.
+  const expiry = expiresAtIso ? new Date(expiresAtIso).getTime() : NaN;
+  if (Number.isNaN(expiry)) { el.hidden = true; return; }
+  const txt = el.querySelector('.timer-text');
+  el.hidden = false;
+
+  const tick = () => {
+    const remain = Math.max(0, Math.ceil((expiry - Date.now()) / 1000));
+    const min = Math.floor(remain / 60);
+    const sec = remain % 60;
+    if (txt) txt.textContent = `${min}:${String(sec).padStart(2, '0')}`;
+    // Sous une minute, la même mise en garde visuelle que le flux évènement.
+    el.classList.toggle('timer-warning', remain <= 60 && remain > 0);
+    if (remain <= 0) {
+      clearInterval(handle);
+      if (txt) txt.textContent = '0:00';
+    }
+  };
+  const handle = setInterval(tick, 1000);
+  tick();
+}
+
+function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win, holdExpiresAt }) {
   // Navigate the pre-opened window (or fall back to current tab if it was blocked)
   if (win && !win.closed) {
     try { win.location.href = providerUrl; } catch {}
@@ -947,6 +979,7 @@ function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win }) {
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
   if (body) body.hidden = false;
+  startHoldCountdown(holdExpiresAt);
 
   setFeedback('ok', translate('generic.paymentOpenedNewTab'));
 
@@ -960,6 +993,11 @@ function openPaymentPanel({ orderId, providerUrl, statusUrl, returnUrl, win }) {
   `;
 
   function showConfirmed() {
+    // Le paiement est acquis : les places ne sont plus « retenues pendant »,
+    // elles sont réservées. Laisser tourner le décompte ferait croire à un
+    // délai qui n'existe plus.
+    const timerEl = document.getElementById('holdTimer');
+    if (timerEl) timerEl.hidden = true;
     panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     body.innerHTML = `
       <div class="pay-status-row pay-status-confirmed">

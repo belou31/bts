@@ -90,6 +90,23 @@ export function normalizeStatus(input, fallback) {
   return raw;
 }
 
+/**
+ * Le prestataire courant sait-il encaisser en plusieurs fois ?
+ *
+ * Sert à ne PAS proposer un échéancier qu'il ne sait pas honorer : sans ce
+ * garde-fou, le client choisissait « en 3 fois », était débité de la totalité,
+ * et recevait un courriel lui annonçant trois échéances.
+ */
+export function currentPaymentSupportsInstallments() {
+  const provider = currentPaymentProvider();
+  return provider?.supportsInstallments === true;
+}
+
+/** Options d'échéancier réellement proposables. */
+export function availableScheduleOptions() {
+  return currentPaymentSupportsInstallments() ? [1, 2, 3] : [1];
+}
+
 export function currentPaymentUxMode() {
   const preferred = String(process.env.PAYMENT_UX || 'redirect').trim().toLowerCase();
   const provider = currentPaymentProvider();

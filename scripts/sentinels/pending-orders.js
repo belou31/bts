@@ -14,6 +14,12 @@
  */
 
 import 'dotenv/config';
+import { loadEnv } from '../lib/load-env.js';
+
+// `dotenv/config` ne lit que `.env`. La sentinelle interroge le prestataire
+// pour trancher le sort des commandes en attente : sans `.env.<PAYMENT_PROVIDER>`,
+// l'appel échoue et elle laisse tout en attente sans le dire.
+loadEnv();
 
 import mongoose from 'mongoose';
 import { Order } from '../../src/models/Order.js';

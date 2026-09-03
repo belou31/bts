@@ -1,4 +1,5 @@
 // src/routes/renew.js
+import mongoose from 'mongoose';   // ObjectId pour un groupKey unique par commande
 import express from 'express';
 import jwt from 'jsonwebtoken';
 
@@ -9,7 +10,7 @@ import { Tariff }      from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Order }       from '../models/Order.js';
 
-import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId, currentPaymentSupportsInstallments } from '../services/payments/index.js';
 import { makeTokenHash } from '../utils/ha-token.js';
 import { findSingleGaps }      from '../utils/no-single-gap.js';
 import { isVirtualZoneSeatId, zoneKeyFromSeatId as zoneKeyOf } from '../utils/seat-id.js';
@@ -434,11 +435,19 @@ router.post('/renew', async (req, res) => {
     const { previousSeats, quota } = resolveQuota(tok, mySubs);
     const items    = Array.isArray(req.body.items) ? req.body.items : [];
     const payer    = req.body.payer || {};
+    let holdExpiresAt = null;   // renseigné à la pose des holds, renvoyé au front
     const schedule = Number(req.body.schedule || 1);
 
     if (!items.length)        return res.status(400).json({ error: 'empty_items' });
     if (!payer?.email)        return res.status(400).json({ error: 'payer_email_required' });
     if (![1,2,3].includes(schedule)) return res.status(400).json({ error: 'invalid_schedule' });
+    // Garde-fou serveur : le sélecteur ne propose l'échéancier que si le
+    // prestataire sait l'encaisser, mais une requête forgée pourrait tout de
+    // même demander 3. On refuse plutôt que d'enregistrer un échéancier qui
+    // ne sera jamais honoré — le client serait débité en une fois.
+    if (schedule > 1 && !currentPaymentSupportsInstallments()) {
+      return res.status(400).json({ error: 'installments_unsupported' });
+    }
 
     // Sièges vraiment demandés
     const seatIdsAsked = [...new Set(items.map(i => normSeatId(i.seatId)))];
@@ -576,7 +585,10 @@ router.post('/renew', async (req, res) => {
       seasonCode,
       venueSlug,
       phase: 'renew',
-      groupKey: `RENEW-${seasonCode}`, // regroupement fonctionnel
+      // Unique par commande — voir subscription.js : un groupKey constant
+      // transformait uniq_paid_per_payer en « un seul renouvellement payé par
+      // personne et par saison », rejetant tout second paiement légitime.
+      groupKey: `RENEW-${seasonCode}-${new mongoose.Types.ObjectId().toString()}`,
       payerFirstName: String(payer.firstName || ''),
       payerLastName:  String(payer.lastName  || ''),
       payerEmail:     String(payer.email     || ''),
@@ -609,6 +621,7 @@ router.post('/renew', async (req, res) => {
     const realSeatIds = seatIdsAsked.filter(sid => sid && !isVirtualZoneSeatId(sid));
     if (realSeatIds.length) {
       const holdUntil = new Date(Date.now() + HOLD_MS);
+      holdExpiresAt = holdUntil;
       const upd = await Seat.updateMany(
         {
           seasonCode, venueSlug,
@@ -708,7 +721,10 @@ router.post('/renew', async (req, res) => {
       redirectUrl: buildPayStartUrl(order._id),   // /pay/start (legacy fallback)
       providerUrl: redirectUrl,                    // direct provider URL (SumUp hosted checkout)
       statusUrl:   buildPayStatusUrl(order._id),   // polling endpoint
-      returnUrl:   buildPayReturnUrl(order._id, checkoutId)
+      returnUrl:   buildPayReturnUrl(order._id, checkoutId),
+      // Décompte « Places réservées pendant » côté acheteur : voir
+      // routes/subscription.js pour la même raison.
+      holdExpiresAt
     });
   } catch (e) {
     console.error('[POST /s/renew] error:', e);

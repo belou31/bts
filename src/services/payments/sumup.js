@@ -224,6 +224,11 @@ const provider = {
   id: 'sumup',
   label: 'SumUp',
   uxCapabilities: ['widget', 'redirect'],
+  // L'API Checkouts de SumUp ne connaît pas l'échéancier : elle prend UN
+  // montant et l'encaisse. Il n'existe pas de champ « terms », et
+  // totalAmountFromOrder() envoie donc le total. Proposer « en 3 fois » ici
+  // prélèverait la totalité tout en annonçant trois échéances au client.
+  supportsInstallments: false,
   docs: {
     env: [
       'PAYMENT_PROVIDER',

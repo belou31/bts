@@ -9,7 +9,7 @@ import { Tariff }      from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Order }       from '../models/Order.js';
 
-import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId, currentPaymentSupportsInstallments } from '../services/payments/index.js';
 import { makeTokenHash }        from '../utils/ha-token.js';
 import { findSingleGaps }       from '../utils/no-single-gap.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
@@ -36,6 +36,27 @@ const HOLD_MS  = HOLD_MIN * 60 * 1000;
 /* ====== Helpers ====== */
 const norm  = s => String(s || '').trim();
 const upper = s => norm(s).toUpperCase();
+
+/* ====== URLs de paiement ======
+ * Mêmes helpers que routes/renew.js. Sans providerUrl + statusUrl, le front
+ * (generic-view.js) retombe sur la redirection pleine page héritée : le
+ * panneau « Statut de la réservation » n'apparaît jamais, et l'acheteur perd
+ * de vue son décompte comme sa confirmation.
+ */
+function buildPayStatusUrl(orderId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  return `${app}/pay/status?orderId=${encodeURIComponent(String(orderId))}`;
+}
+function buildPayStartUrl(orderId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  return `${app}/pay/start?orderId=${encodeURIComponent(String(orderId))}`;
+}
+function buildPayReturnUrl(orderId, checkoutId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  const oid = encodeURIComponent(String(orderId));
+  const ci  = checkoutId ? `&ci=${encodeURIComponent(String(checkoutId))}` : '';
+  return `${app}/pay/return?oid=${oid}${ci}`;
+}
 
 /* ====== Canal ======
  * Ce routeur sert deux montages : /api/season/... (public) et
@@ -209,6 +230,7 @@ router.post('/checkout', async (req, res) => {
     const payer    = req.body?.payer || {};
     const schedule = Number(req.body?.schedule || 1);
     // Accepte "items" (nouveau) ET "lines" (héritage generic-view)
+    let holdExpiresAt = null;   // renseigné à la pose des holds, renvoyé au front
     const items    = Array.isArray(req.body?.items)
       ? req.body.items
       : (Array.isArray(req.body?.lines) ? req.body.lines : []);
@@ -216,6 +238,13 @@ router.post('/checkout', async (req, res) => {
 
     if (!items.length) return res.status(400).json({ error: 'no_lines' });
     if (![1,2,3].includes(schedule)) return res.status(400).json({ error: 'invalid_schedule' });
+    // Garde-fou serveur : le sélecteur ne propose l'échéancier que si le
+    // prestataire sait l'encaisser, mais une requête forgée pourrait tout de
+    // même demander 3. On refuse plutôt que d'enregistrer un échéancier qui
+    // ne sera jamais honoré — le client serait débité en une fois.
+    if (schedule > 1 && !currentPaymentSupportsInstallments()) {
+      return res.status(400).json({ error: 'installments_unsupported' });
+    }
 
     // Prix / Tarifs
     // Porte d'entrée : refusée avant toute écriture. Le quota partenaire est
@@ -410,7 +439,16 @@ router.post('/checkout', async (req, res) => {
       itemName: partner ? `PARTNER_SUBSCRIPTION_${seasonCode}` : `SUBSCRIPTION_${seasonCode}`,
       seasonCode, venueSlug,
       phase: 'subscription',
-      groupKey: partner ? `PARTNER-${partner.slug.toUpperCase()}-${seasonCode}` : `SUBSCRIPTION-${seasonCode}`,
+      // groupKey UNIQUE par commande, comme le fait déjà le flux événement
+      // (event-flow.factory.js). Un groupKey constant par saison faisait porter
+      // à l'index uniq_paid_per_payer (saison, lieu, groupKey, payeur) le sens
+      // « un seul paiement abouti par personne et par saison » : la seconde
+      // commande d'un même acheteur — un siège ajouté en cours de saison —
+      // était rejetée APRÈS réservation des sièges.
+      // Le regroupement fonctionnel reste lisible via origin.flow et seasonCode.
+      groupKey: partner
+        ? `PARTNER-${partner.slug.toUpperCase()}-${seasonCode}-${new mongoose.Types.ObjectId().toString()}`
+        : `SUBSCRIPTION-${seasonCode}-${new mongoose.Types.ObjectId().toString()}`,
       payerFirstName: norm(payer.firstName || ''),
       payerLastName:  norm(payer.lastName  || ''),
       payerEmail:     norm(payer.email     || ''),
@@ -440,6 +478,7 @@ router.post('/checkout', async (req, res) => {
 
     // HOLD des sièges réels (status available -> busy + meta.hold)
     const holdUntil = new Date(Date.now() + HOLD_MS);
+    holdExpiresAt = holdUntil;
     const realSeatIds = lines
       .map(l => String(l.seatId || '').trim())
       .filter(sid => sid && !isVirtualZoneSeatId(sid));
@@ -520,7 +559,19 @@ router.post('/checkout', async (req, res) => {
       await order.save();
     }
 
-    return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
+    // holdExpiresAt : le front affiche le décompte « Places réservées pendant ».
+    // Sans lui, l'acheteur ne sait pas combien de temps ses places lui sont
+    // gardées pendant qu'il paie — et un abandon silencieux ressemble à un bug.
+    return res.json({
+      ok: true,
+      orderId: order._id,
+      totalCents,
+      redirectUrl: buildPayStartUrl(order._id),   // repli hérité
+      providerUrl: redirectUrl,                    // page de paiement du prestataire
+      statusUrl:   buildPayStatusUrl(order._id),   // polling
+      returnUrl:   buildPayReturnUrl(order._id, checkoutId),
+      holdExpiresAt
+    });
   } catch (e) {
     const code = e.status || 500;
     console.error('[POST /api/season/checkout] error:', e);

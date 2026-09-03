@@ -3429,6 +3429,49 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'check-order-payment',
+        label: 'Check Order Payment (provider)',
+        order: 7,
+        path: 'scripts/06-misc/check-order-payment.js',
+        command: 'node scripts/06-misc/check-order-payment.js (--order=<id> | --pending) [--season=<code>] [--commit]',
+        run: { script: 'scripts/06-misc/check-order-payment.js', args: [] },
+        description: 'Confronte l\'état d\'une commande à ce que dit le prestataire de paiement, et finalise si celui-ci la déclare payée.',
+        notes: [
+          'À lancer quand une commande reste « pending » : le script dit si le prestataire a confirmé, s\'il refuse, ou si la vérification elle-même échoue (identifiants, réseau).',
+          'Un échec de vérification est la cause la plus fréquente d\'un « pending » éternel : l\'erreur est journalisée en stderr et passe inaperçue.',
+          '--pending passe en revue les 50 dernières commandes en attente ; --season restreint le balayage.',
+          'Sans « Finaliser », rien n\'est écrit. Avec, la commande n\'est finalisée que si le prestataire la déclare payée — les sièges sont réservés et le courriel part.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'order',
+              label: 'Identifiant de commande',
+              placeholder: '6a9754edc1602e26181237c8',
+              arg: { type: 'option', template: '--order=${value}' }
+            },
+            {
+              name: 'pending',
+              label: 'Passer en revue les commandes en attente',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--pending' }
+            },
+            {
+              name: 'season',
+              label: 'Restreindre à une saison (optionnel)',
+              placeholder: '2026-2027',
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Finaliser si le prestataire dit payé',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            }
+          ]
+        }
+      },
+      {
         id: 'resend-order-email',
         label: 'Resend Order Email',
         order: 6,
