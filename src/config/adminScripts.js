@@ -1966,7 +1966,8 @@ export const adminScriptGroups = [
             {
               name: 'out',
               label: 'Nom du fichier (optionnel)',
-              placeholder: 'data/outputs/season-orders.csv',
+              hint: 'Nom seul : le fichier est écrit dans data/outputs/.',
+              placeholder: 'season-orders.csv',
               arg: { type: 'option', template: '--out=${value}' }
             }
           ]
