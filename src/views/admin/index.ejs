@@ -409,6 +409,9 @@
     }
     .datetime-field input[type="datetime-local"] { flex: 1 1 auto; min-width: 0; }
     .datetime-field select { flex: 0 1 auto; max-width: 46%; }
+    /* Écart entre le statut de commande et l'état réel des sièges : c'est
+       exactement ce qu'on cherche du regard dans une liste de commandes. */
+    .booking-warn { color: #b45309; font-weight: 600; }
     .script-form-grid label {
       display: flex;
       flex-direction: column;
@@ -1718,7 +1721,16 @@
                   <tr data-search="<%= row.searchIndex || '' %>">
                     <td><code><%= row.id %></code></td>
                     <td><%= row.createdAt ? new Date(row.createdAt).toLocaleString() : '—' %></td>
-                    <td><%= row.status || '—' %></td>
+                    <td>
+                      <%= row.status || '—' %>
+                      <% if (row.booking) { %>
+                        <%# État réel des sièges, dans la même colonne que le statut
+                            de commande : les deux ne se lisent utilement qu'ensemble. %>
+                        <br><small class="<%= row.booking.mismatch ? 'booking-warn' : 'muted' %>">
+                          <%= row.booking.mismatch ? '⚠ ' : '' %><%= row.booking.booked %>/<%= row.booking.total %> siège(s) réservé(s)
+                        </small>
+                      <% } %>
+                    </td>
                     <td><%= row.beneficiaries && row.beneficiaries.length ? row.beneficiaries.join(', ') : '—' %></td>
                     <td><%= row.payerName || '—' %></td>
                     <td><%= row.payerEmail || '—' %></td>
