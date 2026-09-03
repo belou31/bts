@@ -209,6 +209,7 @@ router.post('/checkout', async (req, res) => {
     const payer    = req.body?.payer || {};
     const schedule = Number(req.body?.schedule || 1);
     // Accepte "items" (nouveau) ET "lines" (héritage generic-view)
+    let holdExpiresAt = null;   // renseigné à la pose des holds, renvoyé au front
     const items    = Array.isArray(req.body?.items)
       ? req.body.items
       : (Array.isArray(req.body?.lines) ? req.body.lines : []);
@@ -456,6 +457,7 @@ router.post('/checkout', async (req, res) => {
 
     // HOLD des sièges réels (status available -> busy + meta.hold)
     const holdUntil = new Date(Date.now() + HOLD_MS);
+    holdExpiresAt = holdUntil;
     const realSeatIds = lines
       .map(l => String(l.seatId || '').trim())
       .filter(sid => sid && !isVirtualZoneSeatId(sid));
@@ -536,7 +538,10 @@ router.post('/checkout', async (req, res) => {
       await order.save();
     }
 
-    return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl });
+    // holdExpiresAt : le front affiche le décompte « Places réservées pendant ».
+    // Sans lui, l'acheteur ne sait pas combien de temps ses places lui sont
+    // gardées pendant qu'il paie — et un abandon silencieux ressemble à un bug.
+    return res.json({ ok: true, orderId: order._id, totalCents, redirectUrl, holdExpiresAt });
   } catch (e) {
     const code = e.status || 500;
     console.error('[POST /api/season/checkout] error:', e);

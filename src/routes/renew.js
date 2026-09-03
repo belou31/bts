@@ -435,6 +435,7 @@ router.post('/renew', async (req, res) => {
     const { previousSeats, quota } = resolveQuota(tok, mySubs);
     const items    = Array.isArray(req.body.items) ? req.body.items : [];
     const payer    = req.body.payer || {};
+    let holdExpiresAt = null;   // renseigné à la pose des holds, renvoyé au front
     const schedule = Number(req.body.schedule || 1);
 
     if (!items.length)        return res.status(400).json({ error: 'empty_items' });
@@ -620,6 +621,7 @@ router.post('/renew', async (req, res) => {
     const realSeatIds = seatIdsAsked.filter(sid => sid && !isVirtualZoneSeatId(sid));
     if (realSeatIds.length) {
       const holdUntil = new Date(Date.now() + HOLD_MS);
+      holdExpiresAt = holdUntil;
       const upd = await Seat.updateMany(
         {
           seasonCode, venueSlug,
@@ -719,7 +721,10 @@ router.post('/renew', async (req, res) => {
       redirectUrl: buildPayStartUrl(order._id),   // /pay/start (legacy fallback)
       providerUrl: redirectUrl,                    // direct provider URL (SumUp hosted checkout)
       statusUrl:   buildPayStatusUrl(order._id),   // polling endpoint
-      returnUrl:   buildPayReturnUrl(order._id, checkoutId)
+      returnUrl:   buildPayReturnUrl(order._id, checkoutId),
+      // Décompte « Places réservées pendant » côté acheteur : voir
+      // routes/subscription.js pour la même raison.
+      holdExpiresAt
     });
   } catch (e) {
     console.error('[POST /s/renew] error:', e);
