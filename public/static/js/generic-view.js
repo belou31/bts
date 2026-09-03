@@ -937,9 +937,11 @@ async function submitPayment() {
 // checkout. Sans lui, l'acheteur ignore combien de temps ses places tiennent.
 function startHoldCountdown(expiresAtIso) {
   const el = document.getElementById('holdTimer');
-  if (!el || !expiresAtIso) return;
-  const expiry = new Date(expiresAtIso).getTime();
-  if (Number.isNaN(expiry)) return;
+  if (!el) return;
+  // Pas d'expiration = aucune place retenue (commande en zone, par exemple) :
+  // on masque explicitement plutôt que de laisser « --:-- » à l'écran.
+  const expiry = expiresAtIso ? new Date(expiresAtIso).getTime() : NaN;
+  if (Number.isNaN(expiry)) { el.hidden = true; return; }
   const txt = el.querySelector('.timer-text');
   el.hidden = false;
 
