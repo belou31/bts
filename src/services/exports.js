@@ -122,6 +122,7 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
     'payerFirstName','payerLastName','payerEmail',
     'seasonCode','venueSlug','paymentSplit','totalCents',
     'providerName','haOrderId','checkoutIntentId','lastReturnCode','lastWebhookEvent','attestationSentAt',
+      'checkoutReference','providerOrderId','transactionCode','transactionId',
       'providerStatusApi','providerStatusWebhook','providerStatusReturn','providerStatusCheckedAt','paidConfirmedAt','forcedFinalize',
     'lineIndex','seatId','zoneKey','tariffCode','priceCents','holderFirstName','holderLastName',
     'justif','justificationField','info'
@@ -153,6 +154,13 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
       o.paymentProviderMeta?.lastReturnCode || '',
       o.paymentProviderMeta?.lastWebhookEvent || '',
       o.paymentProviderMeta?.attestationSentAt ? new Date(o.paymentProviderMeta.attestationSentAt).toISOString() : '',
+      // Clés de rapprochement avec le relevé du prestataire. checkoutReference
+      // (`bts-<orderId>`) est la seule qui porte l'identifiant BTS ; les autres
+      // sont les identifiants côté prestataire.
+      o.paymentProviderMeta?.checkoutReference || '',
+      o.paymentProviderMeta?.providerOrderId || o.paymentProviderMeta?.haOrderId || '',
+      o.paymentProviderMeta?.transactionCode || '',
+      o.paymentProviderMeta?.transactionId || '',
       // Statut renvoyé par le prestataire, par canal : API (polling /pay/status
       // ou check-order-payment), webhook, page de retour. C'est cette valeur —
       // et non `status` — qui dit ce que SumUp/HelloAsso a réellement répondu.

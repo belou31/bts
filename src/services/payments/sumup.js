@@ -110,6 +110,23 @@ function normalizeStatus(input, fallback) {
   return raw.toLowerCase();
 }
 
+// SumUp n'expose pas `transaction_code` à la racine du checkout : il vit dans
+// `transactions[]`, alimenté une fois le paiement abouti. C'est ce code (ex.
+// TCZ8ULJ4RP) qui figure dans le relevé SumUp — donc la clé de rapprochement.
+function pickTransaction(j) {
+  const list = Array.isArray(j?.transactions) ? j.transactions : [];
+  if (!list.length) return null;
+  return list.find(t => /^(SUCCESSFUL|PAID)$/i.test(String(t?.status || ''))) || list[list.length - 1];
+}
+
+function transactionIds(j) {
+  const t = pickTransaction(j) || {};
+  return {
+    transactionCode: t.transaction_code || j?.transaction_code || '',
+    transactionId:   t.id || t.transaction_id || j?.transaction_id || ''
+  };
+}
+
 function buildCheckoutPayload({ order, urls }) {
   const checkoutReference = `${process.env.SUMUP_CHECKOUT_PREFIX || 'bts'}-${order._id}`;
   const currency = String(order.currency || process.env.SUMUP_CURRENCY || 'EUR').toUpperCase();
@@ -192,7 +209,9 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
     id: resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference,
     raw: resolvedCheckout,
     checkoutReference: resolvedCheckout.checkout_reference || payload.checkout_reference,
-    providerOrderId: resolvedCheckout.transaction_code || resolvedCheckout.transaction_id || resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference
+    ...transactionIds(resolvedCheckout),
+    providerOrderId: transactionIds(resolvedCheckout).transactionCode || transactionIds(resolvedCheckout).transactionId
+      || resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference
   };
 }
 
@@ -210,7 +229,10 @@ async function getCheckoutIntent(intentId) {
     status: j.status || '',
     metadata: { custom_id: j.custom_id || j.checkout_reference || '' },
     payer: j.customer || {},
-    providerOrderId: j.transaction_code || j.transaction_id || j.id || j.checkout_reference || '',
+    ...transactionIds(j),
+    checkoutReference: j.checkout_reference || '',
+    providerOrderId: transactionIds(j).transactionCode || transactionIds(j).transactionId
+      || j.id || j.checkout_reference || '',
     raw: j
   };
 }

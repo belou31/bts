@@ -29,7 +29,7 @@ const ENV = loadEnv();
 
 import { Order } from '../../src/models/Order.js';
 import {
-  getCheckoutStatus,
+  getCheckoutIntent,
   normalizeStatus,
   currentPaymentProviderId
 } from '../../src/services/payments/index.js';
@@ -53,9 +53,13 @@ async function inspect(order, { commit, allowCanceled = false, force = false }) 
   }
 
   let raw;
+  let intent = null;
   let providerFailed = false;
   try {
-    raw = await getCheckoutStatus(intentId);
+    // L'intent complet, pas seulement le statut : il porte les identifiants
+    // du relevé prestataire, qu'on en profite pour enregistrer.
+    intent = await getCheckoutIntent(intentId);
+    raw = intent?.status || '';
   } catch (e) {
     // C'est LE cas qui produit un « pending » éternel sans explication :
     // la vérification lève, l'appelant l'avale, la commande ne bouge plus.
@@ -74,6 +78,14 @@ async function inspect(order, { commit, allowCanceled = false, force = false }) 
 
   const normalized = normalizeStatus(raw);
   if (!providerFailed) console.log(`  réponse brute   : ${JSON.stringify(raw)}`);
+  const refs = [
+    ['transactionCode', intent?.transactionCode],
+    ['transactionId', intent?.transactionId],
+    ['providerOrderId', intent?.providerOrderId]
+  ].filter(([, v]) => v);
+  if (refs.length) {
+    console.log(`  réf. relevé     : ${refs.map(([k, v]) => `${k}=${v}`).join(' | ')}`);
+  }
   console.log(`  → normalisé     : ${normalized}${isPaidLike(normalized) ? ' (payé)' : ''}`);
 
   if (!isPaidLike(normalized) && !force) {
@@ -126,6 +138,19 @@ async function inspect(order, { commit, allowCanceled = false, force = false }) 
       revivedFromCanceled: true,
       revivedAt: new Date(),
       revivedBy: 'check-order-payment'
+    };
+    await order.save();
+  }
+
+  // Les identifiants du relevé prestataire ne sont lus qu'ici : on les fixe
+  // pour que le rapprochement comptable reste possible après coup.
+  if (intent && (intent.transactionCode || intent.transactionId || intent.providerOrderId)) {
+    order.paymentProviderMeta = {
+      ...(order.paymentProviderMeta || {}),
+      ...(intent.transactionCode ? { transactionCode: intent.transactionCode } : {}),
+      ...(intent.transactionId ? { transactionId: intent.transactionId } : {}),
+      ...(order.paymentProviderMeta?.providerOrderId || !intent.providerOrderId
+        ? {} : { providerOrderId: intent.providerOrderId })
     };
     await order.save();
   }
