@@ -3434,13 +3434,16 @@ export const adminScriptGroups = [
         label: 'Check Order Payment (provider)',
         order: 7,
         path: 'scripts/06-misc/check-order-payment.js',
-        command: 'node scripts/06-misc/check-order-payment.js (--order=<id> | --pending) [--season=<code>] [--commit]',
+        command: 'node scripts/06-misc/check-order-payment.js (--order=<id> | --pending | --canceled) [--season=<code>] [--commit]',
         run: { script: 'scripts/06-misc/check-order-payment.js', args: [] },
         description: 'Confronte l\'état d\'une commande à ce que dit le prestataire de paiement, et finalise si celui-ci la déclare payée.',
         notes: [
           'À lancer quand une commande reste « pending » : le script dit si le prestataire a confirmé, s\'il refuse, ou si la vérification elle-même échoue (identifiants, réseau).',
           'Un échec de vérification est la cause la plus fréquente d\'un « pending » éternel : l\'erreur est journalisée en stderr et passe inaperçue.',
           '--pending passe en revue les 50 dernières commandes en attente ; --season restreint le balayage.',
+          '« Inclure les annulées » réanime une commande annulée à tort — typiquement annulée par la sentinelle sur expiration du délai pendant que le paiement aboutissait. Le prestataire doit la déclarer payée.',
+          'Réanimer ne garantit pas la place : les sièges libérés à l\'annulation ont pu être repris. Le contrôle de conflit habituel tranche, et le script dit s\'il faut replacer ou rembourser le client.',
+          'Les commandes REMBOURSÉES ne sont jamais réanimées.',
           'Sans « Finaliser », rien n\'est écrit. Avec, la commande n\'est finalisée que si le prestataire la déclare payée — les sièges sont réservés et le courriel part.'
         ],
         form: {
@@ -3456,6 +3459,12 @@ export const adminScriptGroups = [
               label: 'Passer en revue les commandes en attente',
               type: 'checkbox',
               arg: { type: 'flag', flag: '--pending' }
+            },
+            {
+              name: 'canceled',
+              label: 'Inclure les commandes annulées (réanimation)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--canceled' }
             },
             {
               name: 'season',
