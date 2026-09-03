@@ -183,7 +183,7 @@ Miscellaneous operational scripts: exports, audits, order management, and sentin
 | `scripts/sentinels/pending-orders.js`<br><small>Sentinel: Pending Orders</small> | Reports orders stuck in pending state beyond the expected delay. | `node scripts/sentinels/pending-orders.js [--max-age-minutes=60]` | cli | — |
 | `scripts/06-misc/audit-missing-seats.js`<br><small>Audit Missing Seats</small> | Checks for discrepancies between seat provisioning and subscriptions. | `node scripts/06-misc/audit-missing-seats.js <seasonCode> --venue=<slug>` | cli | — |
 | `scripts/06-misc/resend-order-email.js`<br><small>Resend Order Email</small> | Diagnostique puis renvoie le courriel de confirmation d'une commande, quel que soit son flux (abonnement, renouvellement, match, partenaire). | `node scripts/06-misc/resend-order-email.js --order=<id> [--commit] [--force]` | cli | — |
-| `scripts/06-misc/check-order-payment.js`<br><small>Check Order Payment (provider)</small> | Confronte l'état d'une commande à ce que dit le prestataire de paiement, et finalise si celui-ci la déclare payée. | `node scripts/06-misc/check-order-payment.js (--order=<id> | --pending) [--season=<code>] [--commit]` | cli | — |
+| `scripts/06-misc/check-order-payment.js`<br><small>Check Order Payment (provider)</small> | Confronte l'état d'une commande à ce que dit le prestataire de paiement, et finalise si celui-ci la déclare payée. | `node scripts/06-misc/check-order-payment.js (--order=<id> | --pending | --canceled) [--season=<code>] [--commit] [--force]` | cli | — |
 
 ## Console d'administration
 

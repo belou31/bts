@@ -185,6 +185,41 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   };
 }
 
+/**
+ * État de paiement d'un checkout-intent HelloAsso.
+ *
+ * L'API ne renvoie AUCUN champ de statut à la racine de l'intent : ni `status`,
+ * ni `state`, ni `paymentStatus`. Ce qui atteste du paiement, c'est l'apparition
+ * d'un `order` porteur de ses `payments`. Lire un statut inexistant renvoyait
+ * donc la chaîne vide pour TOUT intent HelloAsso, payé ou non — le contrôle de
+ * statut ne pouvait jamais confirmer un paiement, et une commande annulée à
+ * tort restait irrécupérable.
+ *
+ * Échéancier (paiement en 3x) : seule la première échéance est encaissée
+ * ('Authorized'), les suivantes sont planifiées ('Registered'). La commande est
+ * bien prise dès la première — c'est ainsi que HelloAsso la présente au club.
+ */
+function intentStatus(j) {
+  const direct = j?.status || j?.state || j?.paymentStatus || '';
+  if (direct) return direct;
+
+  const payments = Array.isArray(j?.order?.payments) ? j.order.payments
+    : Array.isArray(j?.payments) ? j.payments
+      : [];
+  if (payments.length) {
+    const states = payments.map(p => String(p?.state || p?.status || '').toLowerCase());
+    if (states.some(st => st.startsWith('authoriz') || st === 'registered')) return 'authorized';
+    if (states.every(st => st === 'refunded')) return 'refunded';
+    if (states.some(st => st === 'refused')) return 'failed';
+    return states[0] || '';
+  }
+
+  // Un `order` sans détail de paiement suffit : HelloAsso ne le crée qu'une
+  // fois le paiement passé.
+  if (j?.order?.id || j?.orderId) return 'authorized';
+  return '';
+}
+
 function extractProviderOrderIdFromIntent(j) {
   return (
     j?.orderId ||
@@ -208,7 +243,7 @@ async function getCheckoutIntent(intentId) {
   if (!r.ok) throw new Error(`HelloAsso get intent ${r.status} ${JSON.stringify(j)}`);
 
   return {
-    status: j.status || j.state || j.paymentStatus || '',
+    status: intentStatus(j),
     metadata: j.metadata || {},
     payer: j.payer || {},
     providerOrderId: extractProviderOrderIdFromIntent(j),
