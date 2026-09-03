@@ -15,6 +15,7 @@
  *   node scripts/06-misc/check-order-payment.js --order=<id>
  *   node scripts/06-misc/check-order-payment.js --order=<id> --commit
  *   node scripts/06-misc/check-order-payment.js --pending [--season=<code>]
+ *   node scripts/06-misc/check-order-payment.js --canceled --commit   # réanimation
  */
 import mongoose from 'mongoose';
 import yargs from 'yargs';
@@ -34,7 +35,7 @@ import {
 } from '../../src/services/payments/index.js';
 import { finalizePaidIfNoConflict, isPaidLike, sendOrderAttestationIfNeeded } from '../../src/services/order-finalization.js';
 
-async function inspect(order, { commit }) {
+async function inspect(order, { commit, allowCanceled = false, force = false }) {
   const meta = order.paymentProviderMeta || {};
   const intentId = String(meta.checkoutIntentId || '').trim();
 
@@ -52,33 +53,95 @@ async function inspect(order, { commit }) {
   }
 
   let raw;
+  let providerFailed = false;
   try {
     raw = await getCheckoutStatus(intentId);
   } catch (e) {
     // C'est LE cas qui produit un « pending » éternel sans explication :
     // la vérification lève, l'appelant l'avale, la commande ne bouge plus.
+    providerFailed = true;
     console.log(`  ❌ Le prestataire n'a pas répondu : ${e?.message || e}`);
     console.log('     Tant que cet appel échoue, la commande restera « pending ».');
     console.log('     Vérifier les identifiants : node scripts/00-system-management/check-payment-provider.js');
-    return;
+    // Sans --force on s'arrête là. AVEC, on continue : dépanner une commande
+    // dont le paiement est vérifié au tableau de bord ne doit pas dépendre de
+    // la joignabilité de l'API — c'est précisément quand elle ne répond pas
+    // qu'on en a besoin.
+    if (!force) return;
+    console.log('     ⚠ --force : on poursuit malgré l\'absence de réponse.');
+    raw = '';
   }
 
   const normalized = normalizeStatus(raw);
-  console.log(`  réponse brute   : ${JSON.stringify(raw)}`);
+  if (!providerFailed) console.log(`  réponse brute   : ${JSON.stringify(raw)}`);
   console.log(`  → normalisé     : ${normalized}${isPaidLike(normalized) ? ' (payé)' : ''}`);
 
-  if (!isPaidLike(normalized)) {
+  if (!isPaidLike(normalized) && !force) {
     console.log('  → Le prestataire ne considère pas ce paiement comme abouti : rien à finaliser.');
+    if (!normalized) {
+      // Réponse vide : ce n'est pas « non payé », c'est « pas de réponse
+      // exploitable ». Le distinguer évite de conclure trop vite.
+      console.log('    (réponse VIDE, pas un refus : le paiement peut être passé sans que');
+      console.log('     ce contrôle sache le lire. Vérifier le tableau de bord du prestataire,');
+      console.log('     puis --force pour finaliser malgré tout.)');
+    }
     return;
+  }
+  if (!isPaidLike(normalized) && force) {
+    console.log('  ⚠ FORCÉ : le prestataire ne confirme pas, finalisation demandée explicitement.');
+    console.log('    À n\'utiliser qu\'après avoir vérifié le paiement dans le tableau de bord.');
   }
   if (order.status === 'paid') {
     console.log('  → Déjà finalisée localement, cohérent avec le prestataire.');
     return;
   }
-  if (!commit) {
-    console.log('  ⚠ Le prestataire dit PAYÉ alors que la commande est encore « ' + order.status + ' ».');
-    console.log('    Relancer avec --commit pour finaliser (réserve les sièges et envoie le courriel).');
+  const wasCanceled = order.status === 'canceled';
+  if (wasCanceled && !allowCanceled) {
+    console.log('  ⚠ Commande ANNULÉE alors que le prestataire dit PAYÉ.');
+    console.log('    Cause typique : la sentinelle l\'a annulée sur expiration du délai (PENDING_MAX_MIN)');
+    console.log('    pendant que le paiement aboutissait. Ajouter --canceled pour la réanimer.');
     return;
+  }
+  if (!commit) {
+    console.log('  ⚠ ' + (isPaidLike(normalized) ? 'Le prestataire dit PAYÉ' : 'Finalisation FORCÉE demandée') + ' alors que la commande est encore « ' + order.status + ' ».');
+    console.log('    Relancer avec --commit pour finaliser (réserve les sièges et envoie le courriel).');
+    if (wasCanceled) {
+      console.log('    ⚠ Elle a été ANNULÉE : ses sièges ont été libérés et peuvent avoir été repris.');
+    }
+    return;
+  }
+
+  if (wasCanceled) {
+    // finalizePaidIfNoConflict refuse par principe une commande annulée. La
+    // réanimation est donc un geste explicite : on la repasse « pending », et
+    // c'est le contrôle de conflit habituel qui tranche — les sièges libérés
+    // ont pu être repris entre-temps, auquel cas la commande finira « failed »
+    // et le client devra être replacé ou remboursé.
+    console.log(isPaidLike(normalized)
+      ? '  ↻ Réanimation d\'une commande annulée (le prestataire confirme le paiement).'
+      : '  ↻ Réanimation d\'une commande annulée (FORCÉE, sans confirmation du prestataire).');
+    order.status = 'pending';
+    order.paymentProviderMeta = {
+      ...(order.paymentProviderMeta || {}),
+      revivedFromCanceled: true,
+      revivedAt: new Date(),
+      revivedBy: 'check-order-payment'
+    };
+    await order.save();
+  }
+
+  // Trace indispensable, et indépendante de la réanimation : une finalisation
+  // forcée n'est adossée à aucune confirmation du prestataire. Sans marqueur,
+  // rien ne la distinguerait plus tard d'un paiement régulièrement constaté.
+  if (force && !isPaidLike(normalized)) {
+    order.paymentProviderMeta = {
+      ...(order.paymentProviderMeta || {}),
+      forcedFinalize: true,
+      forcedAt: new Date(),
+      forcedBy: 'check-order-payment',
+      forcedProviderStatus: String(raw ?? '')
+    };
+    await order.save();
   }
 
   const fin = await finalizePaidIfNoConflict(order);
@@ -95,6 +158,10 @@ async function inspect(order, { commit }) {
       return;
     }
     console.log(`  ❌ Finalisation impossible : ${fin.blocked ? 'bloquée' : 'conflit de sièges'} — ${JSON.stringify(fin.conflicts || [])}`);
+    if (wasCanceled) {
+      console.log('     La commande avait été annulée : ses places ont été reprises entre-temps.');
+      console.log('     Le client a payé — il faut le replacer (seat-change) ou le rembourser.');
+    }
     return;
   }
   console.log('  ✅ Commande finalisée.');
@@ -112,12 +179,14 @@ async function main() {
   const argv = yargs(hideBin(process.argv))
     .option('order', { type: 'string', desc: 'Identifiant de commande' })
     .option('pending', { type: 'boolean', default: false, desc: 'Passe en revue toutes les commandes en attente' })
+    .option('canceled', { type: 'boolean', default: false, desc: 'Inclut les commandes ANNULÉES (réanimation)' })
+    .option('force', { type: 'boolean', default: false, desc: 'Finalise MÊME SI le prestataire ne confirme pas (dépannage)' })
     .option('season', { type: 'string', desc: 'Restreindre --pending à une saison' })
     .option('commit', { type: 'boolean', default: false, desc: 'Finalise si le prestataire dit payé' })
     .help().argv;
 
-  if (!argv.order && !argv.pending) {
-    throw new Error('Préciser --order=<id> ou --pending');
+  if (!argv.order && !argv.pending && !argv.canceled) {
+    throw new Error('Préciser --order=<id>, --pending ou --canceled');
   }
 
   const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
@@ -130,13 +199,17 @@ async function main() {
   if (argv.order) {
     const order = await Order.findById(String(argv.order).trim());
     if (!order) throw new Error(`Commande introuvable : ${argv.order}`);
-    await inspect(order, { commit: argv.commit });
+    await inspect(order, { commit: argv.commit, allowCanceled: argv.canceled, force: argv.force });
   } else {
-    const where = { status: { $in: ['pending', 'tobepaid'] } };
+    // 'refunded' n'est JAMAIS inclus : l'argent est rendu, réanimer la commande
+    // rendrait la place à quelqu'un qui a été remboursé.
+    const wanted = ['pending', 'tobepaid'];
+    if (argv.canceled) wanted.push('canceled');
+    const where = { status: { $in: wanted } };
     if (argv.season) where.seasonCode = argv.season;
     const orders = await Order.find(where).sort({ createdAt: -1 }).limit(50);
-    console.log(`${orders.length} commande(s) en attente${argv.season ? ` pour ${argv.season}` : ''}.`);
-    for (const o of orders) await inspect(o, { commit: argv.commit });
+    console.log(`${orders.length} commande(s) ${wanted.join('/')}${argv.season ? ` pour ${argv.season}` : ''}.`);
+    for (const o of orders) await inspect(o, { commit: argv.commit, allowCanceled: argv.canceled, force: argv.force });
   }
 
   await mongoose.disconnect();
