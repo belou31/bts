@@ -75,6 +75,10 @@ const filter = clauses.length === 1 ? clauses[0] : { $and: clauses };
 
 await mongoose.connect(uri, { dbName: process.env.MONGODB_DB });
 
+// Script à code plat (top-level await) : sans ce filet, la moindre erreur
+// d'écriture — dossier absent, droits insuffisants — sort en trace de pile,
+// laisse la connexion Mongo ouverte, et n'explique rien à l'opérateur.
+try {
 if (toStdout) {
   await exportOrdersCsv({ out: process.stdout, filter, includeHeader: true });
   await mongoose.disconnect();
@@ -88,19 +92,49 @@ if (toStdout) {
     flow || null,
     status || null
   ].filter(Boolean).join('-') + '.csv';
-  const outPath = outArg
-    ? (path.isAbsolute(outArg) ? outArg : path.join(OUTPUT_DIR, outArg))
-    : path.join(OUTPUT_DIR, defaultName);
+  // Résolution du chemin de sortie.
+  //
+  // Un chemin RELATIF contenant déjà un séparateur (« data/outputs/x.csv »,
+  // la forme qu'on lit dans la doc et les formulaires) était concaténé à
+  // data/outputs/ : on obtenait data/outputs/data/outputs/x.csv, un dossier
+  // inexistant. Seul un nom de fichier NU est désormais résolu dans
+  // data/outputs/ ; tout chemin est pris tel quel, relatif au dossier courant.
+  const outPath = !outArg
+    ? path.join(OUTPUT_DIR, defaultName)
+    : path.isAbsolute(outArg)
+      ? outArg
+      : (outArg.includes(path.sep) || outArg.includes('/'))
+        ? path.resolve(process.cwd(), outArg)
+        : path.join(OUTPUT_DIR, outArg);
+
+  // Le dossier cible peut ne pas exister quand --out désigne un sous-chemin.
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
   const stream = fs.createWriteStream(outPath, { encoding: 'utf8' });
-  await exportOrdersCsv({ out: stream, filter, includeHeader: true });
+  // Handler posé AVANT la première écriture : une erreur d'ouverture survient
+  // pendant exportOrdersCsv, donc avant que la promesse ci-dessous existe —
+  // sans cela le flux émet un 'error' non géré et le process s'arrête sur une
+  // trace au lieu d'un message.
+  const failure = new Promise((_, reject) => stream.on('error', reject));
+  await Promise.race([
+    exportOrdersCsv({ out: stream, filter, includeHeader: true }),
+    failure
+  ]);
   // Attendre la fermeture : sortir avant le vidage du tampon tronquerait le CSV.
-  await new Promise((resolve, reject) => {
-    stream.on('finish', resolve);
-    stream.on('error', reject);
-    stream.end();
-  });
+  await Promise.race([
+    new Promise((resolve) => { stream.on('finish', resolve); stream.end(); }),
+    failure
+  ]);
   const lines = fs.readFileSync(outPath, 'utf8').split('\n').filter(Boolean).length;
   console.log(`OK: ${Math.max(0, lines - 1)} ligne(s) exportée(s) -> ${outPath}`);
   await mongoose.disconnect();
+}
+} catch (err) {
+  console.error(`❌ Écriture impossible : ${err?.message || err}`);
+  if (err?.code === 'EACCES' || err?.code === 'ENOENT') {
+    console.error('   Vérifiez le chemin de --out. Un nom de fichier seul est écrit dans data/outputs/ ;');
+    console.error('   un chemin est pris tel quel, relatif au dossier courant.');
+  }
+  try { await mongoose.disconnect(); } catch { /* rien de mieux à faire */ }
+  process.exit(1);
 }
