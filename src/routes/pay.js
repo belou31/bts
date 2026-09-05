@@ -8,7 +8,7 @@ import { URL as NodeURL } from 'node:url';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Order } from '../models/index.js';
-import { getCheckoutStatus, currentPaymentProviderId, currentPaymentProviderLabel, currentPaymentUxMode } from '../services/payments/index.js';
+import { getCheckoutStatus, getCheckoutIntent, currentPaymentProviderId, currentPaymentProviderLabel, currentPaymentUxMode } from '../services/payments/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -862,12 +862,16 @@ try {
       checkoutIntentIdFromPayload;
       
     let statusFromApi = '';
+    let intentFromApi = null;
     if (intentId) {
       try {
-        const st = await getCheckoutStatus(intentId);
-        statusFromApi = normalizePaymentStatus(st);
+        // On lit l'intent complet plutôt que le seul statut : il porte aussi
+        // les identifiants du relevé prestataire (transaction SumUp, paiement
+        // HelloAsso), sans lesquels aucun rapprochement comptable n'est possible.
+        intentFromApi = await getCheckoutIntent(intentId);
+        statusFromApi = normalizePaymentStatus(intentFromApi?.status);
       } catch (e) {
-        console.warn('[pay/webhook] getCheckoutStatus failed:', e?.message || e);
+        console.warn('[pay/webhook] getCheckoutIntent failed:', e?.message || e);
       }
     }
 
@@ -895,6 +899,11 @@ try {
       meta.lastStatusCheckedAt = now;
     } else {
       meta.lastStatusSource = meta.lastStatusSource || 'webhook';
+    }
+    if (intentFromApi?.transactionCode) meta.transactionCode = intentFromApi.transactionCode;
+    if (intentFromApi?.transactionId) meta.transactionId = intentFromApi.transactionId;
+    if (intentFromApi?.providerOrderId && !meta.providerOrderId) {
+      meta.providerOrderId = intentFromApi.providerOrderId;
     }
 
     const paymentData = (data?.payment && typeof data.payment === 'object') ? data.payment : {};

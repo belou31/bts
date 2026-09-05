@@ -247,6 +247,9 @@ async function getCheckoutIntent(intentId) {
     metadata: j.metadata || {},
     payer: j.payer || {},
     providerOrderId: extractProviderOrderIdFromIntent(j),
+    // Identifiants du relevé HelloAsso : le numéro de commande et, pour un
+    // paiement fractionné, l'échéance effectivement encaissée.
+    transactionId: String(j?.order?.payments?.[0]?.id || j?.payments?.[0]?.id || ''),
     raw: j
   };
 }
