@@ -1992,6 +1992,49 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'export-season-seats',
+        label: 'Export Season Seats (CSV)',
+        order: 7.5,
+        path: 'scripts/03-season-management/export-season-seats.js',
+        command: 'node scripts/03-season-management/export-season-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>] [--out=<fichier.csv>] [--stdout]',
+        run: { script: 'scripts/03-season-management/export-season-seats.js', args: [] },
+        description: 'Exporte les sièges d\'une saison avec leur provisionnement et l\'abonnement qui les occupe.',
+        notes: [
+          'Écrit un fichier dans data/outputs/ (récupérable depuis l\'onglet Sorties). --stdout rend l\'ancien comportement en pipe.',
+          'État de fond de la saison : un siège vendu à l\'abonnement est « booked » pour toute la saison. Pour l\'occupation d\'UN match — places rendues déduites — utiliser « Export Event Seats ».'
+        ],
+        templates: ['data_references/csv/seats-export.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Filtrer par saison (optionnel)',
+              placeholder: '2026-2027',
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Filtrer par lieu (optionnel)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'zone',
+              label: 'Filtrer par zone (optionnel)',
+              placeholder: 'TBH7',
+              arg: { type: 'option', template: '--zone=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Nom du fichier (optionnel)',
+              placeholder: 'season-seats.csv',
+              hint: 'Un nom seul est écrit dans data/outputs/.',
+              arg: { type: 'option', template: '--out=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'export-subscription-orders',
         label: 'Export Season Orders (subscriptions + renewals)',
         order: 7,
@@ -2950,6 +2993,50 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'export-event-seats',
+        label: 'Export Event Seats (CSV)',
+        order: 7.5,
+        path: 'scripts/04-event-management/export-event-seats.js',
+        command: 'node scripts/04-event-management/export-event-seats.js --event=<slug|id> [--zone=<key>] [--status=<état>] [--out=<fichier.csv>] [--stdout]',
+        run: { script: 'scripts/04-event-management/export-event-seats.js', args: [] },
+        description: 'Exporte l\'état des sièges POUR UN MATCH et qui occupe chaque place — abonnés compris, places rendues déduites.',
+        notes: [
+          'Écrit un fichier dans data/outputs/ (récupérable depuis l\'onglet Sorties). --stdout rend la sortie en pipe.',
+          'Différent de l\'export de saison : l\'état est celui que voit l\'acheteur pour CE match, calculé par la même fonction que la billetterie (places rendues par un abonné, déplacements, sélections en cours).',
+          'Colonne « origin » : season = abonnement, event = commande de ce match, hold = sélection en cours, sans-commande = place occupée dont aucune commande n\'a été retrouvée (blocage manuel ou écart à examiner).'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Événement (slug ou identifiant)',
+              placeholder: '2026-xx-xx-match-regulier',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'zone',
+              label: 'Filtrer par zone (optionnel)',
+              placeholder: 'N2',
+              arg: { type: 'option', template: '--zone=${value}' }
+            },
+            {
+              name: 'status',
+              label: 'Filtrer par état (optionnel)',
+              placeholder: 'booked',
+              arg: { type: 'option', template: '--status=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Nom du fichier (optionnel)',
+              placeholder: 'event-seats.csv',
+              hint: 'Un nom seul est écrit dans data/outputs/.',
+              arg: { type: 'option', template: '--out=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'event-tickets-pdf',
         label: 'Generate Tickets PDF',
         order: 8,
@@ -3502,18 +3589,23 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'export-seats',
-        label: 'Export Seats (CSV)',
+        // Déplacé dans les chapitres concernés : « Export Season Seats »
+        // (03-season-management) pour l'état de fond de la saison, et
+        // « Export Event Seats » (04-event-management) pour l'occupation d'un
+        // match. L'entrée générique laissait croire à une seule réponse là où
+        // les deux questions n'ont pas les mêmes données.
+        id: 'export-season-seats-moved',
+        label: 'Export Seats — voir les chapitres Saison et Événement',
         order: 3,
-        path: 'scripts/06-misc/reports/export-seats.js',
-        command: 'node scripts/06-misc/reports/export-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>]',
+        path: 'scripts/03-season-management/export-season-seats.js',
+        command: 'node scripts/03-season-management/export-season-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>] [--out=<fichier.csv>]',
         run: {
-          script: 'scripts/06-misc/reports/export-seats.js',
+          script: 'scripts/03-season-management/export-season-seats.js',
           args: []
         },
-        description: 'Streams seats with provisioning and booking metadata to CSV.',
+        description: 'Raccourci vers l\'export des sièges de saison. L\'occupation d\'un match se lit avec « Export Event Seats ».',
         notes: [
-          'Combines seat availability with latest paid order info for each seat.'
+          'Ce script vit désormais dans 03-season-management ; l\'entrée est conservée ici le temps que les habitudes suivent.'
         ],
         templates: ['data_references/csv/seats-export.template.csv'],
         form: {
@@ -3521,7 +3613,7 @@ export const adminScriptGroups = [
             {
               name: 'season',
               label: 'Filtrer par saison (optionnel)',
-              placeholder: '2025-2026',
+              placeholder: '2026-2027',
               arg: { type: 'option', template: '--season=${value}' }
             },
             {
@@ -3535,6 +3627,12 @@ export const adminScriptGroups = [
               label: 'Filtrer par zone (optionnel)',
               placeholder: 'TBH7',
               arg: { type: 'option', template: '--zone=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Nom du fichier (optionnel)',
+              placeholder: 'season-seats.csv',
+              arg: { type: 'option', template: '--out=${value}' }
             }
           ]
         }

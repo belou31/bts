@@ -230,7 +230,9 @@ export async function exportSeatsCsv({ out, filterSeat = {}, filterOrder = {}, i
       _id: '$lines.seatId',
       orderId: { $first: '$_id' },
       createdAt: { $first: '$createdAt' },
-      phase: { $first: '$phase' },
+      // Order n'a pas de champ `phase` de premier niveau (strict:true, seul
+      // `origin.flow` existe) : `$phase` rendait une colonne toujours vide.
+      phase: { $first: '$origin.flow' },
       payerFirstName: { $first: '$payerFirstName' },
       payerLastName:  { $first: '$payerLastName'  },
       payerEmail:     { $first: '$payerEmail'     },

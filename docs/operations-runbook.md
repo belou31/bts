@@ -667,7 +667,11 @@ node scripts/06-misc/audit-missing-seats.js 2025-2026 --venue=patinoire-blagnac
 
 ```bash
 node scripts/06-misc/reports/export-orders.js --season=2025-2026 --venue=patinoire-blagnac --status=paid
-node scripts/06-misc/reports/export-seats.js --season=2025-2026 --venue=patinoire-blagnac
+# état de fond de la saison (qui détient quelle place à l'année)
+node scripts/03-season-management/export-season-seats.js --season=2025-2026 --venue=patinoire-blagnac
+
+# occupation d'un match : abonnés compris, places rendues déduites
+node scripts/04-event-management/export-event-seats.js --event=<slug>
 ```
 
 ### Suppression / annulation de commandes importées
