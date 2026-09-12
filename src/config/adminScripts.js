@@ -3404,28 +3404,62 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'orders-delete-csv',
-        label: 'Delete Orders from CSV',
+        id: 'orders-delete',
+        label: 'Cancel / Delete Orders',
         order: 2,
-        path: 'scripts/orders-delete-csv.js',
-        command: 'node scripts/orders-delete-csv.js --file=<orders.csv> [--commit] [--force]',
+        path: 'scripts/06-misc/orders-delete.js',
+        command: 'node scripts/06-misc/orders-delete.js (--order=<id> [--mode=soft|hard] | --file=<orders.csv>) [--commit] [--force] [--release-seats]',
         run: {
-          script: 'scripts/orders-delete-csv.js',
+          script: 'scripts/06-misc/orders-delete.js',
           args: []
         },
-        description: 'Cancels (soft) or deletes (hard) orders listed in a CSV, voiding their tickets.',
+        danger: true,
+        description: 'Annule (soft) ou supprime (hard) une commande précise ou un lot listé en CSV, et révoque leurs billets.',
         notes: [
-          'Columns: orderId, mode=soft|hard. Soft marks as cancelled; hard removes the order and voids tickets.',
-          'Dry-run unless --commit. Use --force to insist on hard deletes.'
+          'Une commande à la fois avec « Identifiant de commande », ou un lot avec le CSV (colonnes orderId, mode=soft|hard). Un seul des deux.',
+          'Sans « Appliquer », rien n\'est écrit : le script affiche ce qu\'il ferait, commande par commande, avec les places concernées.',
+          'soft passe la commande à « canceled » et conserve la trace du paiement ; hard supprime le document, sans retour possible — à réserver aux commandes de test.',
+          'Une commande PAYÉE est ignorée sauf case « Forcer » : c\'est de l\'argent encaissé.',
+          'Les places ne sont PAS libérées par défaut. Sans « Libérer les places », elles restent réservées au nom d\'une commande annulée ou disparue.'
         ],
         form: {
           fields: [
             {
+              name: 'order',
+              label: 'Identifiant de commande',
+              placeholder: '6a9951e3ef4944f439f0695e',
+              hint: 'Laisser vide pour traiter un lot via le CSV ci-dessous.',
+              arg: { type: 'option', template: '--order=${value}' }
+            },
+            {
+              name: 'mode',
+              label: 'Mode (avec un identifiant) : soft ou hard',
+              placeholder: 'soft',
+              arg: { type: 'option', template: '--mode=${value}' }
+            },
+            {
               name: 'file',
-              label: 'CSV commandes',
+              label: 'CSV commandes (alternative)',
               placeholder: 'data/inputs/orders-delete.csv',
-              required: true,
               arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Appliquer (sinon simulation)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            },
+            {
+              name: 'force',
+              label: 'Forcer même si la commande est payée',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--force' }
+            },
+            {
+              name: 'releaseSeats',
+              label: 'Libérer les places',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--release-seats' }
             }
           ]
         }

@@ -673,8 +673,16 @@ node scripts/06-misc/reports/export-seats.js --season=2025-2026 --venue=patinoir
 ### Suppression / annulation de commandes importées
 
 ```bash
-node scripts/orders-delete-csv.js --file=data/inputs/orders-delete.csv --commit
+# une commande précise
+node scripts/06-misc/orders-delete.js --order=<id> --commit --release-seats
+
+# un lot (colonnes orderId, mode=soft|hard)
+node scripts/06-misc/orders-delete.js --file=data/inputs/orders-delete.csv --commit
 ```
+
+Sans `--commit`, rien n'est écrit. Une commande `paid` est ignorée sauf
+`--force`. Les places ne sont rendues à la vente qu'avec `--release-seats` :
+sinon elles restent réservées au nom d'une commande annulée ou supprimée.
 
 ## 11. Intégrations tableur
 

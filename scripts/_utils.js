@@ -35,6 +35,9 @@ export function loadModels() {
   models.Event  = requireFromRoot('src/models/Event.js').Event;
   models.Order  = requireFromRoot('src/models/Order.js').Order;
   models.Ticket = requireFromRoot('src/models/Ticket.js').Ticket;
+  // Annuler une commande sans pouvoir rendre ses places laissait celles-ci
+  // réservées au nom d'une commande disparue.
+  models.Seat   = requireFromRoot('src/models/Seat.js').Seat;
   return models;
 }
 
