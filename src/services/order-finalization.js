@@ -6,6 +6,7 @@ import { Event } from '../models/Event.js';
 import { SeatHold } from '../models/SeatHold.js';
 import { Ticket } from '../models/Ticket.js';
 import { computeEventSeatStates } from './event-seat-states.js';
+import { failureStamp, FAILURE_REASONS } from '../utils/order-failure.js';
 import { renderOrderEmail, subjectForOrder, attachQrFromBank } from './mailer.js';
 import { buildTicketsPdfBuffer } from './tickets-pdf.js';
 import { sendMail } from '../loaders/mailer.js';
@@ -490,6 +491,7 @@ export async function finalizePaidIfNoConflict(order) {
     meta.lastFinalizeResult = 'conflict';
     meta.lastFinalizeConflictAt = now;
     meta.conflict = { source: 'finalize', kind: 'seat_conflict', seats: conflicts, checkedAt: now };
+    Object.assign(meta, failureStamp(FAILURE_REASONS.SEAT_CONFLICT));
     order.paymentProviderMeta = meta;
     await order.save();
     return { ok: false, booked: 0, conflicts };
@@ -564,6 +566,7 @@ export async function finalizePaidIfNoConflict(order) {
       meta.lastFinalizeResult = 'conflict';
       meta.lastFinalizeConflictAt = now;
       meta.conflict = { source: 'finalize', kind: 'seat_conflict_race', modified, expected: seatIds.length, checkedAt: now };
+      Object.assign(meta, failureStamp(FAILURE_REASONS.SEAT_CONFLICT_RACE));
       order.paymentProviderMeta = meta;
       await order.save();
       return { ok: false, booked: modified, conflicts: [{ reason: 'race_condition', modified, expected: seatIds.length }] };
@@ -618,6 +621,9 @@ async function commitPaidOrder(order, meta, now, { onFailure } = {}) {
       detail: err?.message || String(err),
       checkedAt: now
     };
+    Object.assign(meta, failureStamp(
+      duplicate ? FAILURE_REASONS.DUPLICATE_PAID_ORDER : FAILURE_REASONS.SAVE_FAILED
+    ));
     order.paymentProviderMeta = meta;
     await order.save().catch(() => { /* l'état d'échec est au mieux de nos moyens */ });
     return {

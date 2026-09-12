@@ -13,6 +13,7 @@ import { Zone } from '../models/Zone.js';
 import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId, currentPaymentUxMode } from '../services/payments/index.js';
 import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { finalizePaidIfNoConflict, sendOrderAttestationIfNeeded } from '../services/order-finalization.js';
+import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
 import { matchesChannel } from '../utils/channel-scopes.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { computeEventSeatStates as computeSeatStates } from '../services/event-seat-states.js';
@@ -751,8 +752,8 @@ export function createEventFlowRouter({
           ev, order: ord, seatIds: holdSeatIds, sessionToken: checkoutSessionToken, until
         });
         if (!claim.ok) {
-          ord.status = 'failed';
-          ord.paymentProviderMeta = { ...(ord.paymentProviderMeta || {}), reason: 'seat_hold_conflict', seats: claim.conflicts };
+          markOrderFailed(ord, FAILURE_REASONS.SEAT_HOLD_CONFLICT,
+            { reason: 'seat_hold_conflict', seats: claim.conflicts });
           await ord.save();
           return res.status(409).json({ ok: false, error: 'seat_unavailable', seatIds: claim.conflicts });
         }
@@ -915,8 +916,8 @@ export function createEventFlowRouter({
             until
           });
           if (!claim.ok) {
-            ord.status = 'failed';
-            ord.paymentProviderMeta = { ...(ord.paymentProviderMeta || {}), reason: 'seat_hold_conflict', seats: claim.conflicts };
+            markOrderFailed(ord, FAILURE_REASONS.SEAT_HOLD_CONFLICT,
+              { reason: 'seat_hold_conflict', seats: claim.conflicts });
             await ord.save();
             return res.status(409).json({ ok: false, error: 'seat_unavailable', seatIds: claim.conflicts });
           }

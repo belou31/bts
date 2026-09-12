@@ -21,7 +21,7 @@ nav_order: 120
 | `Campaign` | Audience / opérations | 8 | 1 |
 | `Counter` | Audience / opérations | 4 | 1 |
 | `Event` | Événements et contrôle | 14 | 6 |
-| `Order` | Runtime saison / vente | 21 | 18 |
+| `Order` | Runtime saison / vente | 22 | 17 |
 | `Season` | Runtime saison / vente | 10 | 4 |
 | `Seat` | Runtime saison / vente | 8 | 11 |
 | `SeatCatalog` | Catalogue | 9 | 2 |
@@ -297,6 +297,7 @@ nav_order: 120
 
 #### Top-level fields
 
+- `adminEdits`: `Array`
 - `createdAt`: `Date`
 - `eventId`: `ObjectId`
 - `groupKey`: `String`
@@ -321,7 +322,7 @@ nav_order: 120
 
 #### Indexes
 
-`seasonCode:1`<br>`venueSlug:1`<br>`eventId:1`<br>`parentOrderId:1`<br>`groupKey:1`<br>`itemName:1`<br>`payerEmail:1`<br>`lines.tariffCode:1`<br>`status:1`<br>`origin.flow:1`<br>`mailTemplateKind:1`<br>`seasonCode:1, venueSlug:1, groupKey:1, status:1` (name=idx_group_status)<br>`seasonCode:1, venueSlug:1, groupKey:1, payerEmail:1, status:1` (name=uniq_paid_per_payer, unique)<br>`eventId:1, parentOrderId:1, status:1` (name=idx_event_parent_status)<br>`paymentProviderMeta.checkoutIntentId:1` (name=idx_provider_intent, sparse)<br>`paymentProviderMeta.tokenHash:1` (name=idx_provider_tokenhash, sparse)<br>`meta.checkoutIntentId:1` (name=idx_legacy_intent, sparse)<br>`meta.tokenHash:1` (name=idx_legacy_tokenhash, sparse)
+`seasonCode:1`<br>`venueSlug:1`<br>`eventId:1`<br>`parentOrderId:1`<br>`groupKey:1`<br>`itemName:1`<br>`payerEmail:1`<br>`lines.tariffCode:1`<br>`status:1`<br>`origin.flow:1`<br>`mailTemplateKind:1`<br>`seasonCode:1, venueSlug:1, groupKey:1, status:1` (name=idx_group_status)<br>`eventId:1, parentOrderId:1, status:1` (name=idx_event_parent_status)<br>`paymentProviderMeta.checkoutIntentId:1` (name=idx_provider_intent, sparse)<br>`paymentProviderMeta.tokenHash:1` (name=idx_provider_tokenhash, sparse)<br>`meta.checkoutIntentId:1` (name=idx_legacy_intent, sparse)<br>`meta.tokenHash:1` (name=idx_legacy_tokenhash, sparse)
 
 ### Season
 

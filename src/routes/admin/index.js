@@ -704,7 +704,7 @@ router.get('/', (req, res) => {
   const suffix = qs.toString();
   let target = urlFor('/admin/operate');
   if (view === 'monitor') target = urlFor('/admin/monitor');
-  if (view === 'io') target = urlFor('/admin/operate/io');
+  if (view === 'io') target = urlFor('/admin/io');
   if (view === 'templates') target = urlFor('/admin/doc');
   if (view === 'plan') target = urlFor('/admin/plan');
   if (view === 'orders') target = urlFor('/admin/orders');
@@ -747,7 +747,14 @@ router.get('/advanced', (req, res) => {
   });
 });
 
+// Kept for old bookmarks/links — Data I/O moved to its own top-level category.
 router.get('/operate/io', (req, res) => {
+  const qs = new URLSearchParams(req.query);
+  const suffix = qs.toString();
+  return res.redirect(302, `${urlFor('/admin/io')}${suffix ? `?${suffix}` : ''}`);
+});
+
+router.get('/io', (req, res) => {
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
@@ -1669,7 +1676,7 @@ router.get('/operate', async (req, res) => {
     const qs = new URLSearchParams(req.query);
     qs.delete('view');
     const suffix = qs.toString();
-    const target = urlFor('/admin/operate/io');
+    const target = urlFor('/admin/io');
     return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
   }
 
@@ -1808,7 +1815,7 @@ router.get('/monitor', async (req, res) => {
     const qs = new URLSearchParams(req.query);
     qs.delete('view');
     const suffix = qs.toString();
-    const target = urlFor('/admin/operate/io');
+    const target = urlFor('/admin/io');
     return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
   }
   if (req.query.view === 'operate') {
@@ -2939,6 +2946,47 @@ router.post('/inputs/delete', (req, res) => {
     }
     fs.unlinkSync(abs);
     return res.json({ ok: true });
+  } catch {
+    return res.status(400).json({ ok: false, error: 'Invalid input file' });
+  }
+});
+
+const INPUT_EDIT_MAX_BYTES = 2 * 1024 * 1024; // 2 MB — plenty for CSV/SVG/JSON, avoids loading huge/binary files into a textarea
+
+router.get('/inputs/read', (req, res) => {
+  const raw = (req.query.file || '').toString();
+  if (!raw) return res.status(400).json({ ok: false, error: 'Missing file' });
+  try {
+    const abs = resolveInside(INPUTS_ROOT, raw);
+    const stats = fs.statSync(abs);
+    if (!stats.isFile()) return res.status(404).json({ ok: false, error: 'File not found' });
+    if (stats.size > INPUT_EDIT_MAX_BYTES) {
+      return res.status(413).json({ ok: false, error: `File too large to edit here (${(stats.size / 1024 / 1024).toFixed(1)} MB > 2 MB) — download it instead` });
+    }
+    const content = fs.readFileSync(abs, 'utf8');
+    return res.json({ ok: true, file: raw, content, size: stats.size });
+  } catch (err) {
+    if (err?.code === 'ENOENT') return res.status(404).json({ ok: false, error: 'File not found' });
+    return res.status(400).json({ ok: false, error: 'Invalid input file' });
+  }
+});
+
+router.post('/inputs/write', (req, res) => {
+  const raw = (req.body?.file || '').toString();
+  const content = req.body?.content;
+  if (!raw) return res.status(400).json({ ok: false, error: 'Missing file' });
+  if (typeof content !== 'string') return res.status(400).json({ ok: false, error: 'Missing content' });
+  if (Buffer.byteLength(content, 'utf8') > INPUT_EDIT_MAX_BYTES) {
+    return res.status(413).json({ ok: false, error: 'Content too large (> 2 MB)' });
+  }
+  try {
+    const abs = resolveInside(INPUTS_ROOT, raw);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
+    fs.writeFileSync(abs, content, 'utf8');
+    const stats = fs.statSync(abs);
+    return res.json({ ok: true, file: raw, size: stats.size, mtime: stats.mtime });
   } catch {
     return res.status(400).json({ ok: false, error: 'Invalid input file' });
   }
