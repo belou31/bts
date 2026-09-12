@@ -1992,6 +1992,65 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'cancel-season-order',
+        label: 'Cancel Season Order',
+        order: 7.4,
+        path: 'scripts/03-season-management/cancel-season-order.js',
+        command: 'node scripts/03-season-management/cancel-season-order.js (--order=<id> [--mode=soft|hard] | --file=<orders.csv>) [--commit] [--force] [--release-seats]',
+        run: { script: 'scripts/03-season-management/cancel-season-order.js', args: [] },
+        danger: true,
+        description: 'Annule (soft) ou supprime (hard) une commande d\'abonnement ou de renouvellement, et révoque ses billets.',
+        notes: [
+          'Sans « Appliquer », rien n\'est écrit.',
+          'Une commande rattachée à un match est refusée ici, avec la commande à employer : le geste n\'est pas le même, la place de saison est détenue à l\'année.',
+          'soft conserve la trace du paiement ; hard supprime le document, sans retour — à réserver aux commandes de test.',
+          'Une commande PAYÉE est ignorée sauf « Forcer ».',
+          'Les places ne sont PAS rendues par défaut : sans « Libérer les places », elles restent réservées au nom d\'une commande annulée.',
+          'Les commandes de match dérivées de cet abonnement sont signalées : elles restent à traiter séparément.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'order',
+              label: 'Identifiant de commande',
+              placeholder: '6a9951e3ef4944f439f0695e',
+              hint: 'Laisser vide pour traiter un lot via le CSV.',
+              arg: { type: 'option', template: '--order=${value}' }
+            },
+            {
+              name: 'mode',
+              label: 'Mode : soft ou hard',
+              placeholder: 'soft',
+              arg: { type: 'option', template: '--mode=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'CSV commandes (alternative)',
+              placeholder: 'data/inputs/orders-cancel.csv',
+              arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Appliquer (sinon simulation)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            },
+            {
+              name: 'force',
+              label: 'Forcer même si la commande est payée',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--force' }
+            },
+            {
+              name: 'releaseSeats',
+              label: 'Libérer les places pour toute la saison',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--release-seats' }
+            }
+          ]
+        }
+      },
+      {
         id: 'export-season-seats',
         label: 'Export Season Seats (CSV)',
         order: 7.5,
@@ -2636,29 +2695,68 @@ export const adminScriptGroups = [
       },
       {
         id: 'event-cancel-order',
-        label: 'Cancel Event Order',
+        label: 'Cancel / Release Event Order',
         order: 3.3,
-        path: 'scripts/04-event-management/cancel-order.js',
-        command: 'node scripts/04-event-management/cancel-order.js --order=<orderId> [--event=<slug|ObjectId>] [--commit]',
+        path: 'scripts/04-event-management/cancel-event-order.js',
+        command: 'node scripts/04-event-management/cancel-event-order.js (--order=<id> [--mode=soft|release|hard] | --file=<orders.csv>) [--event=<slug|id>] [--commit] [--force] [--release-seats]',
         run: {
-          script: 'scripts/04-event-management/cancel-order.js',
+          script: 'scripts/04-event-management/cancel-event-order.js',
           args: []
         },
-        description: 'Cancels an event order, releases seats, and marks lines as released. Dry-run by default; add --commit to apply.',
+        danger: true,
+        description: 'Annule, libère ou supprime une commande de match, et révoque ses billets. Pour un abonnement, utiliser « Cancel Season Order ».',
+        notes: [
+          'Sans « Appliquer », rien n\'est écrit.',
+          'soft : la commande passe à « canceled ». La place n\'est PAS revendable pour ce match — une commande annulée sort du calcul d\'occupation et le siège retombe sur son état de saison.',
+          'release : la commande RESTE payée, ses lignes passent à « released ». C\'est le seul mode qui rend la place disponible pour CE match en laissant le siège de saison à son détenteur — le cas d\'un abonné qui manque un match.',
+          'hard : le document est supprimé, sans retour.',
+          'Une commande PAYÉE est ignorée sauf « Forcer ».',
+          '« Rendre le siège de saison » est refusé sur une commande dérivée d\'un abonnement : cela retirerait sa place à l\'abonné pour toute la saison.'
+        ],
         form: {
           fields: [
             {
               name: 'order',
-              label: 'Order ID',
+              label: 'Identifiant de commande',
               placeholder: '6652f1…c123',
-              required: true,
+              hint: 'Laisser vide pour traiter un lot via le CSV.',
               arg: { type: 'option', template: '--order=${value}' }
             },
             {
+              name: 'mode',
+              label: 'Mode : soft, release ou hard',
+              placeholder: 'soft',
+              arg: { type: 'option', template: '--mode=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'CSV commandes (alternative)',
+              placeholder: 'data/inputs/orders-cancel.csv',
+              arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
               name: 'event',
-              label: 'Event slug/ID (optionnel)',
+              label: 'Match attendu (vérification facultative)',
               placeholder: 'match-2025-09-21-bts-vs-xxx',
               arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Appliquer (sinon simulation)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            },
+            {
+              name: 'force',
+              label: 'Forcer même si la commande est payée',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--force' }
+            },
+            {
+              name: 'releaseSeats',
+              label: 'Rendre aussi le siège de saison',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--release-seats' }
             }
           ]
         }
@@ -3486,67 +3584,6 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/orders.csv',
               required: true,
               arg: { type: 'option', template: '--file=${value}' }
-            }
-          ]
-        }
-      },
-      {
-        id: 'orders-delete',
-        label: 'Cancel / Delete Orders',
-        order: 2,
-        path: 'scripts/06-misc/orders-delete.js',
-        command: 'node scripts/06-misc/orders-delete.js (--order=<id> [--mode=soft|hard] | --file=<orders.csv>) [--commit] [--force] [--release-seats]',
-        run: {
-          script: 'scripts/06-misc/orders-delete.js',
-          args: []
-        },
-        danger: true,
-        description: 'Annule (soft) ou supprime (hard) une commande précise ou un lot listé en CSV, et révoque leurs billets.',
-        notes: [
-          'Une commande à la fois avec « Identifiant de commande », ou un lot avec le CSV (colonnes orderId, mode=soft|hard). Un seul des deux.',
-          'Sans « Appliquer », rien n\'est écrit : le script affiche ce qu\'il ferait, commande par commande, avec les places concernées.',
-          'soft passe la commande à « canceled » et conserve la trace du paiement ; hard supprime le document, sans retour possible — à réserver aux commandes de test.',
-          'Une commande PAYÉE est ignorée sauf case « Forcer » : c\'est de l\'argent encaissé.',
-          'Les places ne sont PAS libérées par défaut. Sans « Libérer les places », elles restent réservées au nom d\'une commande annulée ou disparue.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'order',
-              label: 'Identifiant de commande',
-              placeholder: '6a9951e3ef4944f439f0695e',
-              hint: 'Laisser vide pour traiter un lot via le CSV ci-dessous.',
-              arg: { type: 'option', template: '--order=${value}' }
-            },
-            {
-              name: 'mode',
-              label: 'Mode (avec un identifiant) : soft ou hard',
-              placeholder: 'soft',
-              arg: { type: 'option', template: '--mode=${value}' }
-            },
-            {
-              name: 'file',
-              label: 'CSV commandes (alternative)',
-              placeholder: 'data/inputs/orders-delete.csv',
-              arg: { type: 'option', template: '--file=${value}' }
-            },
-            {
-              name: 'commit',
-              label: 'Appliquer (sinon simulation)',
-              type: 'checkbox',
-              arg: { type: 'flag', flag: '--commit' }
-            },
-            {
-              name: 'force',
-              label: 'Forcer même si la commande est payée',
-              type: 'checkbox',
-              arg: { type: 'flag', flag: '--force' }
-            },
-            {
-              name: 'releaseSeats',
-              label: 'Libérer les places',
-              type: 'checkbox',
-              arg: { type: 'flag', flag: '--release-seats' }
             }
           ]
         }
