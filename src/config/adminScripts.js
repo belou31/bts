@@ -3465,6 +3465,43 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'failed-orders-report',
+        label: 'Failed Orders — Causes',
+        order: 2.5,
+        path: 'scripts/06-misc/reports/failed-orders.js',
+        command: 'node scripts/06-misc/reports/failed-orders.js [--season=<code>] [--since=YYYY-MM-DD] [--details]',
+        run: { script: 'scripts/06-misc/reports/failed-orders.js', args: [] },
+        description: 'Compte les commandes « failed » par cause, en séparant celles où le client a payé de celles sans conséquence.',
+        notes: [
+          'Lecture seule : ce rapport n\'écrit rien.',
+          'Le tri qui compte est la phase. « avant paiement » = rien encaissé, le client recommence : du bruit. « après paiement » = le client a payé sans obtenir sa place, chaque ligne demande un remboursement ou un relogement.',
+          'Un échec n\'est jamais un délai d\'attente : une commande expirée passe à « canceled », pas à « failed ».',
+          'Les commandes antérieures à la traçabilité sont reclassées d\'après leurs anciens champs, sans rien réécrire en base.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison (optionnel)',
+              placeholder: '2026-2027',
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'since',
+              label: 'Depuis (AAAA-MM-JJ, optionnel)',
+              placeholder: '2026-07-01',
+              arg: { type: 'option', template: '--since=${value}' }
+            },
+            {
+              name: 'details',
+              label: 'Lister les commandes à instruire',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--details' }
+            }
+          ]
+        }
+      },
+      {
         id: 'export-seats',
         label: 'Export Seats (CSV)',
         order: 3,

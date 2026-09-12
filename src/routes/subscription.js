@@ -16,6 +16,7 @@ import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { loadCustomization } from '../services/customization.js';
 import { isVirtualZoneSeatId } from '../utils/seat-id.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
+import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
 import { partnerSeasonQuota, partnerSeasonPresaleRemaining } from '../services/partner-presale.js';
 import { resolveSeasonSubscribeAccess, seasonAccessMessage } from '../services/season-access.js';
 import {
@@ -511,13 +512,11 @@ router.post('/checkout', async (req, res) => {
           { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } },
           { runValidators: false }
         );
-        order.status = 'failed';
-        order.paymentProviderMeta = {
-          ...(order.paymentProviderMeta || {}),
-          reason: 'pre_hold_mismatch',
+        markOrderFailed(order, FAILURE_REASONS.PRE_HOLD_MISMATCH, {
+          reason: 'pre_hold_mismatch',   // champ historique, conservé
           expected: realSeatIds.length,
           modified
-        };
+        });
         await order.save();
         return res.status(409).json({ ok:false, error:'seat_unavailable', message:'Un des sièges vient d’être pris.' });
       }
