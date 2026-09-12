@@ -470,6 +470,53 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'audit-missing-seats',
+        label: 'Audit Missing Seats',
+        order: 0.5,
+        path: 'scripts/03-season-management/audit-missing-seats.js',
+        command: 'node scripts/03-season-management/audit-missing-seats.js <seasonCode> --venue=<slug>',
+        run: {
+          script: 'scripts/03-season-management/audit-missing-seats.js',
+          args: []
+        },
+        description: 'Checks for discrepancies between seat provisioning and subscriptions.',
+        notes: [
+          'Produces detailed and grouped CSV outputs; configure --out and --grouped paths as needed.',
+          'Les fichiers sont écrits par défaut dans data/outputs.',
+          'À lancer après l\'import des abonnés à renouveler, avant la provision des sièges — détecte les sièges de la saison précédente absents du catalogue ou pas encore instanciés pour la nouvelle saison.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu',
+              placeholder: 'patinoire-blagnac',
+              required: true,
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Fichier détaillé (optionnel)',
+              placeholder: 'audit-missing-seats.csv',
+              arg: { type: 'option', template: '--out=${value}' }
+            },
+            {
+              name: 'grouped',
+              label: 'Fichier groupé (optionnel)',
+              placeholder: 'audit-missing-seats-grouped.csv',
+              arg: { type: 'option', template: '--grouped=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'renewal-provision',
         label: 'Provision Seats for Renewal',
         order: 1,
@@ -3562,33 +3609,6 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'orders-import-csv',
-        label: 'Import Orders from CSV',
-        order: 1,
-        path: 'scripts/orders-import-csv.js',
-        command: 'node scripts/orders-import-csv.js --file=<orders.csv> [--send] [--commit]',
-        run: {
-          script: 'scripts/orders-import-csv.js',
-          args: []
-        },
-        description: 'Creates paid orders (with tickets) from a CSV and optionally emails confirmations.',
-        notes: [
-          'Columns: eventId, quantity, payerFirstName, payerLastName, payerEmail, seatId, zoneKey, tariffCode.',
-          'Runs in dry-run mode unless --commit; add --send to trigger confirmations.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'file',
-              label: 'CSV commandes',
-              placeholder: 'data/inputs/orders.csv',
-              required: true,
-              arg: { type: 'option', template: '--file=${value}' }
-            }
-          ]
-        }
-      },
-      {
         id: 'failed-orders-report',
         label: 'Failed Orders — Causes',
         order: 2.5,
@@ -3621,55 +3641,6 @@ export const adminScriptGroups = [
               label: 'Lister les commandes à instruire',
               type: 'checkbox',
               arg: { type: 'flag', flag: '--details' }
-            }
-          ]
-        }
-      },
-      {
-        // Déplacé dans les chapitres concernés : « Export Season Seats »
-        // (03-season-management) pour l'état de fond de la saison, et
-        // « Export Event Seats » (04-event-management) pour l'occupation d'un
-        // match. L'entrée générique laissait croire à une seule réponse là où
-        // les deux questions n'ont pas les mêmes données.
-        id: 'export-season-seats-moved',
-        label: 'Export Seats — voir les chapitres Saison et Événement',
-        order: 3,
-        path: 'scripts/03-season-management/export-season-seats.js',
-        command: 'node scripts/03-season-management/export-season-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>] [--out=<fichier.csv>]',
-        run: {
-          script: 'scripts/03-season-management/export-season-seats.js',
-          args: []
-        },
-        description: 'Raccourci vers l\'export des sièges de saison. L\'occupation d\'un match se lit avec « Export Event Seats ».',
-        notes: [
-          'Ce script vit désormais dans 03-season-management ; l\'entrée est conservée ici le temps que les habitudes suivent.'
-        ],
-        templates: ['data_references/csv/seats-export.template.csv'],
-        form: {
-          fields: [
-            {
-              name: 'season',
-              label: 'Filtrer par saison (optionnel)',
-              placeholder: '2026-2027',
-              arg: { type: 'option', template: '--season=${value}' }
-            },
-            {
-              name: 'venue',
-              label: 'Filtrer par lieu (optionnel)',
-              placeholder: 'patinoire-blagnac',
-              arg: { type: 'option', template: '--venue=${value}' }
-            },
-            {
-              name: 'zone',
-              label: 'Filtrer par zone (optionnel)',
-              placeholder: 'TBH7',
-              arg: { type: 'option', template: '--zone=${value}' }
-            },
-            {
-              name: 'out',
-              label: 'Nom du fichier (optionnel)',
-              placeholder: 'season-seats.csv',
-              arg: { type: 'option', template: '--out=${value}' }
             }
           ]
         }
@@ -3803,52 +3774,6 @@ export const adminScriptGroups = [
           ]
         }
       },
-      {
-        id: 'audit-missing-seats',
-        label: 'Audit Missing Seats',
-        order: 5,
-        path: 'scripts/06-misc/audit-missing-seats.js',
-        command: 'node scripts/06-misc/audit-missing-seats.js <seasonCode> --venue=<slug>',
-        run: {
-          script: 'scripts/06-misc/audit-missing-seats.js',
-          args: []
-        },
-        description: 'Checks for discrepancies between seat provisioning and subscriptions.',
-        notes: [
-          'Produces detailed and grouped CSV outputs; configure --out and --grouped paths as needed.',
-          'Les fichiers sont écrits par défaut dans data/outputs.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'season',
-              label: 'Code saison',
-              placeholder: '2025-2026',
-              required: true,
-              arg: { type: 'positional', index: 0 }
-            },
-            {
-              name: 'venue',
-              label: 'Slug du lieu',
-              placeholder: 'patinoire-blagnac',
-              required: true,
-              arg: { type: 'option', template: '--venue=${value}' }
-            },
-            {
-              name: 'out',
-              label: 'Fichier détaillé (optionnel)',
-              placeholder: 'audit-missing-seats.csv',
-              arg: { type: 'option', template: '--out=${value}' }
-            },
-            {
-              name: 'grouped',
-              label: 'Fichier groupé (optionnel)',
-              placeholder: 'audit-missing-seats-grouped.csv',
-              arg: { type: 'option', template: '--grouped=${value}' }
-            }
-          ]
-        }
-      }
     ]
   }
 ];

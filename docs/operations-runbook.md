@@ -660,7 +660,7 @@ node scripts/00-system-management/purge-logs.js --apply
 ### Audit sièges manquants
 
 ```bash
-node scripts/06-misc/audit-missing-seats.js 2025-2026 --venue=patinoire-blagnac
+node scripts/03-season-management/audit-missing-seats.js 2025-2026 --venue=patinoire-blagnac
 ```
 
 ### Exports courants
