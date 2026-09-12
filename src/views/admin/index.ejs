@@ -4,19 +4,20 @@
   <meta charset="utf-8" />
   <%
     const PAGE_TITLES = {
-      home: 'BTS Administration',
-      operate: 'BTS Admin Operation',
-      io: 'BTS Admin Operation',
-      monitor: 'BTS Admin Monitoring',
-      templates: 'BTS Admin Documentation',
-      advanced: 'BTS Admin Advanced',
-      plan: 'BTS Admin Plan',
-      orders: 'BTS Admin Orders',
-      tickets: 'BTS Admin Tickets',
-      renewers: 'BTS Admin Renewers'
+      home: 'BTS Adm',
+      operate: 'BTS Adm Operation',
+      io: 'BTS Adm I/O',
+      monitor: 'BTS Adm Monitoring',
+      templates: 'BTS Adm Documentation',
+      advanced: 'BTS Adm Advanced',
+      plan: 'BTS Adm Plan',
+      orders: 'BTS Adm Orders',
+      tickets: 'BTS Adm Tickets',
+      renewers: 'BTS Adm Renewers',
+      vouchers: 'BTS Adm Vouchers'
     };
   %>
-  <title><%= PAGE_TITLES[viewMode] || 'BTS Administration' %></title>
+  <title><%= PAGE_TITLES[viewMode] || 'BTS Adm' %></title>
   <style>
     :root {
       color-scheme: light;
@@ -144,6 +145,19 @@
       justify-content: space-between;
       padding: 14px 16px;
       border-bottom: 1px solid var(--border);
+    }
+    .modal-dialog-wide { max-width: 900px; }
+    .input-edit-textarea {
+      width: 100%;
+      min-height: 50vh;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.4;
+      resize: vertical;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      box-sizing: border-box;
     }
     .modal-header h3 { margin: 0; }
     .modal-close {
@@ -1042,7 +1056,7 @@
 <body>
   <% const tokenQueryString = tokenQuery ? ('?' + tokenQuery) : ''; %>
   <% const baseOperate = urlFor('/admin/operate') + tokenQueryString; %>
-  <% const baseIo = urlFor('/admin/operate/io') + tokenQueryString; %>
+  <% const baseIo = urlFor('/admin/io') + tokenQueryString; %>
   <% const baseTemplates = urlFor('/admin/doc') + tokenQueryString; %>
   <% const baseMonitor = urlFor('/admin/monitor') + tokenQueryString; %>
   <% const basePlan = urlFor('/admin/plan') + tokenQueryString; %>
@@ -1057,17 +1071,14 @@
     // Plan/Orders/Tickets have their own category ("Advanced") rather than being
     // Monitoring chapters — they're full-page tools (seat-level adjustments,
     // record search) rather than dashboard-style inspection views.
-    // "Data I/O" is not a category on its own: data/inputs + data/outputs are an
-    // Operation concern (feeding/collecting script runs), so they're Operate's
-    // first chapter; the read-only customization/template/asset listings are a
-    // Monitoring concern (inspecting current system state), so they're Monitoring's
-    // first chapter ("Custo files").
-    const activeCategoryId = ['io'].includes(viewMode)
-      ? 'operate'
-      : ['plan', 'orders', 'tickets', 'renewers', 'vouchers'].includes(viewMode)
-        ? 'advanced'
-        : viewMode;
+    // "Data I/O" is its own top-level category (upload/edit/download/delete
+    // under data/inputs, download/delete under data/outputs) — it's neither an
+    // Operate script nor a Monitoring inspection view, it's file management.
+    const activeCategoryId = ['plan', 'orders', 'tickets', 'renewers', 'vouchers'].includes(viewMode)
+      ? 'advanced'
+      : viewMode;
     const navCategories = [
+      { id: 'io', label: 'Data I/O', href: baseIo },
       { id: 'operate', label: 'Operation', href: baseOperate },
       { id: 'monitor', label: 'Monitoring', href: baseMonitor },
       { id: 'templates', label: 'Documentation', href: baseTemplates },
@@ -1085,7 +1096,6 @@
     const categoryChapters = {
       operate: [
         { id: 'overview', label: 'Overview', href: baseOperate, active: showOperateIntro },
-        { id: 'io', label: 'Data I/O', href: baseIo, active: viewMode === 'io' },
         ...(scriptGroups || []).map((g) => ({
           id: g.id,
           label: g.label || g.id,
@@ -1122,6 +1132,7 @@
     const activeCategory = navCategories.find((c) => c.id === activeCategoryId);
     const activeChapters = categoryChapters[activeCategoryId] || [];
     const categoryTitles = {
+      io: 'Data I/O',
       operate: 'Operation management',
       templates: 'Documentation',
       monitor: 'Monitoring',
@@ -1135,14 +1146,14 @@
   <div class="topbar-shell">
     <div class="topbar">
       <div class="topbar-nav">
-        <details class="dropdown">
+        <details class="dropdown" data-nav-dropdown>
           <summary class="brand-chip">
             <span class="brand-logo">B</span>
             <span>BTS Admin</span>
           </summary>
           <div class="dropdown-menu">
             <% navCategories.forEach((cat) => { %>
-              <a href="<%= cat.href %>" class="<%= cat.id === activeCategoryId ? 'active' : '' %>"><%= cat.label %></a>
+              <a href="<%= cat.href %>" target="_blank" rel="noopener" class="<%= cat.id === activeCategoryId ? 'active' : '' %>"><%= cat.label %></a>
             <% }); %>
           </div>
         </details>
@@ -1180,6 +1191,8 @@
           <div class="muted">Ajoutez vos CSV/SVG grâce au bouton ci-dessus.</div>
         <% } else { %>
           <% const deleteInputsUrl = urlFor('/admin/inputs/delete') + (tokenSuffix || ''); %>
+          <% const readInputsUrl = urlFor('/admin/inputs/read') + (tokenSuffix || ''); %>
+          <% const writeInputsUrl = urlFor('/admin/inputs/write') + (tokenSuffix || ''); %>
           <ul class="file-list scroll-limited">
             <% for (const file of inputsList || []) {
                  const dlUrl = urlFor('/admin/inputs/download') + '?file=' + encodeURIComponent(file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
@@ -1188,6 +1201,13 @@
                 <code><%= file.name %></code>
                 <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
                 <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <button
+                  type="button"
+                  class="btn btn-small"
+                  data-edit-button
+                  data-read-url="<%= readInputsUrl %>"
+                  data-write-url="<%= writeInputsUrl %>"
+                  data-file="<%= file.rel %>">Edit</button>
                 <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
                 <button
                   type="button"
@@ -1201,6 +1221,25 @@
           </ul>
         <% } %>
       </section>
+
+      <div class="modal hidden" data-input-edit-modal>
+        <div class="modal-backdrop" data-input-edit-close></div>
+        <div class="modal-dialog modal-dialog-wide">
+          <div class="modal-header">
+            <h3>Edit <code data-input-edit-filename></code></h3>
+            <button type="button" class="modal-close" data-input-edit-close>&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="muted" data-input-edit-status></div>
+            <textarea class="input-edit-textarea" data-input-edit-textarea rows="24" spellcheck="false"></textarea>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-input-edit-summary></div>
+            <button type="button" class="btn btn-secondary" data-input-edit-close>Cancel</button>
+            <button type="button" class="btn" data-input-edit-save>Save</button>
+          </footer>
+        </div>
+      </div>
 
       <section class="card io-card">
         <h2>Fichiers générés (data/outputs)</h2>
@@ -1237,6 +1276,10 @@
       <h2>BTS — Administration</h2>
       <p class="muted">Choose a section below.</p>
       <ul class="intro-list">
+        <li>
+          <a href="<%= baseIo %>">Data I/O</a>
+          <span class="intro-item-desc">Upload, edit, download, and delete files under data/inputs and data/outputs.</span>
+        </li>
         <li>
           <a href="<%= baseOperate %>">Operation</a>
           <span class="intro-item-desc">Run setup, import, and export scripts — organized by chapter.</span>
@@ -2187,12 +2230,6 @@
     <section class="card intro-card">
       <h2>Operation — Overview</h2>
       <p class="muted">Pick a script below, or use the chapter dropdown above to jump straight to one.</p>
-      <ul class="intro-list">
-        <li>
-          <a href="<%= baseIo %>">Data I/O</a>
-          <span class="intro-item-desc">Upload/download data files (inputs, outputs) — not a script.</span>
-        </li>
-      </ul>
       <% for (const group of scriptGroups || []) { %>
         <div class="intro-group">
           <h3><%= group.label %></h3>
@@ -4465,6 +4502,90 @@
         });
       };
       bindDeleteButtons();
+
+      /* ----- Close the "BTS Admin" dropdown once a menu item is picked ----- */
+      document.querySelectorAll('[data-nav-dropdown] .dropdown-menu a').forEach(link => {
+        link.addEventListener('click', () => {
+          link.closest('[data-nav-dropdown]')?.removeAttribute('open');
+        });
+      });
+
+      /* ----- Input file edit modal wiring ----- */
+      const inputEditModal = document.querySelector('[data-input-edit-modal]');
+      if (inputEditModal) {
+        const editFilename = inputEditModal.querySelector('[data-input-edit-filename]');
+        const editStatus = inputEditModal.querySelector('[data-input-edit-status]');
+        const editTextarea = inputEditModal.querySelector('[data-input-edit-textarea]');
+        const editSummary = inputEditModal.querySelector('[data-input-edit-summary]');
+        const editSaveBtn = inputEditModal.querySelector('[data-input-edit-save]');
+        let editState = { file: null, writeUrl: null };
+
+        const closeInputEdit = () => {
+          inputEditModal.classList.add('hidden');
+          editState = { file: null, writeUrl: null };
+          if (editTextarea) editTextarea.value = '';
+          if (editStatus) editStatus.textContent = '';
+          if (editSummary) editSummary.textContent = '';
+        };
+
+        inputEditModal.querySelectorAll('[data-input-edit-close]').forEach(btn => {
+          btn.addEventListener('click', closeInputEdit);
+        });
+
+        document.querySelectorAll('[data-edit-button]').forEach(button => {
+          button.addEventListener('click', async () => {
+            const file = button.dataset.file || '';
+            const readUrl = button.dataset.readUrl || '';
+            const writeUrl = button.dataset.writeUrl || '';
+            if (!file || !readUrl || !writeUrl) return;
+            editState = { file, writeUrl };
+            if (editFilename) editFilename.textContent = file;
+            if (editTextarea) editTextarea.value = '';
+            if (editStatus) editStatus.textContent = 'Chargement…';
+            if (editSummary) editSummary.textContent = '';
+            inputEditModal.classList.remove('hidden');
+            try {
+              const response = await fetch(`${readUrl}${readUrl.includes('?') ? '&' : '?'}file=${encodeURIComponent(file)}`);
+              const data = await response.json().catch(() => ({}));
+              if (!response.ok || data.ok === false) {
+                if (editStatus) editStatus.textContent = `✖ ${data.error || response.statusText}`;
+                return;
+              }
+              if (editTextarea) editTextarea.value = data.content || '';
+              if (editStatus) editStatus.textContent = '';
+            } catch (err) {
+              if (editStatus) editStatus.textContent = `✖ ${err && err.message ? err.message : err}`;
+            }
+          });
+        });
+
+        editSaveBtn?.addEventListener('click', async () => {
+          if (!editState.file || !editState.writeUrl) return;
+          editSaveBtn.disabled = true;
+          const originalLabel = editSaveBtn.textContent;
+          editSaveBtn.textContent = '…';
+          if (editSummary) editSummary.textContent = '';
+          try {
+            const response = await fetch(editState.writeUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ file: editState.file, content: editTextarea?.value ?? '' })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false) {
+              if (editSummary) editSummary.textContent = `✖ ${data.error || response.statusText}`;
+            } else {
+              if (editSummary) editSummary.textContent = '✔ Enregistré';
+              setTimeout(closeInputEdit, 600);
+            }
+          } catch (err) {
+            if (editSummary) editSummary.textContent = `✖ ${err && err.message ? err.message : err}`;
+          } finally {
+            editSaveBtn.disabled = false;
+            editSaveBtn.textContent = originalLabel;
+          }
+        });
+      }
 
       /* ----- Attendance modal wiring ----- */
       const defaultEventSlug = <%- JSON.stringify((locals.ordersView && locals.ordersView.selectedEventSlug) ? locals.ordersView.selectedEventSlug : '') %>;

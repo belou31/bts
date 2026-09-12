@@ -15,6 +15,7 @@ import { makeTokenHash } from '../utils/ha-token.js';
 import { findSingleGaps }      from '../utils/no-single-gap.js';
 import { isVirtualZoneSeatId, zoneKeyFromSeatId as zoneKeyOf } from '../utils/seat-id.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
+import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { getPartnerConfig } from '../config/partners.js';
 import {
@@ -649,13 +650,11 @@ router.post('/renew', async (req, res) => {
           { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } },
           { runValidators: false }
         );
-        order.status = 'failed';
-        order.paymentProviderMeta = {
-          ...(order.paymentProviderMeta || {}),
-          reason: 'pre_hold_mismatch',
+        markOrderFailed(order, FAILURE_REASONS.PRE_HOLD_MISMATCH, {
+          reason: 'pre_hold_mismatch',   // champ historique, conservé
           expected: realSeatIds.length,
           modified
-        };
+        });
         await order.save();
         return res.status(409).json({ error: 'seat_unavailable', expected: realSeatIds.length, held: modified });
       }

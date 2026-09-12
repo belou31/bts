@@ -470,6 +470,53 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'audit-missing-seats',
+        label: 'Audit Missing Seats',
+        order: 0.5,
+        path: 'scripts/03-season-management/audit-missing-seats.js',
+        command: 'node scripts/03-season-management/audit-missing-seats.js <seasonCode> --venue=<slug>',
+        run: {
+          script: 'scripts/03-season-management/audit-missing-seats.js',
+          args: []
+        },
+        description: 'Checks for discrepancies between seat provisioning and subscriptions.',
+        notes: [
+          'Produces detailed and grouped CSV outputs; configure --out and --grouped paths as needed.',
+          'Les fichiers sont écrits par défaut dans data/outputs.',
+          'À lancer après l\'import des abonnés à renouveler, avant la provision des sièges — détecte les sièges de la saison précédente absents du catalogue ou pas encore instanciés pour la nouvelle saison.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Code saison',
+              placeholder: '2025-2026',
+              required: true,
+              arg: { type: 'positional', index: 0 }
+            },
+            {
+              name: 'venue',
+              label: 'Slug du lieu',
+              placeholder: 'patinoire-blagnac',
+              required: true,
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Fichier détaillé (optionnel)',
+              placeholder: 'audit-missing-seats.csv',
+              arg: { type: 'option', template: '--out=${value}' }
+            },
+            {
+              name: 'grouped',
+              label: 'Fichier groupé (optionnel)',
+              placeholder: 'audit-missing-seats-grouped.csv',
+              arg: { type: 'option', template: '--grouped=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'renewal-provision',
         label: 'Provision Seats for Renewal',
         order: 1,
@@ -1992,6 +2039,108 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'cancel-season-order',
+        label: 'Cancel Season Order',
+        order: 7.4,
+        path: 'scripts/03-season-management/cancel-season-order.js',
+        command: 'node scripts/03-season-management/cancel-season-order.js (--order=<id> [--mode=soft|hard] | --file=<orders.csv>) [--commit] [--force] [--release-seats]',
+        run: { script: 'scripts/03-season-management/cancel-season-order.js', args: [] },
+        danger: true,
+        description: 'Annule (soft) ou supprime (hard) une commande d\'abonnement ou de renouvellement, et révoque ses billets.',
+        notes: [
+          'Sans « Appliquer », rien n\'est écrit.',
+          'Une commande rattachée à un match est refusée ici, avec la commande à employer : le geste n\'est pas le même, la place de saison est détenue à l\'année.',
+          'soft conserve la trace du paiement ; hard supprime le document, sans retour — à réserver aux commandes de test.',
+          'Une commande PAYÉE est ignorée sauf « Forcer ».',
+          'Les places ne sont PAS rendues par défaut : sans « Libérer les places », elles restent réservées au nom d\'une commande annulée.',
+          'Les commandes de match dérivées de cet abonnement sont signalées : elles restent à traiter séparément.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'order',
+              label: 'Identifiant de commande',
+              placeholder: '6a9951e3ef4944f439f0695e',
+              hint: 'Laisser vide pour traiter un lot via le CSV.',
+              arg: { type: 'option', template: '--order=${value}' }
+            },
+            {
+              name: 'mode',
+              label: 'Mode : soft ou hard',
+              placeholder: 'soft',
+              arg: { type: 'option', template: '--mode=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'CSV commandes (alternative)',
+              placeholder: 'data/inputs/orders-cancel.csv',
+              arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Appliquer (sinon simulation)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            },
+            {
+              name: 'force',
+              label: 'Forcer même si la commande est payée',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--force' }
+            },
+            {
+              name: 'releaseSeats',
+              label: 'Libérer les places pour toute la saison',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--release-seats' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'export-season-seats',
+        label: 'Export Season Seats (CSV)',
+        order: 7.5,
+        path: 'scripts/03-season-management/export-season-seats.js',
+        command: 'node scripts/03-season-management/export-season-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>] [--out=<fichier.csv>] [--stdout]',
+        run: { script: 'scripts/03-season-management/export-season-seats.js', args: [] },
+        description: 'Exporte les sièges d\'une saison avec leur provisionnement et l\'abonnement qui les occupe.',
+        notes: [
+          'Écrit un fichier dans data/outputs/ (récupérable depuis l\'onglet Sorties). --stdout rend l\'ancien comportement en pipe.',
+          'État de fond de la saison : un siège vendu à l\'abonnement est « booked » pour toute la saison. Pour l\'occupation d\'UN match — places rendues déduites — utiliser « Export Event Seats ».'
+        ],
+        templates: ['data_references/csv/seats-export.template.csv'],
+        form: {
+          fields: [
+            {
+              name: 'season',
+              label: 'Filtrer par saison (optionnel)',
+              placeholder: '2026-2027',
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'venue',
+              label: 'Filtrer par lieu (optionnel)',
+              placeholder: 'patinoire-blagnac',
+              arg: { type: 'option', template: '--venue=${value}' }
+            },
+            {
+              name: 'zone',
+              label: 'Filtrer par zone (optionnel)',
+              placeholder: 'TBH7',
+              arg: { type: 'option', template: '--zone=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Nom du fichier (optionnel)',
+              placeholder: 'season-seats.csv',
+              hint: 'Un nom seul est écrit dans data/outputs/.',
+              arg: { type: 'option', template: '--out=${value}' }
+            }
+          ]
+        }
+      },
+      {
         id: 'export-subscription-orders',
         label: 'Export Season Orders (subscriptions + renewals)',
         order: 7,
@@ -2593,29 +2742,68 @@ export const adminScriptGroups = [
       },
       {
         id: 'event-cancel-order',
-        label: 'Cancel Event Order',
+        label: 'Cancel / Release Event Order',
         order: 3.3,
-        path: 'scripts/04-event-management/cancel-order.js',
-        command: 'node scripts/04-event-management/cancel-order.js --order=<orderId> [--event=<slug|ObjectId>] [--commit]',
+        path: 'scripts/04-event-management/cancel-event-order.js',
+        command: 'node scripts/04-event-management/cancel-event-order.js (--order=<id> [--mode=soft|release|hard] | --file=<orders.csv>) [--event=<slug|id>] [--commit] [--force] [--release-seats]',
         run: {
-          script: 'scripts/04-event-management/cancel-order.js',
+          script: 'scripts/04-event-management/cancel-event-order.js',
           args: []
         },
-        description: 'Cancels an event order, releases seats, and marks lines as released. Dry-run by default; add --commit to apply.',
+        danger: true,
+        description: 'Annule, libère ou supprime une commande de match, et révoque ses billets. Pour un abonnement, utiliser « Cancel Season Order ».',
+        notes: [
+          'Sans « Appliquer », rien n\'est écrit.',
+          'soft : la commande passe à « canceled ». La place n\'est PAS revendable pour ce match — une commande annulée sort du calcul d\'occupation et le siège retombe sur son état de saison.',
+          'release : la commande RESTE payée, ses lignes passent à « released ». C\'est le seul mode qui rend la place disponible pour CE match en laissant le siège de saison à son détenteur — le cas d\'un abonné qui manque un match.',
+          'hard : le document est supprimé, sans retour.',
+          'Une commande PAYÉE est ignorée sauf « Forcer ».',
+          '« Rendre le siège de saison » est refusé sur une commande dérivée d\'un abonnement : cela retirerait sa place à l\'abonné pour toute la saison.'
+        ],
         form: {
           fields: [
             {
               name: 'order',
-              label: 'Order ID',
+              label: 'Identifiant de commande',
               placeholder: '6652f1…c123',
-              required: true,
+              hint: 'Laisser vide pour traiter un lot via le CSV.',
               arg: { type: 'option', template: '--order=${value}' }
             },
             {
+              name: 'mode',
+              label: 'Mode : soft, release ou hard',
+              placeholder: 'soft',
+              arg: { type: 'option', template: '--mode=${value}' }
+            },
+            {
+              name: 'file',
+              label: 'CSV commandes (alternative)',
+              placeholder: 'data/inputs/orders-cancel.csv',
+              arg: { type: 'option', template: '--file=${value}' }
+            },
+            {
               name: 'event',
-              label: 'Event slug/ID (optionnel)',
+              label: 'Match attendu (vérification facultative)',
               placeholder: 'match-2025-09-21-bts-vs-xxx',
               arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Appliquer (sinon simulation)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            },
+            {
+              name: 'force',
+              label: 'Forcer même si la commande est payée',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--force' }
+            },
+            {
+              name: 'releaseSeats',
+              label: 'Rendre aussi le siège de saison',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--release-seats' }
             }
           ]
         }
@@ -2945,6 +3133,50 @@ export const adminScriptGroups = [
               label: 'Forcer statut (optionnel)',
               placeholder: 'paid',
               arg: { type: 'option', template: '--status=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'export-event-seats',
+        label: 'Export Event Seats (CSV)',
+        order: 7.5,
+        path: 'scripts/04-event-management/export-event-seats.js',
+        command: 'node scripts/04-event-management/export-event-seats.js --event=<slug|id> [--zone=<key>] [--status=<état>] [--out=<fichier.csv>] [--stdout]',
+        run: { script: 'scripts/04-event-management/export-event-seats.js', args: [] },
+        description: 'Exporte l\'état des sièges POUR UN MATCH et qui occupe chaque place — abonnés compris, places rendues déduites.',
+        notes: [
+          'Écrit un fichier dans data/outputs/ (récupérable depuis l\'onglet Sorties). --stdout rend la sortie en pipe.',
+          'Différent de l\'export de saison : l\'état est celui que voit l\'acheteur pour CE match, calculé par la même fonction que la billetterie (places rendues par un abonné, déplacements, sélections en cours).',
+          'Colonne « origin » : season = abonnement, event = commande de ce match, hold = sélection en cours, sans-commande = place occupée dont aucune commande n\'a été retrouvée (blocage manuel ou écart à examiner).'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Événement (slug ou identifiant)',
+              placeholder: '2026-xx-xx-match-regulier',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'zone',
+              label: 'Filtrer par zone (optionnel)',
+              placeholder: 'N2',
+              arg: { type: 'option', template: '--zone=${value}' }
+            },
+            {
+              name: 'status',
+              label: 'Filtrer par état (optionnel)',
+              placeholder: 'booked',
+              arg: { type: 'option', template: '--status=${value}' }
+            },
+            {
+              name: 'out',
+              label: 'Nom du fichier (optionnel)',
+              placeholder: 'event-seats.csv',
+              hint: 'Un nom seul est écrit dans data/outputs/.',
+              arg: { type: 'option', template: '--out=${value}' }
             }
           ]
         }
@@ -3377,93 +3609,38 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'orders-import-csv',
-        label: 'Import Orders from CSV',
-        order: 1,
-        path: 'scripts/orders-import-csv.js',
-        command: 'node scripts/orders-import-csv.js --file=<orders.csv> [--send] [--commit]',
-        run: {
-          script: 'scripts/orders-import-csv.js',
-          args: []
-        },
-        description: 'Creates paid orders (with tickets) from a CSV and optionally emails confirmations.',
+        id: 'failed-orders-report',
+        label: 'Failed Orders — Causes',
+        order: 2.5,
+        path: 'scripts/06-misc/reports/failed-orders.js',
+        command: 'node scripts/06-misc/reports/failed-orders.js [--season=<code>] [--since=YYYY-MM-DD] [--details]',
+        run: { script: 'scripts/06-misc/reports/failed-orders.js', args: [] },
+        description: 'Compte les commandes « failed » par cause, en séparant celles où le client a payé de celles sans conséquence.',
         notes: [
-          'Columns: eventId, quantity, payerFirstName, payerLastName, payerEmail, seatId, zoneKey, tariffCode.',
-          'Runs in dry-run mode unless --commit; add --send to trigger confirmations.'
+          'Lecture seule : ce rapport n\'écrit rien.',
+          'Le tri qui compte est la phase. « avant paiement » = rien encaissé, le client recommence : du bruit. « après paiement » = le client a payé sans obtenir sa place, chaque ligne demande un remboursement ou un relogement.',
+          'Un échec n\'est jamais un délai d\'attente : une commande expirée passe à « canceled », pas à « failed ».',
+          'Les commandes antérieures à la traçabilité sont reclassées d\'après leurs anciens champs, sans rien réécrire en base.'
         ],
-        form: {
-          fields: [
-            {
-              name: 'file',
-              label: 'CSV commandes',
-              placeholder: 'data/inputs/orders.csv',
-              required: true,
-              arg: { type: 'option', template: '--file=${value}' }
-            }
-          ]
-        }
-      },
-      {
-        id: 'orders-delete-csv',
-        label: 'Delete Orders from CSV',
-        order: 2,
-        path: 'scripts/orders-delete-csv.js',
-        command: 'node scripts/orders-delete-csv.js --file=<orders.csv> [--commit] [--force]',
-        run: {
-          script: 'scripts/orders-delete-csv.js',
-          args: []
-        },
-        description: 'Cancels (soft) or deletes (hard) orders listed in a CSV, voiding their tickets.',
-        notes: [
-          'Columns: orderId, mode=soft|hard. Soft marks as cancelled; hard removes the order and voids tickets.',
-          'Dry-run unless --commit. Use --force to insist on hard deletes.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'file',
-              label: 'CSV commandes',
-              placeholder: 'data/inputs/orders-delete.csv',
-              required: true,
-              arg: { type: 'option', template: '--file=${value}' }
-            }
-          ]
-        }
-      },
-      {
-        id: 'export-seats',
-        label: 'Export Seats (CSV)',
-        order: 3,
-        path: 'scripts/06-misc/reports/export-seats.js',
-        command: 'node scripts/06-misc/reports/export-seats.js [--season=<code>] [--venue=<slug>] [--zone=<key>]',
-        run: {
-          script: 'scripts/06-misc/reports/export-seats.js',
-          args: []
-        },
-        description: 'Streams seats with provisioning and booking metadata to CSV.',
-        notes: [
-          'Combines seat availability with latest paid order info for each seat.'
-        ],
-        templates: ['data_references/csv/seats-export.template.csv'],
         form: {
           fields: [
             {
               name: 'season',
-              label: 'Filtrer par saison (optionnel)',
-              placeholder: '2025-2026',
+              label: 'Code saison (optionnel)',
+              placeholder: '2026-2027',
               arg: { type: 'option', template: '--season=${value}' }
             },
             {
-              name: 'venue',
-              label: 'Filtrer par lieu (optionnel)',
-              placeholder: 'patinoire-blagnac',
-              arg: { type: 'option', template: '--venue=${value}' }
+              name: 'since',
+              label: 'Depuis (AAAA-MM-JJ, optionnel)',
+              placeholder: '2026-07-01',
+              arg: { type: 'option', template: '--since=${value}' }
             },
             {
-              name: 'zone',
-              label: 'Filtrer par zone (optionnel)',
-              placeholder: 'TBH7',
-              arg: { type: 'option', template: '--zone=${value}' }
+              name: 'details',
+              label: 'Lister les commandes à instruire',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--details' }
             }
           ]
         }
@@ -3597,52 +3774,6 @@ export const adminScriptGroups = [
           ]
         }
       },
-      {
-        id: 'audit-missing-seats',
-        label: 'Audit Missing Seats',
-        order: 5,
-        path: 'scripts/06-misc/audit-missing-seats.js',
-        command: 'node scripts/06-misc/audit-missing-seats.js <seasonCode> --venue=<slug>',
-        run: {
-          script: 'scripts/06-misc/audit-missing-seats.js',
-          args: []
-        },
-        description: 'Checks for discrepancies between seat provisioning and subscriptions.',
-        notes: [
-          'Produces detailed and grouped CSV outputs; configure --out and --grouped paths as needed.',
-          'Les fichiers sont écrits par défaut dans data/outputs.'
-        ],
-        form: {
-          fields: [
-            {
-              name: 'season',
-              label: 'Code saison',
-              placeholder: '2025-2026',
-              required: true,
-              arg: { type: 'positional', index: 0 }
-            },
-            {
-              name: 'venue',
-              label: 'Slug du lieu',
-              placeholder: 'patinoire-blagnac',
-              required: true,
-              arg: { type: 'option', template: '--venue=${value}' }
-            },
-            {
-              name: 'out',
-              label: 'Fichier détaillé (optionnel)',
-              placeholder: 'audit-missing-seats.csv',
-              arg: { type: 'option', template: '--out=${value}' }
-            },
-            {
-              name: 'grouped',
-              label: 'Fichier groupé (optionnel)',
-              placeholder: 'audit-missing-seats-grouped.csv',
-              arg: { type: 'option', template: '--grouped=${value}' }
-            }
-          ]
-        }
-      }
     ]
   }
 ];

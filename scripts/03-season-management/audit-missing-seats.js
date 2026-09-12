@@ -2,7 +2,7 @@
  * Audit missing seats for subscribers.
  *
  * Usage:
- *   node scripts/04-admin-monitoring/audit-missing-seats.js <seasonCode> [venueSlug]
+ *   node scripts/03-season-management/audit-missing-seats.js <seasonCode> [venueSlug]
  *     [--out=missing-seats.csv] [--grouped=grouped-missing.csv] [--verbose]
  *
  * Environment:
@@ -27,7 +27,7 @@ dotenv.config();
 function parseArgs() {
   const args = process.argv.slice(2);
   if (!args.length) {
-    console.error('Usage: node scripts/04-admin-monitoring/audit-missing-seats.js <seasonCode> [venueSlug] [--out=missing-seats.csv] [--grouped=grouped-missing.csv] [--verbose]');
+    console.error('Usage: node scripts/03-season-management/audit-missing-seats.js <seasonCode> [venueSlug] [--out=missing-seats.csv] [--grouped=grouped-missing.csv] [--verbose]');
     process.exit(1);
   }
   const seasonCode = args[0];

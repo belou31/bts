@@ -17,6 +17,7 @@ import { SeatHold } from '../models/SeatHold.js';
 import { computeEventSeatStates } from '../services/event-seat-states.js';
 import { claimEventSeatHolds } from '../services/event-seat-holds.js';
 import { finalizePaidIfNoConflict, sendOrderAttestationIfNeeded } from '../services/order-finalization.js';
+import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
 import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
 import {
   loadPurchaseConfig,
@@ -226,13 +227,18 @@ router.post('/voucher/redeem', async (req, res) => {
     });
     claimed = claim.claimed;
     if (!claim.ok) {
-      order.status = 'failed';
+      markOrderFailed(order, FAILURE_REASONS.VOUCHER_SEAT_CONFLICT, { seats: claim.conflicts });
       await order.save();
       return res.status(409).json({ error: 'seat_unavailable', seatIds: claim.conflicts });
     }
 
     const finalized = await finalizePaidIfNoConflict(order);
     if (!finalized.ok) {
+      // finalizePaidIfNoConflict a déjà posé sa propre cause ; on ne la
+      // remplace que si elle manque, pour ne pas perdre le détail d'origine.
+      if (!order.paymentProviderMeta?.failureReason) {
+        markOrderFailed(order, FAILURE_REASONS.VOUCHER_FINALIZE_FAILED, { conflicts: finalized.conflicts });
+      }
       order.status = 'failed';
       await order.save();
       await SeatHold.deleteMany({ orderId: order._id }).catch(() => {});
@@ -331,7 +337,7 @@ router.post('/voucher/purchase', async (req, res) => {
         order, returnUrl: urls.returnUrl, backUrl: urls.backUrl, errorUrl: urls.errorUrl
       });
     } catch (err) {
-      order.status = 'failed';
+      markOrderFailed(order, FAILURE_REASONS.PROVIDER_UNAVAILABLE, { detail: err?.message || String(err) });
       await order.save();
       return res.status(502).json({ error: 'payment_unavailable', detail: err?.message || String(err) });
     }
