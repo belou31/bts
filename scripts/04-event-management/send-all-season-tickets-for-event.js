@@ -230,7 +230,19 @@ const stats = {
         order.markModified('meta.tickets');
         await order.save();
       } else if (bankResult?.ok === false && bankResult?.reason && bankResult.reason !== 'no-event') {
-        console.warn(`[warn] QR bank attach failed for order ${order._id}: ${bankResult.reason}`);
+        // Ce n'est pas une panne : faute de banque de codes pré-imprimés, les
+        // QR sont calculés plus bas par generateTicketHex. Un événement créé
+        // par create.js démarre toujours avec `qrBank.codes: []`, donc le cas
+        // est la norme et non l'exception — le dire évite de faire chercher
+        // une erreur là où il n'y en a pas.
+        const detail = bankResult.detail
+          ? ` (${bankResult.detail.needed} demandé(s), ${bankResult.detail.available} disponible(s))`
+          : '';
+        console.info(`[info] banque QR non utilisée pour ${order._id} : ${bankResult.reason}${detail}`
+          + ' — QR générés automatiquement.');
+        if (bankResult.reason === 'depleted') {
+          console.info('       Pour employer des codes pré-imprimés : import-qr-bank.js');
+        }
       }
 
       await ensureTicketsForEventOrder(order);
