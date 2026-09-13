@@ -217,7 +217,11 @@ const stats = {
       continue;
     }
 
-    const alreadySentAt = order?.meta?.seasonTickets?.lastSentAt;
+    // Une marque laissée par un ancien dry-run ne vaut pas envoi : les bases
+    // déjà « polluées » par une simulation doivent pouvoir recevoir leurs
+    // billets sans --force, qui renverrait aussi à tous les autres.
+    const sentMeta = order?.meta?.seasonTickets || null;
+    const alreadySentAt = sentMeta?.lastSentMode === 'dry-run' ? null : sentMeta?.lastSentAt;
     if (alreadySentAt && !argv.force) {
       stats.alreadySent += 1;
       continue;
@@ -280,7 +284,11 @@ const stats = {
       }
 
       const result = await deliverOrder({ order: fresh, eventDoc, dryRun: argv['dry-run'] });
-      if (result.ok) {
+      // Un dry-run ne marque RIEN. Il posait `lastSentAt` (avec le mode
+      // 'dry-run', mais le garde-fou plus haut ne regardait que la date) :
+      // simuler l'envoi suffisait donc à faire sauter l'envoi réel, et
+      // l'abonné ne recevait jamais ses billets.
+      if (result.ok && !result.dryRun) {
         stats.sent += 1;
         processedRecipients.add(key);
         await Order.updateOne(
@@ -289,7 +297,7 @@ const stats = {
             $set: {
               'meta.seasonTickets': {
                 lastSentAt: new Date(),
-                lastSentMode: result.dryRun ? 'dry-run' : 'send',
+                lastSentMode: 'send',
                 lastSentBy: 'send-all-season-tickets-script'
               }
             }

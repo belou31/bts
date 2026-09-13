@@ -3073,6 +3073,37 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'event-check-season-tickets-sent',
+        label: 'Check Season Tickets Delivery',
+        order: 6.5,
+        path: 'scripts/04-event-management/check-season-tickets-sent.js',
+        command: 'node scripts/04-event-management/check-season-tickets-sent.js --event=<slug|id> [--missing]',
+        run: { script: 'scripts/04-event-management/check-season-tickets-sent.js', args: [] },
+        description: 'Nomme les abonnés qui n\'ont PAS reçu leurs billets pour ce match, et dit pourquoi. Lecture seule.',
+        notes: [
+          'À lancer après « Send All Season Tickets for Event » : le script d\'envoi donne des totaux, celui-ci nomme les manquants.',
+          'Distingue quatre cas : jamais envoyé, marqué par une simulation (dry-run) sans qu\'aucun courriel ne parte, sans place pour ce match et non prévenu, et servi.',
+          'Signale aussi les abonnements payés SANS commande pour ce match : ceux-là relèvent de « Sync Season Orders to Event », pas de l\'envoi.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Événement (slug ou identifiant)',
+              placeholder: '2026-xx-xx-match-regulier',
+              required: true,
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'missing',
+              label: 'Lister tous les manquants (sinon les 20 premiers)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--missing' }
+            }
+          ]
+        }
+      },
+      {
         id: 'event-send-all-season-tickets',
         label: 'Send All Season Tickets for Event',
         order: 6,
