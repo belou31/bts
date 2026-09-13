@@ -148,12 +148,23 @@ async function main() {
   // match. Ils ne reçoivent pas de billet — ils reçoivent l'invitation à en
   // choisir une. Les exclure revenait à ne rien envoyer à ceux qui en ont le
   // plus besoin.
+  // Uniquement les commandes ISSUES DE LA SYNCHRONISATION, comme l'annonce le
+  // nom du script. Sans ce filtre, les billets d'abonnement partaient aussi
+  // aux gens ayant acheté ce match directement : ils ont déjà reçu leurs
+  // billets à l'achat, et recevaient donc un second envoi.
+  //
+  // `parentOrderId` est posé par event-season-sync ; `seasonOrderId` est la
+  // même information dans les métadonnées, gardée en second critère pour les
+  // commandes synchronisées par d'anciennes versions.
   const query = {
     status: { $in: ['paid', 'torelocate'] },
     payerEmail: { $ne: null },
-    $or: [
-      { eventId: eventDoc._id },
-      { 'meta.eventId': eventIdStr }
+    $and: [
+      { $or: [{ eventId: eventDoc._id }, { 'meta.eventId': eventIdStr }] },
+      { $or: [
+        { parentOrderId: { $ne: null } },
+        { 'paymentProviderMeta.seasonOrderId': { $exists: true, $ne: null } }
+      ] }
     ]
   };
 
