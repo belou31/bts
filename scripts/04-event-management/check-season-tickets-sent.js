@@ -69,14 +69,37 @@ async function main() {
     : await Event.findOne({ slug: ref }).lean();
   if (!ev) throw new Error(`Événement introuvable : ${ref}`);
 
-  // Même sélection que le script d'envoi.
+  // Même sélection que le script d'envoi : uniquement les commandes issues de
+  // la synchronisation. Les billets achetés directement pour ce match ont été
+  // envoyés à l'achat et ne relèvent pas de cet envoi — les compter ici
+  // faisait passer des acheteurs servis pour des abonnés oubliés.
   const orders = await Order.find({
     status: { $in: ['paid', 'torelocate'] },
     payerEmail: { $ne: null },
-    $or: [{ eventId: ev._id }, { 'meta.eventId': String(ev._id) }]
+    $and: [
+      { $or: [{ eventId: ev._id }, { 'meta.eventId': String(ev._id) }] },
+      { $or: [
+        { parentOrderId: { $ne: null } },
+        { 'paymentProviderMeta.seasonOrderId': { $exists: true, $ne: null } }
+      ] }
+    ]
   }).sort({ createdAt: 1 }).lean();
 
-  console.log(`\n${ev.slug} — ${orders.length} commande(s) de match rattachée(s)`);
+  // Comptées à part, pour que leur absence du rapport ne surprenne pas.
+  const directCount = await Order.countDocuments({
+    status: { $in: ['paid', 'torelocate'] },
+    $and: [
+      { $or: [{ eventId: ev._id }, { 'meta.eventId': String(ev._id) }] },
+      { parentOrderId: null },
+      { 'paymentProviderMeta.seasonOrderId': { $exists: false } }
+    ]
+  });
+
+  console.log(`\n${ev.slug} — ${orders.length} commande(s) issue(s) d'un abonnement`);
+  if (directCount) {
+    console.log(`  (${directCount} achat(s) direct(s) de ce match, hors périmètre :`
+      + ' leurs billets sont partis à l\'achat)');
+  }
   if (!orders.length) {
     console.log('  Aucune : lancer d\'abord « Sync Season Orders to Event ».');
     await mongoose.disconnect();
