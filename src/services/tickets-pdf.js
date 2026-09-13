@@ -457,13 +457,21 @@ export async function buildTicketsPdfBuffer(order) {
   const customLogo = resolveLogoRefForOrder(order);
   const logoPath = logoPathEnv || customLogo || (tplEntry?.logo ?? null);
   let logoSvg  = '';
+  // Un logo matriciel (PNG/JPG) ne peut pas être injecté dans le SVG : il est
+  // dessiné par-dessus la page, exactement comme les visuels raster des
+  // campagnes publicitaires. Auparavant il était simplement ignoré, et les
+  // billets sortaient sans logo — un PNG est pourtant le format le plus
+  // courant pour un logo de club.
+  let logoRasterPath = '';
   const resolvedLogo = await resolveLogoPath(logoPath);
   if (resolvedLogo) {
     const ext = path.extname(resolvedLogo).toLowerCase();
     if (ext === '.svg') {
       try { logoSvg = sanitizeEmbeddedSvg(await fs.readFile(resolvedLogo, 'utf8')); } catch {/* ignore */}
+    } else if (['.png', '.jpg', '.jpeg'].includes(ext)) {
+      logoRasterPath = resolvedLogo;
     } else {
-      console.warn(`[tickets-pdf] logo is not SVG (${resolvedLogo}), skipping inline logo`);
+      console.warn(`[tickets-pdf] logo format non pris en charge (${resolvedLogo}) — attendu .svg, .png ou .jpg`);
     }
   }
 
@@ -569,6 +577,10 @@ export async function buildTicketsPdfBuffer(order) {
       }
       if (logoSvg) {
         pageSvg = replaceSlotWithSvg(pageSvg, 'logo', logoSvg);
+      } else if (logoRasterPath) {
+        const rect = computeSlotRect(rawSvg, 'logo');
+        if (rect) pendingRasterDraws.push({ rect, path: logoRasterPath });
+        else console.warn('[tickets-pdf] emplacement « logo » absent du gabarit : logo matriciel non dessiné');
       }
       for (const [slot, placement] of matchedPlacements) {
         if (placement.contentType === 'text') continue; // already folded into textSvg above
