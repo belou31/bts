@@ -139,16 +139,26 @@ async function resolveAdAssetPath(assetPath) {
 
 // util pour récupérer le label depuis l'évènement (fallback saison/lieu)
 async function loadTariffLabelMap(ev) {
-  // Sans table dédiée au match, on retombe sur les tarifs globaux :
+  // Deux couches : le catalogue GLOBAL en fond, la table du match par-dessus.
+  //
+  // On ne chargeait que la table du match quand il en avait une. Or tous les
+  // tarifs n'y sont pas instanciés — une invitation, par exemple, n'est pas
+  // dans la grille de prix — si bien que le billet affichait le CODE brut
+  // (« INVITATION_VIP ») là où le courriel affichait le libellé, celui-ci
+  // lisant les tarifs sans filtrer sur la table.
+  //
   // `Tariff` ne porte ni seasonCode ni venueSlug (ces critères étaient
-  // supprimés par strictQuery), `priceTableKey: null` est le bon filtre.
-  const qEvent = ev?.priceTableKey ? { priceTableKey: ev.priceTableKey, active: true } : null;
-  const tariffs = (qEvent
-    ? await Tariff.find(qEvent).lean()
-    : await Tariff.find({ priceTableKey: null, active: true }).lean()
-  ) || [];
+  // supprimés par strictQuery) : `priceTableKey: null` désigne bien le global.
+  const [globalTariffs, eventTariffs] = await Promise.all([
+    Tariff.find({ priceTableKey: null, active: true }).lean(),
+    ev?.priceTableKey
+      ? Tariff.find({ priceTableKey: ev.priceTableKey, active: true }).lean()
+      : Promise.resolve([])
+  ]);
+
   const m = {};
-  for (const t of tariffs) {
+  // L'ordre compte : un libellé propre au match doit primer sur le global.
+  for (const t of [...(globalTariffs || []), ...(eventTariffs || [])]) {
     const code = String(t.code || t.tariffCode || '').toUpperCase();
     const label = t.label || t.name || code;
     if (code) m[code] = String(label);
@@ -506,8 +516,10 @@ export async function buildTicketsPdfBuffer(order) {
     const t = tickets[i] || {};
       // Bénéficiaire : idéalement depuis la ligne correspondante, sinon fallback payer
       const beneficiary = beneficiaryForTicket(t, order);
+      // La table est indexée en majuscules : chercher avec la casse d'origine
+      // manquait le libellé d'un code saisi autrement.
       const tCode = String(t?.tariff || t?.tariffCode || 'NORMAL');
-      const tLabel = tariffLabels[tCode] || tCode;
+      const tLabel = tariffLabels[tCode.toUpperCase()] || tariffLabels[tCode] || tCode;
       const resolvedTariffLabel = tLabel;
       const tariffTitle = subscriptionMode
         ? translate('common.subscription', order?.locale).toUpperCase()
