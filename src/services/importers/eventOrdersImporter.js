@@ -301,6 +301,11 @@ function buildOrderDoc(parsed, existing) {
   const doc = {
     seasonCode,
     venueSlug,
+    // Lien de premier niveau vers le match, comme toute commande créée par la
+    // billetterie. L'import ne posait que `meta.eventId` : les vues qui
+    // interrogent `eventId` seul ne voyaient pas les commandes importées, et
+    // seules celles écrites avec un `$or` sur les deux champs les trouvaient.
+    eventId: event._id,
     phase: 'event',
     itemName: itemName || existing?.itemName || `EVENT_${event.slug}`,
     groupKey: groupKey || existing?.groupKey || `EVENT-${event.slug}`,
