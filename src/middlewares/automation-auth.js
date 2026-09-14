@@ -131,7 +131,14 @@ export function hasAllScopes(auth, requiredScopes = []) {
 
 export function automationAuth(req, res, next) {
   if (!JWT_SECRET) {
-    return res.status(503).json({ error: 'Automation API disabled (missing secret).' });
+    // Le secret manquant est celui du SERVEUR, pas celui de l'appelant : sans
+    // le préciser, le message envoie chercher du côté de Google alors que la
+    // configuration y est correcte. Il est lu au chargement du module, donc
+    // l'ajouter au .env ne suffit pas — il faut relancer le processus.
+    return res.status(503).json({
+      error: 'Automation API disabled: AUTOMATION_JWT_SECRET is not set on the BTS server '
+        + '(check the server .env, then restart — the value is read at startup).'
+    });
   }
 
   const requesterIp = normalizeIp(req.ip || req.connection?.remoteAddress || '');
