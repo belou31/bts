@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { Tariff } from '../models/Tariff.js';
 import { Event } from '../models/Event.js';
 import { Season } from '../models/Season.js';
+import { Venue } from '../models/Venue.js';
 import { hexToQrSvg } from './qr.js';
 import { currentPaymentProviderLabel } from './payments/index.js';
 import { buildTicketsPdfBuffer as buildTicketsPdfBufferFromService } from './tickets-pdf.js';
@@ -411,6 +412,23 @@ export async function renderOrderEmail(order) {
   const htmlRaw = await loadTemplateHtml(tplName, theme);
   const ticketsHtml = includeTicketsInline ? await buildTicketsHtml(order) : '';
 
+  // Libellés lisibles de la saison et du lieu. Le contexte ne portait que
+  // `seasonCode` et `venueSlug` — des identifiants techniques — si bien qu'un
+  // courriel affichait « 2026-2027_74153475 / patinoire-blagnac » là où le
+  // billet affiche déjà le nom du lieu. Même résolution que tickets-pdf, et
+  // repli sur le code lorsque le document n'existe pas : mieux vaut
+  // l'identifiant qu'un blanc.
+  const [seasonDoc, venueDoc] = await Promise.all([
+    order.seasonCode
+      ? Season.findOne({ code: order.seasonCode }).select({ name: 1 }).lean().catch(() => null)
+      : null,
+    order.venueSlug
+      ? Venue.findOne({ slug: order.venueSlug }).select({ name: 1 }).lean().catch(() => null)
+      : null
+  ]);
+  const seasonName = seasonDoc?.name || order.seasonCode || '';
+  const venueName = venueDoc?.name || order.venueSlug || '';
+
   if (kind === 'event') {
     const ename = order?.meta?.eventName || order?.meta?.eventSlug || t('common.match', locale);
     // Contexte unifié (event)
@@ -424,6 +442,8 @@ export async function renderOrderEmail(order) {
         id: String(order._id),
         seasonCode: order.seasonCode || '',
         venueSlug: order.venueSlug || '',
+        seasonName,
+        venueName,
         totalEuro: totalDisplay,
         split,
         installmentsHuman: humanInstallments(split, locale),
@@ -461,6 +481,8 @@ export async function renderOrderEmail(order) {
       id: String(order._id),
       seasonCode: order.seasonCode || '',
       venueSlug: order.venueSlug || '',
+      seasonName,
+      venueName,
       totalEuro: totalDisplay,
       split,
       installmentsHuman: humanInstallments(split, locale),

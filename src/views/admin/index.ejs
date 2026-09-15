@@ -786,6 +786,10 @@
     .scroll-table-full table {
       margin: 0;
     }
+    tr.totals-row td {
+      border-top: 2px solid var(--border);
+      background: var(--bg);
+    }
     tr.sub-row td {
       padding-top: 2px;
       padding-bottom: 2px;
@@ -3173,6 +3177,13 @@
                   <td><strong><%= z.total %></strong></td>
                 </tr>
               <% } %>
+              <tr class="totals-row">
+                <td><strong>Total</strong></td>
+                <% for (const status of monitoring.subscription.zoneBreakdown.statuses) { %>
+                  <td><strong><%= monitoring.subscription.zoneBreakdown.totalsByStatus[status] || 0 %></strong></td>
+                <% } %>
+                <td><strong><%= monitoring.subscription.zoneBreakdown.grandTotal || 0 %></strong></td>
+              </tr>
             </table>
           </div>
         <% } else { %>
@@ -3288,9 +3299,10 @@
       <% if (monitoring.lists.events && monitoring.lists.events.length) { %>
         <div class="scroll-table-full" style="margin-bottom:16px;">
           <table>
-            <tr><th>Slug</th><th>Nom</th><th>Date</th><th>Saison</th><th>Lieu</th><th>Vente</th><th>Activité</th><th>Lien public</th><th></th></tr>
+            <tr><th>Slug</th><th>Nom</th><th>Date</th><th>Saison</th><th>Lieu</th><th>Vente</th><th>Activité</th><th>Lien public</th><th>Scan</th><th></th></tr>
             <% for (const ev of monitoring.lists.events) {
                  const publicUrl = urlFor('/event/' + ev.slug);
+                 const scanUrl = urlFor('/control/scan/' + ev.slug);
                  const detailUrl = `${monitorHref('events')}&event=${encodeURIComponent(ev.slug)}`;
             %>
               <tr>
@@ -3302,6 +3314,7 @@
                 <td><%= ev.sale || 'notopen' %></td>
                 <td><%= ev.activity || 'draft' %></td>
                 <td><a href="<%= publicUrl %>" target="_blank" rel="noopener"><%= publicUrl %></a></td>
+                <td><a class="btn btn-small" href="<%= scanUrl %>" target="_blank" rel="noopener">Scan</a></td>
                 <td><a class="btn btn-small" href="<%= detailUrl %>">Détail</a></td>
               </tr>
             <% } %>
@@ -3360,6 +3373,13 @@
                   <td><strong><%= z.total %></strong></td>
                 </tr>
               <% } %>
+              <tr class="totals-row">
+                <td><strong>Total</strong></td>
+                <% for (const status of monitoring.event.zoneBreakdown.statuses) { %>
+                  <td><strong><%= monitoring.event.zoneBreakdown.totalsByStatus[status] || 0 %></strong></td>
+                <% } %>
+                <td><strong><%= monitoring.event.zoneBreakdown.grandTotal || 0 %></strong></td>
+              </tr>
             </table>
           </div>
         <% } else { %>
