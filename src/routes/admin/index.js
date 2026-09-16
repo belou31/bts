@@ -526,37 +526,44 @@ async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
         ]
       };
 
-  const [seatsRaw, paidOrders, standingZonesRaw] = await Promise.all([
+  const [seatsRaw, paidOrders, allZonesRaw] = await Promise.all([
     Seat.find(
       { seasonCode, venueSlug },
       { seatId: 1, zoneKey: 1, status: 1, _id: 0 }
     ).lean(),
     Order.find(paidOrderMatch, { lines: 1, _id: 0 }).lean(),
     Zone.find(
-      { seasonCode, venueSlug, type: 'standing', isActive: true },
+      { seasonCode, venueSlug, isActive: true },
       { key: 1, capacity: 1, quota: 1, _id: 0 }
     ).lean()
   ]);
 
   const seatMap = new Map();
+  const seatZoneKeys = new Set();
   for (const seat of seatsRaw || []) {
     const seatId = String(seat?.seatId || '').trim();
     if (!seatId) continue;
+    const zoneKey = seat?.zoneKey || '—';
     seatMap.set(seatId, {
       seatId,
-      zoneKey: seat?.zoneKey || '—',
+      zoneKey,
       status: String(seat?.status || 'available').toLowerCase()
     });
+    seatZoneKeys.add(String(zoneKey).toUpperCase());
   }
 
-  // Standing zones have no discrete Seat rows — a zone-quota-tracked line
-  // (no real seatId) is counted against the zone's physical capacity
-  // instead, matching the event's actual on-the-day headcount rather than
+  // A zone with no discrete Seat rows is quota-tracked instead — this covers
+  // standing/GA zones, but also a zone like VIP that has real chairs
+  // (Zone.type === 'seated') yet is still allocated at the zone level (see
+  // src/utils/seat-id.js). Detected by "no Seat rows for this zoneKey", not
+  // by Zone.type, so any such zone is picked up regardless of how it reads
+  // physically. A quota-tracked line is counted against the zone's physical
+  // capacity, matching the event's actual on-the-day headcount rather than
   // the season subscription quota.
-  const standingZones = (standingZonesRaw || [])
+  const quotaZones = (allZonesRaw || [])
     .map(z => ({ key: String(z?.key || '').trim().toUpperCase(), capacity: Number(z?.capacity || z?.quota || 0) }))
-    .filter(z => z.key);
-  const standingBooked = new Map();
+    .filter(z => z.key && !seatZoneKeys.has(z.key));
+  const quotaBooked = new Map();
 
   for (const order of paidOrders || []) {
     for (const line of order?.lines || []) {
@@ -565,7 +572,7 @@ async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
       const seatId = String(placement?.seatId || '').trim();
       if (!seatId || isVirtualZoneSeatId(seatId)) {
         const zoneKey = String(placement?.zoneKey || '').trim().toUpperCase();
-        if (zoneKey) standingBooked.set(zoneKey, (standingBooked.get(zoneKey) || 0) + 1);
+        if (zoneKey) quotaBooked.set(zoneKey, (quotaBooked.get(zoneKey) || 0) + 1);
         continue;
       }
       if (!seatMap.has(seatId)) continue;
@@ -582,8 +589,8 @@ async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
     counts[key] = (counts[key] || 0) + 1;
     zoneStatusRows.push({ _id: { zoneKey, status: key }, count: 1 });
   }
-  for (const zone of standingZones) {
-    const booked = standingBooked.get(zone.key) || 0;
+  for (const zone of quotaZones) {
+    const booked = quotaBooked.get(zone.key) || 0;
     if (booked > 0) zoneStatusRows.push({ _id: { zoneKey: zone.key, status: 'booked' }, count: booked });
     if (zone.capacity > 0) {
       const available = Math.max(0, zone.capacity - booked);
@@ -2209,7 +2216,7 @@ router.get('/monitor', async (req, res) => {
   let subscriptionZoneBreakdown = { statuses: [], zones: [] };
 
   if (selectedSeasonCode) {
-    const [ordersRaw, orderStatsAgg, seatStatsAgg, ticketsRaw, seatsRaw, zoneSeatStatsAgg, standingZonesRaw, standingZoneUsageAgg] = await Promise.all([
+    const [ordersRaw, orderStatsAgg, seatStatsAgg, ticketsRaw, seatsRaw, zoneSeatStatsAgg, quotaZonesRaw, quotaZoneUsageAgg] = await Promise.all([
       Order.find(subscriptionMatch)
         .sort({ createdAt: -1 })
         .limit(20)
@@ -2234,11 +2241,15 @@ router.get('/monitor', async (req, res) => {
         { $match: { seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}) } },
         { $group: { _id: { zoneKey: '$zoneKey', status: '$status' }, count: { $sum: 1 } } }
       ]),
-      // Standing zones have no Seat rows — quota-tracked, so read from the Zone
-      // doc (capacity/quota) instead, and count usage from paid subscription
-      // order lines directly (matches computeZoneUsageAllOrders's convention).
+      // A zone with no Seat rows is quota-tracked instead of seat-tracked —
+      // covers standing/GA zones, but also a seated-but-zone-allocated zone
+      // like an invitation-only VIP section (see the matching comment in
+      // computeEventSeatCounts). Fetch every active zone here and filter out
+      // the seat-tracked ones below (once zoneSeatStatsAgg is known), rather
+      // than filtering by Zone.type — detecting by "has Seat rows" is what
+      // actually distinguishes the two, not the physical seating character.
       Zone.find(
-        { seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}), type: 'standing', isActive: true },
+        { seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}), isActive: true },
         { key: 1, capacity: 1, quota: 1, _id: 0 }
       ).lean(),
       Order.aggregate([
@@ -2282,18 +2293,19 @@ router.get('/monitor', async (req, res) => {
       updatedAt: s.updatedAt
     }));
 
-    const standingZoneUsage = new Map((standingZoneUsageAgg || []).map(r => [String(r._id || '').trim().toUpperCase(), Number(r.count || 0)]));
-    const standingZoneRows = (standingZonesRaw || []).flatMap(z => {
+    const seatZoneKeySet = new Set(zoneSeatStatsAgg.map(r => String(r?._id?.zoneKey || '').trim().toUpperCase()).filter(Boolean));
+    const quotaZoneUsage = new Map((quotaZoneUsageAgg || []).map(r => [String(r._id || '').trim().toUpperCase(), Number(r.count || 0)]));
+    const quotaZoneRows = (quotaZonesRaw || []).flatMap(z => {
       const key = String(z?.key || '').trim().toUpperCase();
-      if (!key) return [];
+      if (!key || seatZoneKeySet.has(key)) return [];
       const cap = Number(z?.quota || 0) > 0 ? Number(z.quota) : Number(z?.capacity || 0);
-      const booked = standingZoneUsage.get(key) || 0;
+      const booked = quotaZoneUsage.get(key) || 0;
       const rows = [];
       if (booked > 0) rows.push({ _id: { zoneKey: key, status: 'booked' }, count: booked });
       if (cap > 0) rows.push({ _id: { zoneKey: key, status: 'available' }, count: Math.max(0, cap - booked) });
       return rows;
     });
-    subscriptionZoneBreakdown = buildZoneBreakdown([...zoneSeatStatsAgg, ...standingZoneRows]);
+    subscriptionZoneBreakdown = buildZoneBreakdown([...zoneSeatStatsAgg, ...quotaZoneRows]);
   }
 
   const eventOrderMatch = selectedEventId
