@@ -28,6 +28,10 @@ export const FAILURE_REASONS = {
 
   // — Au moment du paiement ou après : de l'argent a pu être encaissé.
   SEAT_CONFLICT:          { reason: 'seat_conflict',          phase: POST_PAYMENT },
+  // Le client a modifié sa sélection puis payé le PREMIER lien, resté valide.
+  // Ce n'est pas une course entre deux acheteurs : la place a été reprise par
+  // sa propre seconde commande.
+  SUPERSEDED_CHECKOUT:    { reason: 'superseded_checkout',    phase: POST_PAYMENT },
   SEAT_CONFLICT_RACE:     { reason: 'seat_conflict_race',     phase: POST_PAYMENT },
   DUPLICATE_PAID_ORDER:   { reason: 'duplicate_paid_order',   phase: POST_PAYMENT },
   SAVE_FAILED:            { reason: 'save_failed',            phase: POST_PAYMENT },

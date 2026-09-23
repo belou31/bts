@@ -17,6 +17,7 @@ import { loadCustomization } from '../services/customization.js';
 import { isVirtualZoneSeatId } from '../utils/seat-id.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
 import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
+import { evaluateFreeze, resumePayload, blockedPayload } from '../services/checkout-freeze.js';
 import { partnerSeasonQuota, partnerSeasonPresaleRemaining } from '../services/partner-presale.js';
 import { resolveSeasonSubscribeAccess, seasonAccessMessage } from '../services/season-access.js';
 import {
@@ -436,6 +437,16 @@ router.post('/checkout', async (req, res) => {
         }
       : {};
 
+    // Gel : un seul paiement en vol par onglet (voir services/checkout-freeze.js).
+    const freezeToken = String(req.body?.sessionToken || req.query?.sessionToken || '').trim().slice(0, 64);
+    if (freezeToken) {
+      const freeze = await evaluateFreeze({
+        sessionToken: freezeToken, seasonCode, venueSlug, lines
+      });
+      if (freeze?.action === 'resume') return res.json(resumePayload(freeze));
+      if (freeze?.action === 'blocked') return res.status(409).json(blockedPayload(freeze));
+    }
+
     const order = await Order.create({
       itemName: partner ? `PARTNER_SUBSCRIPTION_${seasonCode}` : `SUBSCRIPTION_${seasonCode}`,
       seasonCode, venueSlug,
@@ -456,7 +467,8 @@ router.post('/checkout', async (req, res) => {
       paymentSplit:   schedule,
       lines, totalCents, status: 'pending',
       paymentProvider: PAYMENT_PROVIDER_ID,
-      paymentProviderMeta: {},
+      // Jeton d'onglet : clé du gel du paiement (checkout-freeze.js).
+      paymentProviderMeta: freezeToken ? { checkoutSessionToken: freezeToken } : {},
       // origin ne retient que flow/uiPath/apiPath (voir Order.js) : le
       // partenaire s'identifie par meta.partner.slug, qui est aussi la clé du
       // quota. Y ajouter un champ ici serait silencieusement perdu.

@@ -2942,7 +2942,7 @@ export const adminScriptGroups = [
         label: 'Export Orders for Event',
         order: 3.6,
         path: 'scripts/04-event-management/export-orders.js',
-        command: 'node scripts/04-event-management/export-orders.js --event=<slug|ObjectId> [--status=paid] [--out=orders.csv]',
+        command: 'node scripts/04-event-management/export-orders.js --event=<slug|ObjectId> [--status=all|paid|canceled|failed] [--out=orders.csv]',
         run: {
           script: 'scripts/04-event-management/export-orders.js',
           args: []
@@ -2963,8 +2963,9 @@ export const adminScriptGroups = [
             },
             {
               name: 'status',
-              label: 'Statut (optionnel)',
-              placeholder: 'paid',
+              label: 'Statut (optionnel — vide = tous)',
+              placeholder: 'all',
+              hint: 'Par défaut tous les statuts. Restreindre à « paid » masque les commandes annulées ou en échec.',
               arg: { type: 'option', template: '--status=${value}' }
             },
             {
@@ -3635,6 +3636,43 @@ export const adminScriptGroups = [
               label: 'Statut (optionnel)',
               placeholder: 'paid',
               arg: { type: 'option', template: '--status=${value}' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'paid-but-not-honored',
+        label: 'Paid but Not Honored',
+        order: 2.4,
+        path: 'scripts/06-misc/reports/paid-but-not-honored.js',
+        command: 'node scripts/06-misc/reports/paid-but-not-honored.js [--event=<slug|id>] [--season=<code>] [--since=AAAA-MM-JJ]',
+        run: { script: 'scripts/06-misc/reports/paid-but-not-honored.js', args: [] },
+        description: 'Commandes « canceled » ou « failed » portant une trace de paiement abouti : le client a payé et n\'a rien reçu.',
+        notes: [
+          'Lecture seule.',
+          'Le contrôle le plus utile après un match : ces commandes se confondent avec les abandons ordinaires, qui sont nombreux et sans conséquence.',
+          'Une commande est retenue dès qu\'une preuve subsiste : réponse « payé » du prestataire (API, webhook ou page de retour), lastReturnCode=succeeded, finalisation antérieure réussie, ou échéance encaissée.',
+          'Chaque ligne affiche le motif de l\'abandon et la commande à lancer pour la réanimer.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'event',
+              label: 'Événement (optionnel)',
+              placeholder: '2026-09-16-montpellier',
+              arg: { type: 'option', template: '--event=${value}' }
+            },
+            {
+              name: 'season',
+              label: 'Saison (optionnel)',
+              placeholder: '2026-2027',
+              arg: { type: 'option', template: '--season=${value}' }
+            },
+            {
+              name: 'since',
+              label: 'Depuis (AAAA-MM-JJ, optionnel)',
+              placeholder: '2026-09-01',
+              arg: { type: 'option', template: '--since=${value}' }
             }
           ]
         }

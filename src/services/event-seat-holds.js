@@ -6,6 +6,29 @@
 // finiraient par diverger et vendre deux fois la même place.
 
 import { SeatHold } from '../models/SeatHold.js';
+import { Order } from '../models/Order.js';
+
+/**
+ * Consigne sur une commande devenue caduque qu'une commande plus récente lui a
+ * repris une place. Ne touche que les commandes encore ouvertes : une commande
+ * payée n'est jamais « dépassée », et son verrou ne doit pas être réinterprété.
+ *
+ * Écrit au mieux : un échec ici ne doit pas faire tomber un encaissement.
+ */
+async function markSuperseded(previousOrderId, newOrderId, seatId) {
+  try {
+    await Order.updateOne(
+      { _id: previousOrderId, status: { $in: ['pending', 'tobepaid'] } },
+      {
+        $set: {
+          'paymentProviderMeta.supersededBy': String(newOrderId),
+          'paymentProviderMeta.supersededAt': new Date()
+        },
+        $addToSet: { 'paymentProviderMeta.supersededSeats': seatId }
+      }
+    );
+  } catch { /* traçabilité seulement */ }
+}
 
 /**
  * Réserve les sièges d'une commande évènement via SeatHold, dont l'index
@@ -30,6 +53,20 @@ export async function claimEventSeatHolds({ ev, order, seatIds, sessionToken, un
     const mine = [{ orderId: order._id }];
     if (sessionToken) mine.push({ sessionToken });
 
+    // Un verrou posé par la MÊME session appartient peut-être encore à une
+    // commande précédente : c'est le cas quand le client revient en arrière et
+    // change sa sélection. Le verrou lui est repris ici — et l'ancienne
+    // commande, elle, reste « pending » AVEC UN LIEN DE PAIEMENT VALIDE. Si le
+    // client paie ce lien-là, sa finalisation trouve la place tenue par la
+    // nouvelle commande, échoue en `seat_conflict` et lui annonce qu'« une de
+    // ses places vient d'être réservée » — alors que c'est lui qui l'a reprise.
+    // On note donc la filiation sur la commande dépassée, pour que le motif
+    // soit lisible au lieu d'accuser un tiers.
+    const previous = await SeatHold.findOne(
+      { eventId: ev._id, seatId, $or: mine },
+      { orderId: 1 }
+    ).lean();
+
     const upd = await SeatHold.updateOne(
       { eventId: ev._id, seatId, $or: mine },
       {
@@ -42,7 +79,14 @@ export async function claimEventSeatHolds({ ev, order, seatIds, sessionToken, un
         }
       }
     );
-    if (upd.matchedCount || upd.modifiedCount) { claimed.push(seatId); continue; }
+    if (upd.matchedCount || upd.modifiedCount) {
+      const takenFrom = previous?.orderId ? String(previous.orderId) : '';
+      if (takenFrom && takenFrom !== String(order._id)) {
+        await markSuperseded(takenFrom, order._id, seatId);
+      }
+      claimed.push(seatId);
+      continue;
+    }
 
     try {
       await SeatHold.create({
