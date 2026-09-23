@@ -24,6 +24,29 @@ const CONFIG = (window.BTS_VIEW_CONFIG || {
 if (!window.BTS_VIEW_CONFIG) {
   console.error('[BTS] window.BTS_VIEW_CONFIG absent : la vue ne sait pas quelle API interroger.');
 }
+
+// Jeton d'onglet, comme dans event.js. Il sert au gel du paiement : tant
+// qu'un paiement est en vol pour cet onglet, revenir en arrière et relancer
+// ne crée pas une seconde commande payable (voir services/checkout-freeze.js).
+// sessionStorage : conservé au rechargement, distinct d'un autre onglet.
+function getOrCreateSessionToken() {
+  const key = 'bts_session_token';
+  try {
+    let token = sessionStorage.getItem(key);
+    if (!token) {
+      token = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2) + Date.now().toString(36);
+      sessionStorage.setItem(key, token);
+    }
+    return token;
+  } catch {
+    // Navigation privée stricte : sans jeton, on retombe sur l'ancien
+    // comportement plutôt que d'empêcher l'achat.
+    return '';
+  }
+}
+const SESSION_TOKEN = getOrCreateSessionToken();
 const PAGE_TITLE = CONFIG.pageTitle || CONFIG.title || 'Billetterie';
 document.title = PAGE_TITLE + ' — BTS';
 
@@ -786,7 +809,7 @@ async function submitPayment() {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
       credentials:'same-origin',
-      body: JSON.stringify({ items, payer, schedule, totalAmount })
+      body: JSON.stringify({ items, payer, schedule, totalAmount, sessionToken: SESSION_TOKEN })
     });
 
     if (!res.ok) {

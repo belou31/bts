@@ -16,6 +16,7 @@ import { findSingleGaps }      from '../utils/no-single-gap.js';
 import { isVirtualZoneSeatId, zoneKeyFromSeatId as zoneKeyOf } from '../utils/seat-id.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
 import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
+import { evaluateFreeze, resumePayload, blockedPayload } from '../services/checkout-freeze.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { getPartnerConfig } from '../config/partners.js';
 import {
@@ -581,6 +582,16 @@ router.post('/renew', async (req, res) => {
     // au partenaire dans /partner/<slug>/admin et les exports.
     const partnerSlug = tok.partnerSlug ? String(tok.partnerSlug).toLowerCase() : null;
 
+    // Gel : un seul paiement en vol par onglet (voir services/checkout-freeze.js).
+    const freezeToken = String(req.body?.sessionToken || req.query?.sessionToken || '').trim().slice(0, 64);
+    if (freezeToken) {
+      const freeze = await evaluateFreeze({
+        sessionToken: freezeToken, seasonCode, venueSlug, lines
+      });
+      if (freeze?.action === 'resume') return res.json(resumePayload(freeze));
+      if (freeze?.action === 'blocked') return res.status(409).json(blockedPayload(freeze));
+    }
+
     const order = await Order.create({
       itemName: partnerSlug ? `RENEW_${seasonCode}_${partnerSlug.toUpperCase()}` : `RENEW_${seasonCode}`,
       seasonCode,
@@ -598,7 +609,8 @@ router.post('/renew', async (req, res) => {
       totalCents,
       status: 'pending',
       paymentProvider: PAYMENT_PROVIDER_ID,
-      paymentProviderMeta: {},
+      // Jeton d'onglet : clé du gel du paiement (checkout-freeze.js).
+      paymentProviderMeta: freezeToken ? { checkoutSessionToken: freezeToken } : {},
       origin: {
         flow:   'renew',
         uiPath: partnerSlug
