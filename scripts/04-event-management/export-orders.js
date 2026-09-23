@@ -27,8 +27,12 @@ const argv = yargs(hideBin(process.argv))
   })
   .option('status', {
     type: 'string',
-    default: 'paid',
-    desc: 'Filter orders by status (use "all" to disable)'
+    // « all » par défaut : filtrer sur `paid` masquait précisément les
+    // commandes qu'on cherche quand quelque chose a mal tourné — annulées ou
+    // en échec alors que le paiement avait abouti. Un export qui omet
+    // silencieusement une partie des commandes est pire qu'un export long.
+    default: 'all',
+    desc: 'Filtre par statut ; « all » (défaut) les prend tous'
   })
   .option('out', {
     type: 'string',
