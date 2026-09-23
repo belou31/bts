@@ -490,8 +490,21 @@ export async function finalizePaidIfNoConflict(order) {
     order.status = 'failed';
     meta.lastFinalizeResult = 'conflict';
     meta.lastFinalizeConflictAt = now;
-    meta.conflict = { source: 'finalize', kind: 'seat_conflict', seats: conflicts, checkedAt: now };
-    Object.assign(meta, failureStamp(FAILURE_REASONS.SEAT_CONFLICT));
+    // Distinguer « quelqu'un d'autre a pris la place » de « le client a changé
+    // sa sélection puis payé l'ancien lien ». Le second n'est pas une course
+    // entre deux acheteurs : c'est le même, et le lui présenter comme un
+    // conflit avec un tiers est trompeur — surtout qu'il a payé.
+    const superseded = meta.supersededBy ? String(meta.supersededBy) : '';
+    meta.conflict = {
+      source: 'finalize',
+      kind: superseded ? 'superseded_checkout' : 'seat_conflict',
+      seats: conflicts,
+      ...(superseded ? { supersededBy: superseded } : {}),
+      checkedAt: now
+    };
+    Object.assign(meta, failureStamp(
+      superseded ? FAILURE_REASONS.SUPERSEDED_CHECKOUT : FAILURE_REASONS.SEAT_CONFLICT
+    ));
     order.paymentProviderMeta = meta;
     await order.save();
     return { ok: false, booked: 0, conflicts };
@@ -912,8 +925,12 @@ export async function sendConflictEmail(order) {
   if (!to) return;
   const locale = order?.locale;
   const subject = t('email.conflictSubject', locale);
+  // Annoncer « une autre commande s'est insérée » à quelqu'un qui a lui-même
+  // changé sa sélection est faux, et inquiétant puisqu'il vient de payer.
+  const superseded = Boolean(order?.paymentProviderMeta?.supersededBy);
+  const bodyKey = superseded ? 'email.conflictBodySuperseded' : 'email.conflictBody1';
   const html = `<p>${t('email.greeting', locale)} ${[order?.payerFirstName, order?.payerLastName].filter(Boolean).join(' ') || ''},</p>
-  <p>${t('email.conflictBody1', locale)}</p>
+  <p>${t(bodyKey, locale)}</p>
   <p><strong>${t('email.conflictBody2', locale)}</strong></p>
   <p>${t('email.conflictOrderRef', locale)}&nbsp;: <strong>${order._id}</strong></p>`;
   try { await sendMail({ to, subject, html }); }

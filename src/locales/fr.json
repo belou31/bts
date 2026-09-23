@@ -156,6 +156,7 @@
     "subjectEvent": "Confirmation – Billetterie",
     "conflictSubject": "Votre commande n’a pas pu aboutir",
     "conflictBody1": "Votre commande n’a pas pu aboutir : votre paiement a dépassé le temps de blocage de vos sièges et une autre commande s’est insérée.",
+    "conflictBodySuperseded": "Votre commande n’a pas pu aboutir : votre sélection a été modifiée puis validée dans une autre commande, et ce paiement porte sur la précédente. Vos places sont bien retenues par la commande la plus récente.",
     "conflictBody2": "Veuillez réessayer. Si votre paiement est passé, vous serez remboursé.",
     "conflictOrderRef": "Référence commande",
     "seatPendingSubject": "Votre paiement est confirmé — votre place reste à finaliser",
