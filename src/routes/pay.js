@@ -20,6 +20,7 @@ import { normalizePaymentStatus, isPaidLike, isRefundedLike,
          sendSeatPendingNotice,
          ensureTicketsForEventOrder } from '../services/order-finalization.js';
 import { buildSeatChangeUrlForOrder } from '../services/seat-change-link.js';
+import { abandonCheckout } from '../services/checkout-freeze.js';
 import { buildTicketsPdfBuffer } from '../services/tickets-pdf.js';
 
 const router = express.Router();
@@ -450,6 +451,40 @@ router.get('/start', async (req, res) => {
  * STUB:   ?oid=<OrderId>&ci=<intentId>&stub=1&result=success|failure
  * PSP:    ?checkoutIntentId=<id>&code=succeeded|canceled&orderId=<providerOrderId>
  */
+// Abandon explicite d'un paiement en vol.
+//
+// Le gel (services/checkout-freeze.js) empêche de lancer un second paiement
+// tant que le premier tient. L'acheteur doit donc pouvoir renoncer au premier
+// — carte refusée, changement d'avis — sans attendre l'expiration du blocage.
+//
+// L'abandon ANNULE la commande : la laisser « pending » la garderait payable,
+// et c'est exactement l'état qui produisait des commandes annulées alors
+// qu'elles avaient été payées. La sentinelle reste le filet pour qui ferme
+// simplement son onglet.
+//
+// Le jeton d'onglet fait autorité : sans lui, un identifiant deviné
+// annulerait la commande d'un autre acheteur.
+router.post('/abandon', async (req, res) => {
+  const orderId = String(req.query.oid || req.body?.orderId || '').trim();
+  const sessionToken = String(req.body?.sessionToken || req.query.sessionToken || '').trim();
+  if (!mongoose.Types.ObjectId.isValid(orderId)) {
+    return res.status(400).json({ ok: false, error: 'invalid_order' });
+  }
+  try {
+    const out = await abandonCheckout({ orderId, sessionToken });
+    if (!out.ok) {
+      // 'not_found' couvre aussi « appartient à quelqu'un d'autre » : ne pas
+      // distinguer les deux évite de confirmer l'existence d'une commande.
+      return res.status(out.reason === 'missing_session' ? 400 : 404)
+        .json({ ok: false, error: out.reason });
+    }
+    return res.json(out);
+  } catch (err) {
+    console.error('[pay/abandon]', err);
+    return res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
 router.get('/return', async (req, res) => {
   const q = req.query || {};
   console.log('[pay/return] query=', {

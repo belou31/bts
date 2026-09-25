@@ -156,6 +156,7 @@
     "subjectEvent": "Confirmation – Tickets",
     "conflictSubject": "Your order could not be completed",
     "conflictBody1": "Your order could not be completed: your payment exceeded the seat-hold window and another order took the seats.",
+    "conflictBodySuperseded": "Your order could not be completed: your selection was changed and confirmed under a later order, and this payment covers the earlier one. Your seats are held by the most recent order.",
     "conflictBody2": "Please try again. If your payment went through, you will be refunded.",
     "conflictOrderRef": "Order reference",
     "seatPendingSubject": "Your payment is confirmed — your seat still needs to be assigned",

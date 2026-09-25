@@ -14,6 +14,7 @@ import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId, curren
 import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { finalizePaidIfNoConflict, sendOrderAttestationIfNeeded } from '../services/order-finalization.js';
 import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
+import { evaluateFreeze, resumePayload, blockedPayload } from '../services/checkout-freeze.js';
 import { matchesChannel } from '../utils/channel-scopes.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { computeEventSeatStates as computeSeatStates } from '../services/event-seat-states.js';
@@ -685,6 +686,22 @@ export function createEventFlowRouter({
           }
         : null;
 
+      // Gel : un seul paiement en vol par onglet. Revenir en arrière et
+      // relancer ne doit pas créer une seconde commande payable — c'est ce
+      // qui faisait échouer le paiement du premier lien après encaissement.
+      const freezeToken = String(req.query.sessionToken || req.body?.sessionToken || '').trim().slice(0, 64);
+      if (freezeToken) {
+        const freeze = await evaluateFreeze({
+          sessionToken: freezeToken, eventId: ev._id, lines: ctxData.lines
+        });
+        if (freeze?.action === 'resume') {
+          return res.json(resumePayload(freeze));
+        }
+        if (freeze?.action === 'blocked') {
+          return res.status(409).json(blockedPayload(freeze));
+        }
+      }
+
       // Crée order "pending" + hold
       const now = new Date();
       const until = new Date(now.getTime() + HOLD_MIN * 60 * 1000);
@@ -700,7 +717,8 @@ export function createEventFlowRouter({
         itemName: `${itemNamePrefix}_${ev.slug}`,
         phase: 'event',
         paymentProvider: PAYMENT_PROVIDER_ID,
-        paymentProviderMeta: {},
+        // Le jeton d'onglet est conservé ici : c'est la clé du gel.
+        paymentProviderMeta: freezeToken ? { checkoutSessionToken: freezeToken } : {},
 
         createdAt: now,
         status: 'pending',

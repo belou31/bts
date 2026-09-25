@@ -229,8 +229,14 @@ function lineSeatOrZone(l) {
   return sid || String(l.zoneKey||'');
 }
 
+// Même fuseau que les billets (tickets-pdf.js) : un courriel et le billet
+// qu'il transporte ne peuvent pas annoncer deux heures différentes. Sans
+// `timeZone`, l'heure suivait celle du serveur — UTC en production, soit deux
+// heures d'écart l'été avec l'heure réelle du match.
+const MAIL_TIMEZONE = process.env.TICKET_TIMEZONE || process.env.CLUB_TIMEZONE || 'Europe/Paris';
+
 function formatDateFR(d, locale) {
-  return formatDate(d, locale, { dateStyle: 'long', timeStyle: 'short' });
+  return formatDate(d, locale, { dateStyle: 'long', timeStyle: 'short', timeZone: MAIL_TIMEZONE });
 }
 
 // -- Helpers "tickets / QR" ---------------------------------------------------

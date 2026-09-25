@@ -74,6 +74,14 @@ const OrderSchema = new mongoose.Schema({
   payerLastName:  { type: String, default: '' },
   payerEmail:     { type: String, index: true, default: '' },
 
+  // Fin de la fenêtre pendant laquelle les places sont tenues pour cette
+  // commande. Les trois flux d'achat écrivaient déjà `hold: { until }` à la
+  // création — sans ce champ, `strict: true` le jetait en silence et la
+  // durée n'existait nulle part sur la commande.
+  hold: {
+    until: { type: Date, default: null }
+  },
+
   // Corrections faites à la main depuis admin/orders. L'adresse d'origine est
   // conservée : c'est elle qui figure sur l'attestation déjà envoyée et dans
   // le relevé du prestataire, et la corriger l'effacerait sans trace.
