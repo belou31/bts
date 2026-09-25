@@ -466,11 +466,23 @@ export function createEventFlowRouter({
         let subscriptionOrders = [];
         const hasImportedSeason = eventOrders.some(o => o.parentOrderId);
         if (!hasImportedSeason) {
+          // `phase` n'existe pas au schéma Order (strict: true) : strictQuery
+          // le supprimait de la requête, qui ramenait alors TOUTES les
+          // commandes de la saison — y compris celles des matchs précédents.
+          // Une zone debout de 299 places s'affichait à 149 sur un match tout
+          // neuf, amputée des ventes des rencontres passées.
+          //
+          // Le critère qui distingue réellement un abonnement est `origin.flow`
+          // — et il inclut `renew` : un renouveleur ayant une place debout
+          // l'occupe autant qu'un nouvel abonné. `eventId: null` écarte les
+          // commandes rattachées à un match (même définition que
+          // buildSeasonOrderMatch côté admin).
           subscriptionOrders = await Order.find(
             {
-              phase: 'subscription',
               seasonCode: ev.seasonCode,
               venueSlug: ev.venueSlug,
+              'origin.flow': { $in: ['subscription', 'renew'] },
+              eventId: null,
               status: { $in: ['paid', 'tobepaid'] }
             },
             { lines: 1 }

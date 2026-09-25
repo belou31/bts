@@ -42,7 +42,9 @@ function extractTicketsFromOrder(ord) {
 router.get('/summary', async (_req, res) => {
   try {
     const [subs, events, paidSum, pending, seatsBusy] = await Promise.all([
-      Order.countDocuments({ phase: 'subscription', status: 'paid' }),
+      // `phase` n'existe pas au schéma Order : strictQuery le supprimait, et
+      // ce compteur affichait TOUTES les commandes payées, matchs compris.
+      Order.countDocuments({ 'origin.flow': { $in: ['subscription', 'renew'] }, status: 'paid' }),
       Event.countDocuments({ sale: 'onsale' }),
       Order.aggregate([
         { $match: { status: 'paid' } },
