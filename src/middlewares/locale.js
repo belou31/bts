@@ -18,6 +18,11 @@
 import { t as translate, getCatalog } from '../utils/i18n.js';
 import { formatDate, formatCurrency } from '../utils/format.js';
 
+// Fuseau des heures montrées au public. Le lieu ne change pas d'un visiteur à
+// l'autre : une heure de match est celle de la patinoire, pas celle du
+// navigateur. Surchargeable pour un lieu situé ailleurs.
+const DISPLAY_TZ = process.env.DISPLAY_TZ || 'Europe/Paris';
+
 export const SUPPORTED_LOCALES = ['fr', 'en'];
 export const DEFAULT_LOCALE = 'fr';
 
@@ -78,7 +83,14 @@ export function localeMiddleware(req, res, next) {
   res.locals.lang = locale;
   res.locals.t = (key, vars) => translate(key, locale, vars);
   res.locals.i18nCatalog = getCatalog(locale);
-  res.locals.formatDate = (date, options) => formatDate(date, locale, options);
+  // Fuseau d'affichage imposé par défaut. Sans `timeZone`, toLocaleString suit
+  // celui du PROCESSUS : un serveur en UTC annonçait 17:30 pour un match à
+  // 19:30, et la machine de développement étant à l'heure de Paris, l'écart ne
+  // se voyait qu'en production. Les heures affichées au public sont celles du
+  // lieu, pas celles de la machine — un appel peut toujours passer son propre
+  // `timeZone` pour un lieu situé ailleurs.
+  res.locals.formatDate = (date, options) =>
+    formatDate(date, locale, { timeZone: DISPLAY_TZ, ...(options || {}) });
   res.locals.formatCurrency = (cents, currency) => formatCurrency(cents, locale, currency);
   next();
 }
