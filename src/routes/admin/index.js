@@ -2253,7 +2253,10 @@ router.get('/monitor', async (req, res) => {
         { key: 1, capacity: 1, quota: 1, _id: 0 }
       ).lean(),
       Order.aggregate([
-        { $match: { ...subscriptionMatch, status: 'paid', phase: 'subscription' } },
+        // Dans une agrégation, $match ne passe PAS par strictQuery : le
+        // critère `phase` était pris au mot et, ce champ n'existant pas au
+        // schéma donc jamais enregistré, l'agrégat ne renvoyait rien du tout.
+        { $match: { ...subscriptionMatch, status: 'paid', 'origin.flow': { $in: ['subscription', 'renew'] } } },
         { $unwind: '$lines' },
         { $group: { _id: '$lines.zoneKey', count: { $sum: 1 } } }
       ])
