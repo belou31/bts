@@ -20,6 +20,7 @@ import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { computeEventSeatStates as computeSeatStates } from '../services/event-seat-states.js';
 import { claimEventSeatHolds } from '../services/event-seat-holds.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
+import { isZoneUnit } from '../utils/seat-id.js';
 import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
@@ -495,8 +496,12 @@ export function createEventFlowRouter({
             if (placement.released) continue;
             const key = String(placement.zoneKey || '').trim().toUpperCase();
             if (!zoneCapacity.has(key)) continue;
-            const seatId = typeof placement?.seatId === 'string' ? placement.seatId.trim() : '';
-            if (seatId) continue;
+            // Une place debout ne se reconnaît PAS à un seatId vide : les flux
+            // d'abonnement lui donnent un identifiant virtuel (« DEBOUT-Z001 »).
+            // Écarter toute ligne pourvue d'un seatId laissait donc les places
+            // debout des abonnés hors du compte. isZoneUnit lit `unitType`
+            // quand il est là, et retombe sur la forme de l'identifiant sinon.
+            if (!isZoneUnit({ unitType: line?.unitType, seatId: placement?.seatId })) continue;
             const qtyRaw = Number(line?.qty ?? line?.quantity ?? 1);
             const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
             zoneSold.set(key, (zoneSold.get(key) || 0) + qty);
@@ -507,8 +512,7 @@ export function createEventFlowRouter({
           for (const line of ord?.lines || []) {
             const key = String(line?.zoneKey || '').trim().toUpperCase();
             if (!zoneCapacity.has(key)) continue;
-            const seatId = typeof line?.seatId === 'string' ? line.seatId.trim() : '';
-            if (seatId) continue;
+            if (!isZoneUnit(line)) continue;
             const qtyRaw = Number(line?.qty ?? line?.quantity ?? 1);
             const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
             zoneSold.set(key, (zoneSold.get(key) || 0) + qty);
