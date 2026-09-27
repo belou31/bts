@@ -697,7 +697,11 @@ export default function routes(router) {
 
       applyPartnerFrameAncestorsHeaders(res, partnerCfg.frameAncestors);
 
-      const events = await Event.find({}).sort({ startsAt: 1 }).lean();
+      // Même critère que /events : un événement en brouillon n'est pas encore
+      // publié, un archivé ne l'est plus. Sans filtre, la liste partenaire
+      // exposait les deux — un match en préparation apparaissait au partenaire
+      // avant qu'on ait décidé de l'ouvrir.
+      const events = await Event.find({ activity: 'active' }).sort({ startsAt: 1 }).lean();
       const list = [];
       for (const ev of events) {
         const quota = Number(partnerCfg?.presale?.events?.[ev.slug]?.quota || 0);
