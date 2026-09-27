@@ -25,7 +25,6 @@ const normSeat = v => norm(v).toUpperCase();
 // définitivement — l'admin doit pouvoir trancher — mais jamais en silence.
 const OCCUPIED = ['booked', 'busy', 'held', 'provisioned'];
 
-const SEASON_FLOWS = ['subscription', 'renew'];
 
 function describeSeat(seat) {
   if (!seat) return null;
@@ -114,11 +113,16 @@ router.post('/:orderId', async (req, res) => {
     const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ ok: false, error: 'Commande introuvable' });
 
-    const flow = order.origin?.flow || '';
-    if (!SEASON_FLOWS.includes(flow)) {
+    // Ce qui distingue une commande de saison d'une commande de match est
+    // `eventId`, pas le flux. Une liste blanche de flux rejetait les
+    // abonnements souscrits par un canal PARTENAIRE — ils portent
+    // `origin.flow: 'partner'` (voir subscription.js) — avec un message qui
+    // affirmait l'inverse de ce qu'il constatait. Même règle que
+    // cancel-season-order.js / cancel-event-order.js.
+    if (order.eventId || order.meta?.eventId) {
       return res.status(400).json({
         ok: false,
-        error: `Réallocation réservée aux commandes de saison (flux « ${flow || 'inconnu'} »). Pour un match, utiliser « Ajuster ».`
+        error: 'Cette commande est rattachée à un match : la réallocation de saison ne s\'y applique pas. Utiliser « Ajuster » pour la présence sur ce match.'
       });
     }
 

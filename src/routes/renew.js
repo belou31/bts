@@ -198,7 +198,10 @@ async function alreadyPaidSeatIdsForToken({ seasonCode, venueSlug, seatIds }) {
   const orders = await Order.find(
     {
       seasonCode, venueSlug,
-      'origin.flow': { $in: ['subscription', 'renew'] },
+      // 'partner' compris : la requête ne porte que sur des identifiants de
+      // places de saison, et un abonné partenaire occupe la sienne autant
+      // qu'un autre. L'omettre laissait sa place passer pour libre.
+      'origin.flow': { $in: ['subscription', 'renew', 'partner'] },
       status: { $in: ['paid', 'tobepaid'] },
       'lines.seatId': { $in: seatIds }
     },
