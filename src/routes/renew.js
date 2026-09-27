@@ -16,6 +16,7 @@ import { findSingleGaps }      from '../utils/no-single-gap.js';
 import { isVirtualZoneSeatId, zoneKeyFromSeatId as zoneKeyOf } from '../utils/seat-id.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
 import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
+import { allocateZoneSeatIds } from '../services/zone-seat-ids.js';
 import { evaluateFreeze, resumePayload, blockedPayload } from '../services/checkout-freeze.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { getPartnerConfig } from '../config/partners.js';
@@ -188,39 +189,6 @@ function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function allocateZoneSeatIds({ seasonCode, venueSlug, zoneKey, count }) {
-  const key = String(zoneKey || '').toUpperCase();
-  const rx = new RegExp(`^${escapeRegex(key)}-Z(\\d{3,})$`, 'i');
-  const used = new Set();
-
-  const orders = await Order.find(
-    { seasonCode, venueSlug, status: { $nin: ['canceled', 'failed'] }, 'lines.zoneKey': key },
-    { 'lines.seatId': 1 }
-  ).lean();
-  for (const ord of orders) {
-    for (const line of (ord.lines || [])) {
-      const m = rx.exec(String(line?.seatId || ''));
-      if (m) used.add(Number(m[1]));
-    }
-  }
-
-  const subs = await Subscriber.find(
-    { seasonCode, venueSlug, prefSeatId: rx },
-    { prefSeatId: 1 }
-  ).lean();
-  for (const sub of subs) {
-    const m = rx.exec(String(sub?.prefSeatId || ''));
-    if (m) used.add(Number(m[1]));
-  }
-
-  const out = [];
-  for (let n = 1; out.length < count; n++) {
-    if (used.has(n)) continue;
-    used.add(n);
-    out.push(`${key}-Z${String(n).padStart(3, '0')}`);
-  }
-  return out;
-}
 
 // Which seatIds from this renewal token are already covered by a paid/tobepaid
 // order? Real seats already get this via Seat.status, but a standing-zone
@@ -230,7 +198,10 @@ async function alreadyPaidSeatIdsForToken({ seasonCode, venueSlug, seatIds }) {
   const orders = await Order.find(
     {
       seasonCode, venueSlug,
-      'origin.flow': { $in: ['subscription', 'renew'] },
+      // 'partner' compris : la requête ne porte que sur des identifiants de
+      // places de saison, et un abonné partenaire occupe la sienne autant
+      // qu'un autre. L'omettre laissait sa place passer pour libre.
+      'origin.flow': { $in: ['subscription', 'renew', 'partner'] },
       status: { $in: ['paid', 'tobepaid'] },
       'lines.seatId': { $in: seatIds }
     },

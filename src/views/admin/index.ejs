@@ -4944,7 +4944,18 @@
         if (!seatBody) return;
         const rows = (order.lines || []).map((l) => {
           if (l.unitType === 'zone') {
-            return `<tr><td>${escapeHtml(l.zoneKey || '—')}</td><td colspan="3" class="muted">place en zone — pas de siège à déplacer</td></tr>`;
+            // Une place en zone se relogeait nulle part : elle est désormais
+            // déplaçable vers un siège comme vers une autre zone.
+            return `<tr>
+              <td><code>${escapeHtml(l.seatId || l.zoneKey || '—')}</code> <span class="muted">(zone)</span></td>
+              <td>${escapeHtml(l.holder || '—')}</td>
+              <td>${escapeHtml(l.tariffCode || '—')}</td>
+              <td>
+                <input type="text" data-seat-target data-line-index="${l.index}" placeholder="N2-A-07" size="10">
+                <input type="text" data-seat-zone data-line-index="${l.index}" placeholder="ou zone : DEBOUT" size="12">
+                <button type="button" class="btn btn-small" data-seat-move data-line-index="${l.index}">Déplacer</button>
+              </td>
+            </tr>`;
           }
           return `<tr>
             <td><code>${escapeHtml(l.seatId || '—')}</code> ${seatStateLabel(l.seat)}</td>
@@ -4952,6 +4963,7 @@
             <td>${escapeHtml(l.tariffCode || '—')}</td>
             <td>
               <input type="text" data-seat-target data-line-index="${l.index}" placeholder="N2-A-07" size="10">
+              <input type="text" data-seat-zone data-line-index="${l.index}" placeholder="ou zone : DEBOUT" size="12">
               <button type="button" class="btn btn-small" data-seat-move data-line-index="${l.index}">Déplacer</button>
             </td>
           </tr>`;
@@ -4980,20 +4992,29 @@
       const moveSeat = async (lineIndex, force) => {
         if (!seatOrderId || !seatBody) return;
         const input = seatBody.querySelector(`[data-seat-target][data-line-index="${lineIndex}"]`);
+        const zoneInput = seatBody.querySelector(`[data-seat-zone][data-line-index="${lineIndex}"]`);
         const targetSeatId = (input?.value || '').trim();
-        if (!targetSeatId) { if (seatSummary) seatSummary.textContent = 'Indiquer une place de destination.'; return; }
+        const targetZoneKey = (zoneInput?.value || '').trim();
+        if (!targetSeatId && !targetZoneKey) {
+          if (seatSummary) seatSummary.textContent = 'Indiquer une place OU une zone de destination.';
+          return;
+        }
+        if (targetSeatId && targetZoneKey) {
+          if (seatSummary) seatSummary.textContent = 'Une seule destination : une place ou une zone, pas les deux.';
+          return;
+        }
         try {
           const res = await fetch(seatUrl(seatOrderId), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({ lineIndex, targetSeatId, force: Boolean(force) })
+            body: JSON.stringify({ lineIndex, targetSeatId, targetZoneKey, force: Boolean(force) })
           });
           const data = await res.json().catch(() => ({}));
           // 409 + needsForce : la place n'est pas libre. On expose exactement
           // pourquoi, et on laisse confirmer — jamais de contournement muet.
           if (res.status === 409 && data?.needsForce) {
             const detail = [data.error, ...(data.derivedEventOrders || []).map(d => `commande de match ${d.orderId} (${d.status})`)].join(' ');
-            if (window.confirm(`${detail}\n\nDéplacer quand même vers ${targetSeatId} ?`)) {
+            if (window.confirm(`${detail}\n\nDéplacer quand même vers ${targetSeatId || 'la zone ' + targetZoneKey} ?`)) {
               return moveSeat(lineIndex, true);
             }
             if (seatSummary) seatSummary.textContent = 'Déplacement annulé.';
