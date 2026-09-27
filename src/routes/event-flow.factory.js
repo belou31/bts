@@ -482,7 +482,11 @@ export function createEventFlowRouter({
             {
               seasonCode: ev.seasonCode,
               venueSlug: ev.venueSlug,
-              'origin.flow': { $in: ['subscription', 'renew'] },
+              // 'partner' compris : un abonnement souscrit par le canal
+              // partenaire est un abonnement (subscription.js lui donne ce
+              // flux). `eventId: null` écarte les commandes de MATCH
+              // partenaire, qui portent le même flux.
+              'origin.flow': { $in: ['subscription', 'renew', 'partner'] },
               eventId: null,
               status: { $in: ['paid', 'tobepaid'] }
             },

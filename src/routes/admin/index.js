@@ -1397,7 +1397,10 @@ router.get('/renewers', async (req, res) => {
       const zoneOrders = await Order.find(
         {
           seasonCode: selectedSeasonCode, venueSlug: selectedVenueSlug,
-          'origin.flow': { $in: ['subscription', 'renew'] },
+          // 'partner' compris : ces identifiants sont ceux de places en zone
+          // d'abonnement, qu'elles aient été prises par le canal public ou
+          // partenaire.
+          'origin.flow': { $in: ['subscription', 'renew', 'partner'] },
           status: { $in: ['paid', 'tobepaid'] },
           'lines.seatId': { $in: virtualSeatIds }
         },

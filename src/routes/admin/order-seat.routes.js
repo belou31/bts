@@ -12,6 +12,7 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 
 import { Order, Seat, Zone } from '../../models/index.js';
+import { allocateZoneSeatIds } from '../../services/zone-seat-ids.js';
 import { adminAuth } from './index.js';
 
 const router = Router();
@@ -24,7 +25,6 @@ const normSeat = v => norm(v).toUpperCase();
 // définitivement — l'admin doit pouvoir trancher — mais jamais en silence.
 const OCCUPIED = ['booked', 'busy', 'held', 'provisioned'];
 
-const SEASON_FLOWS = ['subscription', 'renew'];
 
 function describeSeat(seat) {
   if (!seat) return null;
@@ -113,28 +113,91 @@ router.post('/:orderId', async (req, res) => {
     const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ ok: false, error: 'Commande introuvable' });
 
-    const flow = order.origin?.flow || '';
-    if (!SEASON_FLOWS.includes(flow)) {
+    // Ce qui distingue une commande de saison d'une commande de match est
+    // `eventId`, pas le flux. Une liste blanche de flux rejetait les
+    // abonnements souscrits par un canal PARTENAIRE — ils portent
+    // `origin.flow: 'partner'` (voir subscription.js) — avec un message qui
+    // affirmait l'inverse de ce qu'il constatait. Même règle que
+    // cancel-season-order.js / cancel-event-order.js.
+    if (order.eventId || order.meta?.eventId) {
       return res.status(400).json({
         ok: false,
-        error: `Réallocation réservée aux commandes de saison (flux « ${flow || 'inconnu'} »). Pour un match, utiliser « Ajuster ».`
+        error: 'Cette commande est rattachée à un match : la réallocation de saison ne s\'y applique pas. Utiliser « Ajuster » pour la présence sur ce match.'
       });
     }
 
-    const { lineIndex, targetSeatId, force } = req.body || {};
+    const { lineIndex, targetSeatId, targetZoneKey, force, commit = true } = req.body || {};
     const index = Number(lineIndex);
     const lines = order.lines || [];
     if (!Number.isInteger(index) || index < 0 || index >= lines.length) {
       return res.status(400).json({ ok: false, error: `Ligne inconnue : ${lineIndex}` });
     }
     const line = lines[index];
-    if ((line.unitType || '') === 'zone') {
-      return res.status(400).json({
-        ok: false,
-        error: 'Cette ligne est une place en zone (sans siège identifié) : il n\'y a pas de place à déplacer.'
+    const scopeEarly = { seasonCode: order.seasonCode, venueSlug: order.venueSlug };
+    const wasZoneLine = (line.unitType || '') === 'zone';
+
+    // --- Reloger vers une ZONE (place debout) plutôt que vers un siège.
+    //
+    // Une place en zone n'a pas de document Seat : son identifiant est virtuel
+    // (« DEBOUT-Z001 »). Reloger vers une zone consiste donc à rendre le siège
+    // d'origine et à réécrire la ligne, pas à réserver quoi que ce soit.
+    const toZoneKey = normSeat(targetZoneKey);
+    if (toZoneKey) {
+      const zone = await Zone.findOne({ ...scopeEarly, key: toZoneKey }).lean();
+      if (!zone) {
+        return res.status(404).json({ ok: false, error: `Zone ${toZoneKey} introuvable pour ${order.seasonCode} / ${order.venueSlug}.` });
+      }
+      const previousSeatId = normSeat(line.seatId);
+      const [virtualId] = await allocateZoneSeatIds({
+        ...scopeEarly, zoneKey: toZoneKey, count: 1
+      });
+
+      if (!commit) {
+        return res.json({
+          ok: true, changed: false, dryRun: true,
+          from: previousSeatId || '(place en zone)', to: virtualId, toZoneKey,
+          message: 'Simulation : relancer avec commit pour écrire.'
+        });
+      }
+
+      // Le siège d'origine n'est rendu que s'il en existait un ET qu'il
+      // appartenait bien à cette commande.
+      let released = 0;
+      if (previousSeatId && !wasZoneLine) {
+        const upd = await Seat.updateMany(
+          { ...scopeEarly, seatId: previousSeatId },
+          { $set: { status: 'available', provisionedFor: null }, $unset: { 'meta.hold': 1 } }
+        );
+        released = Number(upd.modifiedCount ?? upd.nModified ?? 0);
+      }
+
+      line.seatId = virtualId;
+      line.zoneKey = toZoneKey;
+      line.zoneType = zone.type || line.zoneType || null;
+      line.unitType = 'zone';
+      order.markModified('lines');
+      order.adminEdits = [...(order.adminEdits || []), {
+        at: new Date(), by: 'admin-ui', kind: 'seat-move',
+        changes: [`ligne ${index + 1} : ${previousSeatId || '(zone)'} → zone ${toZoneKey} (${virtualId})`]
+      }];
+      order.markModified('adminEdits');
+      await order.save();
+
+      return res.json({
+        ok: true, changed: true,
+        from: previousSeatId || '(place en zone)', to: virtualId, toZoneKey,
+        releasedSeats: released,
+        warnings: [
+          `Le tarif (${line.tariffCode || '—'}) n'a pas été modifié : un passage en zone change souvent le prix, à vérifier.`,
+          'La place occupe désormais un quota de zone ; aucun siège ne lui est réservé.'
+        ],
+        message: 'Place relogée en zone. Aucun e-mail n\'a été envoyé.'
       });
     }
 
+    // --- Reloger vers un SIÈGE. Une ligne de zone est acceptée : c'est
+    // l'inverse du cas ci-dessus (un abonné debout qui obtient une place
+    // assise). Elle n'a pas de siège à rendre, seulement un quota à libérer.
     const fromSeatId = normSeat(line.seatId);
     const toSeatId = normSeat(targetSeatId);
     if (!toSeatId) return res.status(400).json({ ok: false, error: 'Place de destination manquante' });
@@ -203,6 +266,10 @@ router.post('/:orderId', async (req, res) => {
     line.seatId = toSeat.seatId;
     if (newZoneKey) line.zoneKey = newZoneKey;
     if (newZoneType) line.zoneType = newZoneType;
+    // Une place debout qui devient une place assise cesse d'être une ligne de
+    // zone : la laisser en `zone` lui ferait occuper à la fois un siège et un
+    // quota de zone, et les compteurs de zone la retiendraient pour toujours.
+    line.unitType = 'seat';
     order.markModified('lines');
 
     order.adminEdits = [...(order.adminEdits || []), {
@@ -229,6 +296,7 @@ router.post('/:orderId', async (req, res) => {
       forced: Boolean(force && warning),
       derivedEventOrders: derived,
       warnings: [
+        ...(wasZoneLine ? ['La place occupait un quota de zone : il est rendu, et un siège est désormais réservé.'] : []),
         ...(zoneChanged ? [`La zone passe à ${line.zoneKey} : le tarif (${line.tariffCode || '—'}) n'a pas été modifié, à vérifier.`] : []),
         ...(derived.length ? [`${derived.length} commande(s) de match dérivée(s) pointent encore sur ${fromSeatId} : les régénérer.`] : [])
       ],
