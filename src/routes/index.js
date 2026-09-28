@@ -28,6 +28,7 @@ import renewersRoutes from './admin/renewers.routes.js';
 import adminVouchersRoutes from './admin/vouchers.routes.js';
 import adminOrderContactRoutes from './admin/order-contact.routes.js';
 import adminOrderSeatRoutes from './admin/order-seat.routes.js';
+import adminSeatStateRoutes from './admin/seat-state.routes.js';
 import payRoutes from './pay.js';      
 import controlGuestlistRoutes from './control/guestlist.js';
 import qrRoutes   from './qr.js';
@@ -1110,6 +1111,7 @@ export default function routes(router) {
   router.use('/admin/vouchers', adminVouchersRoutes);
   router.use('/admin/order-contact', adminOrderContactRoutes);
   router.use('/admin/order-seat', adminOrderSeatRoutes);
+  router.use('/admin/seat-state', adminSeatStateRoutes);
 
   router.use('/', scanRoutes);
   router.use('/', controlGuestlistRoutes);

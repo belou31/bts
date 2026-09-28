@@ -9,6 +9,10 @@ const SeatHoldSchema = new mongoose.Schema({
   orderId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
   sessionToken: { type: String, index: true, default: '' },
   reason:     { type: String, default: '' },
+  // Motif d'un blocage posé à la main depuis admin/plan (invitation, siège
+  // cassé, rangée neutralisée pour ce match). Déclaré, sans quoi `strict`
+  // l'écarterait en silence et le blocage serait sans explication.
+  note:       { type: String, default: '' },
   forced:     { type: Boolean, default: false },
   // IMPORTANT: pas d'index inline ici pour éviter le doublon
   expiresAt:  { type: Date }
