@@ -21,7 +21,21 @@
 import { Router } from 'express';
 
 import { Seat } from '../../models/Seat.js';
+import { SeatHold } from '../../models/SeatHold.js';
+import { Event } from '../../models/Event.js';
 import { adminAuth } from './index.js';
+
+// Un blocage de match se reconnaît à ce motif : il ne doit jamais être confondu
+// avec un verrou de paiement (`reason: 'checkout'`), qu'on ne lève pas.
+const ADMIN_BLOCK_REASON = 'admin-block';
+
+// Jusqu'à quand tenir la place. Le TTL de SeatHold supprime le document tout
+// seul : viser la fin du match évite d'avoir à nettoyer, et laisse de la marge
+// pour un coup d'envoi retardé.
+function blockUntilFor(eventDoc) {
+  const start = eventDoc?.startsAt ? new Date(eventDoc.startsAt).getTime() : Date.now();
+  return new Date(Math.max(start, Date.now()) + 12 * 60 * 60 * 1000);
+}
 
 const router = Router();
 router.use(adminAuth);
@@ -46,6 +60,76 @@ router.post('/', async (req, res) => {
     const seat = await Seat.findOne({ seasonCode, venueSlug, seatId });
     if (!seat) {
       return res.status(404).json({ ok: false, error: `Place ${seatId} introuvable pour ${seasonCode} / ${venueSlug}` });
+    }
+
+    // ——— Portée MATCH : la place ne sort de la vente que pour cette rencontre.
+    //
+    // On ne touche pas à `Seat.status`, qui vaut pour la saison entière : on
+    // pose un SeatHold, la même surcouche que lit la billetterie de l'événement
+    // (computeEventSeatStates). Son index TTL fait le ménage tout seul.
+    const eventRef = norm(req.body?.event);
+    if (eventRef) {
+      const eventDoc = /^[0-9a-f]{24}$/i.test(eventRef)
+        ? await Event.findById(eventRef).lean()
+        : await Event.findOne({ slug: eventRef }).lean();
+      if (!eventDoc) {
+        return res.status(404).json({ ok: false, error: `Événement introuvable : ${eventRef}` });
+      }
+
+      // Une place vendue ou promise reste hors de portée, match ou pas.
+      if (seat.status === 'booked' || seat.status === 'provisioned') {
+        return res.status(409).json({
+          ok: false,
+          error: `Place ${seatId} ${seat.status === 'booked' ? 'vendue' : 'provisionnée'} au niveau saison : un blocage de match n'y changerait rien.`,
+          status: seat.status
+        });
+      }
+
+      const existing = await SeatHold.findOne({ eventId: eventDoc._id, seatId }).lean();
+
+      if (to === 'busy') {
+        if (existing && existing.reason !== ADMIN_BLOCK_REASON) {
+          return res.status(409).json({
+            ok: false,
+            error: `Place ${seatId} déjà retenue pour ce match (${existing.reason || 'motif inconnu'}${existing.orderId ? `, commande ${existing.orderId}` : ''}).`
+          });
+        }
+        await SeatHold.updateOne(
+          { eventId: eventDoc._id, seatId },
+          { $set: {
+            eventId: eventDoc._id, seatId,
+            seasonCode: eventDoc.seasonCode, venueSlug: eventDoc.venueSlug,
+            reason: ADMIN_BLOCK_REASON, sessionToken: '', orderId: null,
+            expiresAt: blockUntilFor(eventDoc),
+            note: note || ''
+          } },
+          { upsert: true }
+        );
+        return res.json({
+          ok: true, changed: true, scope: 'event', seatId, status: 'busy',
+          event: eventDoc.slug,
+          message: `Place ${seatId} retirée de la vente pour ${eventDoc.slug} uniquement.`
+        });
+      }
+
+      if (!existing) {
+        return res.json({ ok: true, changed: false, scope: 'event', seatId, status: 'available',
+          message: `Aucun blocage sur ${seatId} pour ce match.` });
+      }
+      // Ne lever QUE nos propres blocages : un verrou de paiement libéré ici
+      // ferait atterrir l'encaissement sur une place revendue entre-temps.
+      if (existing.reason !== ADMIN_BLOCK_REASON) {
+        return res.status(409).json({
+          ok: false,
+          error: `Place ${seatId} retenue par « ${existing.reason || 'motif inconnu'} »${existing.orderId ? ` (commande ${existing.orderId})` : ''} : ce n'est pas un blocage manuel.`
+        });
+      }
+      await SeatHold.deleteOne({ _id: existing._id });
+      return res.json({
+        ok: true, changed: true, scope: 'event', seatId, status: 'available',
+        event: eventDoc.slug,
+        message: `Place ${seatId} remise à la vente pour ${eventDoc.slug}.`
+      });
     }
 
     const from = String(seat.status || 'available');

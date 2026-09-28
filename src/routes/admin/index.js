@@ -7,6 +7,7 @@ import childProcess from 'node:child_process';
 import mongoose from 'mongoose';
 import { Order } from '../../models/Order.js';
 import { Seat }  from '../../models/Seat.js';
+import { SeatHold } from '../../models/SeatHold.js';
 import { Zone }  from '../../models/Zone.js';
 import { Venue } from '../../models/Venue.js';
 import { Season } from '../../models/Season.js';
@@ -1040,8 +1041,39 @@ router.get('/plan', async (req, res) => {
       }
     }
 
+    // Blocages propres à CE match : ils vivent dans SeatHold, pas dans
+    // Seat.status, et la billetterie de l'événement les lit déjà
+    // (computeEventSeatStates). Sans cette surcouche, un siège retiré de la
+    // vente pour un match apparaissait libre sur le plan de ce même match —
+    // l'opérateur ne pouvait pas voir son propre blocage.
+    const eventHoldsById = new Map();
+    if (selectedEvent?._id) {
+      const holds = await SeatHold.find(
+        { eventId: selectedEvent._id, expiresAt: { $gt: new Date() } },
+        { seatId: 1, reason: 1, note: 1, orderId: 1, _id: 0 }
+      ).lean();
+      for (const h of holds) {
+        const sid = String(h.seatId || '').trim();
+        if (!sid || !seatStatusById.has(sid)) continue;
+        eventHoldsById.set(sid, h);
+        // On ne masque pas une place vendue : seule une place libre devient
+        // occupée par un blocage.
+        if (seatStatusById.get(sid) === 'available') seatStatusById.set(sid, 'busy');
+      }
+    }
+
     seats = Array.from(seatStatusById.entries())
-      .map(([seatId, status]) => ({ seatId, status }))
+      .map(([seatId, status]) => ({
+        seatId,
+        status,
+        ...(eventHoldsById.has(seatId)
+          ? { eventHold: {
+              reason: eventHoldsById.get(seatId).reason || '',
+              note: eventHoldsById.get(seatId).note || '',
+              orderId: eventHoldsById.get(seatId).orderId ? String(eventHoldsById.get(seatId).orderId) : null
+            } }
+          : {})
+      }))
       .sort((a, b) => a.seatId.localeCompare(b.seatId, 'fr', { numeric: true, sensitivity: 'base' }));
 
     seatCounts = seats.reduce((acc, seat) => {

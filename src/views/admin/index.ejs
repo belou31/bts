@@ -4088,9 +4088,16 @@
             const blockable = status === 'available';
             const releasable = status === 'busy';
             if (blockable || releasable) {
-              stateLabel.textContent = `État actuel : ${status}`;
+              // La portée suit le sélecteur : un match choisi ne bloque que ce
+              // match, sinon le blocage vaut pour la saison entière.
+              const evSlug = PLAN_VIEW_DATA?.seasonScope ? '' : (PLAN_VIEW_DATA?.selectedEvent?.slug || '');
+              const portee = evSlug ? `ce match (${evSlug})` : 'toute la saison';
+              stateLabel.textContent = `État actuel : ${status} — portée : ${portee}`;
               stateToggle.dataset.to = blockable ? 'busy' : 'available';
-              stateToggle.textContent = blockable ? 'Retirer de la vente' : 'Remettre à la vente';
+              stateToggle.dataset.event = evSlug;
+              stateToggle.textContent = blockable
+                ? (evSlug ? 'Retirer pour ce match' : 'Retirer de la vente (saison)')
+                : (evSlug ? 'Remettre pour ce match' : 'Remettre à la vente (saison)');
               if (stateNote) stateNote.value = '';
               stateBlock.classList.remove('hidden');
             } else {
@@ -4140,6 +4147,7 @@
                 venueSlug: PLAN_VIEW_DATA?.venueSlug || '',
                 seatId: stateSeatId,
                 to,
+                event: stateToggle.dataset.event || '',
                 note: stateNote?.value || ''
               })
             });
