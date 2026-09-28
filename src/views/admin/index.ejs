@@ -1676,6 +1676,14 @@
               </div>
             </dl>
             <button type="button" class="btn btn-small hidden" data-attendance-edit data-plan-seat-adjust data-order-id="">Ajuster</button>
+            <%# Retirer une place de la vente sans commande : invitation, siège
+                cassé, rangée neutralisée. Masqué pour une place vendue ou
+                provisionnée — elle appartient à quelqu'un. %>
+            <div class="plan-seat-state hidden" data-plan-seat-state>
+              <div class="muted" data-plan-seat-state-label>—</div>
+              <input type="text" data-plan-seat-note placeholder="motif (optionnel) : invitation, siège cassé…" size="28">
+              <button type="button" class="btn btn-small" data-plan-seat-toggle data-to="">—</button>
+            </div>
           </section>
         </aside>
       </div>
@@ -4012,6 +4020,16 @@
         const tariffEl = document.querySelector('[data-plan-seat-tariff]');
         const orderIdEl = document.querySelector('[data-plan-seat-order-id]');
         const adjustBtn = document.querySelector('[data-plan-seat-adjust]');
+        const stateBlock = document.querySelector('[data-plan-seat-state]');
+        const stateLabel = document.querySelector('[data-plan-seat-state-label]');
+        const stateNote = document.querySelector('[data-plan-seat-note]');
+        const stateToggle = document.querySelector('[data-plan-seat-toggle]');
+        const seatStateBase = <%- JSON.stringify(urlFor('/admin/seat-state')) %>;
+        const seatStateSuffix = <%- JSON.stringify(tokenSuffix || '') %>;
+        let stateSeatId = '';
+        // Déclaré ici, avant applySeatStatuses qui l'affecte : la placer plus bas
+        // ne tenait que parce que le plan se charge de façon asynchrone.
+        let planSvgDoc = null;
 
         const seatStatusById = new Map(
           (Array.isArray(PLAN_VIEW_DATA.seats) ? PLAN_VIEW_DATA.seats : [])
@@ -4061,10 +4079,31 @@
               adjustBtn.classList.add('hidden');
             }
           }
+          // La bascule ne s'offre que là où elle est légitime : une place vendue
+          // ou provisionnée appartient à quelqu'un, et se traite par la
+          // réallocation — pas par un bouton de plan.
+          if (stateBlock && stateToggle && stateLabel) {
+            stateSeatId = seatId;
+            const status = seatStatusById.get(seatId) || 'available';
+            const blockable = status === 'available';
+            const releasable = status === 'busy';
+            if (blockable || releasable) {
+              stateLabel.textContent = `État actuel : ${status}`;
+              stateToggle.dataset.to = blockable ? 'busy' : 'available';
+              stateToggle.textContent = blockable ? 'Retirer de la vente' : 'Remettre à la vente';
+              if (stateNote) stateNote.value = '';
+              stateBlock.classList.remove('hidden');
+            } else {
+              stateLabel.textContent = `État actuel : ${status} — non modifiable ici`;
+              stateToggle.dataset.to = '';
+              stateBlock.classList.add('hidden');
+            }
+          }
           seatPanel.classList.add('active');
         };
 
         const applySeatStatuses = (svgDoc) => {
+          planSvgDoc = svgDoc;
           seatStatusById.forEach((status, seatId) => {
             const node = findPlanSeatElement(svgDoc, seatId);
             if (!node) return;
@@ -4074,6 +4113,50 @@
             else node.classList.add('seat-available');
           });
         };
+
+        // Bascule available ⇄ busy. Repeint la place sur le plan sans recharger :
+        // bloquer une rangée se fait siège par siège, et un rechargement entre
+        // chaque perdrait le zoom et la position.
+        const repaintSeat = (seatId, status) => {
+          seatStatusById.set(seatId, status);
+          const node = planSvgDoc ? findPlanSeatElement(planSvgDoc, seatId) : null;
+          if (!node) return;
+          node.classList.remove('seat-available', 'seat-booked', 'seat-busy');
+          if (status === 'booked') node.classList.add('seat-booked');
+          else if (status === 'busy') node.classList.add('seat-busy');
+          else node.classList.add('seat-available');
+        };
+
+        stateToggle?.addEventListener('click', async () => {
+          const to = stateToggle.dataset.to;
+          if (!stateSeatId || !to) return;
+          stateToggle.disabled = true;
+          try {
+            const res = await fetch(`${seatStateBase}${seatStateSuffix}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+              body: JSON.stringify({
+                seasonCode: PLAN_VIEW_DATA?.seasonCode || '',
+                venueSlug: PLAN_VIEW_DATA?.venueSlug || '',
+                seatId: stateSeatId,
+                to,
+                note: stateNote?.value || ''
+              })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data?.ok) {
+              if (stateLabel) stateLabel.textContent = data?.error || `Échec (${res.status})`;
+              return;
+            }
+            repaintSeat(stateSeatId, data.status);
+            showSeatPanel(stateSeatId);
+            if (stateLabel) stateLabel.textContent = data.message || `État : ${data.status}`;
+          } catch (err) {
+            if (stateLabel) stateLabel.textContent = err?.message || 'Erreur inconnue';
+          } finally {
+            stateToggle.disabled = false;
+          }
+        });
 
         const enablePlanPanZoom = (svgDoc) => {
           const svg = svgDoc?.querySelector('svg');

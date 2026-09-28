@@ -1,0 +1,107 @@
+// src/routes/admin/seat-state.routes.js
+//
+// Bascule d'un siège entre `available` et `busy` depuis admin/plan.
+//
+// À quoi cela sert : retirer une place de la vente sans passer par une
+// commande — invitation à honorer plus tard, siège cassé, place réservée à la
+// presse, rangée neutralisée pour un montage technique. Jusqu'ici il fallait
+// un script (block-free-seats-for-season.js) et connaître le motif d'avance ;
+// sur le plan, la place se désigne d'un clic.
+//
+// CE QU'ELLE NE TOUCHE JAMAIS :
+//   - `booked` / `provisioned` : la place est à quelqu'un. La libérer ici
+//     retirerait sa place à un abonné sans que rien ne le dise — c'est le
+//     travail de la réallocation ou de l'annulation, qui préviennent.
+//   - un `busy` tenu par une commande (`meta.hold.orderId`) : c'est un
+//     paiement en cours. Le rendre disponible ferait atterrir le paiement sur
+//     une place vendue à un autre entre-temps.
+//
+// Reste donc exactement deux transitions : available → busy, et le retour d'un
+// busy posé à la main.
+import { Router } from 'express';
+
+import { Seat } from '../../models/Seat.js';
+import { adminAuth } from './index.js';
+
+const router = Router();
+router.use(adminAuth);
+
+const norm = v => String(v ?? '').trim();
+
+router.post('/', async (req, res) => {
+  try {
+    const seasonCode = norm(req.body?.seasonCode);
+    const venueSlug = norm(req.body?.venueSlug);
+    const seatId = norm(req.body?.seatId);
+    const to = norm(req.body?.to).toLowerCase();
+    const note = norm(req.body?.note).slice(0, 200);
+
+    if (!seasonCode || !venueSlug || !seatId) {
+      return res.status(400).json({ ok: false, error: 'seasonCode, venueSlug et seatId sont requis' });
+    }
+    if (!['busy', 'available'].includes(to)) {
+      return res.status(400).json({ ok: false, error: 'Cible attendue : busy ou available' });
+    }
+
+    const seat = await Seat.findOne({ seasonCode, venueSlug, seatId });
+    if (!seat) {
+      return res.status(404).json({ ok: false, error: `Place ${seatId} introuvable pour ${seasonCode} / ${venueSlug}` });
+    }
+
+    const from = String(seat.status || 'available');
+    if (from === to) {
+      return res.json({ ok: true, changed: false, seatId, status: from, message: `Déjà « ${to} ».` });
+    }
+
+    // Une place vendue ou promise n'est pas à prendre depuis le plan.
+    if (from === 'booked' || from === 'provisioned') {
+      return res.status(409).json({
+        ok: false,
+        error: from === 'booked'
+          ? `Place ${seatId} vendue : passer par la réallocation ou l'annulation de la commande.`
+          : `Place ${seatId} provisionnée pour un renouveleur : passer par la réallocation.`,
+        status: from,
+        provisionedFor: seat.provisionedFor ? String(seat.provisionedFor) : null
+      });
+    }
+
+    // Un blocage manuel n'a pas de meta.hold ; un checkout en cours, oui.
+    const holdOrderId = seat.meta?.hold?.orderId ? String(seat.meta.hold.orderId) : '';
+    if (from === 'busy' && holdOrderId) {
+      return res.status(409).json({
+        ok: false,
+        error: `Place ${seatId} retenue par un paiement en cours (commande ${holdOrderId}) : la libérer ferait échouer ce paiement.`,
+        status: from,
+        holdOrderId
+      });
+    }
+    if (from === 'held') {
+      return res.status(409).json({ ok: false, error: `Place ${seatId} en état « held » : à traiter par l'outil qui l'a posé.`, status: from });
+    }
+
+    seat.status = to;
+    seat.meta = seat.meta || {};
+    if (to === 'busy') {
+      // Trace du blocage manuel : sans elle, impossible de distinguer plus tard
+      // une place neutralisée exprès d'une place bloquée par accident.
+      seat.meta.manualBlock = { at: new Date(), by: 'admin-plan', note: note || '' };
+    } else {
+      seat.meta.manualBlock = undefined;
+      seat.meta.hold = undefined;
+    }
+    seat.markModified('meta');
+    await seat.save();
+
+    return res.json({
+      ok: true, changed: true, seatId, from, status: to,
+      message: to === 'busy'
+        ? `Place ${seatId} retirée de la vente.`
+        : `Place ${seatId} remise à la vente.`
+    });
+  } catch (err) {
+    console.error('[admin/seat-state]', err);
+    return res.status(500).json({ ok: false, error: err?.message || 'Erreur serveur' });
+  }
+});
+
+export default router;
