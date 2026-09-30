@@ -4278,18 +4278,33 @@
           });
         };
 
+        // Chrome/Chromium can return a truthy contentDocument synchronously,
+        // before the <object>'s SVG resource has actually finished loading —
+        // it points at an interim placeholder document (not an <svg> root)
+        // rather than null like Firefox does. Checking for an <svg> root
+        // specifically (not just "document present") avoids treating that
+        // placeholder as ready.
+        const isSvgDocReady = (doc) => {
+          const root = doc?.documentElement;
+          return Boolean(root && String(root.tagName || '').toLowerCase() === 'svg');
+        };
+
         const onReady = () => {
           if (planInitialized) return;
           const svgDoc = planObject.contentDocument;
-          if (!svgDoc) return;
+          if (!isSvgDocReady(svgDoc)) return;
           planInitialized = true;
           const shouldIgnoreClick = enablePlanPanZoom(svgDoc);
           applySeatStatuses(svgDoc);
           bindPlanClicks(svgDoc, shouldIgnoreClick);
         };
 
-        if (planObject.contentDocument) onReady();
-        planObject.addEventListener('load', onReady, { once: true });
+        if (isSvgDocReady(planObject.contentDocument)) onReady();
+        // Not { once: true }: if the synchronous check above hit the
+        // placeholder document and bailed out, planInitialized is still
+        // false, so the real load event — fired once the SVG is actually
+        // in place — must still be able to run onReady().
+        planObject.addEventListener('load', onReady);
       };
 
       initAdminPlanView();
