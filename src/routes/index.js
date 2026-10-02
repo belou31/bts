@@ -74,16 +74,25 @@ function applyPartnerFrameAncestorsHeaders(res, overrideList) {
   if (list && list.length) {
     const value = list.join(' ');
     res.setHeader('Content-Security-Policy', `frame-ancestors ${value}`);
-    const firstOrigin = list[0];
-    if (firstOrigin) {
-      const normalized = firstOrigin.toLowerCase();
-      if (normalized === "'self'" || normalized === 'self') {
-        res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-      } else if (normalized === "'none'" || normalized === 'none') {
-        res.setHeader('X-Frame-Options', 'DENY');
-      } else {
-        res.setHeader('X-Frame-Options', `ALLOW-FROM ${firstOrigin}`);
-      }
+
+    // X-Frame-Options ne sait pas exprimer « autorise CE site ».
+    // `ALLOW-FROM` est obsolète : Chrome ne l'a jamais implémenté et Firefox
+    // l'a retiré. Une valeur qu'un navigateur ne reconnaît pas est traitée
+    // comme un refus — l'en-tête censé autoriser l'intégration était donc
+    // exactement ce qui la bloquait, en couvrant le CSP juste à côté qui,
+    // lui, disait la bonne chose.
+    //
+    // Pour une liste d'origines, on ne s'appuie donc que sur
+    // `frame-ancestors`, seul mécanisme que les navigateurs actuels
+    // comprennent. On retire l'en-tête héritée au cas où une couche en amont
+    // l'aurait posée.
+    const first = String(list[0] || '').toLowerCase();
+    if (first === "'self'" || first === 'self') {
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    } else if (first === "'none'" || first === 'none') {
+      res.setHeader('X-Frame-Options', 'DENY');
+    } else {
+      res.removeHeader('X-Frame-Options');
     }
   } else {
     res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
