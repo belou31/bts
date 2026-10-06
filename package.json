@@ -14,6 +14,8 @@
     "mollie:stub": "node stub_mollie/server.js",
     "sumup:stub": "node stub_sumup/server.js",
     "test": "jest --runInBand",
+    "test:oidc": "node scripts/05-partner-management/check-oidc-flow.js",
+    "test:oidc-sfi": "node scripts/05-partner-management/check-oidc-flow-sfi.js",
     "lint": "eslint .",
     "db:sync-indexes": "node scripts/sync-indexes.mjs",
     "db:verify-models": "node scripts/verify-models.mjs",
