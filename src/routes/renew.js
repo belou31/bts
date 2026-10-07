@@ -20,6 +20,7 @@ import { allocateZoneSeatIds } from '../services/zone-seat-ids.js';
 import { evaluateFreeze, resumePayload, blockedPayload } from '../services/checkout-freeze.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { getPartnerConfig } from '../config/partners.js';
+import { orderItemsRefusal, countPlaces, orderMaxItems } from '../config/order-limits.js';
 import {
   buildZonesWithRemaining,
   selectZoneAllocatedZones,
@@ -370,6 +371,8 @@ router.get('/renew', async (req, res) => {
       season: seasonCode, seasonCode,
       venue : venueSlug,  venueSlug,
       tariffs, prices, seats, zones,
+      // Le front en a besoin pour refuser la place de trop AVANT le paiement.
+      limits: { maxItems: orderMaxItems() },
       tokenSeats: seatIds,
       seatSubscribers,   // ← rempli à partir de prefSeatId / previousSeasonSeats
       payer,             // ← renseigné si possible
@@ -412,6 +415,11 @@ router.post('/renew', async (req, res) => {
     const schedule = Number(req.body.schedule || 1);
 
     if (!items.length)        return res.status(400).json({ error: 'empty_items' });
+    // S'ajoute au quota propre au renouvelant (vérifié juste après) : celui-ci
+    // borne ce à quoi il a droit, le plafond borne ce qui se traite en
+    // libre-service.
+    const tooMany = orderItemsRefusal(countPlaces(items));
+    if (tooMany) return res.status(400).json(tooMany);
     if (!payer?.email)        return res.status(400).json({ error: 'payer_email_required' });
     if (![1,2,3].includes(schedule)) return res.status(400).json({ error: 'invalid_schedule' });
     // Garde-fou serveur : le sélecteur ne propose l'échéancier que si le

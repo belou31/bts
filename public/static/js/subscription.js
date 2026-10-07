@@ -114,7 +114,9 @@
 
       // Create a virtual seat id and delegate the row creation to generic-view
       const id = seatIdFor(key);
-      api.addRowForSeat({ seatId: id, zoneKey: key, label: zoneLabels.get(key) || key }); // generic attache dataset.zoneKey & wire la ligne
+      // Ligne refusée (plafond atteint) : ne pas décrémenter le restant, sinon
+      // le compteur affiché dérive d'une place à chaque clic sans effet.
+      if (!api.addRowForSeat({ seatId: id, zoneKey: key, label: zoneLabels.get(key) || key })) return;
 
       remaining.set(key, Math.max(0, r - 1));
       updateZoneButtons();

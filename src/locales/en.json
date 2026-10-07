@@ -126,7 +126,9 @@
     "unexpectedServerResponse": "Unexpected server response.",
     "cannotStartPayment": "Unable to start payment. Please try again in a moment.",
     "paymentOpenedNewTab": "Payment opened in a new tab. This page will update automatically.",
-    "cannotLoadData": "Unable to load data. Please check your link."
+    "cannotLoadData": "Unable to load data. Please check your link.",
+    "tooManyItemsTitle": "Maximum number of seats reached",
+    "tooManyItemsDetail": "This order is limited to {{max}} seats. For a larger group, please contact us."
   },
   "email": {
     "greeting": "Hello",

@@ -1,6 +1,7 @@
 // src/routes/event-flow.factory.js
 import { Router } from 'express';
 import assert from 'node:assert/strict';
+import { assertOrderItemCount, countPlaces, orderMaxItems } from '../config/order-limits.js';
 import mongoose, { isValidObjectId } from 'mongoose';
 
 import { Event } from '../models/Event.js';
@@ -251,6 +252,8 @@ export function createEventFlowRouter({
   async function prepareOrderContext(req, ev, channelCtx) {
     const { payer, items, schedule } = req.body || {};
     assert(Array.isArray(items) && items.length > 0, 'Panier vide');
+    // Avant tout travail : inutile de vérifier cent sièges pour refuser ensuite.
+    assertOrderItemCount(countPlaces(items));
 
     const sessionToken = String(req.query?.sessionToken || req.body?.sessionToken || '').trim().slice(0, 64);
     const seats = await computeSeatStates(ev, sessionToken);
@@ -547,6 +550,10 @@ export function createEventFlowRouter({
           venueView: resolvedVenueView,
           saleStatus
         },
+        // Le front en a besoin pour refuser la place de trop AVANT le
+        // paiement : un panier bâti puis rejeté au checkout fait perdre la
+        // saisie des porteurs.
+        limits: { maxItems: orderMaxItems() },
         tariffs, prices, scope,
         allowedZones: Array.from(allowedSet),
         allowedTariffsByZone,
@@ -854,6 +861,9 @@ export function createEventFlowRouter({
         checkout:    intent
       });
     } catch (e) {
+      // Un refus de plafond porte un corps structuré : le front doit pouvoir le
+      // distinguer d'une erreur de panier quelconque.
+      if (e?.refusal) return res.status(400).json({ ok: false, ...e.refusal });
       console.error(`[${flowKey}/checkout] error:`, e?.message || e);
       res.status(400).json({ ok: false, error: e.message || 'Checkout error' });
     }
@@ -984,6 +994,7 @@ export function createEventFlowRouter({
 
         res.json({ ok: true, orderId: String(ord._id), status: ord.status });
       } catch (e) {
+        if (e?.refusal) return res.status(400).json({ ok: false, ...e.refusal });
         console.error(`[${flowKey}/reserve] error:`, e?.message || e);
         res.status(400).json({ ok: false, error: e.message || 'Reservation error' });
       }
