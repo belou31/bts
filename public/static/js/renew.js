@@ -106,7 +106,7 @@
       return;
     }
     const api = window.BTS_VIEW.api;
-    api.addRowForSeat({ seatId: nextZoneSeatId(key), zoneKey: key, label: zoneLabels.get(key) || key });
+    if (!api.addRowForSeat({ seatId: nextZoneSeatId(key), zoneKey: key, label: zoneLabels.get(key) || key })) return;
     api.recomputeTotals();
   }
 
@@ -165,8 +165,22 @@
     // already covered by a paid order) must not come back as a cart line.
     const blocked = new Set(Array.isArray(data?.blockedSeats) ? data.blockedSeats : []);
 
-    for (const seatId of previous) {
-      if (!seatId || inCart.has(seatId) || blocked.has(seatId)) continue;
+    const restorable = previous.filter(sid => sid && !inCart.has(sid) && !blocked.has(sid));
+    const maxItems = api.maxItems ? api.maxItems() : 0;
+
+    // Un renouvelant qui détient plus de places que le plafond ne doit SURTOUT
+    // pas voir son panier tronqué sans un mot : il renouvellerait 19 places sur
+    // 21 en croyant tout reprendre. On ne pré-remplit rien et on le dit.
+    if (maxItems && (inCart.size + restorable.length) > maxItems) {
+      window.BTS_VIEW.setFeedback?.(
+        'error',
+        `Votre abonnement porte ${inCart.size + restorable.length} places, au-delà du maximum de ${maxItems} par commande.`,
+        ['Contactez-nous : ce renouvellement sera traité comme un groupe.']
+      );
+      return;
+    }
+
+    for (const seatId of restorable) {
       const zoneKey = zoneKeyFromSeatId(seatId);
       api.addRowForSeat(isVirtualZoneSeatId(seatId)
         ? { seatId, zoneKey, label: zoneKey.replace(/_/g, ' ') }
@@ -274,7 +288,7 @@
         return;
       }
 
-      api.addRowForSeat({ seatId, zoneKey: zoneKeyFromSeatId(seatId) });
+      if (!api.addRowForSeat({ seatId, zoneKey: zoneKeyFromSeatId(seatId) })) return;
       api.recomputeTotals();
     });
   }

@@ -19,6 +19,7 @@ import { claimEventSeatHolds } from '../services/event-seat-holds.js';
 import { finalizePaidIfNoConflict, sendOrderAttestationIfNeeded } from '../services/order-finalization.js';
 import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
 import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
+import { orderItemsRefusal, effectiveMaxPlaces } from '../config/order-limits.js';
 import {
   loadPurchaseConfig,
   loadVoucherByToken,
@@ -165,6 +166,10 @@ router.post('/voucher/redeem', async (req, res) => {
     if (seatIds.length > allowance) {
       return res.status(403).json({ error: 'allowance_exceeded', allowance, asked: seatIds.length });
     }
+    // Un bon à fort solde ne contourne pas le plafond : un retrait de cette
+    // taille est un groupe, quel que soit le titre qui l'autorise.
+    const tooManyVoucher = orderItemsRefusal(seatIds.length);
+    if (tooManyVoucher) return res.status(400).json(tooManyVoucher);
 
     // Périmètre de placement (Q3).
     const allowedZones = await resolveAllowedZoneKeys(voucher, {
@@ -293,8 +298,10 @@ router.post('/voucher/purchase', async (req, res) => {
     const buyer = req.body?.buyer || {};
     const email = norm(buyer.email);
 
-    if (!Number.isFinite(places) || places < Number(cfg.minPlaces || 1) || places > Number(cfg.maxPlaces || 10)) {
-      return res.status(400).json({ error: 'invalid_places', min: cfg.minPlaces, max: cfg.maxPlaces });
+    // Le plafond global l'emporte sur maxPlaces quand il est plus bas.
+    const maxPlaces = effectiveMaxPlaces(Number(cfg.maxPlaces || 10));
+    if (!Number.isFinite(places) || places < Number(cfg.minPlaces || 1) || places > maxPlaces) {
+      return res.status(400).json({ error: 'invalid_places', min: cfg.minPlaces, max: maxPlaces });
     }
     if (!isEmail(email)) return res.status(400).json({ error: 'email_required' });
 

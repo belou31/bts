@@ -20,6 +20,7 @@ import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
 import { evaluateFreeze, resumePayload, blockedPayload } from '../services/checkout-freeze.js';
 import { partnerSeasonQuota, partnerSeasonPresaleRemaining } from '../services/partner-presale.js';
 import { resolveSeasonSubscribeAccess, seasonAccessMessage } from '../services/season-access.js';
+import { orderItemsRefusal, countPlaces, orderMaxItems } from '../config/order-limits.js';
 import {
   buildZonesWithRemaining,
   selectZoneAllocatedZones,
@@ -209,6 +210,8 @@ router.get('/status', async (req, res, next) => {
       seasonCode,
       seasonName: season?.name || null,
       venueSlug, tariffs, prices, seats, zones: zonesOut, customization,
+      // Le front en a besoin pour refuser la place de trop AVANT le paiement.
+      limits: { maxItems: orderMaxItems() },
       // Le front a besoin de savoir s'il peut ouvrir le panier, et le
       // partenaire de voir ce qu'il lui reste.
       access: { allowed: access.allowed, reason: access.reason, message: access.allowed ? null : seasonAccessMessage(access.reason) },
@@ -239,6 +242,8 @@ router.post('/checkout', async (req, res) => {
 
 
     if (!items.length) return res.status(400).json({ error: 'no_lines' });
+    const tooMany = orderItemsRefusal(countPlaces(items));
+    if (tooMany) return res.status(400).json(tooMany);
     if (![1,2,3].includes(schedule)) return res.status(400).json({ error: 'invalid_schedule' });
     // Garde-fou serveur : le sélecteur ne propose l'échéancier que si le
     // prestataire sait l'encaisser, mais une requête forgée pourrait tout de
