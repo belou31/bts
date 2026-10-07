@@ -63,12 +63,27 @@ window.BTS_VIEW = {
   api: {
     addRowForSeat(seatLike) {
       const $rows = document.querySelector('#cartRows');
+      // Plafond côté client : le serveur refuse de toute façon, mais le dire
+      // au clic évite de saisir vingt porteurs pour se faire renvoyer au
+      // paiement. Rend null plutôt que de lever : les appelants enchaînent sur
+      // le retour, et une exception laisserait le siège surligné comme choisi.
+      if (orderMaxItemsReached()) {
+        setFeedback('error', translate('generic.tooManyItemsTitle'), [
+          translate('generic.tooManyItemsDetail', { max: orderMaxItems() })
+        ]);
+        return null;
+      }
       const row = makeRowForSeat(seatLike);
       $rows.appendChild(row);
       updateTotals(); updateInstallmentsPreview(); syncSelectedHighlights();
       emitHook('cartChanged', { ctx: CTX });
       return row;
     },
+    // Permet à une vue de vérifier AVANT d'engager quoi que ce soit (poser un
+    // hold, décrémenter un quota d'affichage) : addRowForSeat refuse déjà, mais
+    // refuser après avoir réservé le siège le laisserait verrouillé pour rien.
+    canAddRow: () => !orderMaxItemsReached(),
+    maxItems: () => orderMaxItems(),
     getCTX: () => CTX,
     getData: () => CTX.raw || null,
     findSeatElement,
@@ -442,6 +457,24 @@ function syncSelectedHighlights() {
     if (!sid) return;                    // ⬅️ évite querySelector('#')
     addSeatClass(sid, CLASSES.selected);
   });
+}
+
+/* ========= PLAFOND DE PLACES ========= */
+// Fourni par le serveur dans le payload de statut (limits.maxItems). Absent —
+// vieux cache, vue non encore adaptée — on ne plafonne pas côté client : le
+// serveur reste l'autorité, mieux vaut un refus tardif qu'un blocage à tort.
+function orderMaxItems() {
+  const n = Number(CTX?.raw?.limits?.maxItems);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function cartPlaceCount() {
+  return document.querySelectorAll('#cartRows .cart-row').length;
+}
+
+function orderMaxItemsReached() {
+  const max = orderMaxItems();
+  return max > 0 && cartPlaceCount() >= max;
 }
 
 /* ========= LIGNES (cart) ========= */

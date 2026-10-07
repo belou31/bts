@@ -126,7 +126,9 @@
     "unexpectedServerResponse": "Réponse inattendue du serveur.",
     "cannotStartPayment": "Impossible de démarrer le paiement. Réessayez dans quelques instants.",
     "paymentOpenedNewTab": "Paiement ouvert dans un nouvel onglet. Cette page se mettra à jour automatiquement.",
-    "cannotLoadData": "Impossible de charger les données. Vérifiez votre lien."
+    "cannotLoadData": "Impossible de charger les données. Vérifiez votre lien.",
+    "tooManyItemsTitle": "Maximum de places atteint",
+    "tooManyItemsDetail": "Cette commande est limitée à {{max}} places. Pour un groupe plus important, contactez-nous."
   },
   "email": {
     "greeting": "Bonjour",

@@ -385,6 +385,12 @@
           recomputeRemainingFromCart();
           applyFallbackLabels();
         } else {
+          // Avant le hold : un siège réservé puis refusé resterait verrouillé
+          // pour les autres jusqu'à expiration, sans rien apporter à personne.
+          if (api.canAddRow && !api.canAddRow()) {
+            showFeedback(false, `Maximum ${api.maxItems()} places par commande. Pour un groupe plus important, contactez-nous.`);
+            return;
+          }
           const result = await holdSeats([sid]);
           if (result.conflicts?.includes(sid)) {
             api.setSeatState(sid, 'busy');
