@@ -128,7 +128,11 @@
     "paymentOpenedNewTab": "Payment opened in a new tab. This page will update automatically.",
     "cannotLoadData": "Unable to load data. Please check your link.",
     "tooManyItemsTitle": "Maximum number of seats reached",
-    "tooManyItemsDetail": "This order is limited to {{max}} seats. For a larger group, please contact us."
+    "tooManyItemsDetail": "This order is limited to {{max}} seats. For a larger group, please contact us.",
+    "providerUnavailableTitle": "Payment is temporarily unavailable",
+    "providerUnavailableDetail": "Our payment provider did not respond. Your seats have been released: your selection is intact — start the payment again.",
+    "checkoutTimeoutTitle": "Payment is taking too long to start",
+    "checkoutTimeoutDetail": "The request did not complete in time. Check your selection and start the payment again."
   },
   "email": {
     "greeting": "Hello",

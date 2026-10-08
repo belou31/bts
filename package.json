@@ -20,7 +20,11 @@
     "lint": "eslint .",
     "db:sync-indexes": "node scripts/sync-indexes.mjs",
     "db:verify-models": "node scripts/verify-models.mjs",
-    "docs:refs": "node scripts/docs/generate-reference-docs.js"
+    "docs:refs": "node scripts/docs/generate-reference-docs.js",
+    "test:finalize-race": "node scripts/06-misc/check-finalize-race.js",
+    "test:seat-release": "node scripts/06-misc/check-seat-release.js",
+    "test:seat-states-cost": "node scripts/06-misc/check-seat-states-cost.js",
+    "test:attestation-deferral": "node scripts/06-misc/check-attestation-deferral.js"
   },
   "dependencies": {
     "@google/clasp": "^3.3.0",

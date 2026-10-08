@@ -1,5 +1,6 @@
 // src/services/payments/helloasso.js
 import { isZoneUnit } from '../../utils/seat-id.js';
+import { providerFetch, createTokenCache } from './http.js';
 
 const API_DEFAULT = 'https://api.helloasso.com';
 
@@ -24,21 +25,45 @@ function apiV5() {
   return `${apiBase()}/v5`;
 }
 
+// Un jeton par processus, gardé jusqu'à son échéance. Cet appel était fait
+// DEUX fois par paiement (création d'intent, puis relecture de statut), plus
+// une fois par sondage du navigateur et par passage de la sentinelle.
+const tokenCache = createTokenCache({ label: 'helloasso oauth' });
+
 async function getAccessToken() {
   assertEnv();
-  const body = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: process.env.HELLOASSO_CLIENT_ID,
-    client_secret: process.env.HELLOASSO_CLIENT_SECRET
+  return tokenCache.get(async () => {
+    const body = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: process.env.HELLOASSO_CLIENT_ID,
+      client_secret: process.env.HELLOASSO_CLIENT_SECRET
+    });
+    // `retry` : frapper un jeton est sans effet de bord, et c'est l'appel le
+    // plus exposé à un refus passager.
+    const { res, json } = await providerFetch(oauthUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    }, { label: 'helloasso oauth', retry: true });
+    if (!res.ok) throw new Error(`HelloAsso oauth ${res.status} ${JSON.stringify(json)}`);
+    return { token: json.access_token, expiresInSec: json.expires_in };
   });
-  const r = await fetch(oauthUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`HelloAsso oauth ${r.status} ${JSON.stringify(j)}`);
-  return j.access_token;
+}
+
+/**
+ * Rejoue un appel une fois sur 401, avec un jeton neuf.
+ *
+ * Le cache rend ce cas possible : un jeton encore réputé valide peut avoir été
+ * révoqué côté prestataire. Sans cet oubli, le processus resterait en 401
+ * jusqu'au redémarrage.
+ */
+async function withFreshTokenOn401(call) {
+  let out = await call(await getAccessToken());
+  if (out.res.status === 401) {
+    tokenCache.invalidate();
+    out = await call(await getAccessToken());
+  }
+  return out;
 }
 
 function getOffsetDate(inDate, inMthShift) {
@@ -167,13 +192,16 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
 
   const orgSlug = process.env.HELLOASSO_ORG_SLUG;
   const url = `${apiV5()}/organizations/${encodeURIComponent(orgSlug)}/checkout-intents`;
-  const r = await fetch(url, {
+  // Pas de `retry` ici : une seconde tentative ouvrirait peut-être un second
+  // paiement chez le prestataire pour la même commande. L'appelant défait la
+  // commande et invite l'acheteur à relancer, ce qui est le seul réessai sûr.
+  const { res: r, json: j } = await providerFetch(url, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
-  });
-  const j = await r.json().catch(() => ({}));
+  }, { label: 'helloasso checkout' });
   if (!r.ok) {
+    if (r.status === 401) tokenCache.invalidate();
     console.error('[helloasso] payload sent:', JSON.stringify(payload));
     throw new Error(`HelloAsso checkout ${r.status} ${JSON.stringify(j)}`);
   }
@@ -231,15 +259,24 @@ function extractProviderOrderIdFromIntent(j) {
 }
 
 async function getCheckoutIntent(intentId) {
-  const token = await getAccessToken();
-  const headers = { 'Authorization': `Bearer ${token}` };
   const orgSlug = process.env.HELLOASSO_ORG_SLUG;
 
-  let r = await fetch(`${apiV5()}/checkout-intents/${encodeURIComponent(intentId)}`, { headers });
-  if (r.status === 404 || r.status === 403) {
-    r = await fetch(`${apiV5()}/organizations/${encodeURIComponent(orgSlug)}/checkout-intents/${encodeURIComponent(intentId)}`, { headers });
-  }
-  const j = await r.json().catch(() => ({}));
+  // Relecture pure : le réessai est sans conséquence, et ce chemin est le plus
+  // sollicité (sondage du navigateur, page de retour, sentinelle).
+  const { res: r, json: j } = await withFreshTokenOn401(async (token) => {
+    const headers = { 'Authorization': `Bearer ${token}` };
+    const first = await providerFetch(
+      `${apiV5()}/checkout-intents/${encodeURIComponent(intentId)}`,
+      { headers },
+      { label: 'helloasso get intent', retry: true }
+    );
+    if (first.res.status !== 404 && first.res.status !== 403) return first;
+    return providerFetch(
+      `${apiV5()}/organizations/${encodeURIComponent(orgSlug)}/checkout-intents/${encodeURIComponent(intentId)}`,
+      { headers },
+      { label: 'helloasso get intent (org)', retry: true }
+    );
+  });
   if (!r.ok) throw new Error(`HelloAsso get intent ${r.status} ${JSON.stringify(j)}`);
 
   return {

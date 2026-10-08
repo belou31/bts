@@ -238,6 +238,13 @@ router.post('/voucher/redeem', async (req, res) => {
     }
 
     const finalized = await finalizePaidIfNoConflict(order);
+    if (!finalized.ok && finalized.inFlight) {
+      // La commande vient d'être créée ici : personne d'autre ne devrait la
+      // finaliser. Si cela arrive quand même, ne pas la déclarer en échec et
+      // surtout ne pas rendre ses verrous — le chemin qui tient le verrou est
+      // peut-être en train de la payer.
+      return res.status(409).json({ error: 'finalize_in_flight' });
+    }
     if (!finalized.ok) {
       // finalizePaidIfNoConflict a déjà posé sa propre cause ; on ne la
       // remplace que si elle manque, pour ne pas perdre le détail d'origine.

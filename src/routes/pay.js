@@ -8,14 +8,20 @@ import { URL as NodeURL } from 'node:url';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Order } from '../models/index.js';
-import { getCheckoutStatus, getCheckoutIntent, currentPaymentProviderId, currentPaymentProviderLabel, currentPaymentUxMode } from '../services/payments/index.js';
+// `mongoose` et `currentPaymentProvider` étaient UTILISÉS sans être importés :
+// /pay/abandon levait un ReferenceError avant même son try (donc la requête
+// restait sans réponse — l'échappatoire du gel n'a jamais fonctionné, ce qui
+// explique les ~12 min d'attente mesurées sur les relances bloquées), et le
+// rappel Mollie du webhook tombait de la même façon.
+import mongoose from 'mongoose';
+import { getCheckoutStatus, getCheckoutIntent, currentPaymentProvider, currentPaymentProviderId, currentPaymentProviderLabel, currentPaymentUxMode } from '../services/payments/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const VIEWS_DIR  = path.resolve(__dirname, '..', 'views');
 import { normalizePaymentStatus, isPaidLike, isRefundedLike,
          finalizePaidIfNoConflict,
-         sendOrderAttestationIfNeeded,
+         scheduleOrderAttestation,
          sendConflictEmail,
          sendSeatPendingNotice,
          ensureTicketsForEventOrder } from '../services/order-finalization.js';
@@ -165,8 +171,14 @@ function renderPaymentReturn({
   contactEmail,
   homeUrl,
   ticketsUrl,
-  isSeasonOrder = false,
-  hasTickets = false
+  isSeasonOrder = false
+  // `hasTickets` a disparu : il conditionnait le lien de téléchargement à la
+  // présence de `meta.tickets`, que l'envoi du courriel peuplait au passage
+  // quand il était encore attendu dans la requête. Maintenant qu'il est
+  // différé, ce drapeau était faux au premier affichage et masquait un lien
+  // qui FONCTIONNE — /pay/tickets/:id.pdf appelle lui-même
+  // ensureTicketsForEventOrder et construit le PDF à la demande. Il n'est posé
+  // que pour un paiement confirmé, et répond 404 s'il n'y a vraiment rien.
 }) {
   const safeOrderId = escapeHtml(orderId || '—');
   const safeProviderStatus = providerStatus ? escapeHtml(providerStatus) : '';
@@ -200,7 +212,7 @@ function renderPaymentReturn({
     intro = `
       <p>Bravo&nbsp;! Le paiement a été validé et vos places sont désormais <strong>confirmées</strong>.</p>
       ${deliveryLine}
-      ${(safeTicketsUrl && hasTickets) ? `<p>Vous pouvez télécharger vos billets directement ici&nbsp;: <a href="${safeTicketsUrl}">billets-${safeOrderId}.pdf</a></p>` : ''}
+      ${safeTicketsUrl ? `<p>Vous pouvez télécharger vos billets directement ici&nbsp;: <a href="${safeTicketsUrl}">billets-${safeOrderId}.pdf</a></p>` : ''}
       ${supportLine}
     `;
   } else if (state === 'failure') {
@@ -380,13 +392,23 @@ router.get('/status', async (req, res) => {
             const finalizeInfo = await finalizePaidIfNoConflict(liveOrder);
             if (!finalizeInfo.ok) {
               // Provider confirmed payment but the seat(s) couldn't be booked
-              // (real conflict, or a race) — do NOT report paid:true, the
-              // booking itself failed. liveOrder.status is now 'failed';
-              // surface that instead of a false success.
+              // (real conflict) — do NOT report paid:true, the booking itself
+              // failed. liveOrder.status is now 'failed'; surface that instead
+              // of a false success.
+              //
+              // `inFlight` est l'autre cas : un chemin concurrent finalise
+              // cette commande. Le front doit continuer à sonder, pas
+              // conclure — renvoyer 'failed' arrêterait l'attente sur un
+              // verdict qui n'est pas encore rendu.
+              if (finalizeInfo.inFlight) {
+                return res.json({ status: 'pending', paid: false });
+              }
               return res.json({ status: liveOrder.status, paid: false });
             }
             if (!finalizeInfo.alreadyFinalized) {
-              try { await sendOrderAttestationIfNeeded(liveOrder, { source: 'status-poll' }); } catch {}
+              // Différé : ce sondage sert à dire « c'est payé » au navigateur
+              // le plus vite possible, pas à attendre un SMTP.
+              scheduleOrderAttestation(liveOrder._id, { source: 'status-poll' });
             }
           }
           return res.json({ status: 'paid', paid: true });
@@ -583,27 +605,53 @@ router.get('/return', async (req, res) => {
   }
 
   if (order) {
-    const meta = { ...(order.paymentProviderMeta || {}) };
-    meta.lastReturnAt = new Date();
+    // Écrit champ par champ, et NON par réaffectation du sac entier.
+    //
+    // Cette page et le webhook se chevauchent pour une large part des
+    // commandes payées. Tant que chacun faisait `meta = {...ancien}` puis
+    // `save()`, le dernier à enregistrer réécrivait tout le sac avec SA copie
+    // — effaçant en silence ce que l'autre venait d'y poser, y compris le
+    // tampon anti-doublon d'envoi de courriel. Un `$set` pointé ne touche que
+    // les clés nommées, donc deux chemins simultanés se complètent au lieu de
+    // s'écraser.
+    const metaSet = { paymentProvider: PAYMENT_PROVIDER_ID };
+    const stamp = (key, value) => { metaSet[`paymentProviderMeta.${key}`] = value; };
+
+    stamp('lastReturnAt', new Date());
     if (statusFromQuery || rawStatus) {
-      meta.lastReturnCode = statusFromQuery || String(rawStatus);
+      stamp('lastReturnCode', statusFromQuery || String(rawStatus));
     }
-    if (checkoutIntentId) meta.checkoutIntentId = checkoutIntentId;
+    if (checkoutIntentId) stamp('checkoutIntentId', checkoutIntentId);
     if (providerOrderIdParam) {
-      meta.haOrderId = providerOrderIdParam;
-      if (!meta.providerOrderId) meta.providerOrderId = providerOrderIdParam;
+      stamp('haOrderId', providerOrderIdParam);
+      if (!order.paymentProviderMeta?.providerOrderId) stamp('providerOrderId', providerOrderIdParam);
     }
     if (providerPaymentIdParam) {
-      meta.lastReturnProviderPaymentId = providerPaymentIdParam;
-      if (!meta.providerPaymentId) meta.providerPaymentId = providerPaymentIdParam;
+      stamp('lastReturnProviderPaymentId', providerPaymentIdParam);
+      if (!order.paymentProviderMeta?.providerPaymentId) stamp('providerPaymentId', providerPaymentIdParam);
     }
     if (providerStatus) {
-      meta.lastReturnProviderStatus = providerStatus;
-      meta.lastStatusSource = 'return';
-      meta.lastStatusFromReturn = providerStatus;
-      meta.lastStatusCheckedAt = new Date();
+      stamp('lastReturnProviderStatus', providerStatus);
+      stamp('lastStatusSource', 'return');
+      stamp('lastStatusFromReturn', providerStatus);
+      stamp('lastStatusCheckedAt', new Date());
     }
-    order.paymentProviderMeta = meta;
+
+    try {
+      await Order.updateOne({ _id: order._id }, { $set: metaSet });
+    } catch (err) {
+      console.warn('[pay/return] meta stamp failed:', err?.message || err);
+    }
+
+    // Report en mémoire, pour le rendu de la page plus bas. Ce document ne
+    // sera pas enregistré : la base porte déjà ces valeurs.
+    const localMeta = { ...(order.paymentProviderMeta || {}) };
+    for (const [path, value] of Object.entries(metaSet)) {
+      if (path.startsWith('paymentProviderMeta.')) {
+        localMeta[path.slice('paymentProviderMeta.'.length)] = value;
+      }
+    }
+    order.paymentProviderMeta = localMeta;
     order.paymentProvider = PAYMENT_PROVIDER_ID;
   }
 
@@ -617,18 +665,29 @@ router.get('/return', async (req, res) => {
         if (finalizeInfo.ok) {
           state = 'success';
           if (!finalizeInfo.alreadyFinalized) {
-            const meta = { ...(order.paymentProviderMeta || {}) };
-            meta.lastReturnFinalizeAt = new Date();
-            meta.lastReturnFinalizeSource = 'return';
-            order.paymentProviderMeta = meta;
-            order.markModified?.('paymentProviderMeta');
             try {
-              await sendOrderAttestationIfNeeded(order, { source: 'return' });
+              await Order.updateOne({ _id: order._id }, {
+                $set: {
+                  'paymentProviderMeta.lastReturnFinalizeAt': new Date(),
+                  'paymentProviderMeta.lastReturnFinalizeSource': 'return'
+                }
+              });
             } catch (err) {
-              console.warn('[pay/return] mail send failed:', err?.message || err);
-              warnings.push('Le courriel de confirmation n\'a pas pu être envoyé automatiquement.');
+              console.warn('[pay/return] finalize stamp failed:', err?.message || err);
             }
+            // Différé : l'acheteur doit voir sa confirmation tout de suite.
+            // Le courriel part juste après, et la sentinelle le rattrape si
+            // l'envoi échoue — ce que l'ancien avertissement ne faisait pas.
+            scheduleOrderAttestation(order._id, { source: 'return' });
           }
+        } else if (finalizeInfo.inFlight) {
+          // Un autre chemin (webhook, sondage) finalise cette commande en ce
+          // moment. Ce n'est pas un échec : c'est le cas qui produisait les
+          // courriels contradictoires — « votre place reste à finaliser »
+          // pendant que les billets partaient par ailleurs. On n'annonce rien
+          // et on laisse la page se rafraîchir.
+          state = 'pending';
+          warnings.push('Votre paiement est en cours de confirmation. Cette page se met à jour dans quelques secondes.');
         } else {
           warnings.push("Le paiement est confirmé, mais la finalisation de vos sièges nécessite une intervention manuelle.");
           // Sans cet envoi, l'acheteur ne gardait AUCUNE trace écrite : la page
@@ -655,13 +714,14 @@ router.get('/return', async (req, res) => {
     }
   }
 
-  if (order) {
-    try {
-      await order.save();
-    } catch (err) {
-      console.warn('[pay/return] order save failed:', err?.message || err);
-    }
-  }
+  // Pas de `order.save()` ici. C'était le geste qui écrasait tout : le
+  // document avait été chargé AVANT l'appel réseau au prestataire, et
+  // l'enregistrer en fin de requête réécrivait un statut vieux de plusieurs
+  // secondes — assez pour repasser `failed` une commande que le webhook venait
+  // de payer, billets déjà expédiés et place rendue vendable. Tout ce que
+  // cette page doit écrire l'est désormais par `$set` pointé, au moment où
+  // elle l'apprend ; finalizePaidIfNoConflict enregistre le statut lui-même,
+  // sous verrou.
 
   const paymentSnapshot = order?.paymentProviderMeta?.lastPaymentSnapshot || null;
   const paymentHistory = Array.isArray(order?.paymentProviderMeta?.paymentHistory)
@@ -696,8 +756,7 @@ router.get('/return', async (req, res) => {
     ticketsUrl: (state === 'success' && order?.id) ? urlFor(`/pay/tickets/${encodeURIComponent(String(order.id))}.pdf`) : '',
     // Même discriminant que mailer.js resolveOrderKind : une commande de match
     // porte un eventId, un abonnement n'en a pas.
-    isSeasonOrder: Boolean(order) && !order?.eventId && !order?.meta?.eventId,
-    hasTickets: Array.isArray(order?.meta?.tickets) && order.meta.tickets.length > 0
+    isSeasonOrder: Boolean(order) && !order?.eventId && !order?.meta?.eventId
   });
   return res.send(html);
 });
@@ -1060,12 +1119,21 @@ try {
       const fin = await finalizePaidIfNoConflict(order);
       if (fin.ok) {
         if (!fin.alreadyFinalized) {
-          await sendOrderAttestationIfNeeded(order, { source: 'webhook' });
+          // Différé : le prestataire attend un 200 rapide, sinon il rejoue le
+          // webhook — et chaque rejeu est une finalisation concurrente de plus.
+          scheduleOrderAttestation(order._id, { source: 'webhook' });
         }
         return res.status(200).send(fin.alreadyFinalized ? 'ok-already-finalized' : 'ok');
       } else {
         if (fin?.blocked) {
           return res.status(200).send('blocked');
+        }
+        if (fin?.inFlight) {
+          // La page de retour ou le sondage tient le verrou : c'est elle qui
+          // conclura. Annoncer « votre commande n'a pas pu aboutir » ici
+          // enverrait un démenti à quelqu'un dont les billets partent dans la
+          // seconde — le cas exact remonté après le match du 03/10/2026.
+          return res.status(200).send('in-flight');
         }
         await sendConflictEmail(order);
         // on renvoie 200: le webhook a été traité (même s'il mène à failed)
