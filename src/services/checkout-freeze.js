@@ -26,8 +26,7 @@
 // Un second onglet y échappe : le gel couvre le geste courant — revenir en
 // arrière et changer — pas toutes les manières de se dédoubler.
 import { Order } from '../models/Order.js';
-import { SeatHold } from '../models/SeatHold.js';
-import { Seat } from '../models/Seat.js';
+import { releaseOrderSeatHolds } from './event-seat-holds.js';
 
 /** Empreinte d'un panier : les mêmes places aux mêmes tarifs, quel que soit l'ordre. */
 export function cartFingerprint(lines = []) {
@@ -160,14 +159,9 @@ export async function abandonCheckout({ orderId, sessionToken }) {
   };
   await order.save();
 
-  await SeatHold.deleteMany({ orderId: order._id }).catch(() => {});
-  const seatIds = (order.lines || []).map(l => String(l.seatId || '').trim()).filter(Boolean);
-  if (seatIds.length) {
-    await Seat.updateMany(
-      { seasonCode: order.seasonCode, venueSlug: order.venueSlug, seatId: { $in: seatIds },
-        status: 'busy', 'meta.hold.orderId': String(order._id) },
-      { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
-    ).catch(() => {});
-  }
-  return { ok: true, orderId: String(order._id), released: seatIds.length };
+  // Une seule implémentation de la libération (voir releaseOrderSeatHolds) :
+  // celle-ci ne reconnaissait que la forme chaîne de `meta.hold.orderId`,
+  // celle de la sentinelle que la forme ObjectId.
+  const { holds, seats } = await releaseOrderSeatHolds(order);
+  return { ok: true, orderId: String(order._id), released: seats, seatHolds: holds };
 }

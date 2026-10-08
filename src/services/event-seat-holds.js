@@ -7,6 +7,66 @@
 
 import { SeatHold } from '../models/SeatHold.js';
 import { Order } from '../models/Order.js';
+import { Seat } from '../models/Seat.js';
+
+/**
+ * Rend TOUTES les places tenues par une commande : le verrou d'évènement
+ * (SeatHold) et le hold historique (Seat.meta.hold).
+ *
+ * POURQUOI ICI. Trois endroits libéraient ces places, et aucun ne le faisait
+ * pareil. La sentinelle ne touchait que `Seat` — or c'est `SeatHold` que lit
+ * le plan de salle, donc une commande annulée continuait d'afficher ses places
+ * prises jusqu'à l'expiration du TTL. Et son filtre portait `order._id`, un
+ * ObjectId, alors que les trois flux d'achat écrivent `String(order._id)` dans
+ * un champ `Mixed` : Mongoose ne convertit rien, le filtre ne correspondait à
+ * RIEN, et la sentinelle n'a jamais libéré un seul siège (ses journaux le
+ * disent : `released: 0`). On accepte donc les deux formes, et il n'y a plus
+ * qu'une implémentation à relire.
+ *
+ * Écrit au mieux : libérer des places ne doit jamais faire tomber l'appelant,
+ * qui est toujours en train de traiter un échec ou une annulation.
+ *
+ * @param {object} order  commande (ou objet lean) portant _id, seasonCode, venueSlug, lines
+ * @returns {Promise<{holds:number, seats:number}>} ce qui a effectivement été rendu
+ */
+export async function releaseOrderSeatHolds(order) {
+  const orderId = order?._id;
+  if (!orderId) return { holds: 0, seats: 0 };
+
+  let holds = 0;
+  try {
+    const del = await SeatHold.deleteMany({ orderId });
+    holds = Number(del?.deletedCount || 0);
+  } catch { /* le hold historique reste à tenter */ }
+
+  const seatIds = (order.lines || [])
+    .map(l => String(l?.seatId || '').trim())
+    .filter(Boolean);
+  if (!seatIds.length) return { holds, seats: 0 };
+
+  let seats = 0;
+  try {
+    const upd = await Seat.updateMany(
+      {
+        seasonCode: order.seasonCode,
+        venueSlug: order.venueSlug,
+        seatId: { $in: seatIds },
+        status: 'busy',
+        // Les deux écritures rencontrées en base : chaîne (flux d'achat) et
+        // ObjectId (écritures plus anciennes).
+        $or: [
+          { 'meta.hold.orderId': String(orderId) },
+          { 'meta.hold.orderId': orderId }
+        ]
+      },
+      { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } },
+      { runValidators: false }
+    );
+    seats = Number(upd?.modifiedCount ?? upd?.nModified ?? 0);
+  } catch { /* au mieux */ }
+
+  return { holds, seats };
+}
 
 /**
  * Consigne sur une commande devenue caduque qu'une commande plus récente lui a

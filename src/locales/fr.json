@@ -128,7 +128,11 @@
     "paymentOpenedNewTab": "Paiement ouvert dans un nouvel onglet. Cette page se mettra à jour automatiquement.",
     "cannotLoadData": "Impossible de charger les données. Vérifiez votre lien.",
     "tooManyItemsTitle": "Maximum de places atteint",
-    "tooManyItemsDetail": "Cette commande est limitée à {{max}} places. Pour un groupe plus important, contactez-nous."
+    "tooManyItemsDetail": "Cette commande est limitée à {{max}} places. Pour un groupe plus important, contactez-nous.",
+    "providerUnavailableTitle": "Le paiement est momentanément indisponible",
+    "providerUnavailableDetail": "Notre prestataire de paiement n’a pas répondu. Vos places ont été libérées : votre sélection est intacte, relancez le paiement.",
+    "checkoutTimeoutTitle": "Le paiement met trop de temps à démarrer",
+    "checkoutTimeoutDetail": "La demande n’a pas abouti dans le temps imparti. Vérifiez votre sélection et relancez le paiement."
   },
   "email": {
     "greeting": "Bonjour",

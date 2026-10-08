@@ -5,7 +5,7 @@ import { Order } from '../models/Order.js';
 import { Event } from '../models/Event.js';
 import { SeatHold } from '../models/SeatHold.js';
 import { Ticket } from '../models/Ticket.js';
-import { computeEventSeatStates } from './event-seat-states.js';
+import { computeEventSeatStates, invalidateEventSeatStates } from './event-seat-states.js';
 import { failureStamp, FAILURE_REASONS } from '../utils/order-failure.js';
 import { renderOrderEmail, subjectForOrder, attachQrFromBank } from './mailer.js';
 import { buildTicketsPdfBuffer } from './tickets-pdf.js';
@@ -385,40 +385,123 @@ export async function ensureTicketsForEventOrder(order) {
 }
 
 
+/**
+ * Prend le droit exclusif de finaliser cette commande.
+ *
+ * LE PROBLÈME. Quatre chemins finalisent la même commande — le retour de
+ * paiement (routes/pay.js), le webhook, le sondage /pay/status et la
+ * sentinelle — chacun sur un document chargé pour son propre compte. Aucun ne
+ * se synchronisait. Les deux premiers se chevauchent pour 44 % des commandes
+ * payées du match du 03/10/2026, et quand le chevauchement était réel le
+ * perdant écrasait le gagnant : il lisait `pending` dans SA copie périmée,
+ * recalculait la disponibilité, trouvait la place « booked » — par la commande
+ * que l'autre chemin venait de payer, verrous déjà rendus — et concluait au
+ * conflit. La commande repassait `failed` alors que les billets étaient partis,
+ * et comme l'occupation d'un match se déduit des commandes `paid`, la place
+ * redevenait vendable sous les pieds de son acheteur.
+ *
+ * LE PRINCIPE. Le filtre fait l'exclusion, pas une lecture préalable : seule
+ * une commande ENCORE OUVERTE peut être revendiquée. Si un autre chemin a déjà
+ * posé `paid`, la revendication échoue — c'est ce qui rend la transition
+ * paid → failed impossible, et non plus seulement improbable.
+ *
+ * Le verrou expire (`FINALIZE_LOCK_MS`) : un processus tué au milieu ne doit
+ * pas rendre la commande définitivement infinalisable. Même forme que le
+ * verrou d'envoi d'attestation ci-dessous, pour n'avoir qu'un idiome à relire.
+ *
+ * @returns {Promise<{ok:true, doc:object}|{ok:false, status:string}>}
+ */
+async function claimFinalizeLock(orderId, now) {
+  const ttlRaw = Number(process.env.FINALIZE_LOCK_MS);
+  const ttlMs = Number.isFinite(ttlRaw) && ttlRaw > 0 ? ttlRaw : 60 * 1000;
+  const staleCutoff = new Date(now.getTime() - ttlMs);
+
+  const doc = await Order.findOneAndUpdate(
+    {
+      _id: orderId,
+      status: { $in: ['pending', 'tobepaid'] },
+      $or: [
+        { 'paymentProviderMeta.finalizeLockAt': { $exists: false } },
+        { 'paymentProviderMeta.finalizeLockAt': null },
+        { 'paymentProviderMeta.finalizeLockAt': { $lte: staleCutoff } }
+      ]
+    },
+    { $set: { 'paymentProviderMeta.finalizeLockAt': now } },
+    { new: true }
+  );
+  if (doc) return { ok: true, doc };
+
+  // Refusé : soit la commande a quitté l'état ouvert, soit une autre
+  // finalisation est en vol. L'appelant a besoin de savoir laquelle.
+  const current = await Order.findById(orderId, { status: 1 }).lean().catch(() => null);
+  return { ok: false, status: String(current?.status || '').toLowerCase() };
+}
+
 // Finalisation atomique anti-doublon. Ne fait PAS d’email.
 export async function finalizePaidIfNoConflict(order) {
+  const now = new Date();
+
+  if (!order?._id) {
+    return { ok: false, booked: 0, conflicts: [{ reason: 'missing_order' }] };
+  }
+
+  const claim = await claimFinalizeLock(order._id, now);
+
+  if (!claim.ok) {
+    // Rien à écrire ici, et surtout pas depuis une copie périmée : on aligne
+    // le document de l'appelant sur l'état qui fait foi. Plusieurs appelants
+    // enregistrent leur propre document juste après (routes/pay.js), et sans
+    // cette remise à niveau leur `save()` réécrirait le statut d'avant.
+    const authoritative = claim.status;
+    if (authoritative) order.status = authoritative;
+
+    if (authoritative === 'paid') {
+      return { ok: true, booked: 0, conflicts: [], alreadyFinalized: true };
+    }
+    if (authoritative === 'canceled' || authoritative === 'refunded') {
+      return {
+        ok: false,
+        blocked: true,
+        booked: 0,
+        conflicts: [{ reason: `order_${authoritative}` }]
+      };
+    }
+    // Encore ouverte : une autre finalisation la tient. Ne pas la déclarer en
+    // échec — c'est précisément l'erreur qu'on corrige. Le chemin qui tient le
+    // verrou conclura, et l'appelant n'a rien à annoncer à l'acheteur.
+    return {
+      ok: false,
+      inFlight: true,
+      booked: 0,
+      conflicts: [{ reason: 'finalize_in_flight' }]
+    };
+  }
+
+  // À partir d'ici, cette commande n'est finalisée que par nous. On travaille
+  // sur l'état revendiqué, pas sur celui que l'appelant portait.
+  order.status = claim.doc.status;
+  order.paymentProviderMeta = { ...(claim.doc.paymentProviderMeta || {}) };
+
   const seatIds = realSeatIdsFromOrder(order);
   const eventIdRaw = order?.eventId || order?.meta?.eventId;
   const isEvent = !!eventIdRaw;   // ⬅️ nouvel indicateur
   const meta = { ...(order.paymentProviderMeta || {}) };
-  const now = new Date();
-  const currentStatus = String(order?.status || '').toLowerCase();
 
-  if (currentStatus === 'canceled' || currentStatus === 'refunded') {
-    meta.lastFinalizeResult = `blocked_${currentStatus}`;
-    meta.lastFinalizeAttemptAt = now;
-    order.paymentProviderMeta = meta;
-    await order.save();
-    return {
-      ok: false,
-      blocked: true,
-      booked: 0,
-      conflicts: [{ reason: `order_${currentStatus}` }]
-    };
-  }
-
+  // Libéré par le même enregistrement que celui qui pose l'issue : tous les
+  // chemins terminaux ci-dessous écrivent ce sac.
+  meta.finalizeLockAt = null;
   meta.finalizeAttemptCount = Number(meta.finalizeAttemptCount || 0) + 1;
   meta.lastFinalizeAttemptAt = now;
 
-  if (order.status === 'paid') {
-    meta.lastFinalizeResult = 'already_paid';
-    order.paymentProviderMeta = meta;
-    await order.save();
-    return { ok: true, booked: 0, conflicts: [], alreadyFinalized: true };
-  }
-
   if (!seatIds.length) {
     order.status = 'paid';
+    // commitPaidOrder n'écrit `meta` qu'en cas d'échec : sans cette
+    // affectation, le succès laissait le verrou posé et les compteurs de
+    // tentative non enregistrés.
+    meta.lastFinalizeResult = 'success';
+    meta.lastSuccessfulFinalizeAt = now;
+    if (meta.conflict) delete meta.conflict;
+    order.paymentProviderMeta = meta;
     {
       const failed = await commitPaidOrder(order, meta, now);
       if (failed) return failed;
@@ -549,6 +632,11 @@ export async function finalizePaidIfNoConflict(order) {
       const failed = await commitPaidOrder(order, meta, now);
       if (failed) return failed;
     }
+    // L'occupation de ce match vient de changer : la base mise en cache pour
+    // l'affichage du plan de salle est périmée. Sans cet oubli, la place
+    // resterait annoncée libre pendant la durée du cache — courte, mais c'est
+    // précisément l'instant où un autre acheteur la regarde.
+    invalidateEventSeatStates(eventIdRaw);
     return { ok: true, booked: seatIds.length, conflicts: [] };
   } else {
     // 🪑 Cas ABONNEMENT : on “booke” définitivement dans Seat (comportement historique)
@@ -661,6 +749,53 @@ async function restoreSeatStates(order, priorStates) {
       { runValidators: false }
     ).catch(() => { /* la restauration ne doit jamais masquer l'erreur d'origine */ });
   }
+}
+
+/**
+ * Lance l'envoi de l'attestation SANS le faire attendre à l'appelant.
+ *
+ * POURQUOI. Les trois chemins de confirmation de paiement attendaient l'envoi
+ * complet avant de répondre : construction du PDF, puis connexion SMTP,
+ * authentification et remise. Le PDF est modeste (mesuré : ~31 ms par billet,
+ * et il ne retient la boucle d'évènements que par tranches d'une dizaine de
+ * millisecondes) — c'est le SMTP qui coûte, en secondes, et sans délai de
+ * garde il pouvait pendre bien plus. Pendant ce temps l'acheteur attend sa
+ * page, et le prestataire attend la réponse de son webhook : s'il ne l'obtient
+ * pas, il le rejoue, ce qui multiplie les finalisations concurrentes.
+ *
+ * Ce qui rend le report sûr, c'est que rien ici n'est nécessaire à la réponse :
+ * la commande est déjà `paid` en base, et la page de retour masque simplement
+ * le lien de téléchargement tant que les billets n'existent pas (`hasTickets`).
+ *
+ * ON NE PARTAGE PAS LE DOCUMENT de l'appelant : la tâche relit la commande.
+ * Deux porteurs du même document qui enregistrent chacun leur copie, c'est
+ * exactement la perte d'écriture corrigée dans finalizePaidIfNoConflict.
+ *
+ * Le filet reste la sentinelle, qui repère les commandes payées sans
+ * attestation (voir scripts/sentinels/pending-orders.js) : si le processus
+ * s'arrête entre la réponse et l'envoi, le courriel part quand même. Avant, un
+ * échec d'envoi dans la requête ne laissait qu'une ligne de journal.
+ *
+ * @param {string|object} orderId
+ * @param {object} [options] passées à sendOrderAttestationIfNeeded
+ */
+export function scheduleOrderAttestation(orderId, options = {}) {
+  const id = String(orderId || '');
+  if (!id) return;
+  setImmediate(async () => {
+    try {
+      const fresh = await Order.findById(id);
+      if (!fresh) {
+        console.warn('[mail] envoi différé : commande introuvable', id);
+        return;
+      }
+      await sendOrderAttestationIfNeeded(fresh, options);
+    } catch (err) {
+      // Avalé volontairement : la réponse est partie depuis longtemps, il n'y
+      // a plus personne à qui remonter l'erreur. La sentinelle réessaiera.
+      console.error('[mail] envoi différé échoué:', id, err?.message || err);
+    }
+  });
 }
 
 export async function sendOrderAttestationIfNeeded(order, options = {}) {

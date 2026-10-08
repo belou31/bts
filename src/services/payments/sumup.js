@@ -1,4 +1,5 @@
 // src/services/payments/sumup.js
+import { providerFetch, createTokenCache } from './http.js';
 
 const DEFAULT_API_BASE = 'https://api.sumup.com/v0.1';
 const DEFAULT_TOKEN_URL = 'https://api.sumup.com/token';
@@ -24,6 +25,8 @@ function assertEnv() {
   if (miss.length) throw new Error('SumUp env missing: ' + miss.join(', '));
 }
 
+const tokenCache = createTokenCache({ label: 'sumup oauth' });
+
 async function getAccessToken() {
   assertEnv();
   // API Key auth: use directly as Bearer token (no OAuth step)
@@ -32,25 +35,27 @@ async function getAccessToken() {
   // fichier en CRLF y ajoute un \r. L'en-tête « Bearer <clé>\r » est alors
   // malformé et SumUp répond 401 — indiscernable d'une clé révoquée.
   if (process.env.SUMUP_API_KEY) {
+    // Une clé d'API ne s'échange pas : rien à mettre en cache.
     return String(process.env.SUMUP_API_KEY).trim();
   }
-  // OAuth client_credentials flow
-  const body = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: String(process.env.SUMUP_CLIENT_ID || '').trim(),
-    client_secret: String(process.env.SUMUP_CLIENT_SECRET || '').trim()
+  // OAuth client_credentials flow — jeton gardé jusqu'à son échéance.
+  return tokenCache.get(async () => {
+    const body = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: String(process.env.SUMUP_CLIENT_ID || '').trim(),
+      client_secret: String(process.env.SUMUP_CLIENT_SECRET || '').trim()
+    });
+    if (process.env.SUMUP_OAUTH_SCOPES) {
+      body.set('scope', process.env.SUMUP_OAUTH_SCOPES);
+    }
+    const { res, json } = await providerFetch(tokenUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    }, { label: 'sumup oauth', retry: true });
+    if (!res.ok) throw new Error(`SumUp oauth ${res.status} ${JSON.stringify(json)}`);
+    return { token: json.access_token, expiresInSec: json.expires_in };
   });
-  if (process.env.SUMUP_OAUTH_SCOPES) {
-    body.set('scope', process.env.SUMUP_OAUTH_SCOPES);
-  }
-  const r = await fetch(tokenUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`SumUp oauth ${r.status} ${JSON.stringify(j)}`);
-  return j.access_token;
 }
 
 function addOrderIdParam(url, orderId) {
@@ -160,18 +165,19 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const urls = { returnUrl: returnUrl || '', backUrl: backUrl || '', errorUrl: errorUrl || '' };
   const payload = buildCheckoutPayload({ order, urls });
 
-  const r = await fetch(`${apiBase()}/checkouts`, {
+  // Pas de `retry` : rejouer une création de paiement pourrait en ouvrir deux.
+  const { res: r, json: j } = await providerFetch(`${apiBase()}/checkouts`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
     body: JSON.stringify(payload)
-  });
-  const j = await r.json().catch(() => ({}));
+  }, { label: 'sumup checkout' });
   if (!r.ok) {
     console.error('[sumup] payload sent:', JSON.stringify(payload));
     if (r.status === 401) {
+      tokenCache.invalidate();
       // 401 = la requête est bien partie, SumUp refuse l'identité. Ce n'est
       // donc jamais le panier ni les URLs de retour : inutile de les relire.
       console.error('[sumup] 401 — identifiants refusés. À vérifier, dans cet ordre :');
@@ -186,12 +192,12 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   let jGet = j;
   if (j.id && !j.checkout_url && !j.links?.length) {
     try {
-      const rGet = await fetch(`${apiBase()}/checkouts/${encodeURIComponent(j.id)}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (rGet.ok) {
-        jGet = await rGet.json().catch(() => j);
-      }
+      const { res: rGet, json: jGetRaw } = await providerFetch(
+        `${apiBase()}/checkouts/${encodeURIComponent(j.id)}`,
+        { headers: { 'Authorization': `Bearer ${token}` } },
+        { label: 'sumup get checkout (post-create)', retry: true }
+      );
+      if (rGet.ok) jGet = jGetRaw;
     } catch { /* ignore, fall back to POST response */ }
   }
 
@@ -218,13 +224,17 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
 async function getCheckoutIntent(intentId) {
   const token = await getAccessToken();
   const ref = encodeURIComponent(intentId);
-  const r = await fetch(`${apiBase()}/checkouts/${ref}`, {
+  // Relecture pure, et le chemin le plus sollicité (sondage du navigateur,
+  // page de retour, sentinelle) : le réessai est sans conséquence.
+  const { res: r, json: j } = await providerFetch(`${apiBase()}/checkouts/${ref}`, {
     headers: {
       'Authorization': `Bearer ${token}`
     }
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`SumUp get checkout ${r.status} ${JSON.stringify(j)}`);
+  }, { label: 'sumup get checkout', retry: true });
+  if (!r.ok) {
+    if (r.status === 401) tokenCache.invalidate();
+    throw new Error(`SumUp get checkout ${r.status} ${JSON.stringify(j)}`);
+  }
   return {
     status: j.status || '',
     metadata: { custom_id: j.custom_id || j.checkout_reference || '' },

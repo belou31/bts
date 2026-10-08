@@ -1,4 +1,5 @@
 // src/services/payments/mollie.js
+import { providerFetch } from './http.js';
 
 const DEFAULT_API_BASE = 'https://api.mollie.com/v2';
 
@@ -77,12 +78,12 @@ async function createCheckoutIntent({ order, returnUrl, backUrl }) {
     if (payload[k] === undefined) delete payload[k];
   }
 
-  const r = await fetch(`${apiBase()}/payments`, {
+  // Pas de `retry` : rejouer la création d'un paiement pourrait en ouvrir deux.
+  const { res: r, json: j } = await providerFetch(`${apiBase()}/payments`, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload)
-  });
-  const j = await r.json().catch(() => ({}));
+  }, { label: 'mollie create payment' });
   if (!r.ok) {
     console.error('[mollie] payload sent:', JSON.stringify(payload));
     throw new Error(`Mollie create payment ${r.status}: ${JSON.stringify(j)}`);
@@ -99,10 +100,12 @@ async function createCheckoutIntent({ order, returnUrl, backUrl }) {
 }
 
 async function getCheckoutIntent(intentId) {
-  const r = await fetch(`${apiBase()}/payments/${encodeURIComponent(intentId)}`, {
-    headers: authHeaders()
-  });
-  const j = await r.json().catch(() => ({}));
+  // Relecture pure : le réessai est sans conséquence.
+  const { res: r, json: j } = await providerFetch(
+    `${apiBase()}/payments/${encodeURIComponent(intentId)}`,
+    { headers: authHeaders() },
+    { label: 'mollie get payment', retry: true }
+  );
   if (!r.ok) throw new Error(`Mollie get payment ${r.status}: ${JSON.stringify(j)}`);
   return {
     status:         j.status || '',
