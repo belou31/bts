@@ -47,6 +47,10 @@ function getOrCreateSessionToken() {
   }
 }
 const SESSION_TOKEN = getOrCreateSessionToken();
+// Plafond d'attente pour la création du paiement. Confortablement au-dessus
+// du temps normal (une à deux secondes) et bien en dessous du verrou des
+// places, pour que l'acheteur reprenne la main avant d'avoir à tout refaire.
+const CHECKOUT_TIMEOUT_MS = Number(CONFIG.checkoutTimeoutMs) || 20000;
 const PAGE_TITLE = CONFIG.pageTitle || CONFIG.title || 'Billetterie';
 document.title = PAGE_TITLE + ' — BTS';
 
@@ -838,11 +842,18 @@ async function submitPayment() {
   $('#payBtn').disabled = true;
 
   try {
+    // Délai de garde sur la création du paiement.
+    //
+    // Sans lui, un prestataire qui ne répond pas laissait le bouton grisé et
+    // la fenêtre blanche ouverte indéfiniment : l'acheteur n'avait aucun
+    // signal, fermait l'onglet et recommençait. Le serveur défait la commande
+    // de son côté ; ici on rend simplement la main.
     const res = await fetch(CONFIG.api.checkout, {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
       credentials:'same-origin',
-      body: JSON.stringify({ items, payer, schedule, totalAmount, sessionToken: SESSION_TOKEN })
+      body: JSON.stringify({ items, payer, schedule, totalAmount, sessionToken: SESSION_TOKEN }),
+      signal: AbortSignal.timeout(CHECKOUT_TIMEOUT_MS)
     });
 
     if (!res.ok) {
@@ -866,6 +877,16 @@ async function submitPayment() {
               const location = (row || zone) ? translate('generic.singleGapLocation', { row, zone }) : '';
               details = [translate('generic.singleGapError', { location })];
             }
+          }
+          // 🔹 Prestataire de paiement injoignable (503/502)
+          //
+          // Le serveur a défait la commande et rendu les places : il faut le
+          // dire, sinon l'acheteur relance à l'aveugle. C'est le message que
+          // 374 commandes du match du 03/10/2026 auraient dû afficher au lieu
+          // d'un « Impossible de traiter votre demande » indistinct.
+          else if (err?.error === 'provider_unavailable') {
+            title = translate('generic.providerUnavailableTitle');
+            details = [translate('generic.providerUnavailableDetail')];
           }
           // 🔹 Siège indisponible
           else if (err?.error === 'seat_unavailable') {
@@ -980,7 +1001,12 @@ async function submitPayment() {
   } catch (e) {
     console.error('pay error:', e);
     try { if (preWin && !preWin.closed) preWin.close(); } catch {}
-    setFeedback('error', translate('generic.cannotStartPayment'));
+    if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
+      setFeedback('error', translate('generic.checkoutTimeoutTitle'),
+        [translate('generic.checkoutTimeoutDetail')]);
+    } else {
+      setFeedback('error', translate('generic.cannotStartPayment'));
+    }
     $('#payBtn').disabled = false;
   }
 }

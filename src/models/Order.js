@@ -183,6 +183,22 @@ OrderSchema.index({ 'paymentProviderMeta.tokenHash': 1 },        { sparse: true,
 OrderSchema.index({ 'meta.checkoutIntentId': 1 }, { sparse: true, name: 'idx_legacy_intent' });
 OrderSchema.index({ 'meta.tokenHash': 1 },        { sparse: true, name: 'idx_legacy_tokenhash' });
 
+// `meta.eventId` — l'identifiant d'évènement des commandes antérieures au champ
+// `eventId` de premier niveau.
+//
+// Toutes les vues d'occupation d'un match interrogent les deux formes :
+//   $or: [ { eventId: ev._id }, { 'meta.eventId': String(ev._id) } ]
+// Sans index sur la seconde branche, MongoDB ne peut pas faire d'union
+// d'index : il PARCOURT TOUTE la collection `orders`, et remonte les `lines`
+// de chaque commande. Or cette requête est sur le chemin du sondage du plan de
+// salle — tous les navigateurs ouverts, toutes les 5 secondes. C'est le coût
+// serveur dominant pendant une ouverture de vente.
+//
+// `sparse` : seules les commandes héritées portent ce champ, l'index reste
+// donc petit. On ne supprime pas la branche héritée pour autant — des
+// commandes sans `eventId` de premier niveau existent toujours en base.
+OrderSchema.index({ 'meta.eventId': 1 }, { sparse: true, name: 'idx_legacy_event' });
+
  // (optionnel) garde-fou: normaliser en minuscules
 OrderSchema.pre('validate', function(next){
    if (this.mailTemplateKind) this.mailTemplateKind = String(this.mailTemplateKind).toLowerCase();

@@ -19,7 +19,7 @@ import { evaluateFreeze, resumePayload, blockedPayload } from '../services/check
 import { matchesChannel } from '../utils/channel-scopes.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
 import { computeEventSeatStates as computeSeatStates } from '../services/event-seat-states.js';
-import { claimEventSeatHolds } from '../services/event-seat-holds.js';
+import { claimEventSeatHolds, releaseOrderSeatHolds } from '../services/event-seat-holds.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
 import { isZoneUnit } from '../utils/seat-id.js';
 import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
@@ -27,6 +27,12 @@ import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
 const SEAT_HOLD_TTL_MIN = Number(process.env.SEAT_HOLD_TTL_MIN || '3');
+// Durée de réutilisation de la base du plan de salle, pour l'AFFICHAGE seul.
+// Le sondage des navigateurs est à 5 s : 3 s garantissent que deux sondages
+// consécutifs ne retombent jamais sur la même base, tout en absorbant la
+// rafale de visiteurs simultanés qui, elle, provoquait un parcours complet de
+// la collection `orders` par requête.
+const SEAT_STATES_CACHE_MS = Number(process.env.SEAT_STATES_CACHE_MS ?? 3000);
 
 function buildPayStartUrl(orderId) {
   // APP_URL already contains BASE_PATH in deployed envs (same as SUMUP_RETURN_URL convention)
@@ -377,7 +383,8 @@ export function createEventFlowRouter({
       })();
       const resolvedVenueView = resolveVenueViewForEvent(ev, channelCtx);
       const [seatsBase, { tariffs, prices, scope }] = await Promise.all([
-        computeSeatStates(ev, sessionToken),
+        // Affichage : cache autorisé (voir SEAT_STATES_CACHE_MS).
+        computeSeatStates(ev, sessionToken, { cacheMs: SEAT_STATES_CACHE_MS }),
         loadTariffsAndPrices(ev, channelCtx)
       ]);
 
@@ -580,7 +587,8 @@ export function createEventFlowRouter({
     try {
       const sessionToken = String(req.query.sessionToken || '').trim().slice(0, 64);
       const ev = await loadEvent(req.params.eventId);
-      const seats = await computeSeatStates(ev, sessionToken);
+      // Affichage : cache autorisé (voir SEAT_STATES_CACHE_MS).
+      const seats = await computeSeatStates(ev, sessionToken, { cacheMs: SEAT_STATES_CACHE_MS });
       res.json({ ok: true, seats, ts: Date.now() });
     } catch (e) {
       res.status(404).json({ ok: false, error: e.message || 'Not found' });
@@ -816,6 +824,37 @@ export function createEventFlowRouter({
       }
 
       // Intent paiement
+      //
+      // La commande existe déjà et tient ses places : l'intent ne peut pas
+      // être créé avant elle, puisque son `returnUrl` et son `metadata`
+      // portent l'identifiant de commande — c'est par là que le webhook et la
+      // page de retour la retrouvent. L'ordre est donc imposé, et ce qui
+      // manquait n'était pas un autre ordre mais le DÉFAIRE.
+      //
+      // Sans lui, un appel au prestataire qui échoue laissait une commande
+      // « mort-née » : `pending`, sans intent, donc impayable, mais tenant ses
+      // sièges jusqu'à l'expiration du verrou, et balayée beaucoup plus tard
+      // par la sentinelle. C'est le cas dominant du match du 03/10/2026—
+      // 374 des 430 commandes annulées n'ont jamais obtenu d'intent, et les
+      // acheteurs ont recommencé jusqu'à 19 fois, trouvant à chaque tour les
+      // places bloquées par les cadavres du tour précédent.
+      const rollbackStillbornOrder = async (cause) => {
+        markOrderFailed(ord, FAILURE_REASONS.PROVIDER_UNAVAILABLE, {
+          providerError: String(cause || '').slice(0, 500),
+          stillbornAt: new Date()
+        });
+        // `failed` et non `canceled` : rien n'a été encaissé, et la nuance
+        // sépare la panne du prestataire de l'abandon d'un acheteur dans les
+        // relevés. Les deux sortent du calcul d'occupation et de la fenêtre
+        // de gel (findLiveCheckout ne regarde que pending/tobepaid), donc
+        // l'acheteur peut relancer immédiatement.
+        await ord.save().catch(() => { /* la libération des places primera */ });
+
+        // Rendre les places TOUT DE SUITE, sans attendre le TTL : c'est ce qui
+        // rendait les nouvelles tentatives stériles.
+        await releaseOrderSeatHolds(ord);
+      };
+
       let intent = null;
       try {
         const urls = buildReturnUrls(ord);
@@ -825,32 +864,64 @@ export function createEventFlowRouter({
           backUrl: urls.backUrl,
           errorUrl: urls.errorUrl
         });
-        if (intent?.id || intent?.checkoutReference || intent?.raw?.checkout_reference) {
-          const checkoutId = String(intent.id || intent.checkoutReference || intent.raw?.checkout_reference || '');
-          ord.paymentProvider = PAYMENT_PROVIDER_ID;
-          ord.paymentProviderMeta = {
-            ...(ord.paymentProviderMeta || {}),
-            name: PAYMENT_PROVIDER_ID,
-            checkoutIntentId: checkoutId,
-            checkoutReference: intent.checkoutReference || intent.raw?.checkout_reference || checkoutId,
-            providerRedirectUrl: intent.redirectUrl || intent.url || null,
-            providerOrderId:
-              intent.providerOrderId ||
-              intent.raw?.order?.id ||
-              intent.raw?.orderId ||
-              intent.raw?.transaction_code ||
-              intent.raw?.transaction_id ||
-              intent.raw?.id ||
-              null
-          };
-          await ord.save();
-        }
       } catch (err) {
-        throw new Error(`Payment provider unavailable: ${err.message || err}`);
+        console.error(`[${flowKey}/checkout] provider intent failed:`, err?.message || err);
+        await rollbackStillbornOrder(err?.message || err);
+        return res.status(503).json({
+          ok: false,
+          error: 'provider_unavailable',
+          retryable: true
+        });
+      }
+
+      const checkoutId = String(
+        intent?.id || intent?.checkoutReference || intent?.raw?.checkout_reference || ''
+      );
+      if (!checkoutId) {
+        // Une réponse sans identifiant n'est pas un succès : elle produisait
+        // exactement la même commande impayable, mais en répondant `ok` — le
+        // navigateur ouvrait alors une page de paiement vide.
+        console.error(`[${flowKey}/checkout] provider returned no checkout id`);
+        await rollbackStillbornOrder('provider returned no checkout id');
+        return res.status(502).json({
+          ok: false,
+          error: 'provider_unavailable',
+          retryable: true
+        });
+      }
+
+      ord.paymentProvider = PAYMENT_PROVIDER_ID;
+      ord.paymentProviderMeta = {
+        ...(ord.paymentProviderMeta || {}),
+        name: PAYMENT_PROVIDER_ID,
+        checkoutIntentId: checkoutId,
+        checkoutReference: intent.checkoutReference || intent.raw?.checkout_reference || checkoutId,
+        providerRedirectUrl: intent.redirectUrl || intent.url || null,
+        providerOrderId:
+          intent.providerOrderId ||
+          intent.raw?.order?.id ||
+          intent.raw?.orderId ||
+          intent.raw?.transaction_code ||
+          intent.raw?.transaction_id ||
+          intent.raw?.id ||
+          null
+      };
+      try {
+        await ord.save();
+      } catch (err) {
+        // L'intent existe chez le prestataire mais nous n'avons pas pu le
+        // retenir : la commande serait payable sans que nous sachions la
+        // retrouver. On la défait comme une panne.
+        console.error(`[${flowKey}/checkout] intent save failed:`, err?.message || err);
+        await rollbackStillbornOrder(`intent save failed: ${err?.message || err}`);
+        return res.status(503).json({
+          ok: false,
+          error: 'provider_unavailable',
+          retryable: true
+        });
       }
 
       const redirectUrl = buildPayStartUrl(ord._id);
-      const checkoutId  = String(ord.paymentProviderMeta?.checkoutIntentId || '');
       res.json({
         ok: true,
         orderId:     String(ord._id),

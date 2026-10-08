@@ -17,12 +17,70 @@ import { SeatHold } from '../models/SeatHold.js';
 import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { isVirtualZoneSeatId } from '../utils/seat-id.js';
 
+// ---------------------------------------------------------------------------
+// Cache de la base, par évènement.
+//
+// Le calcul se fait en deux temps, et un seul est coûteux :
+//   — la BASE (tous les sièges de la salle + la surcouche des commandes
+//     payées) : deux requêtes lourdes, identiques pour tous les visiteurs ;
+//   — les VERROUS de sélection (SeatHold), qui dépendent du jeton de session
+//     de celui qui regarde et se lisent par un index.
+//
+// Seule la base est mise en cache, et seulement là où l'appelant le DEMANDE
+// (`cacheMs`). Par défaut il n'y a pas de cache : la détection de conflit à la
+// finalisation et la validation du panier à l'achat lisent cette même
+// fonction, et leur servir un état même légèrement périmé rouvrirait la porte
+// à la double vente. Ce sont les deux chemins d'AFFICHAGE qui demandent un
+// cache, parce qu'eux sont appelés par chaque navigateur ouvert toutes les
+// cinq secondes.
+const baseCache = new Map(); // eventId -> { at: number, rows: Array<{seatId, zoneKey, status}> }
+
+/** Oublie la base d'un évènement : à appeler dès qu'une commande le modifie. */
+export function invalidateEventSeatStates(eventId) {
+  if (!eventId) return;
+  baseCache.delete(String(eventId));
+}
+
+function readBaseCache(key, cacheMs) {
+  if (!(cacheMs > 0) || !key) return null;
+  const hit = baseCache.get(key);
+  if (!hit || Date.now() - hit.at >= cacheMs) return null;
+  // Copie : les surcouches qui suivent écrivent dans ces objets, et muter
+  // l'entrée mise en cache contaminerait le visiteur suivant.
+  return new Map(hit.rows.map(r => [r.seatId, { ...r }]));
+}
+
+function writeBaseCache(key, cacheMs, byId) {
+  if (!(cacheMs > 0) || !key) return;
+  const now = Date.now();
+  // Purge paresseuse : sans elle, un serveur qui voit passer beaucoup
+  // d'évènements garderait une entrée par évènement indéfiniment.
+  for (const [k, v] of baseCache) {
+    if (now - v.at >= Math.max(cacheMs * 10, 60_000)) baseCache.delete(k);
+  }
+  baseCache.set(key, { at: now, rows: Array.from(byId.values()).map(r => ({ ...r })) });
+}
+
 /**
  * @param {object} ev  Event document (needs _id, seasonCode, venueSlug)
  * @param {string} [sessionToken]  Holds owned by this session stay 'available'
+ * @param {object} [opts]
+ * @param {number} [opts.cacheMs=0]  réutilise la base si elle a moins de `cacheMs`.
+ *   À NE PAS utiliser pour arbitrer une vente — seulement pour afficher.
  * @returns {Promise<Array<{seatId:string, zoneKey:string, status:string}>>}
  */
-export async function computeEventSeatStates(ev, sessionToken = '') {
+export async function computeEventSeatStates(ev, sessionToken = '', { cacheMs = 0 } = {}) {
+  const cacheKey = String(ev?._id || '');
+  const cached = readBaseCache(cacheKey, cacheMs);
+  if (cached) return applyHoldOverlay(ev, cached, sessionToken);
+
+  const byId = await computeBaseSeatStates(ev);
+  writeBaseCache(cacheKey, cacheMs, byId);
+  return applyHoldOverlay(ev, byId, sessionToken);
+}
+
+/** La partie coûteuse et indépendante du visiteur. */
+async function computeBaseSeatStates(ev) {
   // Base: états des sièges pour la saison/lieu (provisions/holds abonnements, VIP, etc.)
   const base = await Seat.find(
     { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug },
@@ -85,7 +143,18 @@ export async function computeEventSeatStates(ev, sessionToken = '') {
     byId.set(sid, rec);
   }
 
-  // Surcouche: SeatHold actifs (sélections en cours d'autres sessions) -> busy
+  return byId;
+}
+
+/**
+ * Surcouche: SeatHold actifs (sélections en cours d'autres sessions) -> busy.
+ *
+ * JAMAIS mise en cache : elle dépend du visiteur (ses propres verrous doivent
+ * lui rester disponibles) et c'est la couche qui change le plus vite — une
+ * sélection apparaît et disparaît en quelques secondes. La requête est servie
+ * par l'index {eventId, seatId}, son coût est négligeable devant la base.
+ */
+async function applyHoldOverlay(ev, byId, sessionToken) {
   const holds = await SeatHold.find(
     { eventId: ev._id, expiresAt: { $gt: new Date() } },
     { seatId: 1, sessionToken: 1, _id: 0 }

@@ -25,6 +25,7 @@ import mongoose from 'mongoose';
 import { Order } from '../../src/models/Order.js';
 import { Seat }  from '../../src/models/Seat.js';
 import { getCheckoutStatus, currentPaymentProviderId } from '../../src/services/payments/index.js';
+import { releaseOrderSeatHolds } from '../../src/services/event-seat-holds.js';
 import { normalizePaymentStatus, isPaidLike,
          finalizePaidIfNoConflict,
          sendOrderAttestationIfNeeded,
@@ -40,15 +41,19 @@ const HOLD_EXPIRE_MIN = Number(process.env.CHECKOUT_HOLD_MIN || 5);
 const PENDING_MAX_MIN = Number(process.env.PENDING_MAX_MIN || 5);
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 
-// Libère les sièges d'une commande annulée (holds posés avec meta.hold.orderId = order._id)
+// Libère les sièges d'une commande annulée.
+//
+// Déléguée à releaseOrderSeatHolds : la version locale ne touchait que `Seat`,
+// laissant le verrou d'évènement (SeatHold) en place — et c'est lui que lit le
+// plan de salle, donc les places d'une commande annulée restaient affichées
+// prises. Elle filtrait de surcroît sur `order._id` (ObjectId) quand les flux
+// d'achat écrivent `String(order._id)` : elle ne libérait jamais rien.
 async function releaseSeatsForOrder(order) {
-  const r = await Seat.updateMany(
-    { seasonCode: order.seasonCode, venueSlug: order.venueSlug, status: 'busy', 'meta.hold.orderId': order._id },
-    { $set: { status: 'available' }, $unset: { 'meta.hold': 1 } }
-  );
-  const released = r.modifiedCount ?? r.nModified ?? 0;
-  console.log('[sentinel] releaseSeatsForOrder:', { orderId: order._id.toString(), released });
-  return released;
+  const { holds, seats } = await releaseOrderSeatHolds(order);
+  console.log('[sentinel] releaseSeatsForOrder:', {
+    orderId: order._id.toString(), seatHolds: holds, seats
+  });
+  return seats;
 }
 
 async function releaseExpiredHolds({ seasonCode, venueSlug }) {
@@ -60,6 +65,54 @@ async function releaseExpiredHolds({ seasonCode, venueSlug }) {
    console.log('[sentinel] releaseExpiredHolds:', { matched: r.matchedCount ?? r.n ?? 0, modified: r.modifiedCount ?? r.nModified ?? 0 });
  }
  
+/**
+ * Rattrape les commandes payées dont l'attestation n'est jamais partie.
+ *
+ * Les trois chemins de confirmation DIFFÈRENT désormais l'envoi (voir
+ * scheduleOrderAttestation) pour répondre tout de suite à l'acheteur et au
+ * webhook du prestataire. Ce filet est la contrepartie : si le processus
+ * s'arrête entre la réponse et l'envoi, ou si le SMTP refuse, le courriel part
+ * au passage suivant. Auparavant un échec d'envoi dans la requête ne laissait
+ * qu'une ligne de journal, et personne ne réessayait.
+ *
+ * LE FILTRE EST VOLONTAIREMENT ÉTROIT. « Commande payée sans attestation »
+ * décrit aussi les centaines de commandes importées ou issues de la bascule
+ * saison→match, qui n'ont jamais eu à recevoir ce courriel : les balayer
+ * enverrait des billets à des gens qui n'attendent rien. On exige donc
+ * `lastSuccessfulFinalizeAt`, que SEULE finalizePaidIfNoConflict écrit — c'est
+ * la marque d'un paiement passé par notre tunnel — et on ne regarde que la
+ * fenêtre de la sentinelle.
+ *
+ * Le délai de grâce laisse l'envoi différé aboutir de lui-même ; au-delà, le
+ * verrou `attestationSendingAt` de sendOrderAttestationIfNeeded empêche de
+ * toute façon un double envoi.
+ */
+async function sendMissingAttestations({ since }) {
+  const graceMs = Number(process.env.ATTESTATION_GRACE_MS || 120000);
+  const graceCutoff = new Date(Date.now() - graceMs);
+
+  const orders = await Order.find({
+    status: 'paid',
+    'paymentProviderMeta.lastSuccessfulFinalizeAt': { $gte: since, $lte: graceCutoff },
+    // `null` couvre l'absence du champ ET sa valeur nulle.
+    'paymentProviderMeta.attestationSentAt': null
+  }).limit(50);
+
+  if (!orders.length) {
+    console.log('[sentinel] attestations manquantes: aucune');
+    return;
+  }
+  console.log(`[sentinel] attestations manquantes: ${orders.length}`);
+  for (const order of orders) {
+    try {
+      const sent = await sendOrderAttestationIfNeeded(order, { source: 'sentinel/missing-attestation' });
+      console.log(`[sentinel]   ${order._id} → ${sent ? 'envoyée' : 'ignorée (déjà envoyée ou verrouillée)'}`);
+    } catch (err) {
+      console.warn(`[sentinel]   ${order._id} → échec:`, err?.message || err);
+    }
+  }
+}
+
  async function cancelStalePendingAndRelease({ seasonCode, venueSlug }) {
    const cutoff = new Date(Date.now() - PENDING_MAX_MIN * 60 * 1000);
    const stale = await Order.find({
@@ -127,11 +180,22 @@ async function runOnce() {
       if (fin.ok) {
       console.log(`[sentinel] order ${o._id} → paid, seats booked: ${fin.booked}`);
       await sendOrderAttestationIfNeeded(order, { source: 'sentinel/pending-orders' });
+     } else if (fin.inFlight) {
+      // Une requête tient le verrou de finalisation (retour de paiement,
+      // webhook, sondage). La sentinelle est un filet, pas un arbitre : elle
+      // repasse dans deux minutes. Envoyer le courriel d'échec ici
+      // contredirait des billets en cours d'expédition.
+      console.log(`[sentinel] order ${o._id} → finalisation en vol, on repassera`);
+     } else if (fin.blocked) {
+      console.log(`[sentinel] order ${o._id} → ${fin.conflicts?.[0]?.reason || 'bloquée'}, rien à faire`);
      } else {
       console.warn(`[sentinel] conflict — order ${o._id} marked failed`, fin.conflicts);
       await sendConflictEmail(order);
      }
     }
+  // --- Filet des attestations non parties (indépendant du contexte saison/lieu)
+  await sendMissingAttestations({ since });
+
   // --- Housekeeping systématique (libérer holds expirés + annuler pending trop vieux)
   const ctx = await resolveCtx();
   if (ctx.seasonCode && ctx.venueSlug) {
