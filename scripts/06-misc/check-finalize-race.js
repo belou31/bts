@@ -154,6 +154,57 @@ async function main() {
     check('le document périmé est réaligné', doc.status === 'canceled', `status=${doc.status}`);
   }
 
+  // ---- 4bis. Une commande `failed` doit rester RÉPARABLE.
+  //
+  // C'est l'état d'un paiement encaissé dont les places n'ont pas pu être
+  // posées — ce que check-order-payment.js existe pour reprendre. Le verrou
+  // de finalisation l'avait rendu infinalisable : la reprise répondait
+  // « conflit de sièges — finalize_in_flight » sur une commande qui n'avait
+  // aucune finalisation en cours.
+  console.log("\n4bis. Reprise d'une commande 'failed' (outil de réparation)");
+  {
+    const { order } = await freshFixture(['N1-F-001']);
+    // On la met dans l'état où un conflit l'a laissée.
+    await Order.updateOne({ _id: order._id }, {
+      $set: {
+        status: 'failed',
+        'paymentProviderMeta.failureReason': 'seat_conflict',
+        'paymentProviderMeta.failurePhase': 'post_payment',
+        'paymentProviderMeta.failedAt': new Date(),
+        'paymentProviderMeta.conflict': { kind: 'seat_conflict', seats: [{ seatId: 'N1-F-001', reason: 'busy_other' }] }
+      }
+    });
+
+    const doc = await Order.findById(order._id);
+    const res = await finalizePaidIfNoConflict(doc);
+    check('la reprise aboutit', res.ok === true && res.booked === 1,
+      JSON.stringify({ ok: res.ok, booked: res.booked, inFlight: !!res.inFlight, conflicts: res.conflicts }));
+    check("ce n'est PAS annoncé comme 'finalize_in_flight'", !res.inFlight);
+
+    const db = await Order.findById(order._id).lean();
+    check("la commande passe 'paid'", db.status === 'paid', `status=${db.status}`);
+    // La trace de l'échec précédent doit disparaître, sinon les exports
+    // décrivent une commande payée comme ayant échoué.
+    check('la cause d\'échec est effacée', !db.paymentProviderMeta?.failureReason,
+      `failureReason=${db.paymentProviderMeta?.failureReason}`);
+    check('le détail du conflit est effacé', !db.paymentProviderMeta?.conflict,
+      `conflict=${JSON.stringify(db.paymentProviderMeta?.conflict)}`);
+  }
+
+  // ---- 4ter. Un état ni payable ni en vol doit être NOMMÉ.
+  console.log("\n4ter. Un état non finalisable n'est pas déguisé en conflit");
+  {
+    const { order } = await freshFixture(['N1-G-001']);
+    await Order.updateOne({ _id: order._id }, { $set: { status: 'torelocate' } });
+    const doc = await Order.findById(order._id);
+    doc.status = 'pending'; // document périmé
+    const res = await finalizePaidIfNoConflict(doc);
+    check('refusée et nommée', res.ok === false && res.blocked === true &&
+      res.conflicts?.[0]?.reason === 'order_not_finalizable',
+      JSON.stringify(res.conflicts));
+    check("pas annoncée 'en vol'", !res.inFlight);
+  }
+
   // ---- 5. Le verrou est rendu : une commande n'est pas figée par un échec.
   console.log('\n5. Le verrou de finalisation est rendu après usage');
   {
