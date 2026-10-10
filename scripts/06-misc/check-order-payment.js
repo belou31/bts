@@ -47,6 +47,38 @@ async function inspect(order, { commit, allowCanceled = false, force = false }) 
   console.log(`  dernier contrôle: ${meta.lastStatusCheckedAt || 'jamais'}`);
   console.log(`  dernier retour  : ${meta.lastStatusFromReturn || '—'} | webhook : ${meta.lastWebhookEvent || '—'}`);
 
+  // Pourquoi la commande a échoué la DERNIÈRE fois.
+  //
+  // Ces champs étaient enregistrés sans être jamais affichés : il fallait
+  // ouvrir la base pour savoir si « failed » voulait dire « la place était
+  // vendue » ou « l'acheteur avait changé sa sélection ». C'est la première
+  // question qu'on se pose devant une commande à réparer.
+  if (meta.failureReason || meta.conflict) {
+    console.log(`  cause d'échec   : ${meta.failureReason || '—'}` +
+      (meta.failurePhase ? ` (${meta.failurePhase === 'post_payment' ? 'APRÈS paiement — argent encaissé' : 'avant paiement'})` : ''));
+    if (meta.failedAt) console.log(`  échec daté du   : ${new Date(meta.failedAt).toISOString()}`);
+    const seats = Array.isArray(meta.conflict?.seats) ? meta.conflict.seats : [];
+    if (seats.length) {
+      console.log('  places en cause :');
+      for (const c of seats) {
+        const why = {
+          already_booked: 'déjà vendue (occupée pour de bon)',
+          busy_other:     'tenue par un hold en cours — une autre commande la réservait',
+          not_found:      'siège inconnu dans cette saison/salle'
+        }[c.reason] || c.reason;
+        console.log(`     - ${c.seatId || '(sans siège)'} : ${why}`);
+      }
+      console.log('     « busy_other » est souvent temporaire : le hold expire, la place redevient prenable.');
+    }
+    if (meta.conflict?.kind === 'superseded_checkout') {
+      console.log('  ⚠ Cette commande a été REMPLACÉE par une plus récente du même acheteur');
+      console.log(`     (${meta.supersededBy || 'référence absente'}) : il a changé sa sélection puis payé l'ancien lien.`);
+    }
+    if (meta.conflict?.kind === 'seat_conflict_race') {
+      console.log(`  ⚠ Course à l'écriture : ${meta.conflict.modified}/${meta.conflict.expected} sièges posés.`);
+    }
+  }
+
   if (!intentId) {
     console.log('  → Sans identifiant de checkout, ni le retour ni le polling ne peuvent confirmer.');
     return;
@@ -180,6 +212,15 @@ async function inspect(order, { commit, allowCanceled = false, force = false }) 
       console.log('       node scripts/06-misc/drop-uniq-paid-per-payer.js          (état des lieux)');
       console.log('       node scripts/06-misc/fix-payer-group-collision.js --order=' + order._id);
       console.log('     Les sièges ont été remis dans leur état antérieur ; la commande est « failed ».');
+      return;
+    }
+    if (fin.inFlight) {
+      // Un autre chemin tient le verrou de finalisation (page de retour,
+      // webhook, sondage, ou la sentinelle). Ce n'est PAS un conflit de
+      // sièges, et il n'y a rien à réparer : il faut juste repasser.
+      console.log('  ⏳ Une autre finalisation est en cours sur cette commande.');
+      console.log(`     Verrou posé le : ${order.paymentProviderMeta?.finalizeLockAt || '—'}`);
+      console.log(`     Il expire tout seul après ${Number(process.env.FINALIZE_LOCK_MS || 60000) / 1000} s : relancer cette commande ensuite.`);
       return;
     }
     console.log(`  ❌ Finalisation impossible : ${fin.blocked ? 'bloquée' : 'conflit de sièges'} — ${JSON.stringify(fin.conflicts || [])}`);
