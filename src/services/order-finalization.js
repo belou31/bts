@@ -411,6 +411,32 @@ export async function ensureTicketsForEventOrder(order) {
  *
  * @returns {Promise<{ok:true, doc:object}|{ok:false, status:string}>}
  */
+// Les états depuis lesquels une finalisation peut encore être tentée.
+//
+// `failed` EN FAIT PARTIE, et c'est essentiel : c'est l'état d'une commande
+// encaissée dont les places n'ont pas pu être posées — exactement ce que
+// scripts/06-misc/check-order-payment.js existe pour réparer. L'exclure
+// rendait toute reprise impossible.
+//
+// `paid` n'en fait PAS partie : c'est ce qui interdit la transition
+// paid → failed par un chemin concurrent (voir plus bas).
+// `canceled` et `refunded` non plus : ils sont refusés délibérément.
+const CLAIMABLE_STATUSES = ['pending', 'tobepaid', 'failed'];
+
+/**
+ * Efface la trace d'un échec PRÉCÉDENT quand la finalisation aboutit enfin.
+ *
+ * Depuis qu'une commande `failed` peut être reprise, une commande réparée
+ * conserverait sinon son `failureReason` d'origine — « seat_conflict » sur une
+ * commande désormais payée et honorée. Les exports et le diagnostic s'en
+ * servent : la laisser mentirait sur l'état réel.
+ */
+function clearFailureStamp(meta) {
+  delete meta.failureReason;
+  delete meta.failurePhase;
+  delete meta.failedAt;
+}
+
 async function claimFinalizeLock(orderId, now) {
   const ttlRaw = Number(process.env.FINALIZE_LOCK_MS);
   const ttlMs = Number.isFinite(ttlRaw) && ttlRaw > 0 ? ttlRaw : 60 * 1000;
@@ -419,7 +445,7 @@ async function claimFinalizeLock(orderId, now) {
   const doc = await Order.findOneAndUpdate(
     {
       _id: orderId,
-      status: { $in: ['pending', 'tobepaid'] },
+      status: { $in: CLAIMABLE_STATUSES },
       $or: [
         { 'paymentProviderMeta.finalizeLockAt': { $exists: false } },
         { 'paymentProviderMeta.finalizeLockAt': null },
@@ -431,10 +457,22 @@ async function claimFinalizeLock(orderId, now) {
   );
   if (doc) return { ok: true, doc };
 
-  // Refusé : soit la commande a quitté l'état ouvert, soit une autre
-  // finalisation est en vol. L'appelant a besoin de savoir laquelle.
+  // Refusé : il faut dire POURQUOI, car l'appelant en tire des conséquences
+  // très différentes — se taire, prévenir l'acheteur, ou refuser.
+  //
+  // Deux causes se confondaient ici, et la confusion coûtait cher : un état
+  // non revendicable était annoncé « finalisation en vol », ce qui faisait
+  // répondre « conflit de sièges — finalize_in_flight » aux outils de reprise
+  // sur une commande qui n'avait aucune finalisation en cours.
   const current = await Order.findById(orderId, { status: 1 }).lean().catch(() => null);
-  return { ok: false, status: String(current?.status || '').toLowerCase() };
+  const status = String(current?.status || '').toLowerCase();
+
+  // L'état EST revendicable mais la revendication a échoué : c'est donc le
+  // verrou qui est tenu par quelqu'un d'autre. Là, et seulement là, « en vol ».
+  if (CLAIMABLE_STATUSES.includes(status)) {
+    return { ok: false, status, inFlight: true };
+  }
+  return { ok: false, status, inFlight: false };
 }
 
 // Finalisation atomique anti-doublon. Ne fait PAS d’email.
@@ -466,14 +504,26 @@ export async function finalizePaidIfNoConflict(order) {
         conflicts: [{ reason: `order_${authoritative}` }]
       };
     }
-    // Encore ouverte : une autre finalisation la tient. Ne pas la déclarer en
-    // échec — c'est précisément l'erreur qu'on corrige. Le chemin qui tient le
-    // verrou conclura, et l'appelant n'a rien à annoncer à l'acheteur.
+    // Une autre finalisation tient le verrou. Ne pas la déclarer en échec —
+    // c'est précisément l'erreur qu'on corrige. Le chemin qui tient le verrou
+    // conclura, et l'appelant n'a rien à annoncer à l'acheteur.
+    if (claim.inFlight) {
+      return {
+        ok: false,
+        inFlight: true,
+        booked: 0,
+        conflicts: [{ reason: 'finalize_in_flight' }]
+      };
+    }
+
+    // Tout autre état (`torelocate`, ou une valeur inattendue) : ce n'est ni
+    // un succès, ni une finalisation en vol. On le NOMME, au lieu de le faire
+    // passer pour un conflit de sièges comme c'était le cas.
     return {
       ok: false,
-      inFlight: true,
+      blocked: true,
       booked: 0,
-      conflicts: [{ reason: 'finalize_in_flight' }]
+      conflicts: [{ reason: `order_not_finalizable`, status: authoritative || 'unknown' }]
     };
   }
 
@@ -501,6 +551,7 @@ export async function finalizePaidIfNoConflict(order) {
     meta.lastFinalizeResult = 'success';
     meta.lastSuccessfulFinalizeAt = now;
     if (meta.conflict) delete meta.conflict;
+    clearFailureStamp(meta);
     order.paymentProviderMeta = meta;
     {
       const failed = await commitPaidOrder(order, meta, now);
@@ -627,6 +678,7 @@ export async function finalizePaidIfNoConflict(order) {
     meta.lastSuccessfulFinalizeAt = now;
     if (seatIds.length) meta.finalizedSeatIds = seatIds;
     if (meta.conflict) delete meta.conflict;
+    clearFailureStamp(meta);
     order.paymentProviderMeta = meta;
     {
       const failed = await commitPaidOrder(order, meta, now);
@@ -677,6 +729,7 @@ export async function finalizePaidIfNoConflict(order) {
     meta.lastSuccessfulFinalizeAt = now;
     if (seatIds.length) meta.finalizedSeatIds = seatIds;
     if (meta.conflict) delete meta.conflict;
+    clearFailureStamp(meta);
     order.paymentProviderMeta = meta;
 
     // Les sièges viennent d'être passés à 'booked' ; si l'enregistrement de la
