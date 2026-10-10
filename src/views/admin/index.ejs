@@ -3092,10 +3092,11 @@
           <div class="muted" style="margin-top:12px;"><%= monitoring.lists.tariffPriceCatalogEntries.length %> entrée(s)</div>
           <div class="scroll-table-full" style="margin-top:4px;">
             <table>
-              <tr><th>Zone</th><th>Tarif</th><th>Prix</th><th>Prix partenaire</th><th>Canaux</th></tr>
+              <tr><th>Zone</th><th>Méta-zone</th><th>Tarif</th><th>Prix</th><th>Prix partenaire</th><th>Canaux</th></tr>
               <% for (const e of monitoring.lists.tariffPriceCatalogEntries) { %>
                 <tr>
-                  <td><code><%= e.zoneKey %></code></td>
+                  <td><% if (e.zoneKey) { %><code><%= e.zoneKey %></code><% } else { %>—<% } %></td>
+                  <td><% if (e.metaZone) { %><code><%= e.metaZone %></code><% } else { %>—<% } %></td>
                   <td><code><%= e.tariffCode %></code></td>
                   <td><%= (e.priceCents / 100).toLocaleString('fr-FR', { style: 'currency', currency: e.currency }) %></td>
                   <td><%= e.partnerPriceCents != null ? (e.partnerPriceCents / 100).toLocaleString('fr-FR', { style: 'currency', currency: e.currency }) : '—' %></td>
@@ -3612,6 +3613,75 @@
             </tbody>
           </table>
         </div>
+
+        <h4 style="margin-top:16px;">Détail</h4>
+        <form method="get" class="inline-filter-form">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <input type="hidden" name="view" value="monitoring">
+          <input type="hidden" name="monitorTab" value="partners">
+          <label>
+            Partenaire
+            <select name="partner" data-auto-submit="change">
+              <% for (const p of partnerList) { %>
+                <option value="<%= p.slug %>" <%= p.slug === monitoring.lists.selectedPartnerSlug ? 'selected' : '' %>><%= p.slug %></option>
+              <% } %>
+            </select>
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Afficher</button></noscript>
+        </form>
+
+        <% const pd = monitoring.lists.partnerDetail; %>
+        <% if (pd) { %>
+          <section class="card" style="margin-top:12px;">
+            <h4><%= pd.name %> — <code><%= pd.slug %></code></h4>
+
+            <div>Lien complet (liste des événements) :
+              <% if (pd.eventsUrl) { %><a href="<%= pd.eventsUrl %>" target="_blank" rel="noopener"><%= pd.eventsUrl %></a><% } else { %>—<% } %>
+            </div>
+
+            <div>Jeton d'accès (accessToken) :
+              <% if (pd.accessToken) { %><code><%= pd.accessToken %></code><% } else { %>— (aucun jeton configuré : accès libre)<% } %>
+            </div>
+
+            <% if (pd.eventTokens.length) { %>
+              <div>Jetons spécifiques par événement :
+                <ul>
+                  <% for (const t of pd.eventTokens) { %><li><code><%= t.eventSlug %></code> → <code><%= t.token %></code></li><% } %>
+                </ul>
+              </div>
+            <% } %>
+
+            <% if (pd.seasonTokens.length) { %>
+              <div>Jetons spécifiques par saison :
+                <ul>
+                  <% for (const t of pd.seasonTokens) { %><li><code><%= t.seasonCode %></code> → <code><%= t.token %></code></li><% } %>
+                </ul>
+              </div>
+            <% } %>
+
+            <div>Accès admin partenaire (<code>/partner/<%= pd.slug %>/admin</code>, Basic Auth) :
+              <% if (pd.admin) { %>login <code><%= pd.admin.user %></code> / mot de passe <code><%= pd.admin.pass %></code>
+              <% } else { %>— (non configuré, accès désactivé)<% } %>
+            </div>
+
+            <div>Quota présaison :
+              <% if (pd.presaleEvents.length || pd.presaleSeasons.length) { %>
+                <ul>
+                  <% for (const q of pd.presaleEvents) { %><li>Événement <code><%= q.eventSlug %></code> : <%= q.quota %></li><% } %>
+                  <% for (const q of pd.presaleSeasons) { %><li>Saison <code><%= q.seasonCode %></code> : <%= q.quota %></li><% } %>
+                </ul>
+              <% } else { %> aucun<% } %>
+            </div>
+
+            <div>Tarifs spécifiques (par canal « partner ») :
+              <% if (pd.specificTariffs.length) { %>
+                <ul>
+                  <% for (const t of pd.specificTariffs) { %><li><code><%= t.code %></code> — <%= t.label || t.code %> (<%= t.channels.join(', ') %>)</li><% } %>
+                </ul>
+              <% } else { %> aucun<% } %>
+            </div>
+          </section>
+        <% } %>
       <% } else { %>
         <div class="empty-state">Aucun partenaire configuré.</div>
       <% } %>
