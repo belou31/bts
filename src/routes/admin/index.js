@@ -25,6 +25,7 @@ import { ZoneCatalog } from '../../models/ZoneCatalog.js';
 import { SeatCatalog } from '../../models/SeatCatalog.js';
 import { resolveLinePlacement, applyAttendancePatch, summarizeAttendance } from '../../utils/event-attendance.js';
 import { isVirtualZoneSeatId } from '../../utils/seat-id.js';
+import { matchesChannel } from '../../utils/channel-scopes.js';
 import { exportOrdersCsv, exportSeatsCsv } from '../../services/exports.js';
 import {
   registerDefaultAutomationTasks,
@@ -2183,6 +2184,39 @@ router.get('/monitor', async (req, res) => {
     channels: Array.isArray(t.channels) ? t.channels : []
   }));
 
+  const requestedPartnerSlug = (req.query.partner || '').toString().trim().toLowerCase();
+  const selectedPartnerRaw = (partnersRaw || []).find(p => String(p?.slug || '').toLowerCase() === requestedPartnerSlug)
+    || (partnersRaw || [])[0]
+    || null;
+  const selectedPartnerSlug = selectedPartnerRaw ? String(selectedPartnerRaw.slug).toLowerCase() : '';
+
+  let partnerDetail = null;
+  if (selectedPartnerRaw) {
+    const cfg = selectedPartnerRaw;
+    const globalToken = cfg.accessToken || null;
+    const eventsUrl = urlFor('/partner/' + selectedPartnerSlug + '/events')
+      + (globalToken ? `?token=${encodeURIComponent(globalToken)}` : '');
+    // Specific tariffs: Tariff codes scoped to this partner via the channels
+    // mechanism (channels: ["partner:<slug>"], or the broader "partner"/"all") —
+    // see src/utils/channel-scopes.js, the same scoping shown as "Canaux" in
+    // the Tarifs tab's own tables.
+    const specificTariffs = tariffsFull
+      .filter(t => matchesChannel(t.channels, { kind: 'partner', partnerSlug: selectedPartnerSlug }))
+      .map(t => ({ code: t.code, label: t.label, channels: t.channels }));
+    partnerDetail = {
+      slug: selectedPartnerSlug,
+      name: cfg.name || selectedPartnerSlug,
+      eventsUrl,
+      accessToken: globalToken,
+      eventTokens: Object.entries(cfg.tokens?.events || {}).map(([eventSlug, token]) => ({ eventSlug, token })),
+      seasonTokens: Object.entries(cfg.tokens?.seasons || {}).map(([seasonCode, token]) => ({ seasonCode, token })),
+      admin: (cfg.admin?.user && cfg.admin?.pass) ? { user: cfg.admin.user, pass: cfg.admin.pass } : null,
+      presaleEvents: Object.entries(cfg.presale?.events || {}).map(([eventSlug, v]) => ({ eventSlug, quota: Number(v?.quota || 0) })),
+      presaleSeasons: Object.entries(cfg.presale?.seasons || {}).map(([seasonCode, v]) => ({ seasonCode, quota: Number(v?.quota || 0) })),
+      specificTariffs
+    };
+  }
+
   const tariffPriceCatalogGroups = tariffPriceCatalogGroupsAgg.map(g => ({
     catalogSlug: g._id.catalogSlug,
     venueSlug: g._id.venueSlug || null,
@@ -2212,6 +2246,7 @@ router.get('/monitor', async (req, res) => {
     }).sort({ zoneKey: 1, tariffCode: 1 }).lean();
     tariffPriceCatalogEntries = entriesRaw.map(e => ({
       zoneKey: e.zoneKey,
+      metaZone: e.metaZone || null,
       tariffCode: e.tariffCode,
       priceCents: e.priceCents,
       partnerPriceCents: e.partnerPriceCents,
@@ -2523,6 +2558,8 @@ router.get('/monitor', async (req, res) => {
       selectedCatalogKey,
       tariffPriceCatalogEntries,
       partners: partnersList,
+      selectedPartnerSlug,
+      partnerDetail,
       adCampaignCatalog: adCampaignCatalogList
     },
     subscription: {
