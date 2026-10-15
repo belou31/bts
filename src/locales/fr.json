@@ -103,7 +103,9 @@
     "linkExpiredTitle": "Lien expiré",
     "linkExpiredBody": "Ce lien de paiement n'est plus valide. Contactez-nous pour en recevoir un nouveau.",
     "orderNotFoundTitle": "Commande introuvable",
-    "orderNotFoundBody": "Cette commande n'existe plus ou le lien est invalide."
+    "orderNotFoundBody": "Cette commande n'existe plus ou le lien est invalide.",
+    "seatConflictTitle": "Place indisponible",
+    "seatConflictBody": "Une ou plusieurs de vos places ont été reprises entre-temps. Contactez-nous pour que nous vous en réattribuions une avant de payer."
   },
   "generic": {
     "copyFirstNameTitle": "Copier ce prénom sur toutes les lignes vides",
