@@ -97,6 +97,11 @@ export async function createPaymentLinkForOrder(order, { source = 'payment-link'
   const now = new Date();
   const paymentMeta = { ...(order.paymentProviderMeta || {}) };
   paymentMeta.name = providerId;
+  // Same field every other checkout-creation path sets (event-flow.factory.js,
+  // voucher.js, renew.js) — /pay/start reads this one to build its "Pay with
+  // X" button and widget fallback. Without it, that button's href is empty
+  // and clicking it silently does nothing.
+  paymentMeta.providerRedirectUrl = redirectUrl;
   paymentMeta.lastPaymentLinkAt = now;
   paymentMeta.lastPaymentLinkUrl = redirectUrl;
   paymentMeta.lastPaymentLinkSource = source;

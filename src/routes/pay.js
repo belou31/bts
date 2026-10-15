@@ -540,8 +540,19 @@ router.post('/resume', async (req, res) => {
   if (ctx.error) return renderResumePage(req, res, ctx);
 
   try {
-    await createPaymentLinkForOrder(ctx.order, { source: 'pay-resume' });
-    return res.redirect(302, urlFor(`/pay/start?orderId=${encodeURIComponent(String(ctx.order._id))}`));
+    const link = await createPaymentLinkForOrder(ctx.order, { source: 'pay-resume' });
+    // /pay/start's own button exists for the SumUp inline-widget case (it
+    // needs a live DOM to mount the card form into). For a plain redirect
+    // provider like HelloAsso, routing through it first only adds a second,
+    // redundant "Pay with X" button — the browser has no fresh user gesture
+    // left by the time that page loads (this is a new navigation, not the
+    // same click), so even that second button could silently fail to open a
+    // new tab. Redirecting straight to the PSP here is both simpler and more
+    // reliable: this click IS the live user gesture, right now.
+    if (currentPaymentUxMode() === 'widget') {
+      return res.redirect(302, urlFor(`/pay/start?orderId=${encodeURIComponent(String(ctx.order._id))}`));
+    }
+    return res.redirect(302, link.redirectUrl);
   } catch (err) {
     console.error('[pay/resume] createPaymentLinkForOrder failed:', err?.message || err);
     return renderResumePage(req, res, { error: 'create_failed', code: 502, order: ctx.order });
