@@ -85,6 +85,8 @@
         <p class="pay-title"><%= t('pay.linkExpiredTitle') %></p>
       <% } else if (error === 'order_not_found') { %>
         <p class="pay-title"><%= t('pay.orderNotFoundTitle') %></p>
+      <% } else if (error === 'seat_conflict') { %>
+        <p class="pay-title"><%= t('pay.seatConflictTitle') %></p>
       <% } else { %>
         <p class="pay-title"><%= t('pay.resumeHeading') %></p>
         <p class="pay-lead"><%= t('pay.resumeLead') %></p>
@@ -101,6 +103,8 @@
       <div class="pay-message"><p><%= t('pay.linkExpiredBody') %></p></div>
     <% } else if (error === 'order_not_found') { %>
       <div class="pay-message"><p><%= t('pay.orderNotFoundBody') %></p></div>
+    <% } else if (error === 'seat_conflict') { %>
+      <div class="pay-message"><p><%= t('pay.seatConflictBody') %></p></div>
     <% } else { %>
       <div class="pay-recap">
         <div class="desc"><%= description %></div>
