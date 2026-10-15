@@ -6,10 +6,29 @@ import mongoose from 'mongoose';
 import { Event } from '../../models/Event.js';
 import { Order } from '../../models/Order.js';
 import { Seat } from '../../models/Seat.js';
-import { sendOrderAttestationIfNeeded, isPaidLike } from '../order-finalization.js';
+import { sendOrderAttestationIfNeeded, isPaidLike, realSeatIdsFromOrder } from '../order-finalization.js';
 import { currentPaymentProviderLabel } from '../payments/index.js';
 import { sendPayResumeEmail } from '../payment-links.js';
 import { signPayResumeToken } from '../pay-resume-token.js';
+import { claimEventSeatHolds } from '../event-seat-holds.js';
+
+// Statuses that represent an unpaid-but-active claim on a seat. A paid order
+// doesn't need a SeatHold: it's tracked directly via the Order-status overlay
+// (computeEventSeatStates) once paid. failed/canceled shouldn't hold anything.
+const HOLD_WORTHY_STATUSES = new Set(['pending', 'tobepaid']);
+
+// How long an imported order's hold lasts. Unlike a live checkout session
+// (CHECKOUT_HOLD_MIN, a few minutes — the buyer is right there), an imported
+// tobepaid order may sit unpaid for a long time before its resume-pay email
+// gets clicked (see send-payment-links.js) — a short window would just expire
+// again before that happens. Bound it to the event instead, same cutoff
+// signPayResumeToken already uses for the resume link itself: paying for a
+// seat to a match that already happened makes no sense either way.
+function importedHoldUntil(event) {
+  return event?.startsAt
+    ? new Date(event.startsAt)
+    : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+}
 
 // Read lazily, not as a frozen top-level const: this module is a static
 // import of the CLI script (scripts/04-event-management/import-orders.js),
@@ -891,6 +910,38 @@ export async function importEventOrders({
     }
 
     const normalizedStatus = String(parsed.status || '').trim().toLowerCase();
+
+    // Mirror what a live checkout does: a pending/tobepaid order's seats are
+    // only shown as busy to other buyers via SeatHold, not via Order status
+    // directly. Without this, an imported tobepaid order's seat looks free
+    // on the live site until someone pays — exactly the gap that let another
+    // customer book over it, or that --force (meant to override an
+    // already-booked-by-another-ORDER conflict) never covered since
+    // detectSeatConflicts() never looked at SeatHold either way.
+    if (HOLD_WORTHY_STATUSES.has(normalizedStatus)) {
+      try {
+        const seatIds = realSeatIdsFromOrder(order);
+        if (seatIds.length) {
+          const until = importedHoldUntil(parsed.event);
+          const claim = await claimEventSeatHolds({
+            ev: parsed.event,
+            order,
+            seatIds,
+            sessionToken: '',
+            until,
+            force
+          });
+          if (!claim.ok) {
+            log(
+              'warn',
+              `  ↳ Sièges non protégés (déjà tenus ailleurs, relancez avec --force) pour ${order._id}: ${claim.conflicts.join(', ')}`
+            );
+          }
+        }
+      } catch (error) {
+        log('warn', `  ↳ Échec de la protection des sièges (SeatHold) pour ${order._id}: ${error.message}`);
+      }
+    }
 
     if (sendEmail && isPaidLike(parsed.status)) {
       try {

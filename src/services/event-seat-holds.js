@@ -101,13 +101,46 @@ async function markSuperseded(previousOrderId, newOrderId, seatId) {
  * payer la même, et le second ne l'apprenait qu'à la finalisation — après
  * encaissement. SeatHold est propre à l'évènement, donc juste pour ce cas.
  *
+ * `force` takes a seat away from WHOEVER currently holds it — another
+ * order's checkout, an admin block (admin/plan "Retirer de la vente"), a
+ * script block (block-free-seats-for-event.js) — all write the same
+ * SeatHold shape, so there's nothing to distinguish; force just means "take
+ * it regardless of who's there". Used by eventOrdersImporter.js so an
+ * imported/invited order's --force (which already overrides the
+ * already-booked-by-another-order check) also overrides this layer, instead
+ * of leaving the seat looking free to SeatHold while another Order claims it.
+ *
  * @returns {Promise<{ok: boolean, conflicts: string[], claimed: string[]}>}
  */
-export async function claimEventSeatHolds({ ev, order, seatIds, sessionToken, until }) {
+export async function claimEventSeatHolds({ ev, order, seatIds, sessionToken, until, force = false }) {
   const claimed = [];
   const conflicts = [];
 
   for (const seatId of seatIds) {
+    if (force) {
+      const previous = await SeatHold.findOne({ eventId: ev._id, seatId }, { orderId: 1 }).lean();
+      await SeatHold.findOneAndUpdate(
+        { eventId: ev._id, seatId },
+        {
+          $set: {
+            orderId: order._id,
+            seasonCode: ev.seasonCode,
+            venueSlug: ev.venueSlug,
+            reason: 'checkout',
+            expiresAt: until,
+            sessionToken: sessionToken || ''
+          }
+        },
+        { upsert: true, setDefaultsOnInsert: true }
+      );
+      const takenFrom = previous?.orderId ? String(previous.orderId) : '';
+      if (takenFrom && takenFrom !== String(order._id)) {
+        await markSuperseded(takenFrom, order._id, seatId);
+      }
+      claimed.push(seatId);
+      continue;
+    }
+
     // Récupère d'abord le hold que CETTE session a posé pendant la sélection,
     // pour le convertir en hold de commande sans fenêtre où il n'existe plus.
     const mine = [{ orderId: order._id }];
