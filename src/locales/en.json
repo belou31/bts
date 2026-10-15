@@ -92,7 +92,18 @@
     "paymentConfirmed": "Payment confirmed ✓",
     "redirecting": "— redirecting…",
     "genericError": "Something went wrong. Please try again.",
-    "paymentFailed": "Payment failed. Please check your details and try again."
+    "paymentFailed": "Payment failed. Please check your details and try again.",
+    "resumeTitle": "Your order — BTS",
+    "resumeHeading": "Finalize your order",
+    "resumeLead": "Here is your reservation, ready to be paid.",
+    "payNow": "Pay now",
+    "resumeCreateError": "Unable to prepare payment right now. Try again shortly or contact us.",
+    "alreadyPaidTitle": "Order already paid",
+    "alreadyPaidBody": "This order has already been paid. No action is needed.",
+    "linkExpiredTitle": "Link expired",
+    "linkExpiredBody": "This payment link is no longer valid. Contact us to get a new one.",
+    "orderNotFoundTitle": "Order not found",
+    "orderNotFoundBody": "This order no longer exists or the link is invalid."
   },
   "generic": {
     "copyFirstNameTitle": "Copy this first name to all empty rows",

@@ -156,3 +156,55 @@ export async function sendPaymentLinkEmail(
 
   await sendMail({ to: order.payerEmail, subject, html });
 }
+
+// Resume-link variant: points at our own /pay/resume page (see
+// src/routes/pay.js) instead of a PSP URL created ahead of time. The
+// checkout intent itself is only created once the recipient actually clicks
+// through, so this link can't go stale the way a pre-made PSP session can —
+// see scripts/04-event-management/send-payment-links.js.
+export function renderPayResumeEmailHtml({ order, eventName = '', resumeUrl }) {
+  const payerName = [order?.payerFirstName, order?.payerLastName].filter(Boolean).join(' ').trim();
+  const resolvedEventName =
+    eventName ||
+    order?.meta?.eventName ||
+    order?.meta?.eventSlug ||
+    order?.itemName ||
+    'votre evenement';
+  const amount = formatCurrency(order?.totalCents || 0, order?.locale);
+  const orderId = String(order?._id || '');
+
+  const safeName = escapeHtml(payerName || '');
+  const safeEvent = escapeHtml(resolvedEventName);
+  const safeAmount = escapeHtml(amount);
+  const safeOrderId = escapeHtml(orderId);
+  const safeLink = escapeHtml(resumeUrl || '');
+
+  return `<!doctype html>
+<meta charset="utf-8">
+<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+  <p>Bonjour${safeName ? ` ${safeName}` : ''},</p>
+  <p>Votre commande <strong>${safeOrderId}</strong> pour <strong>${safeEvent}</strong> est en attente de paiement.</p>
+  <p>Montant a regler: <strong>${safeAmount}</strong>.</p>
+  <p>Retrouvez votre reservation et finalisez le paiement en toute securite:</p>
+  <p><a href="${safeLink}" style="display:inline-block;padding:10px 14px;border-radius:8px;background:#1d4ed8;color:#fff;text-decoration:none">Finaliser ma commande</a></p>
+  <p>Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur:</p>
+  <p><a href="${safeLink}">${safeLink}</a></p>
+  <p style="color:#6b7280;font-size:12px">Si vous avez deja regle cette commande, ignorez ce message.</p>
+</div>`;
+}
+
+export async function sendPayResumeEmail(order, { resumeUrl, eventName = '' } = {}) {
+  if (!order?.payerEmail) {
+    throw new Error('Order payerEmail is required to send payment link email');
+  }
+  if (!resumeUrl) {
+    throw new Error('resumeUrl is required to send payment link email');
+  }
+
+  const subjectBase =
+    process.env.EMAIL_SUBJECT_EVENT_PAYMENT_LINK || 'Finaliser votre commande - Billetterie';
+  const subject = eventName ? `${subjectBase} - ${eventName}` : subjectBase;
+  const html = renderPayResumeEmailHtml({ order, eventName, resumeUrl });
+
+  await sendMail({ to: order.payerEmail, subject, html });
+}

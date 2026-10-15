@@ -92,7 +92,18 @@
     "paymentConfirmed": "Paiement confirmé ✓",
     "redirecting": "— redirection…",
     "genericError": "Une erreur est survenue. Réessayez.",
-    "paymentFailed": "Le paiement a échoué. Vérifiez vos informations et réessayez."
+    "paymentFailed": "Le paiement a échoué. Vérifiez vos informations et réessayez.",
+    "resumeTitle": "Votre commande — BTS",
+    "resumeHeading": "Finaliser votre commande",
+    "resumeLead": "Voici votre réservation, prête à être payée.",
+    "payNow": "Payer maintenant",
+    "resumeCreateError": "Impossible de préparer le paiement pour le moment. Réessayez dans un instant ou contactez-nous.",
+    "alreadyPaidTitle": "Commande déjà payée",
+    "alreadyPaidBody": "Cette commande a déjà été réglée. Aucune action n'est nécessaire.",
+    "linkExpiredTitle": "Lien expiré",
+    "linkExpiredBody": "Ce lien de paiement n'est plus valide. Contactez-nous pour en recevoir un nouveau.",
+    "orderNotFoundTitle": "Commande introuvable",
+    "orderNotFoundBody": "Cette commande n'existe plus ou le lien est invalide."
   },
   "generic": {
     "copyFirstNameTitle": "Copier ce prénom sur toutes les lignes vides",
