@@ -25,12 +25,19 @@ import { normalizePaymentStatus, isPaidLike, isRefundedLike,
          scheduleOrderAttestation,
          sendConflictEmail,
          sendSeatPendingNotice,
-         ensureTicketsForEventOrder } from '../services/order-finalization.js';
+         ensureTicketsForEventOrder,
+         realSeatIdsFromOrder } from '../services/order-finalization.js';
 import { buildSeatChangeUrlForOrder } from '../services/seat-change-link.js';
 import { abandonCheckout } from '../services/checkout-freeze.js';
 import { buildTicketsPdfBuffer } from '../services/tickets-pdf.js';
 import { createPaymentLinkForOrder } from '../services/payment-links.js';
 import { decodePayResumeToken } from '../services/pay-resume-token.js';
+import { claimEventSeatHolds } from '../services/event-seat-holds.js';
+
+// Same env var and default every other checkout-entry point uses
+// (event-flow.factory.js, voucher.js, subscription.js, renew.js) — the
+// window a freshly (re-)claimed seat hold stays valid for.
+const RESUME_HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
 
 const router = express.Router();
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
@@ -539,8 +546,41 @@ router.post('/resume', async (req, res) => {
   const ctx = await loadResumeContext(id);
   if (ctx.error) return renderResumePage(req, res, ctx);
 
+  const order = ctx.order;
+  const eventIdRaw = order?.eventId || order?.meta?.eventId;
+
+  // The seat hold behind this order was created at ORIGINAL checkout time —
+  // a short window (CHECKOUT_HOLD_MIN, 5-10 min) meant for a live,
+  // synchronous session. By the time someone opens this email and clicks
+  // through — minutes, hours, or days later, the whole point of this page —
+  // that hold has almost certainly expired, leaving the seat unprotected and
+  // lettable to someone else. That's what was producing the "votre paiement
+  // a dépassé le temps de blocage" conflict and the post-payment "nous
+  // devons vous en réaffecter une" notice: payment happened against a hold
+  // that was already gone. Re-claim it fresh, right here, before creating
+  // the checkout intent — same mechanism the live checkout flow uses to
+  // establish it the first time — so it's as good as new for the window
+  // ahead, and a genuine conflict (seat actually taken) surfaces BEFORE
+  // payment instead of after.
+  if (eventIdRaw) {
+    try {
+      const ev = await Event.findById(eventIdRaw).lean();
+      const seatIds = realSeatIdsFromOrder(order);
+      if (ev && seatIds.length) {
+        const until = new Date(Date.now() + RESUME_HOLD_MIN * 60 * 1000);
+        const claim = await claimEventSeatHolds({ ev, order, seatIds, sessionToken: '', until });
+        if (!claim.ok) {
+          return renderResumePage(req, res, { error: 'seat_conflict', code: 409, order });
+        }
+      }
+    } catch (err) {
+      console.error('[pay/resume] claimEventSeatHolds failed:', err?.message || err);
+      return renderResumePage(req, res, { error: 'create_failed', code: 502, order });
+    }
+  }
+
   try {
-    const link = await createPaymentLinkForOrder(ctx.order, { source: 'pay-resume' });
+    const link = await createPaymentLinkForOrder(order, { source: 'pay-resume' });
     // /pay/start's own button exists for the SumUp inline-widget case (it
     // needs a live DOM to mount the card form into). For a plain redirect
     // provider like HelloAsso, routing through it first only adds a second,
@@ -550,12 +590,12 @@ router.post('/resume', async (req, res) => {
     // new tab. Redirecting straight to the PSP here is both simpler and more
     // reliable: this click IS the live user gesture, right now.
     if (currentPaymentUxMode() === 'widget') {
-      return res.redirect(302, urlFor(`/pay/start?orderId=${encodeURIComponent(String(ctx.order._id))}`));
+      return res.redirect(302, urlFor(`/pay/start?orderId=${encodeURIComponent(String(order._id))}`));
     }
     return res.redirect(302, link.redirectUrl);
   } catch (err) {
     console.error('[pay/resume] createPaymentLinkForOrder failed:', err?.message || err);
-    return renderResumePage(req, res, { error: 'create_failed', code: 502, order: ctx.order });
+    return renderResumePage(req, res, { error: 'create_failed', code: 502, order });
   }
 });
 

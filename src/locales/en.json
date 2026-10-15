@@ -103,7 +103,9 @@
     "linkExpiredTitle": "Link expired",
     "linkExpiredBody": "This payment link is no longer valid. Contact us to get a new one.",
     "orderNotFoundTitle": "Order not found",
-    "orderNotFoundBody": "This order no longer exists or the link is invalid."
+    "orderNotFoundBody": "This order no longer exists or the link is invalid.",
+    "seatConflictTitle": "Seat unavailable",
+    "seatConflictBody": "One or more of your seats have since been taken. Contact us so we can assign you a replacement before paying."
   },
   "generic": {
     "copyFirstNameTitle": "Copy this first name to all empty rows",
