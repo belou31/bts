@@ -8,10 +8,30 @@ import { Order } from '../../models/Order.js';
 import { Seat } from '../../models/Seat.js';
 import { sendOrderAttestationIfNeeded, isPaidLike } from '../order-finalization.js';
 import { currentPaymentProviderLabel } from '../payments/index.js';
-import {
-  createPaymentLinkForOrder,
-  sendPaymentLinkEmail
-} from '../payment-links.js';
+import { sendPayResumeEmail } from '../payment-links.js';
+import { signPayResumeToken } from '../pay-resume-token.js';
+
+// Read lazily, not as a frozen top-level const: this module is a static
+// import of the CLI script (scripts/04-event-management/import-orders.js),
+// which — like every script in this codebase — calls dotenv.config() in its
+// own body, AFTER its static imports have already been evaluated (ES module
+// hoisting; see the same note in src/routes/seat-change.js and
+// src/services/pay-resume-token.js). A top-level read here would freeze
+// APP_URL empty before .env is ever loaded.
+function appUrl() {
+  return String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+}
+
+// Same reasoning as scripts/04-event-management/send-payment-links.js: a PSP
+// checkout session created here, at import time, could sit unused for as
+// long as it takes someone to open the email — exactly the kind of
+// staleness that produces provider-side timeouts. Emailing a link to our
+// own /pay/resume page instead defers creating that session until the
+// recipient actually clicks through.
+function buildResumeUrl(order, event) {
+  const token = signPayResumeToken({ orderId: order._id, startsAt: event?.startsAt || null });
+  return `${appUrl()}/pay/resume?id=${encodeURIComponent(token)}`;
+}
 
 const ALLOWED_STATUS = new Set([
   'pending',
@@ -884,13 +904,10 @@ export async function importEventOrders({
       }
     } else if (sendEmail && normalizedStatus === 'tobepaid') {
       try {
-        const link = await createPaymentLinkForOrder(order, {
-          source: 'importer:event-orders'
-        });
-        await sendPaymentLinkEmail(order, {
-          redirectUrl: link.redirectUrl,
-          eventName: order?.meta?.eventName || parsed?.event?.name || parsed?.event?.slug || '',
-          providerLabel: link.providerLabel
+        const resumeUrl = buildResumeUrl(order, parsed.event);
+        await sendPayResumeEmail(order, {
+          resumeUrl,
+          eventName: order?.meta?.eventName || parsed?.event?.name || parsed?.event?.slug || ''
         });
         log('info', `  ↳ Lien de paiement envoyé: ${order.payerEmail}`);
       } catch (error) {

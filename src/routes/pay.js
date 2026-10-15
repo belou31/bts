@@ -8,6 +8,7 @@ import { URL as NodeURL } from 'node:url';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Order } from '../models/index.js';
+import { Event } from '../models/Event.js';
 // `mongoose` et `currentPaymentProvider` étaient UTILISÉS sans être importés :
 // /pay/abandon levait un ReferenceError avant même son try (donc la requête
 // restait sans réponse — l'échappatoire du gel n'a jamais fonctionné, ce qui
@@ -28,6 +29,8 @@ import { normalizePaymentStatus, isPaidLike, isRefundedLike,
 import { buildSeatChangeUrlForOrder } from '../services/seat-change-link.js';
 import { abandonCheckout } from '../services/checkout-freeze.js';
 import { buildTicketsPdfBuffer } from '../services/tickets-pdf.js';
+import { createPaymentLinkForOrder } from '../services/payment-links.js';
+import { decodePayResumeToken } from '../services/pay-resume-token.js';
 
 const router = express.Router();
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
@@ -466,6 +469,83 @@ router.get('/start', async (req, res) => {
       media: urlFor('/dynamic/assets/')
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// GET/POST /pay/resume — stable landing page for a payment-link email.
+//
+// Unlike /pay/start (which assumes a checkout intent already exists on the
+// order), this creates it LIVE, right when the recipient actually clicks
+// "Payer maintenant" — not ahead of time in a batch script. A PSP checkout
+// session created hours or days before anyone opens it is exactly what was
+// producing provider-side timeouts; a session created at click time is only
+// ever as old as the click itself. Token sign/verify lives in its own
+// services/pay-resume-token.js (not here) so scripts/04-event-management/
+// send-payment-links.js and src/services/importers/eventOrdersImporter.js
+// can build this token without importing this whole route file — see that
+// module's header comment for why.
+// ---------------------------------------------------------------------------
+
+async function loadResumeContext(id) {
+  const tok = decodePayResumeToken(id);
+  if (!tok?.orderId) return { error: 'invalid_token', code: 400, order: null };
+
+  const order = await Order.findById(tok.orderId);
+  if (!order) return { error: 'order_not_found', code: 404, order: null };
+
+  const status = String(order.status || '').toLowerCase();
+  if (isPaidLike(status)) return { error: 'already_paid', code: 409, order };
+  if (status === 'canceled' || isRefundedLike(status)) {
+    return { error: 'order_not_payable', code: 409, order };
+  }
+
+  return { error: null, code: 200, order };
+}
+
+function renderResumePage(req, res, ctx) {
+  const id = String(req.query.id || req.body?.id || '');
+  const order = ctx.order;
+  const lines = order && Array.isArray(order.lines)
+    ? order.lines.map((ln) => ({
+        zoneKey: ln.zoneKey || '',
+        seatId: ln.seatId || '',
+        tariffCode: ln.tariffCode || '',
+        priceCents: Number(ln.priceCents || 0)
+      }))
+    : [];
+  const totalCents = order ? Number(order.totalCents || 0) : 0;
+  const description = order ? (order.meta?.eventName || order.itemName || String(order._id)) : '';
+
+  return res.status(ctx.error ? ctx.code : 200).render(path.resolve(VIEWS_DIR, 'pay', 'resume'), {
+    error: ctx.error,
+    id,
+    description,
+    lines,
+    totalCents,
+    assets: {
+      static: urlFor('/static/'),
+      media: urlFor('/dynamic/assets/')
+    }
+  });
+}
+
+router.get('/resume', async (req, res) => {
+  const ctx = await loadResumeContext(String(req.query.id || ''));
+  return renderResumePage(req, res, ctx);
+});
+
+router.post('/resume', async (req, res) => {
+  const id = String(req.body?.id || req.query.id || '');
+  const ctx = await loadResumeContext(id);
+  if (ctx.error) return renderResumePage(req, res, ctx);
+
+  try {
+    await createPaymentLinkForOrder(ctx.order, { source: 'pay-resume' });
+    return res.redirect(302, urlFor(`/pay/start?orderId=${encodeURIComponent(String(ctx.order._id))}`));
+  } catch (err) {
+    console.error('[pay/resume] createPaymentLinkForOrder failed:', err?.message || err);
+    return renderResumePage(req, res, { error: 'create_failed', code: 502, order: ctx.order });
+  }
 });
 
 /**
