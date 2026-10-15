@@ -1,19 +1,29 @@
 #!/usr/bin/env node
 /**
- * Create checkout intents and send payment links for unpaid event orders.
+ * Email a stable "finish your payment" link for unpaid event orders.
  *
  * Usage:
  *   node scripts/04-event-management/send-payment-links.js \
  *     --event=<slug|ObjectId> [--order=<id[,id2]>] [--status=pending,tobepaid] [--limit=200] [--commit] [--mail=false]
  *
  * Notes:
- *   - Dry-run by default; use --commit to call the payment provider and send emails.
+ *   - Dry-run by default; use --commit to send emails.
  *   - --status supports:
  *       pending,tobepaid   (default)
  *       nonpaid            (all statuses that are not paid/refunded)
  *       all
  *       comma list         (example: pending,failed,canceled)
  *   - Use --order to target specific order IDs.
+ *
+ * Why this doesn't call the payment provider directly:
+ *   The previous version created a checkout intent here, in the script, and
+ *   emailed the provider's own checkout URL as-is. That session could sit
+ *   unused for hours or days before the recipient opened the email — exactly
+ *   the kind of staleness that produced provider-side timeouts. This version
+ *   instead emails a signed link to our own /pay/resume page (src/routes/pay.js),
+ *   which shows the reserved order and only creates the checkout intent live,
+ *   the moment the recipient actually clicks "Payer maintenant" — so the PSP
+ *   session is never older than the click itself.
  */
 
 import mongoose from 'mongoose';
@@ -25,15 +35,9 @@ dotenv.config();
 import { connectMongo } from '../_utils.js';
 import { Event } from '../../src/models/Event.js';
 import { Order } from '../../src/models/Order.js';
-import {
-  currentPaymentProviderId,
-  currentPaymentProviderLabel
-} from '../../src/services/payments/index.js';
 import { isPaidLike } from '../../src/services/order-finalization.js';
-import {
-  createPaymentLinkForOrder,
-  sendPaymentLinkEmail
-} from '../../src/services/payment-links.js';
+import { signPayResumeToken } from '../../src/services/pay-resume-token.js';
+import { sendPayResumeEmail } from '../../src/services/payment-links.js';
 
 const argv = yargs(hideBin(process.argv))
   .option('event', {
@@ -59,12 +63,12 @@ const argv = yargs(hideBin(process.argv))
   .option('mail', {
     type: 'boolean',
     default: true,
-    desc: 'Send payment-link email (disable with --mail=false)'
+    desc: 'Send the resume-link email (disable with --mail=false)'
   })
   .option('commit', {
     type: 'boolean',
     default: false,
-    desc: 'Actually create checkout intents and send emails'
+    desc: 'Actually send emails'
   })
   .help()
   .argv;
@@ -75,9 +79,7 @@ const DRY_RUN = !COMMIT;
 const SEND_EMAIL = argv.mail !== false;
 const STATUS_FILTER = String(argv.status || 'pending,tobepaid').trim().toLowerCase() || 'pending,tobepaid';
 const LIMIT = Math.max(1, Number(argv.limit || 200));
-const PROVIDER_ID = currentPaymentProviderId();
-const PROVIDER_LABEL = currentPaymentProviderLabel();
-const SOURCE = 'script:send-payment-links';
+const APP_URL = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
 
 function collectOrderIds() {
   const ids = new Set();
@@ -103,6 +105,11 @@ function fmtEuro(cents) {
     style: 'currency',
     currency: 'EUR'
   });
+}
+
+function buildResumeUrl(order, event) {
+  const token = signPayResumeToken({ orderId: order._id, startsAt: event?.startsAt || null });
+  return `${APP_URL}/pay/resume?id=${encodeURIComponent(token)}`;
 }
 
 function statusAccepted(status) {
@@ -183,6 +190,10 @@ async function main() {
     console.error('❌ Missing --event <slug|ObjectId>');
     process.exit(1);
   }
+  if (!APP_URL) {
+    console.error('❌ Missing APP_URL in .env — required to build the /pay/resume link');
+    process.exit(1);
+  }
 
   const explicitOrderIds = collectOrderIds();
   await connectMongo();
@@ -195,9 +206,8 @@ async function main() {
 
   const { orders: candidates, missingRefs } = await loadCandidates(event, explicitOrderIds);
 
-  console.log(DRY_RUN ? '🧪 Dry-run — aucun lien ni email ne sera envoyé.' : '⚠️  Commit activé — création des liens + envoi email.');
+  console.log(DRY_RUN ? '🧪 Dry-run — aucun email ne sera envoyé.' : '⚠️  Commit activé — envoi des liens de paiement.');
   console.log(`→ Event: ${formatEventRef(event)}`);
-  console.log(`→ Provider: ${PROVIDER_LABEL} (${PROVIDER_ID})`);
   console.log(`→ Status filter: ${STATUS_FILTER}`);
   if (explicitOrderIds.length) {
     console.log(`→ Orders ciblés: ${explicitOrderIds.length}`);
@@ -274,24 +284,23 @@ async function main() {
 
     if (DRY_RUN) {
       stats.preview += 1;
-      console.log(`[dry-run] ${orderId} status=${status} email=${order.payerEmail} amount=${fmtEuro(order.totalCents)}`);
+      console.log(`[dry-run] ${orderId} status=${status} email=${order.payerEmail} amount=${fmtEuro(order.totalCents)} -> ${buildResumeUrl(order, event)}`);
       continue;
     }
 
     try {
-      const link = await createPaymentLinkForOrder(order, { source: SOURCE });
+      const resumeUrl = buildResumeUrl(order, event);
       stats.linkCreated += 1;
 
       if (SEND_EMAIL) {
-        await sendPaymentLinkEmail(order, {
-          redirectUrl: link.redirectUrl,
-          eventName: order?.meta?.eventName || event?.name || event?.slug || '',
-          providerLabel: link.providerLabel
+        await sendPayResumeEmail(order, {
+          resumeUrl,
+          eventName: order?.meta?.eventName || event?.name || event?.slug || ''
         });
         stats.emailed += 1;
       }
 
-      console.log(`✓ ${orderId} link created${SEND_EMAIL ? ' + email sent' : ''} -> ${order.payerEmail}`);
+      console.log(`✓ ${orderId} resume link${SEND_EMAIL ? ' emailed' : ' created'} -> ${order.payerEmail}`);
     } catch (err) {
       stats.errors += 1;
       console.error(`❌ ${orderId}: ${err?.message || err}`);
