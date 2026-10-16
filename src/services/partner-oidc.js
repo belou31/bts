@@ -124,6 +124,11 @@ async function fetchJson(url, options) {
     throw new Error(`${url} → ${res.status} ${detail}`);
   }
   if (!json) throw new Error(`${url} → réponse non JSON`);
+  // SFI rend les erreurs OAuth de /token en HTTP 200 : le statut ne suffit
+  // pas, seul le champ `error` du corps les distingue d'une réussite.
+  if (json.error) {
+    throw new Error(`${url} → ${json.error}${json.error_description ? ' : ' + json.error_description : ''}`);
+  }
   return json;
 }
 
@@ -229,8 +234,8 @@ export async function buildAuthorizeUrl({ oidc, redirectUri, state, nonce, chall
  * affirmation du réseau, et l'accepter ouvrirait l'accès à qui sait forger un
  * JWT.
  */
-async function verifyIdToken({ oidc, doc, idToken, nonce }) {
-  const header = JSON.parse(Buffer.from(idToken.split('.')[0] || '', 'base64url').toString('utf8'));
+async function signingKeyFor({ oidc, doc, token }) {
+  const header = JSON.parse(Buffer.from(token.split('.')[0] || '', 'base64url').toString('utf8'));
   const alg = SIGN_ALGS.includes(header.alg) ? header.alg : 'RS256';
 
   let pem = oidc.idTokenPublicKey;
@@ -241,10 +246,17 @@ async function verifyIdToken({ oidc, doc, idToken, nonce }) {
       '« idTokenPublicKey » n\'est configuré pour ce partenaire'
     );
   }
+  return { pem, alg };
+}
+
+async function verifyIdToken({ oidc, doc, idToken, nonce }) {
+  const { pem, alg } = await signingKeyFor({ oidc, doc, token: idToken });
 
   const claims = jwt.verify(idToken, pem, {
     algorithms: [alg],
-    issuer: oidc.issuer,
+    // La barre finale n'est qu'une question d'écriture : SFI la met dans
+    // `iss` (« …/sfi/oauth/v1/ »), la configuration l'a perdue au chargement.
+    issuer: [oidc.issuer, `${oidc.issuer}/`],
     audience: oidc.clientId,
     clockTolerance: 60
   });
@@ -264,20 +276,49 @@ async function verifyIdToken({ oidc, doc, idToken, nonce }) {
  * contrôle, un access_token obtenu pour un compte pourrait rapporter le profil
  * d'un autre.
  */
-async function fetchUserInfo({ doc, accessToken, subject }) {
+async function fetchUserInfo({ oidc, doc, accessToken, subject }) {
   if (!doc.userinfo_endpoint) {
     throw new Error('« fetchUserInfo » demandé mais aucun endpoint userinfo configuré');
   }
   if (!accessToken) throw new Error('réponse sans access_token : userinfo inaccessible');
 
-  const info = await fetchJson(doc.userinfo_endpoint, {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' }
+  const url = doc.userinfo_endpoint;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/jwt, application/json' }
   });
+  const ctype = String(res.headers.get('content-type') || '');
+  // OIDC Core §5.3.2 : une réponse application/jwt est un JWT signé, à
+  // vérifier comme l'id_token. C'est le cas de SFI, qui y loge aussi ses
+  // erreurs (toujours en HTTP 200).
+  const info = ctype.includes('application/jwt')
+    ? await readSignedUserInfo({ oidc, doc, url, res })
+    : await fetchJson(url, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } });
   const sub = str(info.sub);
   if (sub && sub !== str(subject)) {
     throw new Error(`userinfo renvoie un autre sujet (${sub}) que l'id_token (${subject})`);
   }
   return info;
+}
+
+async function readSignedUserInfo({ oidc, doc, url, res }) {
+  const text = (await res.text()).trim();
+  if (!res.ok) throw new Error(`${url} → ${res.status} ${text.slice(0, 200)}`);
+  // Le JWT arrive nu ; le schéma OpenAPI de SFI le décrit aussi dans un
+  // tableau JSON d'un élément. On accepte les deux écritures.
+  let token = text;
+  if (text.startsWith('[') || text.startsWith('"')) {
+    const parsed = JSON.parse(text);
+    token = str(Array.isArray(parsed) ? parsed[0] : parsed);
+  }
+  if (!token) throw new Error(`${url} → réponse JWT vide`);
+
+  const { pem, alg } = await signingKeyFor({ oidc, doc, token });
+  const payload = jwt.verify(token, pem, { algorithms: [alg], clockTolerance: 60 });
+  if (Array.isArray(payload)) throw new Error(`${url} → réponse vide (jeton d'accès non reçu)`);
+  if (payload?.error) {
+    throw new Error(`${url} → ${payload.error}${payload.error_description ? ' : ' + payload.error_description : ''}`);
+  }
+  return payload;
 }
 
 /**
@@ -327,7 +368,7 @@ export async function exchangeCode({ oidc, redirectUri, code, verifier, nonce })
   let claims = verified;
   if (oidc.fetchUserInfo) {
     const info = await fetchUserInfo({
-      doc, accessToken: tokens.access_token, subject: verified.sub
+      oidc, doc, accessToken: tokens.access_token, subject: verified.sub
     });
     claims = { ...info, ...verified };
   }
@@ -342,7 +383,10 @@ export function identityFromClaims(oidc, claims) {
   if (!subject) throw new Error(`claim « ${oidc.subjectClaim} » absent de l'identité reçue`);
 
   if (oidc.requiredClaim?.claim) {
-    const actual = claims[oidc.requiredClaim.claim];
+    // Chemin pointé admis : SFI range ses données billetterie dans un objet
+    // (« billetterie.code_societe »).
+    const actual = oidc.requiredClaim.claim.split('.')
+      .reduce((v, k) => (v && typeof v === 'object' ? v[k] : undefined), claims);
     const expected = oidc.requiredClaim.value;
     const ok = Array.isArray(actual)
       ? actual.map(String).includes(String(expected))
@@ -357,6 +401,9 @@ export function identityFromClaims(oidc, claims) {
   return {
     subject,
     email: String(pick(oidc.emailClaim) ?? '').trim(),
-    name: String(pick(oidc.nameClaim) ?? '').trim()
+    // Sans `name` (le scope « partenaires » de SFI n'en donne pas), on
+    // compose prénom + nom, les claims standard OIDC.
+    name: String(pick(oidc.nameClaim)
+      ?? [claims.given_name, claims.family_name].filter(Boolean).join(' ')).trim()
   };
 }

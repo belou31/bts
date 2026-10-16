@@ -204,17 +204,23 @@ router.get('/userinfo', (req, res) => {
 
 function sfiBase() { return `${base()}/sfi`; }
 
-// Erreur au format du partenaire, et non {error, error_description}.
-function sfiError(res, status, title, detail) {
-  return res.status(status).json({
-    type: `https://sfi.aisc.test/errors/${title}`,
-    title,
-    status,
-    detail
-  });
+// Erreur OAuth {error, error_description}, comme la préproduction SFI. Le
+// format RFC 7807 de la spec 2016 n'est pas celui qu'elle sert : /token
+// répond même ses erreurs en HTTP 200 (d'où le statut paramétrable).
+function sfiError(res, status, error, description) {
+  return res.status(status).json({ error, error_description: description });
 }
 
-const SFI_SCOPES = ['openid', 'profile', 'email', 'address', 'phone', 'od', 'family', 'billetterie'];
+// Liste du swagger de préproduction (/api/openapi.json).
+const SFI_SCOPES = ['openid', 'profile', 'email', 'phone', 'address', 'od', 'family',
+  'billetterie', 'partenaires', 'offline_access', 'date_sortie'];
+
+// infoUser répond un JWT signé (application/jwt), erreurs comprises.
+function sfiSignedReply(res, payload) {
+  const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const token = jwt.sign(body, keys().privatePem, { algorithm: 'RS256', keyid: keys().kid });
+  return res.status(200).type('application/jwt').send(token);
+}
 
 // Profil d'un ayant droit tel que le rend infoUser, filtré par scope. Les
 // dates sont au format JJ/MM/AAAA du partenaire, pas en ISO 8601 : c'est l'un
@@ -223,6 +229,13 @@ function sfiProfile(form, scopes) {
   const has = (s) => scopes.includes(s);
   const out = { sub: String(form.sub || 'M1234569') };
 
+  if (has('partenaires')) {
+    Object.assign(out, {
+      given_name: String(form.given_name || 'Jean'),
+      family_name: String(form.family_name || 'DUPONT'),
+      email: String(form.email || 'jean.dupont@aisc.test')
+    });
+  }
   if (has('profile')) {
     Object.assign(out, {
       name: String(form.name || 'Jean DUPONT'),
@@ -252,12 +265,15 @@ function sfiProfile(form, scopes) {
     });
   }
   if (has('billetterie')) {
-    Object.assign(out, {
-      matricule_groupe: String(form.matricule_groupe || 'G0042'),
-      societe: String(form.societe || 'AIRBUS SAS'),
-      code_societe: String(form.code_societe || '001'),
-      subvention: String(form.subvention || 'A')
-    });
+    // Objet imbriqué, schéma BilletterieInfo du swagger de préproduction.
+    out.billetterie = {
+      matricule_groupe: String(form.sub || 'M1234569'),
+      societe: String(form.societe || '18537207'),
+      code_societe: String(form.code_societe || 'AER'),
+      conjoint: true,
+      autres_ad: 2,
+      subvention: 0
+    };
   }
   return out;
 }
@@ -312,10 +328,11 @@ function sfiAuthorizeScreen(q, res) {
   <label>Matricule (sub)<br><input name="sub" value="M1234569" style="width:100%"></label><br><br>
   <label>Nom affiché<br><input name="name" value="Jean DUPONT" style="width:100%"></label><br><br>
   <label>Courriel<br><input name="email" value="jean.dupont@aisc.test" style="width:100%"></label><br><br>
-  <label>Société<br><input name="societe" value="AIRBUS SAS" style="width:100%"></label><br><br>
-  <label>Code subvention<br><input name="subvention" value="A" style="width:100%"></label><br><br>
-  <label>Matricule groupe<br><input name="matricule_groupe" value="G0042" style="width:100%"></label><br><br>
+  <label>Prénom<br><input name="given_name" value="Jean" style="width:100%"></label><br><br>
+  <label>Nom<br><input name="family_name" value="DUPONT" style="width:100%"></label><br><br>
+  <label>Code société (billetterie)<br><input name="code_societe" value="AER" style="width:100%"></label><br><br>
   <label><input type="checkbox" name="no_nonce" value="1"> id_token sans nonce (spec au pied de la lettre)</label><br><br>
+  <label><input type="checkbox" name="infouser_error" value="1"> infoUser renvoie une erreur (en 200)</label><br><br>
   <button type="submit">Se connecter</button>
   <button type="submit" name="deny" value="1" style="margin-left:.5rem">Refuser</button>
 </form></body>`);
@@ -357,39 +374,35 @@ router.post('/sfi/oauth/v1/authorize', (req, res) => {
 router.post('/sfi/oauth/v1/token', (req, res) => {
   purgeCodes();
   const b = req.body || {};
+  // Erreurs OAuth en HTTP 200, comme la préproduction : un client qui se fie
+  // au seul statut prendrait l'erreur pour une réussite.
+  const oauthError = (error, description) => sfiError(res, 200, error, description);
 
-  // Corps JSON exigé : une demande form-urlencoded est refusée, pour que le
-  // client ne « marche par chance » qu'avec le bon format.
-  const ctype = String(req.headers['content-type'] || '');
-  if (!ctype.includes('application/json')) {
-    return sfiError(res, 415, 'unsupported_media_type', 'Le corps doit être au format application/json');
-  }
   const grant = String(b.grant_type || '');
+  if (!String(b.client_id || '')) return oauthError('invalid_request', 'client_id manquant');
+  if (!String(b.client_secret || '')) {
+    // Seul cas en 400 d'après le swagger (orthographe d'origine).
+    return sfiError(res, 400, 'unknow_client', 'Client inconnu ou secret absent');
+  }
   if (grant === 'client_credentials') {
-    // Flux serveur à serveur de la spec : exige un secret, et ne rend pas
-    // d'id_token.
-    if (!String(b.client_secret || '')) {
-      return sfiError(res, 401, 'invalid_client', 'client_secret obligatoire pour client_credentials');
-    }
+    // Flux serveur à serveur : ne rend pas d'id_token.
     const at = crypto.randomBytes(24).toString('base64url');
     codes.set('sfiat:' + at, { at: Date.now(), profile: null, scopes: [] });
     return res.json({ token_type: 'Bearer', expires_in: 1800, access_token: at });
   }
   if (grant !== 'authorization_code') {
-    return sfiError(res, 400, 'unsupported_grant_type', `grant_type non pris en charge : ${grant || '(absent)'}`);
-  }
-  if (!String(b.client_id || '')) {
-    return sfiError(res, 400, 'invalid_request', 'client_id manquant');
+    return oauthError('unsupported_grant_type', `grant_type non pris en charge : ${grant || '(absent)'}`);
   }
 
   const key = 'sfi:' + String(b.code || '');
   const entry = codes.get(key);
-  if (!entry) {
-    return sfiError(res, 400, 'invalid_grant', 'Code inconnu, expiré ou déjà utilisé');
-  }
+  if (!entry) return oauthError('invalid_grant', 'Code inconnu, expiré ou déjà utilisé');
   codes.delete(key);                     // usage unique
   if (String(b.client_id) !== entry.clientId) {
-    return sfiError(res, 401, 'invalid_client', 'client_id différent de celui de la demande');
+    return oauthError('invalid_client', 'client_id différent de celui de la demande');
+  }
+  if (String(b.redirect_uri || '') !== entry.redirectUri) {
+    return oauthError('redirect_uri_mismatch', 'redirect_uri différente de celle de l\'autorisation');
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -404,12 +417,15 @@ router.post('/sfi/oauth/v1/token', (req, res) => {
     payload,
     keys().privatePem,
     {
-      algorithm: 'RS256', issuer: sfiBase(), audience: entry.clientId,
+      // Barre finale comme dans l'exemple de la spec SFI (§4.2.2.2.2).
+      algorithm: 'RS256', issuer: `${sfiBase()}/`, audience: entry.clientId,
       subject: entry.profile.sub, expiresIn: 300, keyid: keys().kid
     }
   );
   const accessToken = crypto.randomBytes(24).toString('base64url');
-  codes.set('sfiat:' + accessToken, { at: Date.now(), profile: entry.profile, scopes: entry.scopes });
+  codes.set('sfiat:' + accessToken, {
+    at: Date.now(), profile: entry.profile, scopes: entry.scopes, infoUserError: !!entry.form?.infouser_error
+  });
 
   return res.json({
     token_type: 'Bearer',
@@ -425,10 +441,16 @@ router.get('/sfi/oauth/v1/infoUser', (req, res) => {
   purgeCodes();
   const auth = String(req.headers.authorization || '');
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  const entry = token ? codes.get('sfiat:' + token) : null;
-  if (!entry) return sfiError(res, 401, 'invalid_token', 'Jeton d\'accès absent, inconnu ou expiré');
-  if (!entry.profile) return sfiError(res, 403, 'insufficient_scope', 'Jeton sans ayant droit associé');
-  return res.json(entry.profile);
+  // Comportement du swagger : jamais de 401/403, toujours un JWT signé en 200.
+  if (!token) return sfiSignedReply(res, []);
+  const entry = codes.get('sfiat:' + token);
+  if (!entry || entry.infoUserError) {
+    return sfiSignedReply(res, { error: 'invalid_token', error_description: 'Jeton d\'accès inconnu ou expiré' });
+  }
+  if (!entry.profile) {
+    return sfiSignedReply(res, { error: 'insufficient_scope', error_description: 'Jeton sans scope openid' });
+  }
+  return sfiSignedReply(res, entry.profile);
 });
 
 export default router;

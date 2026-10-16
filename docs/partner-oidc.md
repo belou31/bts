@@ -63,44 +63,54 @@ normalisé :
 | `fetchUserInfo` | `false` | `true` si l'`id_token` ne porte aucun claim de profil |
 | `authorizeParams` | — | paramètres supplémentaires sur `/authorize` (ex. `prompt`) |
 
-## Profil AISC / SFI v2.2 (Castelis)
+## Profil AISC / SFI (Castelis)
 
-Premier partenaire raccordé. Sa spécification s'écarte de la norme sur six
-points, tous couverts par les réglages ci-dessus :
+Premier partenaire raccordé. La spécification SFI v2.2 (2016) diffère du
+service réellement servi ; ce qui suit est ce que sert la **préproduction**
+(réponse de Castelis du 16/10/2026 et swagger
+`https://ws-preprod.airbus-staffcouncil.com/api/swagger`) :
 
+- les endpoints sont sur le domaine **WS** (`ws-preprod.…`), pas sur le site
+  des salariés (`preprod.…`, qui répond 404 après connexion) ;
 - pas de document de découverte, pas de JWKS ;
-- endpoints fixes `…/sfi/oauth/v1/{authorize,token,infoUser}` ;
-- PKCE non mentionné ;
-- `/token` attend un corps **JSON**, sans `client_secret` pour
-  `authorization_code` ;
-- l'`id_token` ne porte que `iss`, `iat`, `exp`, `sub`, `aud` : le profil
-  s'obtient sur `infoUser` (GET, `Authorization: Bearer …`) ;
-- erreurs au format RFC 7807 (`{type, title, status, detail}`).
+- PKCE non utilisé ;
+- `/token` : POST avec `client_id`, `client_secret`, `code`, `redirect_uri`
+  (identique à celle de l'autorisation). Les erreurs OAuth répondent
+  **HTTP 200** avec `{error, error_description}` ; seul un client inconnu ou
+  sans secret répond 400 (`unknow_client`) ;
+- l'`id_token` ne porte que `iss`, `iat`, `exp`, `sub`, `aud` (+ `nonce`) ;
+  `iss` vaut `https://ws-preprod.airbus-staffcouncil.com` ;
+- `infoUser` (GET, `Authorization: Bearer …`) répond **`application/jwt`** :
+  un JWT signé par la même clé, erreurs comprises (charge `{error}` ou `[]`,
+  toujours en 200). BTS le vérifie comme l'id_token ;
+- scope **`partenaires`** : `given_name`, `family_name`, `email`, matricule,
+  famille. Pas de `name` : BTS compose prénom + nom. Le scope `billetterie`
+  range ses données dans un objet `billetterie` (`code_societe`, `societe` —
+  un code, pas un libellé —, `subvention`…), d'où le chemin pointé admis par
+  `requiredClaim`.
 
-Le `sub` est le matricule AISC (`M1234569`). Scopes propres au partenaire :
-`od`, `family`, `billetterie` (`matricule_groupe`, `societe`, `code_societe`,
-`conjoint`, `autres_ad`, `subvention`).
+Le `sub` est le matricule AISC.
 
 ```jsonc
 {
   "slug": "aisc",
-  "name": "AISC — Comité social Airbus",
+  "name": "Airbus Staff Council (AISC)",
   "oidc": {
-    "issuer": "https://sfi.aisc.example/sfi",
-    "clientId": "bts-belougas",
+    "issuer": "https://ws-preprod.airbus-staffcouncil.com",
+    "clientId": "belouga",
+    "clientSecret": "…",
     "endpoints": {
-      "authorization": "https://sfi.aisc.example/sfi/oauth/v1/authorize",
-      "token":         "https://sfi.aisc.example/sfi/oauth/v1/token",
-      "userinfo":      "https://sfi.aisc.example/sfi/oauth/v1/infoUser"
+      "authorization": "https://ws-preprod.airbus-staffcouncil.com/sfi/oauth/v1/authorize",
+      "token":         "https://ws-preprod.airbus-staffcouncil.com/sfi/oauth/v1/token",
+      "userinfo":      "https://ws-preprod.airbus-staffcouncil.com/sfi/oauth/v1/infoUser"
     },
-    "scopes": ["openid", "profile", "email", "billetterie"],
+    "scopes": ["openid", "partenaires"],
     "pkce": false,
     "tokenRequest": "json",
-    "clientAuth": "none",
+    "clientAuth": "body",
     "fetchUserInfo": true,
     "idTokenPublicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkq…\n-----END PUBLIC KEY-----",
-    "subjectClaim": "sub",
-    "requiredClaim": { "claim": "societe", "value": "AIRBUS SAS" }
+    "subjectClaim": "sub"
   }
 }
 ```
@@ -139,8 +149,9 @@ OIDC_STUB=true npm run dev
 ```
 
 - profil normalisé : `<APP_URL>/dev/oidc` (découverte, PKCE, JWKS, userinfo) ;
-- profil SFI : `<APP_URL>/dev/oidc/sfi` — ni découverte ni JWKS, `/token` en
-  JSON, `id_token` nu, erreurs RFC 7807. La clé publique se récupère sur
+- profil SFI : `<APP_URL>/dev/oidc/sfi` — calqué sur la préproduction AISC :
+  ni découverte ni JWKS, `client_secret` exigé sur `/token`, erreurs OAuth en
+  HTTP 200, `id_token` nu, `infoUser` en JWT signé. La clé publique se récupère sur
   `/dev/oidc/sfi/keys/public.pem` (hors spec, pour le test seulement).
 
 Deux harnais rejouent le parcours complet puis mettent chaque contrôle en
