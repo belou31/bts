@@ -26,9 +26,11 @@ export function cookieNameFor(slug) {
 export function issueSession(res, { slug, identity, via = 'oidc' }) {
   const token = jwt.sign(
     {
-      slug, sub: identity.subject, email: identity.email || '', name: identity.name || '', via,
-      // Composition familiale, base des règles de quota (cf. partner-oidc.js).
-      ...(identity.household ? { household: identity.household } : {})
+      slug, sub: identity.subject, email: identity.email || '', name: identity.name || '',
+      firstName: identity.firstName || '', lastName: identity.lastName || '', via,
+      // Attributs déclarés dans oidc.identity.attributes : base des droits
+      // (cf. partner-entitlements.js).
+      attributes: identity.attributes || {}
     },
     secret(),
     { expiresIn: TTL_SECONDS }

@@ -23,6 +23,7 @@ import { claimEventSeatHolds, releaseOrderSeatHolds } from '../services/event-se
 import { withMetaZonePrices } from '../utils/meta-zones.js';
 import { isZoneUnit } from '../utils/seat-id.js';
 import { isEventOnSale, isPartnerSaleWindow } from '../utils/event-sale.js';
+import { entitlementsForEvent, cartRefusal } from '../services/partner-entitlements.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
@@ -77,6 +78,41 @@ function isPartnerPresaleAllowed(ev, channelCtx) {
   const cfg = channelCtx.partnerConfig || {};
   const quota = Number(cfg?.presale?.events?.[ev?.slug]?.quota || 0);
   return quota > 0;
+}
+
+// Droits du bénéficiaire connecté (partners.json → entitlements) ; null hors
+// canal partenaire ou sans règles. Lève code=partner_login_required sans session.
+async function getPartnerEntitlements(ev, channelCtx) {
+  if (!channelCtx || channelCtx.kind !== 'partner') return null;
+  return entitlementsForEvent({
+    cfg: channelCtx.partnerConfig || {},
+    partnerSlug: channelCtx.partnerSlug,
+    session: channelCtx.session,
+    event: ev
+  });
+}
+
+// Refus 400/401 à renvoyer si le panier dépasse les droits ; null sinon.
+async function entitlementRefusal(ev, channelCtx, lines) {
+  let ent;
+  try {
+    ent = await getPartnerEntitlements(ev, channelCtx);
+  } catch (e) {
+    if (e?.code === 'partner_login_required') {
+      return { status: 401, body: { ok: false, error: 'partner_login_required', message: e.message } };
+    }
+    throw e;
+  }
+  if (!ent) return null;
+  const refusal = cartRefusal(ent.rules, ent.state, lines);
+  return refusal ? { status: 400, body: { ok: false, ...refusal } } : null;
+}
+
+// Identité de l'acheteur à reporter sur la commande : c'est elle qui permet
+// de décompter les droits par bénéficiaire.
+function partnerHolderMeta(channelCtx) {
+  const s = channelCtx?.session;
+  return s?.sub ? { subject: String(s.sub), holderName: s.name || '' } : {};
 }
 
 async function getPartnerPresaleRemaining(ev, channelCtx) {
@@ -381,6 +417,16 @@ export function createEventFlowRouter({
         if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
         return isEventOnSale(ev) ? 'sale_opened' : 'presale_opened';
       })();
+      let entitlements = null;
+      try {
+        entitlements = (await getPartnerEntitlements(ev, channelCtx))?.state || null;
+      } catch (e) {
+        if (e?.code !== 'partner_login_required') throw e;
+      }
+      const entitlementMax = entitlements
+        ? entitlements.reduce((sum, r) => sum + r.remaining, 0)
+        : null;
+      const session = channelCtx?.kind === 'partner' ? channelCtx.session : null;
       const resolvedVenueView = resolveVenueViewForEvent(ev, channelCtx);
       const [seatsBase, { tariffs, prices, scope }] = await Promise.all([
         // Affichage : cache autorisé (voir SEAT_STATES_CACHE_MS).
@@ -560,7 +606,18 @@ export function createEventFlowRouter({
         // Le front en a besoin pour refuser la place de trop AVANT le
         // paiement : un panier bâti puis rejeté au checkout fait perdre la
         // saisie des porteurs.
-        limits: { maxItems: orderMaxItems() },
+        // entitlementMax : places restantes au titre des droits du
+        // bénéficiaire connecté. Champ distinct car 0 y veut dire « plus rien »,
+        // alors que maxItems = 0 veut dire « pas de plafond ».
+        limits: {
+          maxItems: orderMaxItems(),
+          ...(entitlementMax !== null ? { entitlementMax } : {})
+        },
+        entitlements,
+        // Pré-remplit l'acheteur avec l'identité reçue à la connexion.
+        ...(session?.sub ? {
+          payer: { firstName: session.firstName || '', lastName: session.lastName || '', email: session.email || '' }
+        } : {}),
         tariffs, prices, scope,
         allowedZones: Array.from(allowedSet),
         allowedTariffsByZone,
@@ -692,6 +749,8 @@ export function createEventFlowRouter({
       assert(isPartner ? (remaining ?? 0) > 0 : isEventOnSale(ev), 'Vente fermée pour cet événement.');
 
       const ctxData = await prepareOrderContext(req, ev, channelCtx);
+      const entRefusal = await entitlementRefusal(ev, channelCtx, ctxData.lines);
+      if (entRefusal) return res.status(entRefusal.status).json(entRefusal.body);
       if (isPartner) {
         const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
         if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
@@ -712,6 +771,7 @@ export function createEventFlowRouter({
       const partnerMeta = (channelCtx?.kind === 'partner')
         ? {
             slug: channelCtx.partnerSlug || null,
+            ...partnerHolderMeta(channelCtx),
             ...(ctxData.partnerTotals ? {
               displayTotalCents: ctxData.partnerTotals.displayTotal,
               partnerContributionCents: ctxData.partnerTotals.partnerContribution,
@@ -953,6 +1013,8 @@ export function createEventFlowRouter({
         assert(isPartner ? (remaining ?? 0) > 0 : isEventOnSale(ev), 'Vente fermée pour cet événement.');
 
         const ctxData = await prepareOrderContext(req, ev, channelCtx);
+        const entRefusal = await entitlementRefusal(ev, channelCtx, ctxData.lines);
+        if (entRefusal) return res.status(entRefusal.status).json(entRefusal.body);
         if (isPartner) {
           const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
           if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
@@ -975,6 +1037,7 @@ export function createEventFlowRouter({
         const partnerMeta = (channelCtx?.kind === 'partner')
           ? {
               slug: channelCtx.partnerSlug || null,
+            ...partnerHolderMeta(channelCtx),
               ...(ctxData.partnerTotals ? {
                 displayTotalCents: ctxData.partnerTotals.displayTotal,
                 partnerContributionCents: ctxData.partnerTotals.partnerContribution,

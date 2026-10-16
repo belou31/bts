@@ -48,7 +48,8 @@
     "presaleQuotaReached": "Presale quota reached",
     "presaleQuotaUsed": "Quota used ({{n}})",
     "soldOut": "Sold out",
-    "soldOutSub": "No more tickets available"
+    "soldOutSub": "No more tickets available",
+    "entitlementRemaining": "Your entitlement: {{remaining}} / {{max}} seat(s)"
   },
   "order": {
     "defaultHeading": "BTS Ticketing",
@@ -142,6 +143,8 @@
     "cannotLoadData": "Unable to load data. Please check your link.",
     "tooManyItemsTitle": "Maximum number of seats reached",
     "tooManyItemsDetail": "This order is limited to {{max}} seats. For a larger group, please contact us.",
+    "entitlementReachedTitle": "Your entitlement is used up",
+    "entitlementReachedDetail": "Your entitlement allows {{max}} more seat(s) for this event.",
     "providerUnavailableTitle": "Payment is temporarily unavailable",
     "providerUnavailableDetail": "Our payment provider did not respond. Your seats have been released: your selection is intact — start the payment again.",
     "checkoutTimeoutTitle": "Payment is taking too long to start",

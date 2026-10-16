@@ -388,7 +388,8 @@
           // Avant le hold : un siège réservé puis refusé resterait verrouillé
           // pour les autres jusqu'à expiration, sans rien apporter à personne.
           if (api.canAddRow && !api.canAddRow()) {
-            showFeedback(false, `Maximum ${api.maxItems()} places par commande. Pour un groupe plus important, contactez-nous.`);
+            if (api.capFeedback) api.capFeedback();
+            else showFeedback(false, `Maximum ${api.maxItems()} places par commande. Pour un groupe plus important, contactez-nous.`);
             return;
           }
           const result = await holdSeats([sid]);
@@ -456,6 +457,15 @@
       main = t('saleStatus.closed');
       sub  = t('saleStatus.closedSub');
       stateClass = 'closed';
+    }
+
+    // Droits du bénéficiaire connecté : c'est ce qui borne SON achat, plus
+    // parlant que le quota global du partenaire.
+    const ents = Array.isArray(raw?.entitlements) ? raw.entitlements : [];
+    if (ents.length && (saleStatus === 'sale_opened' || saleStatus === 'presale_opened')) {
+      const remaining = ents.reduce((s, e) => s + (Number(e.remaining) || 0), 0);
+      const max = ents.reduce((s, e) => s + (Number(e.max) || 0), 0);
+      sub = t('saleStatus.entitlementRemaining', { remaining, max });
     }
 
     badge.hidden = false;

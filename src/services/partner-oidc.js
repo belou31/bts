@@ -98,18 +98,16 @@ export function oidcConfigFor(partnerCfg) {
     // Quel claim identifie le bénéficiaire chez ce partenaire. `sub` est le
     // seul garanti stable par la norme ; les autres sont là parce que les
     // annuaires d'entreprise exposent souvent autre chose.
-    subjectClaim: str(o.subjectClaim) || 'sub',
-    emailClaim: str(o.emailClaim) || 'email',
-    nameClaim: str(o.nameClaim) || 'name',
+    // Correspondance claims → identité BTS (cf. identityFromClaims). Les
+    // anciennes clés subjectClaim / emailClaim / nameClaim en restent les
+    // défauts.
+    identity: identityMapping(o),
     // Restreindre l'accès à un groupe / rôle porté par un claim.
     requiredClaim: o.requiredClaim && typeof o.requiredClaim === 'object'
       ? { claim: str(o.requiredClaim.claim), value: o.requiredClaim.value }
       : null,
     // true : le jeton statique ne suffit plus pour ce partenaire.
-    required: o.required === true,
-    // Lecture de la composition familiale, propre au dialecte de l'IdP
-    // (seul « sfi » existe). Absent : rien n'est retenu.
-    household: str(o.household)
+    required: o.required === true
   };
 }
 
@@ -382,55 +380,73 @@ export async function exchangeCode({ oidc, redirectUri, code, verifier, nonce })
   return { claims, accessToken: tokens.access_token || '', raw: tokens };
 }
 
-// JJ/MM/AAAA (format SFI) → AAAA-MM-JJ ; null si illisible ou absent.
-function isoFromFrDate(raw) {
-  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(str(raw));
-  return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+/**
+ * Correspondance déclarée dans `oidc.identity` :
+ *
+ *   "identity": {
+ *     "subject": "sub", "firstName": "given_name", "lastName": "family_name",
+ *     "email": "email", "name": "name",
+ *     "attributes": { "beneficiaries": { "sum": [1, "conjoint", "autres_ad"] } }
+ *   }
+ *
+ * Chaque valeur est une expression (cf. evalClaim). `name` absent : prénom +
+ * nom. `attributes` porte ce que les règles de quota exploitent
+ * (cf. services/partner-entitlements.js).
+ */
+function identityMapping(o) {
+  const id = o.identity && typeof o.identity === 'object' ? o.identity : {};
+  return {
+    subject: id.subject ?? (str(o.subjectClaim) || 'sub'),
+    email: id.email ?? (str(o.emailClaim) || 'email'),
+    name: id.name ?? (str(o.nameClaim) || 'name'),
+    firstName: id.firstName ?? 'given_name',
+    lastName: id.lastName ?? 'family_name',
+    attributes: id.attributes && typeof id.attributes === 'object' ? id.attributes : {}
+  };
+}
+
+function claimAt(claims, path) {
+  // Chemin pointé admis : SFI range ses données billetterie dans un objet
+  // (« billetterie.code_societe »).
+  return String(path).split('.')
+    .reduce((v, k) => (v && typeof v === 'object' ? v[k] : undefined), claims);
 }
 
 /**
- * Composition familiale SFI, réduite à ce qu'exigent des règles de quota :
- * combien de personnes, et leur date de naissance pour les classer adulte /
- * enfant à la date du match. Aucun nom n'est retenu — inutile pour compter,
- * et ce sont des données de tiers.
- *
- *   scope partenaires : conjoint (booléen), autres_ad (nombre d'enfants) ;
- *   scope family      : membres, conjoint d'abord puis enfants (ordre garanti
- *                       par le swagger SFI), chacun avec sa date de naissance.
+ * Évalue une expression de la correspondance :
+ *   "claim"  ou "objet.claim" → valeur du claim (undefined si absent) ;
+ *   nombre                    → lui-même ;
+ *   { "sum": [ … ] }          → somme des termes ; un booléen vaut 1 ou 0.
+ *                               Un terme absent rend la somme ABSENTE (null)
+ *                               plutôt que de compter 0 : un droit sous-évalué
+ *                               en silence serait pire qu'un refus explicite.
  */
-function householdFromSfiClaims(claims) {
-  const hasCounts = claims.conjoint !== undefined || claims.autres_ad !== undefined;
-  const list = Array.isArray(claims.family) ? claims.family : null;
-  if (!hasCounts && !list) return null;
-
-  const spouse = claims.conjoint === true;
-  const children = Number.isInteger(claims.autres_ad) ? claims.autres_ad : null;
-  const household = {
-    spouse,
-    children,
-    // Le bénéficiaire lui-même + ayants droit connus.
-    size: 1 + (spouse ? 1 : 0) + (children || 0)
-  };
-  if (list) {
-    household.members = list.map((m, i) => ({
-      relation: spouse && i === 0 ? 'spouse' : 'child',
-      birthdate: isoFromFrDate(m?.birthdate)
-    }));
+export function evalClaim(spec, claims) {
+  if (typeof spec === 'number') return spec;
+  if (typeof spec === 'string') return claimAt(claims, spec);
+  if (spec && typeof spec === 'object' && Array.isArray(spec.sum)) {
+    let total = 0;
+    for (const term of spec.sum) {
+      const v = evalClaim(term, claims);
+      if (v === undefined || v === null) return null;
+      if (typeof v === 'boolean') total += v ? 1 : 0;
+      else if (Number.isFinite(Number(v))) total += Number(v);
+      else return null;
+    }
+    return total;
   }
-  return household;
+  throw new Error(`expression d'identité non reconnue : ${JSON.stringify(spec)}`);
 }
 
 /** Identité retenue pour la session, et contrôle d'appartenance éventuel. */
 export function identityFromClaims(oidc, claims) {
-  const pick = (name) => (name && claims[name] !== undefined ? claims[name] : undefined);
-  const subject = String(pick(oidc.subjectClaim) ?? claims.sub ?? '').trim();
-  if (!subject) throw new Error(`claim « ${oidc.subjectClaim} » absent de l'identité reçue`);
+  const map = oidc.identity;
+  const text = (spec) => String(evalClaim(spec, claims) ?? '').trim();
+  const subject = text(map.subject);
+  if (!subject) throw new Error(`claim « ${map.subject} » absent de l'identité reçue`);
 
   if (oidc.requiredClaim?.claim) {
-    // Chemin pointé admis : SFI range ses données billetterie dans un objet
-    // (« billetterie.code_societe »).
-    const actual = oidc.requiredClaim.claim.split('.')
-      .reduce((v, k) => (v && typeof v === 'object' ? v[k] : undefined), claims);
+    const actual = claimAt(claims, oidc.requiredClaim.claim);
     const expected = oidc.requiredClaim.value;
     const ok = Array.isArray(actual)
       ? actual.map(String).includes(String(expected))
@@ -442,13 +458,21 @@ export function identityFromClaims(oidc, claims) {
     }
   }
 
+  const firstName = text(map.firstName);
+  const lastName = text(map.lastName);
+  const attributes = {};
+  for (const [key, spec] of Object.entries(map.attributes)) {
+    const v = evalClaim(spec, claims);
+    attributes[key] = v === undefined ? null : v;
+  }
   return {
     subject,
-    household: oidc.household === 'sfi' ? householdFromSfiClaims(claims) : null,
-    email: String(pick(oidc.emailClaim) ?? '').trim(),
+    firstName,
+    lastName,
+    email: text(map.email),
     // Sans `name` (le scope « partenaires » de SFI n'en donne pas), on
-    // compose prénom + nom, les claims standard OIDC.
-    name: String(pick(oidc.nameClaim)
-      ?? [claims.given_name, claims.family_name].filter(Boolean).join(' ')).trim()
+    // compose prénom + nom.
+    name: text(map.name) || [firstName, lastName].filter(Boolean).join(' '),
+    attributes
   };
 }
