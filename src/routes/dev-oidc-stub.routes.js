@@ -229,11 +229,20 @@ function sfiProfile(form, scopes) {
   const has = (s) => scopes.includes(s);
   const out = { sub: String(form.sub || 'M1234569') };
 
+  // Foyer de test : conjoint + deux enfants (un mineur, un majeur).
+  const withSpouse = String(form.conjoint ?? '1') !== '0';
+  const kids = [
+    { matricule: `${out.sub}-03`, given_name: 'Louis', birthdate: '22/01/2014' },
+    { matricule: `${out.sub}-04`, given_name: 'Emma', birthdate: '05/06/2005' }
+  ];
   if (has('partenaires')) {
     Object.assign(out, {
       given_name: String(form.given_name || 'Jean'),
       family_name: String(form.family_name || 'DUPONT'),
-      email: String(form.email || 'jean.dupont@aisc.test')
+      email: String(form.email || 'jean.dupont@aisc.test'),
+      matricule: out.sub,
+      conjoint: withSpouse,
+      autres_ad: kids.length
     });
   }
   if (has('profile')) {
@@ -259,10 +268,17 @@ function sfiProfile(form, scopes) {
   }
   if (has('od')) Object.assign(out, { od: String(form.od || 'OD_TOULOUSE') });
   if (has('family')) {
-    Object.assign(out, {
-      conjoint: { nom: 'DUPONT', prenom: 'Marie', date_naissance: '09/07/1980' },
-      autres_ad: [{ nom: 'DUPONT', prenom: 'Louis', date_naissance: '22/01/2012', lien: 'enfant' }]
+    // Schéma PersonInfo du swagger : conjoint d'abord, puis les enfants.
+    const person = (p, gender) => ({
+      matricule: p.matricule, name: `${gender === 'Feminin' ? 'Madame' : 'Monsieur'} Dupont ${p.given_name}`,
+      family_name: 'Dupont', given_name: p.given_name, usage_family_name: '', usage_given_name: '',
+      gender, birthdate: p.birthdate
     });
+    out.family = [
+      ...(withSpouse ? [person({ matricule: `${out.sub}-02`, given_name: 'Marie', birthdate: '09/07/1980' }, 'Feminin')] : []),
+      person(kids[0], 'Masculin'),
+      person(kids[1], 'Feminin')
+    ];
   }
   if (has('billetterie')) {
     // Objet imbriqué, schéma BilletterieInfo du swagger de préproduction.

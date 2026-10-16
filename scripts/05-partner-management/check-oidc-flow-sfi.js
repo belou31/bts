@@ -69,7 +69,8 @@ try {
       userinfo: `${SFI}/oauth/v1/infoUser`
     },
     clientSecret: 'secret-sfi-test',
-    scopes: ['openid', 'partenaires', 'billetterie'],
+    scopes: ['openid', 'partenaires', 'family', 'billetterie'],
+    household: 'sfi',
     pkce: false,
     tokenRequest: 'json',
     clientAuth: 'body',
@@ -137,7 +138,7 @@ try {
   check('aucun paramètre PKCE envoyé',
     !au.searchParams.has('code_challenge') && !au.searchParams.has('code_challenge_method'));
   check('scopes du partenaire transmis',
-    au.searchParams.get('scope') === 'openid partenaires billetterie',
+    au.searchParams.get('scope') === 'openid partenaires family billetterie',
     au.searchParams.get('scope'));
   check('state et nonce présents',
     !!au.searchParams.get('state') && !!au.searchParams.get('nonce'));
@@ -153,6 +154,23 @@ try {
   check('sujet = matricule AISC', w.subject === 'M1234569', String(w.subject));
   check('courriel repris d\'infoUser', w.email === 'jean.dupont@aisc.test', String(w.email));
   check('nom composé prénom + nom (scope partenaires)', w.name === 'Jean DUPONT', String(w.name));
+  const h = w.household || {};
+  check('foyer : conjoint + 2 enfants, 4 personnes',
+    h.spouse === true && h.children === 2 && h.size === 4, JSON.stringify({ spouse: h.spouse, children: h.children, size: h.size }));
+  check('foyer : membres avec date ISO, sans nom',
+    Array.isArray(h.members) && h.members.length === 3
+    && h.members[0].relation === 'spouse' && h.members[0].birthdate === '1980-07-09'
+    && h.members[1].relation === 'child' && h.members[1].birthdate === '2014-01-22'
+    && h.members.every(m => !('name' in m) && !('given_name' in m)),
+    JSON.stringify(h.members));
+  check('foyer : âge du jour calculé', Number.isInteger(h.members?.[1]?.ageToday), String(h.members?.[1]?.ageToday));
+  const jSolo = await journey('zzaisc', { conjoint: '0' });
+  const wSolo = await (await get(`${B}/partner/zzaisc/auth/whoami`)).json();
+  check('foyer sans conjoint : 1er membre = enfant',
+    jSolo.res.status === 302 && wSolo.household?.size === 3 && wSolo.household?.members?.[0]?.relation === 'child',
+    JSON.stringify(wSolo.household?.members?.map(m => m.relation)));
+  // Rétablit la session du parcours principal pour la suite.
+  await journey('zzaisc', {}, '?next=/partner/zzaisc/events');
 
   console.log('\n\x1b[1m3b. Connexion obligatoire (oidc.required)\x1b[0m');
   const { checkPartnerAccess, partnerLoginPath } =
