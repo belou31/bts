@@ -30,6 +30,9 @@ import adminOrderContactRoutes from './admin/order-contact.routes.js';
 import adminOrderSeatRoutes from './admin/order-seat.routes.js';
 import adminSeatStateRoutes from './admin/seat-state.routes.js';
 import partnerAuthRoutes from './partner-auth.routes.js';
+import {
+  checkPartnerAccess, expectedPartnerToken, isOidcRequired, partnerLoginPath
+} from '../services/partner-access.js';
 import devOidcStub from './dev-oidc-stub.routes.js';
 import payRoutes from './pay.js';      
 import controlGuestlistRoutes from './control/guestlist.js';
@@ -60,12 +63,13 @@ const MEDIA_PREFIX = path.posix.join(DYNAMIC_PREFIX, 'assets/').replace(/\/{2,}/
 const VENUES_PREFIX = path.posix.join(DYNAMIC_PREFIX, 'venues/').replace(/\/{2,}/g, '/');
 const ASSETS_BASE = { static: STATIC_PREFIX, media: MEDIA_PREFIX, venues: VENUES_PREFIX, base: DYNAMIC_PREFIX };
 const PARTNER_FRAME_ANCESTORS = (process.env.PARTNER_FRAME_ANCESTORS || '').trim();
-function expectedPartnerToken(cfg, eventSlug) {
-  if (!cfg) return null;
-  if (cfg.tokens?.events && eventSlug && cfg.tokens.events[eventSlug]) {
-    return cfg.tokens.events[eventSlug];
+// Refus d'accès partenaire : sans session OIDC obligatoire, on envoie se
+// connecter puis revenir ici ; sinon 403 comme avant.
+function denyPartnerAccess(req, res, slug, access) {
+  if (access.reason === 'login_required') {
+    return res.redirect(302, partnerLoginPath(BASE_PATH, slug, req));
   }
-  return cfg.accessToken || null;
+  return res.status(403).send('Access restricted for this partner.');
 }
 
 function applyPartnerFrameAncestorsHeaders(res, overrideList) {
@@ -706,10 +710,9 @@ export default function routes(router) {
       if (!partnerCfg) return res.status(404).send('Partner not found');
 
       const providedToken = (req.query?.token || '').trim();
-      const expectedGlobalToken = expectedPartnerToken(partnerCfg, null);
-      if (expectedGlobalToken && providedToken !== expectedGlobalToken) {
-        return res.status(403).send('Access restricted for this partner.');
-      }
+      const access = checkPartnerAccess(req, partnerCfg, null);
+      if (!access.ok) return denyPartnerAccess(req, res, partnerSlug, access);
+      const oidcRequired = isOidcRequired(partnerCfg);
       if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
         return res.status(403).send('Access restricted for this partner.');
       }
@@ -745,7 +748,8 @@ export default function routes(router) {
           return isEventOnSale(ev) ? 'sale_opened' : 'presale_opened';
         })();
         const expectedToken = expectedPartnerToken(partnerCfg, ev.slug);
-        const sameToken = !expectedToken || expectedToken === providedToken;
+        // Connexion OIDC obligatoire : la session vaut pour tous les matchs.
+        const sameToken = oidcRequired || !expectedToken || expectedToken === providedToken;
         const link = (sameToken && (status === 'sale_opened' || status === 'presale_opened'))
           ? path.posix.join(BASE_PATH || '/', 'partner', partnerSlug, 'event', ev.slug) +
               (providedToken ? `?token=${encodeURIComponent(providedToken)}` : '')
@@ -812,12 +816,10 @@ export default function routes(router) {
       const partnerCfg = getPartnerConfig(partnerSlug);
       if (!partnerCfg) return res.status(404).send('Partner not found');
 
-      // Même garde que le flux événement : jeton global du partenaire.
-      const expectedToken = expectedPartnerToken(partnerCfg, null);
+      // Même garde que le flux événement : jeton global ou session OIDC.
       const providedToken = (req.query?.token || '').trim();
-      if (expectedToken && providedToken !== expectedToken) {
-        return res.status(403).send('Access restricted for this partner.');
-      }
+      const partnerAccess = checkPartnerAccess(req, partnerCfg, null);
+      if (!partnerAccess.ok) return denyPartnerAccess(req, res, partnerSlug, partnerAccess);
       if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
         return res.status(403).send('Access restricted for this partner.');
       }
@@ -941,11 +943,9 @@ export default function routes(router) {
       return res.status(404).send('Partner not found');
     }
 
-    const expectedToken = expectedPartnerToken(partnerCfg, eventSlug);
     const providedToken = (req.query?.token || '').trim();
-    if (expectedToken && providedToken !== expectedToken) {
-      return res.status(403).send('Access restricted for this partner.');
-    }
+    const access = checkPartnerAccess(req, partnerCfg, eventSlug);
+    if (!access.ok) return denyPartnerAccess(req, res, partnerSlug, access);
 
     if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
       return res.status(403).send('Access restricted for this partner.');

@@ -167,11 +167,24 @@ Sources : `scripts/05-partner-management/check-oidc-flow.js` et
 `check-oidc-flow-sfi.js`. Les deux démarrent leur propre serveur sur un port
 libre et ne demandent ni base de données ni `.env`.
 
-## Limite connue
+## Connexion obligatoire
 
-`required: true` est lu et transporté, mais **pas encore appliqué** : les pages
-partenaire continuent de vérifier le jeton statique comme avant. Une session
-OIDC s'ouvre et `whoami` la renvoie, mais elle ne remplace pas encore le jeton.
-C'est le prochain pas à franchir, et il mérite d'être décidé partenaire par
-partenaire — le basculer d'un coup couperait l'accès à ceux qui utilisent
-l'iframe.
+`"required": true` dans le bloc `oidc` rend la connexion obligatoire pour ce
+partenaire (`src/services/partner-access.js`) :
+
+- pages `/partner/<slug>/events`, `/event/<match>`, `/season/<code>/subscribe` :
+  sans session, redirection vers `/partner/<slug>/auth/login?next=<page>`, qui
+  ramène sur la page demandée après connexion ;
+- API `/api/partner/<slug>/…` : `401 {"error": "partner_login_required"}` ;
+- le jeton statique (`?token=`, `x-partner-token`) **n'ouvre plus l'accès** :
+  sinon l'obligation se contournerait en le recopiant.
+
+Sans `required` (ou à `false`), le partenaire reste au jeton statique, inchangé.
+
+La session dure `PARTNER_SESSION_TTL_MIN` minutes (120 par défaut). Son cookie
+est `SameSite=Lax` : il n'est pas envoyé dans une iframe hébergée sur un autre
+site. Un partenaire à connexion obligatoire s'ouvre donc en page directe, pas
+en iframe.
+
+Les liens de renouvellement d'abonnement (`/season/<code>/renew?id=…`) restent
+nominatifs et signés : ils ne demandent pas de connexion.

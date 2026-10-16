@@ -4,24 +4,11 @@ import createEventFlowRouter from './event-flow.factory.js';
 import subscriptionRouter from './subscription.js';
 import { getPartnerConfig } from '../config/partners.js';
 import { Order } from '../models/Order.js';
+import { checkPartnerAccess } from '../services/partner-access.js';
 
 const router = Router();
 const adminRouter = Router({ mergeParams: true });
 
-function expectedPartnerToken(cfg, eventSlug) {
-  if (!cfg) return null;
-  if (cfg.tokens?.events && eventSlug && cfg.tokens.events[eventSlug]) {
-    return cfg.tokens.events[eventSlug];
-  }
-  return cfg.accessToken || null;
-}
-
-function verifyPartnerToken(req, cfg) {
-  const expected = expectedPartnerToken(cfg, req.params.eventId || req.params.eventSlug);
-  if (!expected) return true;
-  const provided = (req.query?.token || req.get('x-partner-token') || '').trim();
-  return provided && provided === expected;
-}
 
 const partnerEventRouter = createEventFlowRouter({
   flowKey: 'partner',
@@ -54,7 +41,8 @@ const partnerEventRouter = createEventFlowRouter({
   }
 });
 
-// Garde commune aux deux flux partenaire : partenaire connu + jeton valide.
+// Garde commune aux deux flux partenaire : partenaire connu + jeton valide
+// (ou session OIDC, pour un partenaire dont la connexion est obligatoire).
 function requireKnownPartner(req, res, next) {
   const cfg = getPartnerConfig(req.params.partnerSlug);
   if (!cfg) {
@@ -63,11 +51,16 @@ function requireKnownPartner(req, res, next) {
     }
     return res.status(404).send('Partner not found');
   }
-  if (!verifyPartnerToken(req, cfg)) {
+  const access = checkPartnerAccess(req, cfg, req.params.eventId || req.params.eventSlug);
+  if (!access.ok) {
+    // 401 et non 403 sans session : la page peut renvoyer se connecter.
+    const login = access.reason === 'login_required';
     if (req.accepts('json')) {
-      return res.status(403).json({ ok: false, error: 'partner_token_invalid' });
+      return res.status(login ? 401 : 403)
+        .json({ ok: false, error: login ? 'partner_login_required' : 'partner_token_invalid' });
     }
-    return res.status(403).send('Access restricted for this partner (token).');
+    return res.status(login ? 401 : 403)
+      .send(login ? 'Connexion partenaire requise.' : 'Access restricted for this partner (token).');
   }
   req.partnerConfig = cfg;
   next();
