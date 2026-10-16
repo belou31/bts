@@ -8,8 +8,10 @@
 // dans un répertoire jetable, et le test le vérifie avant de rendre la main.
 //
 // Éprouve le parcours contre un IdP qui NE publie PAS de découverte, PAS de
-// JWKS, n'accepte PAS PKCE, veut du JSON sur /token et ne met aucun claim de
-// profil dans l'id_token. Puis met chaque contrôle en échec volontairement.
+// JWKS, n'accepte PAS PKCE, exige client_secret sur /token, y rend ses
+// erreurs en HTTP 200, ne met aucun claim de profil dans l'id_token et sert
+// infoUser en JWT signé — comportement de la préproduction AISC (swagger
+// /api/openapi.json). Puis met chaque contrôle en échec volontairement.
 import express from 'express';
 import fs from 'fs';
 import os from 'os';
@@ -66,14 +68,15 @@ try {
       token: `${SFI}/oauth/v1/token`,
       userinfo: `${SFI}/oauth/v1/infoUser`
     },
-    scopes: ['openid', 'profile', 'email', 'billetterie'],
+    clientSecret: 'secret-sfi-test',
+    scopes: ['openid', 'partenaires', 'billetterie'],
     pkce: false,
     tokenRequest: 'json',
-    clientAuth: 'none',
+    clientAuth: 'body',
     fetchUserInfo: true,
     idTokenPublicKey: pem,
     subjectClaim: 'sub',
-    requiredClaim: { claim: 'societe', value: 'AIRBUS SAS' },
+    requiredClaim: { claim: 'billetterie.code_societe', value: 'AER' },
     required: true
   };
   const list = [{ slug: 'zzaisc', name: 'AISC (test SFI)', oidc: sfiOidc }];
@@ -134,7 +137,7 @@ try {
   check('aucun paramètre PKCE envoyé',
     !au.searchParams.has('code_challenge') && !au.searchParams.has('code_challenge_method'));
   check('scopes du partenaire transmis',
-    au.searchParams.get('scope') === 'openid profile email billetterie',
+    au.searchParams.get('scope') === 'openid partenaires billetterie',
     au.searchParams.get('scope'));
   check('state et nonce présents',
     !!au.searchParams.get('state') && !!au.searchParams.get('nonce'));
@@ -149,7 +152,7 @@ try {
   check('session ouverte', who.status === 200, `HTTP ${who.status}`);
   check('sujet = matricule AISC', w.subject === 'M1234569', String(w.subject));
   check('courriel repris d\'infoUser', w.email === 'jean.dupont@aisc.test', String(w.email));
-  check('nom repris d\'infoUser', w.name === 'Jean DUPONT', String(w.name));
+  check('nom composé prénom + nom (scope partenaires)', w.name === 'Jean DUPONT', String(w.name));
 
   console.log('\n\x1b[1m4. L\'id_token est nu : le profil vient d\'infoUser\x1b[0m');
   // Rejoue l'échange à la main pour inspecter les jetons bruts.
@@ -162,7 +165,10 @@ try {
   const rawCode = new URL(rawAuth.headers.get('location')).searchParams.get('code');
   const tokRes = await fetch(`${SFI}/oauth/v1/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: 'bts-belougas', grant_type: 'authorization_code', code: rawCode })
+    body: JSON.stringify({
+      client_id: 'bts-belougas', client_secret: 'secret-sfi-test', grant_type: 'authorization_code',
+      code: rawCode, redirect_uri: au.searchParams.get('redirect_uri')
+    })
   });
   const tok = await tokRes.json();
   const idClaims = JSON.parse(Buffer.from(tok.id_token.split('.')[1], 'base64url').toString('utf8'));
@@ -172,25 +178,31 @@ try {
   const infoRes = await fetch(`${SFI}/oauth/v1/infoUser`, {
     headers: { Authorization: `Bearer ${tok.access_token}` }
   });
-  const info = await infoRes.json();
-  check('infoUser porte les claims billetterie',
-    info.matricule_groupe === 'G0042' && info.societe === 'AIRBUS SAS' && info.subvention === 'A');
-  check('dates au format JJ/MM/AAAA (non ISO)',
-    /^\d{2}\/\d{2}\/\d{4}$/.test(info.birthdate || ''), String(info.birthdate));
+  check('infoUser répond en application/jwt',
+    (infoRes.headers.get('content-type') || '').includes('application/jwt'),
+    infoRes.headers.get('content-type') || '');
+  const infoJwt = (await infoRes.text()).trim();
+  const info = JSON.parse(Buffer.from(infoJwt.split('.')[1], 'base64url').toString('utf8'));
+  check('infoUser porte nom, prénom, courriel (partenaires)',
+    info.given_name === 'Jean' && info.family_name === 'DUPONT' && info.email === 'jean.dupont@aisc.test');
+  check('infoUser porte l\'objet billetterie',
+    info.billetterie?.code_societe === 'AER' && info.billetterie?.matricule_groupe === 'M1234569',
+    JSON.stringify(info.billetterie));
 
   console.log('\n\x1b[1m5. Dialecte du endpoint /token\x1b[0m');
-  const formTok = await fetch(`${SFI}/oauth/v1/token`, {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: 'bts-belougas', grant_type: 'authorization_code', code: 'x' })
-  });
-  check('form-urlencoded refusé par l\'IdP (415)', formTok.status === 415,
-    `HTTP ${formTok.status} — donc le succès ci-dessus prouve l'envoi en JSON`);
-  const pb = await (await fetch(`${SFI}/oauth/v1/token`, {
+  const noSecret = await fetch(`${SFI}/oauth/v1/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: 'bts-belougas', grant_type: 'password' })
-  })).json();
-  check('erreurs au format problem-detail', pb.title === 'unsupported_grant_type' && pb.status === 400,
-    JSON.stringify(pb));
+    body: JSON.stringify({ client_id: 'bts-belougas', grant_type: 'authorization_code', code: 'x' })
+  });
+  check('client_secret exigé (400 unknow_client)', noSecret.status === 400
+    && (await noSecret.json()).error === 'unknow_client', `HTTP ${noSecret.status}`);
+  const badGrantRes = await fetch(`${SFI}/oauth/v1/token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: 'bts-belougas', client_secret: 's', grant_type: 'password' })
+  });
+  const badGrant = await badGrantRes.json();
+  check('erreur OAuth rendue en HTTP 200 avec « error »',
+    badGrantRes.status === 200 && badGrant.error === 'unsupported_grant_type', JSON.stringify(badGrant));
 
   console.log('\n\x1b[1m6. Contrôles de sécurité mis en échec\x1b[0m');
   // Le cookie de transaction doit être VIVANT, sinon le refus viendrait de son
@@ -215,25 +227,34 @@ try {
   // consommé, donc un second callback échouerait de toute façon et ne
   // prouverait rien sur l'usage unique du code.
   const codeOnce = cbS.searchParams.get('code');
-  const body1 = { client_id: 'bts-belougas', grant_type: 'authorization_code', code: codeOnce };
+  const body1 = {
+    client_id: 'bts-belougas', client_secret: 'secret-sfi-test', grant_type: 'authorization_code',
+    code: codeOnce, redirect_uri: cbS.origin + cbS.pathname
+  };
   const t1 = await fetch(`${SFI}/oauth/v1/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body1)
   });
   const t2 = await fetch(`${SFI}/oauth/v1/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body1)
   });
+  const t1j = await t1.json();
   const t2j = await t2.json();
   check('code valable une seule fois',
-    t1.status === 200 && t2.status === 400 && t2j.title === 'invalid_grant',
-    `1er ${t1.status}, 2e ${t2.status} ${t2j.detail || ''}`);
+    !!t1j.id_token && t2j.error === 'invalid_grant',
+    `1er ${t1j.error || 'id_token'}, 2e ${t2j.error || 'id_token'}`);
 
   const jDeny = await journey('zzaisc', { deny: '1' });
   check('refus de l\'ayant droit → 403', jDeny.res.status === 403,
     (await jDeny.res.text()).slice(0, 60));
 
-  const jSoc = await journey('zzaisc', { societe: 'AUTRE SA' });
+  const jSoc = await journey('zzaisc', { code_societe: 'XYZ' });
   check('société non conforme → 403', jSoc.res.status === 403,
     (await jSoc.res.text()).slice(0, 60));
+
+  const jInfo = await journey('zzaisc', { infouser_error: '1' });
+  const infoTxt = await jInfo.res.text();
+  check('erreur infoUser (JWT en 200) → refus', jInfo.res.status === 502 && /invalid_token/.test(infoTxt),
+    infoTxt.slice(0, 90));
 
   const jNonce = await journey('zzaisc', { no_nonce: '1' });
   const nonceTxt = await jNonce.res.text();
@@ -262,7 +283,7 @@ try {
   const badScope = await (await fetch(
     `${SFI}/oauth/v1/authorize?client_id=bts-belougas&response_type=code&state=s`
     + `&scope=openid+inconnu&redirect_uri=${encodeURIComponent(B + '/x')}`)).json();
-  check('scope inconnu refusé', badScope.title === 'invalid_scope', badScope.detail || '');
+  check('scope inconnu refusé', badScope.error === 'invalid_scope', badScope.error_description || '');
   const cc = await (await fetch(`${SFI}/oauth/v1/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ client_id: 'bts-belougas', client_secret: 'srv', grant_type: 'client_credentials' })
