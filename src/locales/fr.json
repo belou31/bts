@@ -48,7 +48,8 @@
     "presaleQuotaReached": "Quota prévente atteint",
     "presaleQuotaUsed": "Quota utilisé ({{n}})",
     "soldOut": "Complet",
-    "soldOutSub": "Plus de places disponibles"
+    "soldOutSub": "Plus de places disponibles",
+    "entitlementRemaining": "Vos droits : {{remaining}} / {{max}} place(s)"
   },
   "order": {
     "defaultHeading": "Billetterie BTS",
@@ -142,6 +143,8 @@
     "cannotLoadData": "Impossible de charger les données. Vérifiez votre lien.",
     "tooManyItemsTitle": "Maximum de places atteint",
     "tooManyItemsDetail": "Cette commande est limitée à {{max}} places. Pour un groupe plus important, contactez-nous.",
+    "entitlementReachedTitle": "Vos droits sont atteints",
+    "entitlementReachedDetail": "Vos droits vous permettent encore {{max}} place(s) sur ce match.",
     "providerUnavailableTitle": "Le paiement est momentanément indisponible",
     "providerUnavailableDetail": "Notre prestataire de paiement n’a pas répondu. Vos places ont été libérées : votre sélection est intacte, relancez le paiement.",
     "checkoutTimeoutTitle": "Le paiement met trop de temps à démarrer",

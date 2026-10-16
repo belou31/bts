@@ -70,7 +70,10 @@ try {
     },
     clientSecret: 'secret-sfi-test',
     scopes: ['openid', 'partenaires', 'family', 'billetterie'],
-    household: 'sfi',
+    identity: {
+      subject: 'sub', firstName: 'given_name', lastName: 'family_name', email: 'email',
+      attributes: { beneficiaries: { sum: [1, 'conjoint', 'autres_ad'] } }
+    },
     pkce: false,
     tokenRequest: 'json',
     clientAuth: 'body',
@@ -154,21 +157,14 @@ try {
   check('sujet = matricule AISC', w.subject === 'M1234569', String(w.subject));
   check('courriel repris d\'infoUser', w.email === 'jean.dupont@aisc.test', String(w.email));
   check('nom composé prénom + nom (scope partenaires)', w.name === 'Jean DUPONT', String(w.name));
-  const h = w.household || {};
-  check('foyer : conjoint + 2 enfants, 4 personnes',
-    h.spouse === true && h.children === 2 && h.size === 4, JSON.stringify({ spouse: h.spouse, children: h.children, size: h.size }));
-  check('foyer : membres avec date ISO, sans nom',
-    Array.isArray(h.members) && h.members.length === 3
-    && h.members[0].relation === 'spouse' && h.members[0].birthdate === '1980-07-09'
-    && h.members[1].relation === 'child' && h.members[1].birthdate === '2014-01-22'
-    && h.members.every(m => !('name' in m) && !('given_name' in m)),
-    JSON.stringify(h.members));
-  check('foyer : âge du jour calculé', Number.isInteger(h.members?.[1]?.ageToday), String(h.members?.[1]?.ageToday));
+  check('prénom / nom séparés (pré-remplissage acheteur)',
+    w.firstName === 'Jean' && w.lastName === 'DUPONT', `${w.firstName} / ${w.lastName}`);
+  check('attribut beneficiaries = 1 + conjoint + enfants = 4',
+    w.attributes?.beneficiaries === 4, JSON.stringify(w.attributes));
   const jSolo = await journey('zzaisc', { conjoint: '0' });
   const wSolo = await (await get(`${B}/partner/zzaisc/auth/whoami`)).json();
-  check('foyer sans conjoint : 1er membre = enfant',
-    jSolo.res.status === 302 && wSolo.household?.size === 3 && wSolo.household?.members?.[0]?.relation === 'child',
-    JSON.stringify(wSolo.household?.members?.map(m => m.relation)));
+  check('sans conjoint : beneficiaries = 3',
+    jSolo.res.status === 302 && wSolo.attributes?.beneficiaries === 3, JSON.stringify(wSolo.attributes));
   // Rétablit la session du parcours principal pour la suite.
   await journey('zzaisc', {}, '?next=/partner/zzaisc/events');
 
@@ -197,6 +193,44 @@ try {
   check('partenaire à jeton : inchangé',
     checkPartnerAccess(reqWith('', { token: 'abc' }), tokCfg).ok === true
     && checkPartnerAccess(reqWith(''), tokCfg).reason === 'token_invalid');
+
+  console.log('\n\x1b[1m3c. Droits (entitlements) : règles pures\x1b[0m');
+  const E = await import(path.join(ROOT, 'src/services/partner-entitlements.js'));
+  const { evalClaim } = await import(path.join(ROOT, 'src/services/partner-oidc.js'));
+  check('sum : booléen compte 1', evalClaim({ sum: [1, 'a', 'b'] }, { a: true, b: 2 }) === 4);
+  check('sum : terme absent → null (pas 0)', evalClaim({ sum: [1, 'a', 'b'] }, { a: true }) === null);
+  check('chemin pointé', evalClaim('x.y', { x: { y: 'v' } }) === 'v');
+  const rules = E.entitlementRules({ entitlements: [
+    { key: 'ad', label: 'Ayants droit', max: { attribute: 'beneficiaries' } }
+  ] });
+  const sess = { sub: 'M1', attributes: { beneficiaries: 5 } };
+  const line = (t, n = 1) => Array.from({ length: n }, () => ({ tariffCode: t }));
+  let st = E.entitlementState(rules, sess, line('AISC', 2));
+  check('état : max 5, déjà 2, reste 3', st[0].max === 5 && st[0].used === 2 && st[0].remaining === 3,
+    JSON.stringify(st[0]));
+  check('panier de 3 accepté', E.cartRefusal(rules, st, line('AISC', 3)) === null);
+  const over = E.cartRefusal(rules, st, line('AISC', 4));
+  check('panier de 4 refusé', over?.error === 'entitlement_exceeded' && over.remaining === 3, over?.message);
+  st = E.entitlementState(rules, { sub: 'M1', attributes: {} }, []);
+  const noAttr = E.cartRefusal(rules, st, line('AISC', 1));
+  check('attribut absent → refus explicite', st[0].unavailable === 'attribute_missing'
+    && noAttr?.error === 'entitlement_exceeded', noAttr?.message);
+  const split = E.entitlementRules({ entitlements: [
+    { key: 'enfants', max: 2, tariffs: ['ENFANT'] },
+    { key: 'adultes', max: { attribute: 'beneficiaries' }, tariffs: ['ADULTE'] }
+  ] });
+  const stSplit = E.entitlementState(split, sess, []);
+  check('paniers par tarif : 3 enfants refusés', E.cartRefusal(split, stSplit, line('ENFANT', 3))?.key === 'enfants');
+  const unc = E.cartRefusal(split, stSplit, line('PLEIN', 1));
+  check('tarif non couvert → refusé', unc?.error === 'entitlement_tariff_not_covered', unc?.message);
+  let bad = '';
+  try { E.entitlementRules({ entitlements: [{ key: 'x', per: 'season', max: 1 }] }); } catch (e) { bad = e.message; }
+  check('per non pris en charge → erreur de configuration', /per « season »/.test(bad), bad);
+  let login = '';
+  try {
+    await E.entitlementsForEvent({ cfg: { entitlements: [{ key: 'x', max: 1 }] }, partnerSlug: 'p', session: null, event: {} });
+  } catch (e) { login = e.code; }
+  check('sans session → connexion requise', login === 'partner_login_required', login);
 
   console.log('\n\x1b[1m4. L\'id_token est nu : le profil vient d\'infoUser\x1b[0m');
   // Rejoue l'échange à la main pour inspecter les jetons bruts.

@@ -110,7 +110,10 @@ Le `sub` est le matricule AISC.
     "clientAuth": "body",
     "fetchUserInfo": true,
     "idTokenPublicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkq…\n-----END PUBLIC KEY-----",
-    "subjectClaim": "sub"
+    "identity": {
+      "subject": "sub", "firstName": "given_name", "lastName": "family_name", "email": "email",
+      "attributes": { "beneficiaries": { "sum": [1, "conjoint", "autres_ad"] } }
+    }
   }
 }
 ```
@@ -167,27 +170,69 @@ Sources : `scripts/05-partner-management/check-oidc-flow.js` et
 `check-oidc-flow-sfi.js`. Les deux démarrent leur propre serveur sur un port
 libre et ne demandent ni base de données ni `.env`.
 
-## Composition familiale (base des règles de quota)
+## Identité et droits d'achat
 
-`"household": "sfi"` dans le bloc `oidc` fait retenir dans la session, et
-afficher par `/partner/<slug>/auth/whoami`, un résumé du foyer :
+### Correspondance des claims (`oidc.identity`)
 
 ```json
-"household": {
-  "spouse": true, "children": 2, "size": 4,
-  "members": [
-    { "relation": "spouse", "birthdate": "1980-07-09", "ageToday": 46 },
-    { "relation": "child",  "birthdate": "2014-01-22", "ageToday": 12 }
-  ]
+"identity": {
+  "subject": "sub",
+  "firstName": "given_name",
+  "lastName": "family_name",
+  "email": "email",
+  "attributes": {
+    "beneficiaries": { "sum": [1, "conjoint", "autres_ad"] }
+  }
 }
 ```
 
-- `spouse`, `children`, `size` (bénéficiaire compris) : scope `partenaires`
-  (`conjoint`, `autres_ad`) ;
-- `members` : scope `family` seulement. SFI liste le conjoint d'abord, puis les
-  enfants ; c'est de cet ordre que vient `relation`. Dates converties en ISO.
-- aucun nom de membre n'est conservé ; `ageToday` n'est calculé que pour
-  l'affichage — une règle adulte / enfant se juge à la date du match.
+Chaque valeur est une expression :
+
+- `"claim"` ou `"objet.claim"` : valeur du claim ;
+- un nombre : lui-même ;
+- `{ "sum": [ … ] }` : somme des termes, un booléen valant 1 ou 0. Si un terme
+  manque, la somme est **absente** (et non 0) : un droit sous-évalué en silence
+  serait pire qu'un refus explicite.
+
+`name` absent : prénom + nom. Sans bloc `identity`, les anciennes clés
+`subjectClaim` / `emailClaim` / `nameClaim` restent lues.
+
+La session garde sujet, nom, prénom, courriel et `attributes` ;
+`/partner/<slug>/auth/whoami` les affiche. Le prénom, le nom et le courriel
+pré-remplissent l'acheteur du panier.
+
+### Droits (`entitlements`, au niveau du partenaire)
+
+```json
+"entitlements": [
+  { "key": "ayants-droit", "label": "Places ayants droit", "per": "event",
+    "max": { "attribute": "beneficiaries" } }
+]
+```
+
+| Champ | Rôle |
+| --- | --- |
+| `key` | identifiant stable du panier de droits |
+| `label` | libellé montré à l'acheteur et dans les refus |
+| `per` | période de décompte ; seul `event` (par match) existe |
+| `max` | entier, ou `{ "attribute": "…" }` lu dans la session |
+| `tariffs` | codes tarif couverts ; absent = tous |
+
+- une ligne relève du **premier** panier qui couvre son tarif ; une ligne
+  qu'aucun ne couvre est refusée ;
+- le décompte porte sur les commandes de ce bénéficiaire (`meta.partner.subject`,
+  désormais enregistré) sur ce match, hors annulées / échouées ;
+- l'API de statut renvoie `entitlements` (max, déjà commandé, restant) et
+  `limits.entitlementMax` ; le panier bloque la place de trop, le badge affiche
+  « Vos droits : x / y place(s) » ; le paiement et la réservation refusent un
+  dépassement (`entitlement_exceeded`, `entitlement_tariff_not_covered`) ;
+- les droits exigent une session : sans elle, l'API répond
+  `partner_login_required` ;
+- le quota global du partenaire (`presale.events`) reste le plafond commun.
+
+Évolutions prévues sans changer la forme : un panier par catégorie
+(adultes / ados / enfants, chacun avec ses tarifs et son attribut), un panier
+« places en plus » au tarif public avec un `max` fixe.
 
 ## Connexion obligatoire
 

@@ -72,9 +72,7 @@ window.BTS_VIEW = {
       // paiement. Rend null plutôt que de lever : les appelants enchaînent sur
       // le retour, et une exception laisserait le siège surligné comme choisi.
       if (orderMaxItemsReached()) {
-        setFeedback('error', translate('generic.tooManyItemsTitle'), [
-          translate('generic.tooManyItemsDetail', { max: orderMaxItems() })
-        ]);
+        capFeedback();
         return null;
       }
       const row = makeRowForSeat(seatLike);
@@ -88,6 +86,7 @@ window.BTS_VIEW = {
     // refuser après avoir réservé le siège le laisserait verrouillé pour rien.
     canAddRow: () => !orderMaxItemsReached(),
     maxItems: () => orderMaxItems(),
+    capFeedback: () => capFeedback(),
     getCTX: () => CTX,
     getData: () => CTX.raw || null,
     findSeatElement,
@@ -468,8 +467,32 @@ function syncSelectedHighlights() {
 // vieux cache, vue non encore adaptée — on ne plafonne pas côté client : le
 // serveur reste l'autorité, mieux vaut un refus tardif qu'un blocage à tort.
 function orderMaxItems() {
+  return cartCap()?.max ?? 0;
+}
+
+// Plafond effectif du panier : le plus bas entre le plafond par commande
+// (maxItems, 0 = aucun) et les droits restants du bénéficiaire connecté
+// (entitlementMax, où 0 veut bien dire « plus aucune place »).
+function cartCap() {
   const n = Number(CTX?.raw?.limits?.maxItems);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  const order = Number.isFinite(n) && n > 0 ? n : null;
+  const e = CTX?.raw?.limits?.entitlementMax;
+  const ent = Number.isInteger(e) && e >= 0 ? e : null;
+  if (ent !== null && (order === null || ent <= order)) return { max: ent, reason: 'entitlement' };
+  return order !== null ? { max: order, reason: 'order' } : null;
+}
+
+function capFeedback() {
+  const cap = cartCap();
+  if (cap?.reason === 'entitlement') {
+    setFeedback('error', translate('generic.entitlementReachedTitle'), [
+      translate('generic.entitlementReachedDetail', { max: cap.max })
+    ]);
+  } else {
+    setFeedback('error', translate('generic.tooManyItemsTitle'), [
+      translate('generic.tooManyItemsDetail', { max: orderMaxItems() })
+    ]);
+  }
 }
 
 function cartPlaceCount() {
@@ -477,8 +500,8 @@ function cartPlaceCount() {
 }
 
 function orderMaxItemsReached() {
-  const max = orderMaxItems();
-  return max > 0 && cartPlaceCount() >= max;
+  const cap = cartCap();
+  return !!cap && cartPlaceCount() >= cap.max;
 }
 
 /* ========= LIGNES (cart) ========= */

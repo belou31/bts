@@ -5,6 +5,7 @@ import subscriptionRouter from './subscription.js';
 import { getPartnerConfig } from '../config/partners.js';
 import { Order } from '../models/Order.js';
 import { checkPartnerAccess } from '../services/partner-access.js';
+import { readSession } from '../services/partner-session.js';
 
 const router = Router();
 const adminRouter = Router({ mergeParams: true });
@@ -20,7 +21,8 @@ const partnerEventRouter = createEventFlowRouter({
   channelResolver: (req) => ({
     kind: 'partner',
     partnerSlug: String(req.params.partnerSlug || '').trim().toLowerCase(),
-    partnerConfig: req.partnerConfig || null
+    partnerConfig: req.partnerConfig || null,
+    session: req.partnerSession || null
   }),
   originResolver: (req, origin) => ({
     ...origin,
@@ -63,6 +65,9 @@ function requireKnownPartner(req, res, next) {
       .send(login ? 'Connexion partenaire requise.' : 'Access restricted for this partner (token).');
   }
   req.partnerConfig = cfg;
+  // Session OIDC éventuelle (obligatoire ou non) : identité de l'acheteur,
+  // base des droits (services/partner-entitlements.js).
+  req.partnerSession = access.session || readSession(req, cfg.slug || req.params.partnerSlug);
   next();
 }
 
