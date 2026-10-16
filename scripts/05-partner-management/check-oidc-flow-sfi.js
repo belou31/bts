@@ -154,6 +154,32 @@ try {
   check('courriel repris d\'infoUser', w.email === 'jean.dupont@aisc.test', String(w.email));
   check('nom composé prénom + nom (scope partenaires)', w.name === 'Jean DUPONT', String(w.name));
 
+  console.log('\n\x1b[1m3b. Connexion obligatoire (oidc.required)\x1b[0m');
+  const { checkPartnerAccess, partnerLoginPath } =
+    await import(path.join(ROOT, 'src/services/partner-access.js'));
+  const { getPartnerConfig } = await import(path.join(ROOT, 'src/config/partners.js'));
+  const reqWith = (cookie, query = {}) => ({
+    headers: { cookie }, query, params: { partnerSlug: 'zzaisc' }, url: '/partner/zzaisc/events?x=1',
+    get: () => ''
+  });
+  const reqCfg = { ...getPartnerConfig('zzaisc'), accessToken: 'jeton-statique' };
+  check('session OIDC → accès', checkPartnerAccess(reqWith(cookieHeader()), reqCfg).ok === true);
+  check('sans session → connexion demandée',
+    checkPartnerAccess(reqWith(''), reqCfg).reason === 'login_required');
+  check('jeton statique seul → refusé (pas de contournement)',
+    checkPartnerAccess(reqWith('', { token: 'jeton-statique' }), reqCfg).reason === 'login_required');
+  const foreign = [...jar].map(([k, v]) => `${k.replace('zzaisc', 'zzautre')}=${v}`).join('; ');
+  check('session d\'un autre partenaire → refusée',
+    checkPartnerAccess({ ...reqWith(foreign), params: { partnerSlug: 'zzautre' } },
+      { ...reqCfg, slug: 'zzautre' }).ok === false);
+  check('connexion ramène à la page demandée',
+    partnerLoginPath('/bts', 'zzaisc', reqWith('')) ===
+      '/bts/partner/zzaisc/auth/login?next=%2Fpartner%2Fzzaisc%2Fevents%3Fx%3D1');
+  const tokCfg = { slug: 'zzjeton', accessToken: 'abc' };
+  check('partenaire à jeton : inchangé',
+    checkPartnerAccess(reqWith('', { token: 'abc' }), tokCfg).ok === true
+    && checkPartnerAccess(reqWith(''), tokCfg).reason === 'token_invalid');
+
   console.log('\n\x1b[1m4. L\'id_token est nu : le profil vient d\'infoUser\x1b[0m');
   // Rejoue l'échange à la main pour inspecter les jetons bruts.
   const raw = new URLSearchParams();
