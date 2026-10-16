@@ -263,8 +263,11 @@ async function verifyIdToken({ oidc, doc, idToken, nonce }) {
 
   // Le nonce ne peut pas être délégué à la bibliothèque : c'est à nous de
   // savoir lequel nous avions émis.
-  if (!claims.nonce || claims.nonce !== nonce) {
-    throw new Error('nonce absent ou différent de celui émis');
+  // Absent et différent appellent deux corrections différentes chez le
+  // partenaire : le message les distingue. Le nonce n'est pas un secret.
+  if (!claims.nonce) throw new Error('nonce absent de l\'id_token (émis : ' + nonce + ')');
+  if (claims.nonce !== nonce) {
+    throw new Error(`nonce différent de celui émis (reçu : ${claims.nonce}, émis : ${nonce})`);
   }
   return claims;
 }
