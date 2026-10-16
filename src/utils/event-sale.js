@@ -12,3 +12,9 @@ export function isEventOnSale(ev) {
 export function isEventSaleLocked(ev) {
   return ev?.sale === 'soldout' || ev?.sale === 'closed';
 }
+
+// Partner channel window: presale and public sale. Inside it the partner's
+// quota caps every order; outside it (or without a quota) the channel is closed.
+export function isPartnerSaleWindow(ev) {
+  return ev?.sale === 'presale' || ev?.sale === 'onsale';
+}
