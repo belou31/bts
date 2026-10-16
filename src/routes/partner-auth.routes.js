@@ -156,6 +156,17 @@ router.get('/partner/:partnerSlug/auth/logout', (req, res) => {
   return res.redirect(`${appBase()}/partner/${encodeURIComponent(slug)}/events`);
 });
 
+// Âge révolu aujourd'hui, pour lecture humaine seulement : les règles le
+// calculeront à la date du match.
+function ageToday(iso) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split('-').map(Number);
+  const now = new Date();
+  let age = now.getFullYear() - y;
+  if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) age--;
+  return age;
+}
+
 /** Qui est connecté — utile pour vérifier une intégration sans deviner. */
 router.get('/partner/:partnerSlug/auth/whoami', (req, res) => {
   const slug = String(req.params.partnerSlug || '').trim().toLowerCase();
@@ -164,7 +175,15 @@ router.get('/partner/:partnerSlug/auth/whoami', (req, res) => {
   return res.json({
     ok: true, authenticated: true, slug,
     subject: session.sub, email: session.email || null, name: session.name || null,
-    via: session.via || 'oidc', expiresAt: new Date(session.exp * 1000).toISOString()
+    via: session.via || 'oidc', expiresAt: new Date(session.exp * 1000).toISOString(),
+    household: session.household
+      ? {
+          ...session.household,
+          ...(session.household.members
+            ? { members: session.household.members.map(m => ({ ...m, ageToday: ageToday(m.birthdate) })) }
+            : {})
+        }
+      : null
   });
 });
 

@@ -167,6 +167,28 @@ Sources : `scripts/05-partner-management/check-oidc-flow.js` et
 `check-oidc-flow-sfi.js`. Les deux démarrent leur propre serveur sur un port
 libre et ne demandent ni base de données ni `.env`.
 
+## Composition familiale (base des règles de quota)
+
+`"household": "sfi"` dans le bloc `oidc` fait retenir dans la session, et
+afficher par `/partner/<slug>/auth/whoami`, un résumé du foyer :
+
+```json
+"household": {
+  "spouse": true, "children": 2, "size": 4,
+  "members": [
+    { "relation": "spouse", "birthdate": "1980-07-09", "ageToday": 46 },
+    { "relation": "child",  "birthdate": "2014-01-22", "ageToday": 12 }
+  ]
+}
+```
+
+- `spouse`, `children`, `size` (bénéficiaire compris) : scope `partenaires`
+  (`conjoint`, `autres_ad`) ;
+- `members` : scope `family` seulement. SFI liste le conjoint d'abord, puis les
+  enfants ; c'est de cet ordre que vient `relation`. Dates converties en ISO.
+- aucun nom de membre n'est conservé ; `ageToday` n'est calculé que pour
+  l'affichage — une règle adulte / enfant se juge à la date du match.
+
 ## Connexion obligatoire
 
 `"required": true` dans le bloc `oidc` rend la connexion obligatoire pour ce

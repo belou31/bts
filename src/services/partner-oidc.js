@@ -106,7 +106,10 @@ export function oidcConfigFor(partnerCfg) {
       ? { claim: str(o.requiredClaim.claim), value: o.requiredClaim.value }
       : null,
     // true : le jeton statique ne suffit plus pour ce partenaire.
-    required: o.required === true
+    required: o.required === true,
+    // Lecture de la composition familiale, propre au dialecte de l'IdP
+    // (seul « sfi » existe). Absent : rien n'est retenu.
+    household: str(o.household)
   };
 }
 
@@ -379,6 +382,44 @@ export async function exchangeCode({ oidc, redirectUri, code, verifier, nonce })
   return { claims, accessToken: tokens.access_token || '', raw: tokens };
 }
 
+// JJ/MM/AAAA (format SFI) → AAAA-MM-JJ ; null si illisible ou absent.
+function isoFromFrDate(raw) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(str(raw));
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+}
+
+/**
+ * Composition familiale SFI, réduite à ce qu'exigent des règles de quota :
+ * combien de personnes, et leur date de naissance pour les classer adulte /
+ * enfant à la date du match. Aucun nom n'est retenu — inutile pour compter,
+ * et ce sont des données de tiers.
+ *
+ *   scope partenaires : conjoint (booléen), autres_ad (nombre d'enfants) ;
+ *   scope family      : membres, conjoint d'abord puis enfants (ordre garanti
+ *                       par le swagger SFI), chacun avec sa date de naissance.
+ */
+function householdFromSfiClaims(claims) {
+  const hasCounts = claims.conjoint !== undefined || claims.autres_ad !== undefined;
+  const list = Array.isArray(claims.family) ? claims.family : null;
+  if (!hasCounts && !list) return null;
+
+  const spouse = claims.conjoint === true;
+  const children = Number.isInteger(claims.autres_ad) ? claims.autres_ad : null;
+  const household = {
+    spouse,
+    children,
+    // Le bénéficiaire lui-même + ayants droit connus.
+    size: 1 + (spouse ? 1 : 0) + (children || 0)
+  };
+  if (list) {
+    household.members = list.map((m, i) => ({
+      relation: spouse && i === 0 ? 'spouse' : 'child',
+      birthdate: isoFromFrDate(m?.birthdate)
+    }));
+  }
+  return household;
+}
+
 /** Identité retenue pour la session, et contrôle d'appartenance éventuel. */
 export function identityFromClaims(oidc, claims) {
   const pick = (name) => (name && claims[name] !== undefined ? claims[name] : undefined);
@@ -403,6 +444,7 @@ export function identityFromClaims(oidc, claims) {
 
   return {
     subject,
+    household: oidc.household === 'sfi' ? householdFromSfiClaims(claims) : null,
     email: String(pick(oidc.emailClaim) ?? '').trim(),
     // Sans `name` (le scope « partenaires » de SFI n'en donne pas), on
     // compose prénom + nom, les claims standard OIDC.
