@@ -12,7 +12,7 @@ import { Order } from '../models/Order.js';
 import { loadCustomization, resolveOrganizationName } from '../services/customization.js';
 import { formatDate } from '../utils/format.js';
 import { getPartnerConfig } from '../config/partners.js';
-import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
+import { isEventOnSale, isPartnerSaleWindow } from '../utils/event-sale.js';
 import { seasonDoorStatus } from '../utils/season-sale.js';
 import { resolveSeasonSubscribeAccess, seasonAccessMessage } from '../services/season-access.js';
 
@@ -654,15 +654,22 @@ export default function routes(router) {
     });
   });
 
+  // Accès public à un événement : listé tel quel sur /events, et en colonne
+  // « Public » de la liste partenaire.
+  function publicAccess(ev) {
+    const status = isEventOnSale(ev) ? 'sale_opened' : (ev.sale === 'soldout' ? 'sold_out' : 'sale_closed');
+    const link = status === 'sale_opened'
+      ? path.posix.join(BASE_PATH || '/', 'event', ev.slug)
+      : null;
+    return { status, link };
+  }
+
   // Public: list all events, open ones link straight to /event/:slug
   router.get('/events', async (req, res) => {
     try {
       const events = await Event.find({ activity: 'active' }).sort({ startsAt: 1 }).lean();
       const list = events.map(ev => {
-        const status = isEventOnSale(ev) ? 'sale_opened' : (ev.sale === 'soldout' ? 'sold_out' : 'sale_closed');
-        const link = status === 'sale_opened'
-          ? path.posix.join(BASE_PATH || '/', 'event', ev.slug)
-          : null;
+        const { status, link } = publicAccess(ev);
         return {
           slug: ev.slug,
           name: ev.name || ev.slug,
@@ -717,8 +724,9 @@ export default function routes(router) {
       const list = [];
       for (const ev of events) {
         const quota = Number(partnerCfg?.presale?.events?.[ev.slug]?.quota || 0);
+        const inWindow = isPartnerSaleWindow(ev) && quota > 0;
         let remaining = null;
-        if (quota > 0) {
+        if (inWindow) {
           const usedAgg = await Order.aggregate([
             { $match: { eventId: ev._id, 'meta.partner.slug': partnerSlug, status: { $nin: ['canceled', 'failed'] } } },
             { $unwind: '$lines' },
@@ -727,21 +735,22 @@ export default function routes(router) {
           const used = usedAgg?.[0]?.qty || 0;
           remaining = Math.max(0, quota - used);
         }
+        // Accès privé : ouvert en prévente comme en vente publique, tant que
+        // le quota du partenaire n'est pas épuisé — même règle que le checkout
+        // (event-flow.factory.js, isPartnerPresaleAllowed).
         const status = (() => {
-          if (isEventOnSale(ev)) return 'sale_opened';
           if (ev.sale === 'soldout') return 'sold_out';
-          if (!isEventSaleLocked(ev) && quota > 0) {
-            if (remaining !== null && remaining <= 0) return 'presale_quota_reached';
-            return 'presale_opened';
-          }
-          return 'sale_closed';
+          if (!inWindow) return 'sale_closed';
+          if (remaining <= 0) return 'presale_quota_reached';
+          return isEventOnSale(ev) ? 'sale_opened' : 'presale_opened';
         })();
         const expectedToken = expectedPartnerToken(partnerCfg, ev.slug);
         const sameToken = !expectedToken || expectedToken === providedToken;
-        const link = (sameToken && status !== 'sale_closed' && status !== 'presale_quota_reached' && status !== 'sold_out')
+        const link = (sameToken && (status === 'sale_opened' || status === 'presale_opened'))
           ? path.posix.join(BASE_PATH || '/', 'partner', partnerSlug, 'event', ev.slug) +
               (providedToken ? `?token=${encodeURIComponent(providedToken)}` : '')
           : null;
+        const pub = publicAccess(ev);
         list.push({
           slug: ev.slug,
           name: ev.name || ev.slug,
@@ -750,7 +759,9 @@ export default function routes(router) {
           presaleQuota: quota,
           presaleRemaining: remaining,
           link,
-          tokenMatch: sameToken
+          tokenMatch: sameToken,
+          publicStatus: pub.status,
+          publicLink: pub.link
         });
       }
 

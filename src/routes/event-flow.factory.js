@@ -22,7 +22,7 @@ import { computeEventSeatStates as computeSeatStates } from '../services/event-s
 import { claimEventSeatHolds, releaseOrderSeatHolds } from '../services/event-seat-holds.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
 import { isZoneUnit } from '../utils/seat-id.js';
-import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
+import { isEventOnSale, isPartnerSaleWindow } from '../utils/event-sale.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
@@ -73,6 +73,7 @@ function shouldFallbackToPublic(channelCtx) {
 
 function isPartnerPresaleAllowed(ev, channelCtx) {
   if (!channelCtx || channelCtx.kind !== 'partner') return false;
+  if (!isPartnerSaleWindow(ev)) return false;
   const cfg = channelCtx.partnerConfig || {};
   const quota = Number(cfg?.presale?.events?.[ev?.slug]?.quota || 0);
   return quota > 0;
@@ -373,13 +374,12 @@ export function createEventFlowRouter({
         ? Number(channelCtx?.partnerConfig?.presale?.events?.[ev?.slug]?.quota || 0)
         : 0;
       const saleStatus = (() => {
-        if (isEventOnSale(ev)) return 'sale_opened';
         if (ev.sale === 'soldout') return 'sold_out';
-        if (!isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx)) {
-          if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
-          return 'presale_opened';
-        }
-        return 'sale_closed';
+        if (channelCtx.kind !== 'partner') return isEventOnSale(ev) ? 'sale_opened' : 'sale_closed';
+        // Partenaire : le quota plafonne aussi pendant la vente publique.
+        if (!isPartnerPresaleAllowed(ev, channelCtx)) return 'sale_closed';
+        if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
+        return isEventOnSale(ev) ? 'sale_opened' : 'presale_opened';
       })();
       const resolvedVenueView = resolveVenueViewForEvent(ev, channelCtx);
       const [seatsBase, { tariffs, prices, scope }] = await Promise.all([
@@ -687,13 +687,12 @@ export function createEventFlowRouter({
     try {
       const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
-      const onSale = isEventOnSale(ev);
-      const presale = !isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx);
+      const isPartner = channelCtx.kind === 'partner';
       const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
-      assert(onSale || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
+      assert(isPartner ? (remaining ?? 0) > 0 : isEventOnSale(ev), 'Vente fermée pour cet événement.');
 
       const ctxData = await prepareOrderContext(req, ev, channelCtx);
-      if (!onSale && presale) {
+      if (isPartner) {
         const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
         if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
           return res.status(400).json({
@@ -949,13 +948,12 @@ export function createEventFlowRouter({
 
       try {
         const ev = await loadEvent(req.params.eventId);
-        const onSale = isEventOnSale(ev);
-        const presale = !isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx);
+        const isPartner = channelCtx.kind === 'partner';
         const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
-        assert(onSale || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
+        assert(isPartner ? (remaining ?? 0) > 0 : isEventOnSale(ev), 'Vente fermée pour cet événement.');
 
         const ctxData = await prepareOrderContext(req, ev, channelCtx);
-        if (!onSale && presale) {
+        if (isPartner) {
           const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
           if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
             return res.status(400).json({
