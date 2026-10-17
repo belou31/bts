@@ -71,7 +71,7 @@ try {
     clientSecret: 'secret-sfi-test',
     scopes: ['openid', 'partenaires', 'family', 'billetterie'],
     identity: {
-      subject: 'sub', firstName: 'given_name', lastName: 'family_name', email: 'email',
+      identifier: 'sub', firstName: 'given_name', lastName: 'family_name', email: 'email',
       attributes: { beneficiaries: { sum: [1, 'conjoint', 'autres_ad'] } }
     },
     pkce: false,
@@ -154,7 +154,7 @@ try {
   const who = await get(`${B}/partner/zzaisc/auth/whoami`);
   const w = await who.json();
   check('session ouverte', who.status === 200, `HTTP ${who.status}`);
-  check('sujet = matricule AISC', w.subject === 'M1234569', String(w.subject));
+  check('identifiant = matricule AISC', w.identifier === 'M1234569', String(w.identifier));
   check('courriel repris d\'infoUser', w.email === 'jean.dupont@aisc.test', String(w.email));
   check('nom composé prénom + nom (scope partenaires)', w.name === 'Jean DUPONT', String(w.name));
   check('prénom / nom séparés (pré-remplissage acheteur)',

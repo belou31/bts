@@ -130,11 +130,11 @@ export function cartRefusal(rules, state, cartLines) {
 }
 
 /** Lignes déjà engagées par ce bénéficiaire sur ce match, chez ce partenaire. */
-export async function linesAlreadyOrdered({ eventId, partnerSlug, subject }) {
+export async function linesAlreadyOrdered({ eventId, partnerSlug, identifier }) {
   const orders = await Order.find({
     eventId,
     'meta.partner.slug': partnerSlug,
-    'meta.partner.subject': subject,
+    'meta.partner.identifier': identifier,
     // Même périmètre que le quota partenaire : une commande en attente de
     // paiement compte, une annulée ou échouée non.
     status: { $nin: ['canceled', 'failed'] }
@@ -155,6 +155,6 @@ export async function entitlementsForEvent({ cfg, partnerSlug, session, event })
     err.code = 'partner_login_required';
     throw err;
   }
-  const usedLines = await linesAlreadyOrdered({ eventId: event._id, partnerSlug, subject: session.sub });
+  const usedLines = await linesAlreadyOrdered({ eventId: event._id, partnerSlug, identifier: session.sub });
   return { rules, state: entitlementState(rules, session, usedLines) };
 }

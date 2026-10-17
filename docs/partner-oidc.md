@@ -111,7 +111,7 @@ Le `sub` est le matricule AISC.
     "fetchUserInfo": true,
     "idTokenPublicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkq…\n-----END PUBLIC KEY-----",
     "identity": {
-      "subject": "sub", "firstName": "given_name", "lastName": "family_name", "email": "email",
+      "identifier": "sub", "firstName": "given_name", "lastName": "family_name", "email": "email",
       "attributes": { "beneficiaries": { "sum": [1, "conjoint", "autres_ad"] } }
     }
   }
@@ -176,7 +176,7 @@ libre et ne demandent ni base de données ni `.env`.
 
 ```json
 "identity": {
-  "subject": "sub",
+  "identifier": "sub",
   "firstName": "given_name",
   "lastName": "family_name",
   "email": "email",
@@ -194,12 +194,15 @@ Chaque valeur est une expression :
   manque, la somme est **absente** (et non 0) : un droit sous-évalué en silence
   serait pire qu'un refus explicite.
 
-`name` absent : prénom + nom. Sans bloc `identity`, les anciennes clés
+`identifier` est l'identifiant stable du bénéficiaire chez l'IdP : le
+« Subject Identifier » d'OpenID Connect (claim `sub`, OIDC Core §2). `name`
+absent : prénom + nom. Sans bloc `identity`, les anciennes clés `subject`,
 `subjectClaim` / `emailClaim` / `nameClaim` restent lues.
 
-La session garde sujet, nom, prénom, courriel et `attributes` ;
+La session garde identifiant, nom, prénom, courriel et `attributes` ;
 `/partner/<slug>/auth/whoami` les affiche. Le prénom, le nom et le courriel
-pré-remplissent l'acheteur du panier.
+pré-remplissent le panneau Contact de la page de commande (modifiables), qui
+affiche aussi, en lecture seule, l'identifiant et les droits restants.
 
 ### Droits (`entitlements`, au niveau du partenaire)
 
@@ -220,11 +223,11 @@ pré-remplissent l'acheteur du panier.
 
 - une ligne relève du **premier** panier qui couvre son tarif ; une ligne
   qu'aucun ne couvre est refusée ;
-- le décompte porte sur les commandes de ce bénéficiaire (`meta.partner.subject`,
+- le décompte porte sur les commandes de ce bénéficiaire (`meta.partner.identifier`,
   désormais enregistré) sur ce match, hors annulées / échouées ;
 - l'API de statut renvoie `entitlements` (max, déjà commandé, restant) et
-  `limits.entitlementMax` ; le panier bloque la place de trop, le badge affiche
-  « Vos droits : x / y place(s) » ; le paiement et la réservation refusent un
+  `limits.entitlementMax` ; le panier bloque la place de trop, le panneau
+  Contact affiche « Vos droits : x / y place(s) » ; le paiement et la réservation refusent un
   dépassement (`entitlement_exceeded`, `entitlement_tariff_not_covered`) ;
 - les droits exigent une session : sans elle, l'API répond
   `partner_login_required` ;

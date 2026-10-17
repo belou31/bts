@@ -129,3 +129,24 @@ export function resolveOrganizationName() {
   const name = readJson(path.join(CUSTOM_BASE, 'app.json')).organizationName;
   return (typeof name === 'string' && name.trim()) ? name.trim() : 'Les Bélougas';
 }
+
+// Icônes des panneaux de la page de commande, déposées par
+// scripts/00-system-management/customize-app.js (--icon-plan, --icon-contact,
+// --icon-cart, --icon-payment) et inscrites dans app.json → publicAssets.
+// Rend { <panneau>: <nom de fichier sous public/dynamic/assets> } pour les
+// seuls panneaux personnalisés. Un fichier inscrit mais absent est ignoré :
+// mieux vaut l'icône par défaut qu'une image cassée.
+export const PANEL_ICON_NAMES = ['plan', 'contact', 'cart', 'payment'];
+const PUBLIC_ASSETS_DIR = path.resolve(process.cwd(), 'public', 'dynamic', 'assets');
+
+export function resolvePanelIconFiles() {
+  const assets = readJson(path.join(CUSTOM_BASE, 'app.json')).publicAssets || {};
+  const out = {};
+  for (const name of PANEL_ICON_NAMES) {
+    const rel = assets[`icon${name[0].toUpperCase()}${name.slice(1)}`];
+    if (typeof rel !== 'string' || !rel.trim()) continue;
+    const file = path.basename(rel.trim());
+    if (fs.existsSync(path.join(PUBLIC_ASSETS_DIR, file))) out[name] = file;
+  }
+  return out;
+}

@@ -107,7 +107,7 @@ try {
   const w = await (await get(`${B}/partner/zzoidc/auth/whoami`)).json();
   check('session ouverte', w.authenticated === true && w.via === 'oidc');
   check('identité reprise de l\'id_token',
-    w.subject === 'user-001' && w.email === 'camille@partenaire.test', `${w.subject} / ${w.email}`);
+    w.identifier === 'user-001' && w.email === 'camille@partenaire.test', `${w.identifier} / ${w.email}`);
 
   console.log('\n\x1b[1m3. Contrôles de sécurité mis en échec\x1b[0m');
   // Le cookie de transaction doit être VIVANT, sinon le refus viendrait de son

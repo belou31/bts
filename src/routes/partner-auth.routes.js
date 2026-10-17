@@ -163,7 +163,7 @@ router.get('/partner/:partnerSlug/auth/whoami', (req, res) => {
   if (!session) return res.status(401).json({ ok: false, authenticated: false });
   return res.json({
     ok: true, authenticated: true, slug,
-    subject: session.sub, email: session.email || null, name: session.name || null,
+    identifier: session.sub, email: session.email || null, name: session.name || null,
     firstName: session.firstName || null, lastName: session.lastName || null,
     via: session.via || 'oidc', expiresAt: new Date(session.exp * 1000).toISOString(),
     attributes: session.attributes || {}

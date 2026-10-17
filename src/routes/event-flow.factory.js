@@ -27,7 +27,25 @@ import { entitlementsForEvent, cartRefusal } from '../services/partner-entitleme
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
-const SEAT_HOLD_TTL_MIN = Number(process.env.SEAT_HOLD_TTL_MIN || '3');
+// Durée d'un hold de sélection : une base, plus un temps par ligne du panier
+// — saisir dix porteurs ne se fait pas dans le délai d'un seul. Défaut :
+// 1 min + 30 s par ligne (1 ligne → 1:30, 10 lignes → 6:00).
+const SEAT_HOLD_BASE_SEC = Number(process.env.SEAT_HOLD_BASE_SEC || '60');
+const SEAT_HOLD_PER_LINE_SEC = Number(process.env.SEAT_HOLD_PER_LINE_SEC || '30');
+
+/**
+ * Durée du hold pour un panier de `lineCount` lignes (places en siège ET en
+ * zone : c'est le nombre de porteurs à saisir). Le nombre vient du client :
+ * borné par le nombre de sièges demandés en bas, et par le plafond de places
+ * par commande en haut, pour qu'un client ne puisse pas s'octroyer un hold
+ * sans fin.
+ */
+function seatHoldTtlSec(lineCount, seatCount = 1) {
+  const cap = Math.max(orderMaxItems() || 30, seatCount);
+  const n = Number.isInteger(lineCount) ? lineCount : seatCount;
+  const lines = Math.min(Math.max(n, seatCount, 1), cap);
+  return SEAT_HOLD_BASE_SEC + SEAT_HOLD_PER_LINE_SEC * lines;
+}
 // Durée de réutilisation de la base du plan de salle, pour l'AFFICHAGE seul.
 // Le sondage des navigateurs est à 5 s : 3 s garantissent que deux sondages
 // consécutifs ne retombent jamais sur la même base, tout en absorbant la
@@ -112,7 +130,7 @@ async function entitlementRefusal(ev, channelCtx, lines) {
 // de décompter les droits par bénéficiaire.
 function partnerHolderMeta(channelCtx) {
   const s = channelCtx?.session;
-  return s?.sub ? { subject: String(s.sub), holderName: s.name || '' } : {};
+  return s?.sub ? { identifier: String(s.sub), holderName: s.name || '' } : {};
 }
 
 async function getPartnerPresaleRemaining(ev, channelCtx) {
@@ -614,9 +632,11 @@ export function createEventFlowRouter({
           ...(entitlementMax !== null ? { entitlementMax } : {})
         },
         entitlements,
-        // Pré-remplit l'acheteur avec l'identité reçue à la connexion.
+        // Pré-remplit l'acheteur avec l'identité reçue à la connexion, et
+        // l'affiche (identifiant) dans le panneau Contact.
         ...(session?.sub ? {
-          payer: { firstName: session.firstName || '', lastName: session.lastName || '', email: session.email || '' }
+          payer: { firstName: session.firstName || '', lastName: session.lastName || '', email: session.email || '' },
+          beneficiary: { identifier: String(session.sub), name: session.name || '' }
         } : {}),
         tariffs, prices, scope,
         allowedZones: Array.from(allowedSet),
@@ -629,7 +649,7 @@ export function createEventFlowRouter({
           ? { allowed: true, remaining: presaleRemaining ?? null, quota: presaleQuota }
           : { allowed: false },
         saleStatus,
-        holdTtlSec: SEAT_HOLD_TTL_MIN * 60,
+        holdTtlSec: seatHoldTtlSec(1),
         channel: channelCtx?.kind === 'partner'
           ? `partner:${channelCtx.partnerSlug || ''}`
           : (channelCtx?.kind || 'public')
@@ -661,10 +681,13 @@ export function createEventFlowRouter({
 
       const seatIds = (Array.isArray(req.body?.seatIds) ? req.body.seatIds : [])
         .map(s => String(s || '').trim()).filter(Boolean).slice(0, 30);
-      if (!seatIds.length) return res.json({ ok: true, held: [], conflicts: [], holdTtlSec: SEAT_HOLD_TTL_MIN * 60 });
+      if (!seatIds.length) return res.json({ ok: true, held: [], conflicts: [], holdTtlSec: seatHoldTtlSec(1) });
 
+      // Le client renvoie TOUS les sièges du panier à chaque changement : ils
+      // reçoivent donc tous la même échéance, calculée sur le panier entier.
+      const ttlSec = seatHoldTtlSec(Number(req.body?.lineCount), seatIds.length);
       const now = new Date();
-      const expiresAt = new Date(now.getTime() + SEAT_HOLD_TTL_MIN * 60 * 1000);
+      const expiresAt = new Date(now.getTime() + ttlSec * 1000);
       const held = [];
       const conflicts = [];
 
@@ -712,7 +735,7 @@ export function createEventFlowRouter({
       }
 
       const ok = conflicts.length === 0 && held.length > 0;
-      res.json({ ok, held, conflicts, heldUntil: expiresAt.toISOString(), holdTtlSec: SEAT_HOLD_TTL_MIN * 60 });
+      res.json({ ok, held, conflicts, heldUntil: expiresAt.toISOString(), holdTtlSec: ttlSec });
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message });
     }

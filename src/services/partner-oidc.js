@@ -384,10 +384,14 @@ export async function exchangeCode({ oidc, redirectUri, code, verifier, nonce })
  * Correspondance déclarée dans `oidc.identity` :
  *
  *   "identity": {
- *     "subject": "sub", "firstName": "given_name", "lastName": "family_name",
+ *     "identifier": "sub", "firstName": "given_name", "lastName": "family_name",
  *     "email": "email", "name": "name",
  *     "attributes": { "beneficiaries": { "sum": [1, "conjoint", "autres_ad"] } }
  *   }
+ *
+ * `identifier` : identifiant stable du bénéficiaire chez l'IdP — le « Subject
+ * Identifier » d'OpenID Connect (claim `sub`, OIDC Core §2). L'ancienne clé
+ * `subject` reste lue.
  *
  * Chaque valeur est une expression (cf. evalClaim). `name` absent : prénom +
  * nom. `attributes` porte ce que les règles de quota exploitent
@@ -396,7 +400,7 @@ export async function exchangeCode({ oidc, redirectUri, code, verifier, nonce })
 function identityMapping(o) {
   const id = o.identity && typeof o.identity === 'object' ? o.identity : {};
   return {
-    subject: id.subject ?? (str(o.subjectClaim) || 'sub'),
+    identifier: id.identifier ?? id.subject ?? (str(o.subjectClaim) || 'sub'),
     email: id.email ?? (str(o.emailClaim) || 'email'),
     name: id.name ?? (str(o.nameClaim) || 'name'),
     firstName: id.firstName ?? 'given_name',
@@ -442,8 +446,8 @@ export function evalClaim(spec, claims) {
 export function identityFromClaims(oidc, claims) {
   const map = oidc.identity;
   const text = (spec) => String(evalClaim(spec, claims) ?? '').trim();
-  const subject = text(map.subject);
-  if (!subject) throw new Error(`claim « ${map.subject} » absent de l'identité reçue`);
+  const identifier = text(map.identifier);
+  if (!identifier) throw new Error(`claim « ${map.identifier} » absent de l'identité reçue`);
 
   if (oidc.requiredClaim?.claim) {
     const actual = claimAt(claims, oidc.requiredClaim.claim);
@@ -466,7 +470,7 @@ export function identityFromClaims(oidc, claims) {
     attributes[key] = v === undefined ? null : v;
   }
   return {
-    subject,
+    identifier,
     firstName,
     lastName,
     email: text(map.email),

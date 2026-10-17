@@ -6,11 +6,17 @@
  *   node scripts/00-system-management/customize-app.js --name="Club Name" [--short-name="BTS"]
  *     [--favicon=favicon.ico] [--logo-svg=logo.svg] [--logo-png=logo.png]
  *     [--icon-192=icon-192.png] [--icon-512=icon-512.png]
+ *     [--icon-plan=plan.svg] [--icon-contact=contact.svg]
+ *     [--icon-cart=cart.svg] [--icon-payment=payment.svg]
  *     [--dry-run] [--show]
  *
  * Behaviour:
  *   - Reads/writes data/customization/app.json to store display names and public asset paths.
  *   - Copies favicon, logos, and app icons into public/dynamic/assets.
+ *   - --icon-<panel> sets the heading icon of that order-page panel
+ *     (plan, contact, cart, payment). .svg or .png, square; staged as
+ *     panel-<panel>.<ext>. Without it, the built-in icon in
+ *     public/static/img/panel-icons/ is used.
  *   - All command paths can be absolute or relative; relative paths resolve from repo root or data/inputs.
  *
  * Notes:
@@ -69,6 +75,8 @@ function usage() {
     [--short-name="BTS"] [--favicon=favicon.ico]
     [--logo-svg=logo.svg] [--logo-png=logo.png]
     [--icon-192=icon-192.png] [--icon-512=icon-512.png]
+    [--icon-plan=plan.svg] [--icon-contact=contact.svg]
+    [--icon-cart=cart.svg] [--icon-payment=payment.svg]
     [--dry-run] [--show]
 
 Options resolve files by checking absolute paths first, then data/inputs/<path> as a fallback.`);
@@ -145,9 +153,12 @@ function stagePublicAsset(options, metadata, optionKey, propKey, destFilename, a
 
   ensureDir(PUBLIC_IMG_DIR, dryRun);
   ensureDir(DATA_ASSETS_DIR, dryRun);
-  const publicDestination = path.join(PUBLIC_IMG_DIR, destFilename);
-  const dataAssetDestination = path.join(DATA_ASSETS_DIR, destFilename);
-  console.log(`• ${destFilename} ← ${resolved} (→ public/dynamic/assets & data/assets)`);
+  // Nom de destination fixe, ou calculé d'après l'extension (icônes de
+  // panneau, admises en .svg comme en .png).
+  const destName = typeof destFilename === 'function' ? destFilename(ext) : destFilename;
+  const publicDestination = path.join(PUBLIC_IMG_DIR, destName);
+  const dataAssetDestination = path.join(DATA_ASSETS_DIR, destName);
+  console.log(`• ${destName} ← ${resolved} (→ public/dynamic/assets & data/assets)`);
   copyFile(resolved, publicDestination, dryRun);
   copyFile(resolved, dataAssetDestination, dryRun);
   metadata.publicAssets = metadata.publicAssets || {};
@@ -185,7 +196,11 @@ const actionableKeys = [
   'logo-svg',
   'logo-png',
   'icon-192',
-  'icon-512'
+  'icon-512',
+  'icon-plan',
+  'icon-contact',
+  'icon-cart',
+  'icon-payment'
 ];
 const hasAction = actionableKeys.some(key => Object.prototype.hasOwnProperty.call(options, key));
 
@@ -221,6 +236,12 @@ stagePublicAsset(options, metadata, 'logo-svg', 'logoSvg', 'logo.svg', ['.svg'],
 stagePublicAsset(options, metadata, 'logo-png', 'logoPng', 'logo.png', ['.png'], dryRun);
 stagePublicAsset(options, metadata, 'icon-192', 'icon192', 'icon-192.png', ['.png'], dryRun);
 stagePublicAsset(options, metadata, 'icon-512', 'icon512', 'icon-512.png', ['.png'], dryRun);
+// Icônes des panneaux de la page de commande (lues par
+// src/services/customization.js → resolvePanelIconFiles).
+for (const panel of ['plan', 'contact', 'cart', 'payment']) {
+  const prop = `icon${panel[0].toUpperCase()}${panel.slice(1)}`;
+  stagePublicAsset(options, metadata, `icon-${panel}`, prop, (ext) => `panel-${panel}${ext}`, ['.svg', '.png'], dryRun);
+}
 
 function normalizeArray(value) {
   if (!value) return [];

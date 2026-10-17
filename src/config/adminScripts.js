@@ -273,7 +273,7 @@ export const adminScriptGroups = [
         label: 'Customize Application',
         order: 0,
         path: 'scripts/00-system-management/customize-app.js',
-        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]',
+        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png] [--icon-plan=plan.svg] [--icon-contact=contact.svg] [--icon-cart=cart.svg] [--icon-payment=payment.svg]',
         run: {
           script: 'scripts/00-system-management/customize-app.js',
           args: []
@@ -283,7 +283,8 @@ export const adminScriptGroups = [
         notes: [
           'Input files can be referenced by absolute path or relative to data/inputs.',
           'Use --dry-run to preview the configuration without writing files.',
-          'Run with --show to print the current customization metadata.'
+          'Run with --show to print the current customization metadata.',
+          'Panel icons (plan, contact, cart, payment) replace the titles of the order page panels: square .svg or .png. Without one, the built-in icon is used.'
         ],
         form: {
           fields: [
@@ -328,6 +329,30 @@ export const adminScriptGroups = [
               label: 'Icône 512×512 (.png)',
               placeholder: 'public/dynamic/assets/icon-512.png',
               arg: { type: 'option', template: '--icon-512=${value}' }
+            },
+            {
+              name: 'iconPlan',
+              label: 'Icône du panneau Plan (.svg/.png)',
+              placeholder: 'data/inputs/plan.svg',
+              arg: { type: 'option', template: '--icon-plan=${value}' }
+            },
+            {
+              name: 'iconContact',
+              label: 'Icône du panneau Contact (.svg/.png)',
+              placeholder: 'data/inputs/contact.svg',
+              arg: { type: 'option', template: '--icon-contact=${value}' }
+            },
+            {
+              name: 'iconCart',
+              label: 'Icône du panneau Panier (.svg/.png)',
+              placeholder: 'data/inputs/cart.svg',
+              arg: { type: 'option', template: '--icon-cart=${value}' }
+            },
+            {
+              name: 'iconPayment',
+              label: 'Icône du panneau Paiement (.svg/.png)',
+              placeholder: 'data/inputs/payment.svg',
+              arg: { type: 'option', template: '--icon-payment=${value}' }
             }
           ]
         }
