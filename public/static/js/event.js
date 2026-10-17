@@ -51,7 +51,14 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ seatIds: ids, sessionToken: SESSION_TOKEN })
+        // lineCount : le serveur en tire la durée du hold (base + temps par
+        // ligne). Un siège cliqué n'est pas encore dans le panier : au moins
+        // autant de lignes que de sièges demandés.
+        body: JSON.stringify({
+          seatIds: ids,
+          sessionToken: SESSION_TOKEN,
+          lineCount: Math.max(document.querySelectorAll('#cartRows .cart-row').length, ids.length)
+        })
       });
       const data = await res.json();
       if (data.held) data.held.forEach(id => heldSeats.add(id));
@@ -168,17 +175,19 @@
   // Ajoute label lorsqu’un siège n’a pas de libellé explicite
   function applyFallbackLabels() {
     document.querySelectorAll('#cartRows .cart-row').forEach(row => {
-      const placeCell =
-        row.querySelector('.cell-place') ||
-        row.querySelector('[data-cell="place"]') ||
-        row.querySelector('div:nth-child(2)');
+      // Par classe, jamais par position : les colonnes ont été réordonnées
+      // (Nom, Prénom, Place, Tarif) et « 2e enfant » visait alors le Nom.
+      const placeCell = row.querySelector('.col.seat .seat-label');
       if (!placeCell) return;
       const current = String(placeCell.textContent || '').trim();
       const zoneKey = normZoneKey(row.dataset.zoneKey);
       const seatId = String(row.dataset.seatId || '').trim();
       const pretty = seatId.replace(/-Z\d{3,}$/i, '');
       const label = (pretty || zoneLabels.get(zoneKey) || zoneKey || '').toUpperCase();
-      if (label && current !== label) placeCell.textContent = label;
+      if (label && current !== label) {
+        placeCell.textContent = label;
+        placeCell.title = label;
+      }
     });
   }
 
@@ -457,15 +466,6 @@
       main = t('saleStatus.closed');
       sub  = t('saleStatus.closedSub');
       stateClass = 'closed';
-    }
-
-    // Droits du bénéficiaire connecté : c'est ce qui borne SON achat, plus
-    // parlant que le quota global du partenaire.
-    const ents = Array.isArray(raw?.entitlements) ? raw.entitlements : [];
-    if (ents.length && (saleStatus === 'sale_opened' || saleStatus === 'presale_opened')) {
-      const remaining = ents.reduce((s, e) => s + (Number(e.remaining) || 0), 0);
-      const max = ents.reduce((s, e) => s + (Number(e.max) || 0), 0);
-      sub = t('saleStatus.entitlementRemaining', { remaining, max });
     }
 
     badge.hidden = false;

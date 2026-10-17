@@ -218,7 +218,6 @@ export default function routes(router) {
   });
 
   async function renderRenewPage(req, res, seasonDoc, partnerCfg = null) {
-    const providerName = currentPaymentProviderLabel();
     const qsIndex = req.originalUrl.indexOf('?');
     const suffix = qsIndex >= 0 ? req.originalUrl.slice(qsIndex) : '';
 
@@ -288,11 +287,9 @@ export default function routes(router) {
       // conteneur #zoneButtons et renew.js n'a nulle part où poser les boutons.
       zoneSelector: {
         enabled: true,
-        label: 'Choisir sur le plan ou ajouter une place en zone :',
         addLabel: 'Ajouter',
         options: []
       },
-      paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
       assets: ASSETS_BASE,
       config: {
         api: {
@@ -347,7 +344,6 @@ export default function routes(router) {
 
       const seasonCode = seasonDoc.code || seasonDoc.seasonCode || rawSeason;
       const seasonName = seasonDoc.name || `Saison ${seasonCode}`;
-      const providerName = currentPaymentProviderLabel();
       const venueSlug = seasonDoc.venueSlug || seasonDoc.venue || '';
       const venueDoc = venueSlug ? await Venue.findOne({ slug: venueSlug }).lean().catch(() => null) : null;
       const customization = loadCustomization({ seasonCode, locale: req.locale });
@@ -388,12 +384,10 @@ export default function routes(router) {
         scheduleOptions: availableScheduleOptions(),
         zoneSelector: {
           enabled: true,
-          label: 'Choisir sur Plan ou Ajouter Zone:',
           addLabel: 'Ajouter',
           options: []
         },
-        paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
-        assets: ASSETS_BASE,
+          assets: ASSETS_BASE,
         config: {
           title: `Les Bélougas - Abonnements ${seasonCode}`,
           seasonCode,
@@ -493,11 +487,9 @@ export default function routes(router) {
         lead: leadText,
         planHelp: planHelpText,
         scheduleOptions: [],
-        paymentHelp: t('event.paymentHelp'),
         assets: ASSETS_BASE,
         zoneSelector: {
           enabled: true,
-          label: t('event.zoneSelectorLabel'),
           addLabel: t('common.add'),
           options: []
         },
@@ -846,7 +838,6 @@ export default function routes(router) {
       const remaining = access.partner?.remaining ?? null;
       const doorOpen = seasonDoorStatus(seasonDoc, 'subscribe').open;
 
-      const providerName = currentPaymentProviderLabel();
       const venueDoc = venueSlug ? await Venue.findOne({ slug: venueSlug }).lean().catch(() => null) : null;
       const customization = loadCustomization({ seasonCode, partnerSlug, locale: req.locale });
       const tmplVars = {
@@ -890,9 +881,11 @@ export default function routes(router) {
         : 'Sélectionnez un siège sur le plan ou ajoutez des places en zone.';
       const isInvoiceMode = partnerCfg.paymentMode !== 'psp';
       const paymentHelp = partnerCfg?.ui?.paymentHelp ||
+        // Facturation différée : le dire, aucun paiement en ligne. Sinon l'aide
+        // commune « Payer avec <prestataire> » de la vue.
         (isInvoiceMode
           ? 'Demande enregistrée puis facturation différée. Aucun paiement en ligne n’est requis.'
-          : `Paiement sécurisé ${providerName}.`);
+          : null);
 
       res.render(path.resolve(VIEWS_DIR, 'partner', 'index'), {
         title: `${partnerCfg.name || 'Billetterie Partenaire'} — Abonnements ${seasonCode}`,
@@ -904,7 +897,6 @@ export default function routes(router) {
         assets: ASSETS_BASE,
         zoneSelector: {
           enabled: true,
-          label: 'Choisir sur Plan ou Ajouter Zone:',
           addLabel: 'Ajouter',
           options: []
         },
@@ -953,7 +945,6 @@ export default function routes(router) {
 
     applyPartnerFrameAncestorsHeaders(res, partnerCfg.frameAncestors);
 
-    const providerName = currentPaymentProviderLabel();
     const ev = await resolveEventByKey(eventSlug).catch(() => null);
     const venueDoc = ev?.venueSlug ? await Venue.findOne({ slug: ev.venueSlug }).lean().catch(() => null) : null;
     const customization = loadCustomization({ eventSlug, seasonCode: ev?.seasonCode, partnerSlug, locale: req.locale });
@@ -1021,7 +1012,7 @@ export default function routes(router) {
     const paymentHelp = partnerCfg?.ui?.paymentHelp ||
       (isInvoiceMode
         ? 'Demande enregistrée puis facturation différée. Aucun paiement en ligne n’est requis.'
-        : `Paiement sécurisé ${providerName}.`);
+        : null);
 
     res.render(path.resolve(VIEWS_DIR, 'partner', 'index'), {
       title: `${partnerCfg.name || 'Billetterie Partenaire'} — BTS`,
@@ -1033,7 +1024,6 @@ export default function routes(router) {
       assets: ASSETS_BASE,
       zoneSelector: {
         enabled: true,
-        label: 'Choisir sur Plan ou Ajouter Zone:',
         addLabel: 'Ajouter',
         options: []
       },
@@ -1079,7 +1069,6 @@ export default function routes(router) {
       lead: `Choisissez vos places pour ce match et suivez le tunnel de paiement sécurisé ${providerName}.`,
       planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
       scheduleOptions: [1],
-      paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
       assets: ASSETS_BASE,
       config: {
         api: {
@@ -1096,7 +1085,6 @@ export default function routes(router) {
       },
       zoneSelector: {
         enabled: true,
-        label: 'Zones debout disponibles :'
       },
       customJs: [STATIC_PREFIX + 'js/event.js']
     });

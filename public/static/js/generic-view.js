@@ -462,6 +462,34 @@ function syncSelectedHighlights() {
   });
 }
 
+/* ========= CONTACT : identifiant et droits ========= */
+// Fournis par l'API de statut quand un bénéficiaire est connecté
+// (beneficiary.identifier) ou que le partenaire déclare des droits
+// (entitlements). Sans l'un ni l'autre, la ligne reste masquée.
+function renderContactExtra(data) {
+  const el = document.querySelector('#contactExtra');
+  if (!el) return;
+  el.replaceChildren();
+  const parts = [];
+  const id = data?.beneficiary?.identifier;
+  if (id) {
+    const strong = document.createElement('strong');
+    strong.textContent = String(id);
+    parts.push([document.createTextNode(`${translate('order.beneficiaryIdentifier')} `), strong]);
+  }
+  const ents = Array.isArray(data?.entitlements) ? data.entitlements : [];
+  if (ents.length) {
+    const remaining = ents.reduce((sum, e) => sum + (Number(e.remaining) || 0), 0);
+    const max = ents.reduce((sum, e) => sum + (Number(e.max) || 0), 0);
+    parts.push([document.createTextNode(translate('saleStatus.entitlementRemaining', { remaining, max }))]);
+  }
+  parts.forEach((nodes, i) => {
+    if (i) el.append(document.createTextNode(' · '));
+    el.append(...nodes);
+  });
+  el.hidden = !parts.length;
+}
+
 /* ========= PLAFOND DE PLACES ========= */
 // Fourni par le serveur dans le payload de statut (limits.maxItems). Absent —
 // vieux cache, vue non encore adaptée — on ne plafonne pas côté client : le
@@ -579,8 +607,9 @@ function makeRowForSeat(seat) {
 
   row.innerHTML = `
     <button class="trash" title="Supprimer" aria-label="Supprimer la ligne" type="button">🗑</button>
-    <div class="col seat"><span class="seat-label" title="${seatDisplay}">${seatDisplay}</span></div>    <div class="col name"><input type="text" class="holder-last"  placeholder="Nom" value="${subs.lastName || ''}"></div>
+    <div class="col name"><input type="text" class="holder-last"  placeholder="Nom" value="${subs.lastName || ''}"></div>
     <div class="col name"><input type="text" class="holder-first" placeholder="Prénom" value="${subs.firstName || ''}"></div>
+    <div class="col seat"><span class="seat-label" title="${seatDisplay}">${seatDisplay}</span></div>
     <div class="col tariff"><select class="tariff-select"></select></div>
 
     <!-- sous-ligne compacte (visible uniquement si extras requis) -->
@@ -671,20 +700,14 @@ dlog('syncPayerMaybe after:', { pf: pf.value, pl: pl.value, pe: pe.value });
   }
 }
 
+// Recopie le nom (ou le prénom) du panneau Contact sur les lignes du panier
+// encore vides : le cas courant est l'acheteur qui s'inscrit lui-même, ou sa
+// famille sous le même nom. Une ligne déjà saisie n'est jamais écrasée.
 function autoFillNames(kind) {
-  const selector = kind === 'first' ? '.holder-first' : '.holder-last';
-  const inputs = Array.from(document.querySelectorAll(`#cartRows ${selector}`));
-  if (!inputs.length) return;
-
-  let sourceValue = '';
-  const firstFilled = inputs.find(inp => String(inp.value || '').trim());
-  if (firstFilled) {
-    sourceValue = String(firstFilled.value || '').trim();
-  } else {
-    const payer = document.querySelector(kind === 'first' ? '#payerFirst' : '#payerLast');
-    sourceValue = String(payer?.value || '').trim();
-  }
-  if (!sourceValue) return;
+  const inputs = Array.from(document.querySelectorAll(`#cartRows ${kind === 'first' ? '.holder-first' : '.holder-last'}`));
+  const payer = document.querySelector(kind === 'first' ? '#payerFirst' : '#payerLast');
+  const sourceValue = String(payer?.value || '').trim();
+  if (!inputs.length || !sourceValue) return;
 
   inputs.forEach(inp => {
     if (!String(inp.value || '').trim()) {
@@ -694,6 +717,9 @@ function autoFillNames(kind) {
   });
 }
 
+// Pictogramme « copier » (deux feuilles), à la couleur du texte.
+const COPY_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2.5"/><path d="M4 15V5.5A2.5 2.5 0 0 1 6.5 3H15"/></svg>';
+
 function attachNameAutofillButtons() {
   const head = document.querySelector('.lines-head');
   if (!head) return;
@@ -701,10 +727,11 @@ function attachNameAutofillButtons() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'auto-fill-btn';
-    btn.textContent = '↳';
+    btn.innerHTML = COPY_SVG;
     btn.title = kind === 'first'
       ? translate('generic.copyFirstNameTitle')
       : translate('generic.copyLastNameTitle');
+    btn.setAttribute('aria-label', btn.title);
     btn.addEventListener('click', () => autoFillNames(kind));
     return btn;
   };
@@ -1333,6 +1360,7 @@ dlog('payer inputs after set:', {
   updateTotals(); updateInstallmentsPreview();
   syncSelectedHighlights();
   CTX.raw = data;              // expose le payload brut aux vues spécifiques
+  renderContactExtra(data);
   emitHook('afterData', { ctx: CTX, data });
   // c) Si pas de contact côté API, complète depuis la 1ʳᵉ ligne
   if (!$('#payerFirst').value && !$('#payerLast').value) {
