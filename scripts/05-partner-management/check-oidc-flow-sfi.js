@@ -50,7 +50,10 @@ function check(label, pass, detail = '') {
 }
 
 try {
-  const stub = (await import(path.join(ROOT, 'src/routes/dev-oidc-stub.routes.js'))).default;
+  // Même fournisseur factice que « npm run oidc:stub » (stub_oidc/idp.js),
+  // monté ici en mémoire sur un port éphémère.
+  const { createIdp } = await import(path.join(ROOT, 'stub_oidc/idp.js'));
+  const stub = createIdp({ baseUrl: () => `${B}/dev/oidc` }).router;
   const partnerAuth = (await import(path.join(ROOT, 'src/routes/partner-auth.routes.js'))).default;
   app.use('/dev/oidc', stub);
   app.use(partnerAuth);
@@ -334,6 +337,19 @@ try {
   check('erreur infoUser (JWT en 200) → refus', jInfo.res.status === 502 && /invalid_token/.test(infoTxt),
     infoTxt.slice(0, 90));
 
+  // Scénarios du stub (stub_oidc/idp.js) : chacun doit être REFUSÉ par BTS.
+  for (const [scenario, pattern, label] of [
+    ['no_nonce', /nonce/, 'id_token sans nonce'],
+    ['wrong_nonce', /nonce différent/, 'id_token avec un autre nonce'],
+    ['bad_signature', /signature/i, 'id_token signé par une autre clé'],
+    ['expired', /expired|expir/i, 'id_token expiré'],
+    ['token_error', /invalid_client|→ 401/, '/token refuse le client'],
+    ['userinfo_error', /invalid_token|401/, 'erreur userinfo']
+  ]) {
+    const jS = await journey('zzaisc', { ...{}, scenario });
+    const txt = await jS.res.text();
+    check(`scénario ${scenario} → refus (${label})`, jS.res.status === 502 && pattern.test(txt), txt.slice(0, 90));
+  }
   const jNonce = await journey('zzaisc', { no_nonce: '1' });
   const nonceTxt = await jNonce.res.text();
   check('id_token sans nonce refusé', jNonce.res.status === 502 && /nonce/.test(nonceTxt),

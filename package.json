@@ -13,6 +13,7 @@
     "helloasso:stub": "node stub_helloasso/server.js",
     "mollie:stub": "node stub_mollie/server.js",
     "sumup:stub": "node stub_sumup/server.js",
+    "oidc:stub": "node stub_oidc/server.js",
     "test": "jest --runInBand",
     "test:order-limits": "node scripts/06-misc/check-order-max-items.js",
     "test:oidc": "node scripts/05-partner-management/check-oidc-flow.js",

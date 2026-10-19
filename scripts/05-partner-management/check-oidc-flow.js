@@ -53,7 +53,10 @@ try {
     { slug: 'zzjeton', name: 'Partenaire à jeton statique' }
   ], null, 2));
 
-  const stub = (await import(path.join(ROOT, 'src/routes/dev-oidc-stub.routes.js'))).default;
+  // Même fournisseur factice que « npm run oidc:stub » (stub_oidc/idp.js),
+  // monté ici en mémoire sur un port éphémère.
+  const { createIdp } = await import(path.join(ROOT, 'stub_oidc/idp.js'));
+  const stub = createIdp({ baseUrl: () => `${B}/dev/oidc` }).router;
   const partnerAuth = (await import(path.join(ROOT, 'src/routes/partner-auth.routes.js'))).default;
   app.use('/dev/oidc', stub);
   app.use(partnerAuth);
@@ -147,6 +150,18 @@ try {
   const jClaim = await journey('zzoidc', { sub: 'user-002', groups: 'visiteurs' });
   check('claim requis non tenu → 403', jClaim.res.status === 403,
     (await jClaim.res.text()).slice(0, 48));
+  // Scénarios du stub (stub_oidc/idp.js) : chacun doit être REFUSÉ par BTS.
+  for (const [scenario, pattern, label] of [
+    ['no_nonce', /nonce/, 'id_token sans nonce'],
+    ['wrong_nonce', /nonce différent/, 'id_token avec un autre nonce'],
+    ['bad_signature', /signature/i, 'id_token signé par une autre clé'],
+    ['expired', /expired|expir/i, 'id_token expiré'],
+    ['token_error', /invalid_client|→ 401/, '/token refuse le client']
+  ]) {
+    const jS = await journey('zzoidc', { ...{ sub: 'u4', groups: 'abonnes' }, scenario });
+    const txt = await jS.res.text();
+    check(`scénario ${scenario} → refus (${label})`, jS.res.status === 502 && pattern.test(txt), txt.slice(0, 90));
+  }
   const jNext = await journey('zzoidc', { sub: 'u3', groups: 'abonnes' }, '?next=https://evil.example/x');
   check('next externe ramené sur le partenaire',
     (jNext.res.headers.get('location') || '').endsWith('/partner/zzoidc/events'));
