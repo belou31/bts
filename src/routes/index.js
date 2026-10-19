@@ -33,7 +33,6 @@ import partnerAuthRoutes from './partner-auth.routes.js';
 import {
   checkPartnerAccess, expectedPartnerToken, isOidcRequired, partnerLoginPath
 } from '../services/partner-access.js';
-import devOidcStub from './dev-oidc-stub.routes.js';
 import payRoutes from './pay.js';      
 import controlGuestlistRoutes from './control/guestlist.js';
 import qrRoutes   from './qr.js';
@@ -1126,17 +1125,6 @@ export default function routes(router) {
   // Parcours OIDC partenaire. Ne répond que pour un partenaire dont la
   // configuration porte un bloc `oidc` ; les autres gardent jeton et iframe.
   router.use(partnerAuthRoutes);
-
-  // Fournisseur d'identité factice, pour éprouver le parcours sans tiers.
-  // Jamais en production : il délivre une identité à qui la demande.
-  if (String(process.env.OIDC_STUB || '').toLowerCase() === 'true') {
-    if (String(process.env.APP_ENV || '').toLowerCase() === 'production') {
-      console.error('[oidc-stub] REFUSÉ : OIDC_STUB=true avec APP_ENV=production');
-    } else {
-      router.use('/dev/oidc', devOidcStub);
-      console.warn('[oidc-stub] fournisseur d\'identité de TEST monté sur /dev/oidc');
-    }
-  }
 
   router.use('/', scanRoutes);
   router.use('/', controlGuestlistRoutes);

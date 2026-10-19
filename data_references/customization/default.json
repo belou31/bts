@@ -7,7 +7,7 @@
   "subscription.ticket": { "fr": "Votre billet saison est disponible dans votre espace client.", "en": "Your season ticket is available in your account." },
   "event.title": { "fr": "Billetterie — {{eventName}}", "en": "Tickets — {{eventName}}" },
   "event.lead": { "fr": "Date : {{eventStartsAtFormatted}} · Lieu : {{venueName}}", "en": "Date: {{eventStartsAtFormatted}} · Venue: {{venueName}}" },
-  "event.help": { "fr": "Sélectionnez votre siège ou votre zone pour cet événement.", "en": "Select your seat or zone for this event." },
+  "event.help": { "fr": "Sélectionnez votre siège ou votre zone.", "en": "Select your seat or zone." },
   "event.payButton": { "fr": "Valider et payer", "en": "Confirm and pay" },
   "event.emailConfirmation": { "fr": "Un email de confirmation sera envoyé après paiement.", "en": "A confirmation email will be sent after payment." },
   "event.ticket": { "fr": "Billets disponibles immédiatement après confirmation.", "en": "Tickets available immediately after confirmation." },

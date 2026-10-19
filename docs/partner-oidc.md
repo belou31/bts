@@ -143,22 +143,31 @@ aujourd'hui).
 
 ## Éprouver sur DEV
 
-Un fournisseur d'identité **factice** est fourni. Il n'est monté que si
-`OIDC_STUB=true`, et il refuse de démarrer quand `APP_ENV=production` : il
-délivre une identité à quiconque la demande.
+Un fournisseur d'identité **factice** tourne à part, comme les stubs de
+paiement (`stub_oidc/`, détails dans `stub_oidc/README.md`). Il délivre une
+identité à quiconque la demande et refuse de démarrer avec `APP_ENV=production`.
 
 ```
-OIDC_STUB=true npm run dev
+npm run oidc:stub        # http://127.0.0.1:3016, tableau de bord sur /
 ```
 
-- profil normalisé : `<APP_URL>/dev/oidc` (découverte, PKCE, JWKS, userinfo) ;
-- profil SFI : `<APP_URL>/dev/oidc/sfi` — calqué sur la préproduction AISC :
-  ni découverte ni JWKS, `client_secret` exigé sur `/token`, erreurs OAuth en
-  HTTP 200, `id_token` nu, `infoUser` en JWT signé. La clé publique se récupère sur
-  `/dev/oidc/sfi/keys/public.pem` (hors spec, pour le test seulement).
+- profil normalisé : émetteur `http://127.0.0.1:3016` (découverte, PKCE, JWKS,
+  userinfo) ;
+- profil SFI : `http://127.0.0.1:3016/sfi/oauth/v1/{authorize,token,infoUser}`
+  — calqué sur la préproduction AISC : ni découverte, `client_secret` exigé sur
+  `/token`, erreurs OAuth en HTTP 200, `id_token` nu, `infoUser` en JWT signé ;
+- **scénarios** : connexion manuelle ou automatique, refus, `id_token` sans
+  nonce / autre nonce / mauvaise signature / expiré, `/token` qui refuse le
+  client, erreur userinfo. Le défaut se choisit sur le tableau de bord ; en
+  manuel, l'écran de connexion permet d'en choisir un pour une seule connexion ;
+- identités de test modifiables (dont conjoint et nombre d'enfants pour SFI) ;
+- le tableau de bord donne le bloc `oidc` à coller dans `partners.json` pour
+  chaque profil, et la clé publique PEM. La clé de signature est conservée dans
+  `stub_oidc/.keys/` (hors git) : elle survit au redémarrage.
 
-Deux harnais rejouent le parcours complet puis mettent chaque contrôle en
-échec. Ils travaillent dans un répertoire jetable et vérifient en sortie que la
+Deux harnais rejouent le parcours complet contre ce même fournisseur (monté en
+mémoire), puis mettent chaque contrôle et chaque scénario en échec. Ils
+travaillent dans un répertoire jetable et vérifient en sortie que la
 configuration partenaire réelle est intacte :
 
 ```
@@ -167,8 +176,7 @@ npm run test:oidc-sfi    # profil AISC / SFI
 ```
 
 Sources : `scripts/05-partner-management/check-oidc-flow.js` et
-`check-oidc-flow-sfi.js`. Les deux démarrent leur propre serveur sur un port
-libre et ne demandent ni base de données ni `.env`.
+`check-oidc-flow-sfi.js`. Ni base de données ni `.env`.
 
 ## Identité et droits d'achat
 
