@@ -1,6 +1,7 @@
 // src/services/payments/helloasso.js
 import { isZoneUnit } from '../../utils/seat-id.js';
 import { providerFetch, createTokenCache } from './http.js';
+import { providerError } from './provider-error.js';
 
 const API_DEFAULT = 'https://api.helloasso.com';
 
@@ -203,7 +204,8 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   if (!r.ok) {
     if (r.status === 401) tokenCache.invalidate();
     console.error('[helloasso] payload sent:', JSON.stringify(payload));
-    throw new Error(`HelloAsso checkout ${r.status} ${JSON.stringify(j)}`);
+    throw providerError('HelloAsso checkout', r.status, j,
+      (Array.isArray(j?.errors) ? j.errors : []).map(e => e?.message));
   }
   return {
     redirectUrl: j.redirectUrl || j.redirectUri || j.url || '',

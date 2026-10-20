@@ -153,6 +153,8 @@
     "entitlementReachedDetail": "Your entitlement allows {{max}} more seat(s) for this event.",
     "providerUnavailableTitle": "Payment is temporarily unavailable",
     "providerUnavailableDetail": "Our payment provider did not respond. Your seats have been released: your selection is intact — start the payment again.",
+    "paymentRejectedTitle": "Payment refused by the provider",
+    "paymentRejectedDetail": "The payment provider rejects these details: {{reason}}. Correct the Contact panel (last name, first name, email) and try again.",
     "checkoutTimeoutTitle": "Payment is taking too long to start",
     "checkoutTimeoutDetail": "The request did not complete in time. Check your selection and start the payment again."
   },
