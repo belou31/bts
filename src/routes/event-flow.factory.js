@@ -23,7 +23,7 @@ import { claimEventSeatHolds, releaseOrderSeatHolds } from '../services/event-se
 import { withMetaZonePrices } from '../utils/meta-zones.js';
 import { isZoneUnit } from '../utils/seat-id.js';
 import { isEventOnSale, isPartnerSaleWindow } from '../utils/event-sale.js';
-import { entitlementsForEvent, cartRefusal } from '../services/partner-entitlements.js';
+import { entitlementsForEvent, cartRefusal, ruleForTariff } from '../services/partner-entitlements.js';
 import { loadCartRules, rulesForChannel, cartRuleViolation } from '../services/cart-rules.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
@@ -462,12 +462,13 @@ export function createEventFlowRouter({
         if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
         return isEventOnSale(ev) ? 'sale_opened' : 'presale_opened';
       })();
-      let entitlements = null;
+      let ent = null;
       try {
-        entitlements = (await getPartnerEntitlements(ev, channelCtx))?.state || null;
+        ent = await getPartnerEntitlements(ev, channelCtx);
       } catch (e) {
         if (e?.code !== 'partner_login_required') throw e;
       }
+      const entitlements = ent?.state || null;
       // Plafond côté panier : somme des restes. Un panier sans limite dans cet
       // état de vente (places en plus à l'ouverture publique) lève le plafond
       // global ; le serveur contrôle toujours chaque panier au paiement.
@@ -673,8 +674,14 @@ export function createEventFlowRouter({
         } : {}),
         // `partner` : tarif propre au partenaire (le panier les présente en
         // tête et choisit le premier par défaut). Absent hors canal partenaire.
+        // `icon` : celui du panier de droits qui couvre le tarif — préfixe
+        // d'affichage (ex. ❤️), jamais écrit dans le libellé en base.
         tariffs: channelCtx?.kind === 'partner'
-          ? tariffs.map(t => ({ ...t, partner: matchesChannel(t.channels, channelCtx) }))
+          ? tariffs.map(t => ({
+              ...t,
+              partner: matchesChannel(t.channels, channelCtx),
+              icon: (ent && ruleForTariff(ent.rules, t.code, ent.ctx)?.icon) || null
+            }))
           : tariffs,
         prices, scope,
         allowedZones: Array.from(allowedSet),

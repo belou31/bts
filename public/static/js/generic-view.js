@@ -643,7 +643,8 @@ function makeRowForSeat(seat) {
     const opt = document.createElement('option');
     opt.value = t.code;
     const price = computeLineAmount(CTX.pricesIdx, z, t.code);
-    opt.textContent = `${t.label || t.code} — ${fmtEuro(price)}`;
+    // Préfixe d'affichage (icône du panier de droits, ex. ❤️), hors libellé.
+    opt.textContent = `${t.icon ? t.icon + ' ' : ''}${t.label || t.code} — ${fmtEuro(price)}`;
     $sel.appendChild(opt);
   }
   if (def) $sel.value = def.code;
