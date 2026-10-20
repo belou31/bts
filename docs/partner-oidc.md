@@ -230,7 +230,7 @@ affiche aussi, en lecture seule, l'identifiant et les droits restants.
 | `tariffs` | codes tarif couverts ; absent = tous |
 | `tariffChannel` | `partner` : tarifs propres au partenaire ; `public` : tarifs de la grille publique (`allowPublicTariffs`) |
 | `limitDuring` | états de vente où `max` s'applique (ex. `["presale"]`) ; hors de ces états, aucune limite |
-| `icon` | pictogramme affiché après le décompte dans le panneau Contact (ex. `"❤️"`) |
+| `icon` | pictogramme (ex. `"❤️"`) affiché après le décompte dans le panneau Contact, et en préfixe des tarifs couverts dans le choix du tarif — affichage seulement, le libellé en base n'est pas modifié |
 
 - une ligne relève du **premier** panier qui couvre son tarif ; une ligne
   qu'aucun ne couvre est refusée ;
