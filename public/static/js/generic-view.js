@@ -977,6 +977,13 @@ async function submitPayment() {
             title = translate('generic.providerUnavailableTitle');
             details = [translate('generic.providerUnavailableDetail')];
           }
+          // 🔹 Données refusées par le prestataire (ex. nom de payeur) : à
+          // corriger par l'acheteur, ce n'est pas une panne.
+          else if (err?.error === 'payment_rejected') {
+            title = translate('generic.paymentRejectedTitle');
+            const reason = (Array.isArray(err?.reasons) && err.reasons.length) ? err.reasons.join(' ; ') : '—';
+            details = [translate('generic.paymentRejectedDetail', { reason })];
+          }
           // 🔹 Siège indisponible
           else if (err?.error === 'seat_unavailable') {
             title = translate('generic.seatUnavailableTitle');

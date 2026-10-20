@@ -153,6 +153,8 @@
     "entitlementReachedDetail": "Vos droits vous permettent encore {{max}} place(s) sur ce match.",
     "providerUnavailableTitle": "Le paiement est momentanément indisponible",
     "providerUnavailableDetail": "Notre prestataire de paiement n’a pas répondu. Vos places ont été libérées : votre sélection est intacte, relancez le paiement.",
+    "paymentRejectedTitle": "Paiement refusé par le prestataire",
+    "paymentRejectedDetail": "Le prestataire de paiement refuse ces informations : {{reason}}. Corrigez le panneau Contact (nom, prénom, e-mail) puis relancez le paiement.",
     "checkoutTimeoutTitle": "Le paiement met trop de temps à démarrer",
     "checkoutTimeoutDetail": "La demande n’a pas abouti dans le temps imparti. Vérifiez votre sélection et relancez le paiement."
   },

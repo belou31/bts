@@ -25,6 +25,7 @@ import { isZoneUnit } from '../utils/seat-id.js';
 import { isEventOnSale, isPartnerSaleWindow } from '../utils/event-sale.js';
 import { entitlementsForEvent, cartRefusal, ruleForTariff } from '../services/partner-entitlements.js';
 import { loadCartRules, rulesForChannel, cartRuleViolation } from '../services/cart-rules.js';
+import { isProviderRejection } from '../services/payments/provider-error.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
@@ -996,6 +997,17 @@ export function createEventFlowRouter({
       } catch (err) {
         console.error(`[${flowKey}/checkout] provider intent failed:`, err?.message || err);
         await rollbackStillbornOrder(err?.message || err);
+        // Le prestataire a répondu mais refuse les données (ex. HelloAsso :
+        // « Le champ nom est invalide ») : l'acheteur peut corriger, ce n'est
+        // pas une panne.
+        if (isProviderRejection(err)) {
+          return res.status(400).json({
+            ok: false,
+            error: 'payment_rejected',
+            reasons: err.providerMessages || [],
+            retryable: false
+          });
+        }
         return res.status(503).json({
           ok: false,
           error: 'provider_unavailable',

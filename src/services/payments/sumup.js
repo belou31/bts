@@ -1,5 +1,6 @@
 // src/services/payments/sumup.js
 import { providerFetch, createTokenCache } from './http.js';
+import { providerError } from './provider-error.js';
 
 const DEFAULT_API_BASE = 'https://api.sumup.com/v0.1';
 const DEFAULT_TOKEN_URL = 'https://api.sumup.com/token';
@@ -186,7 +187,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
       console.error(`[sumup]   merchant    : ${process.env.SUMUP_MERCHANT_CODE || '(non défini)'}`);
       console.error('[sumup]   diagnostic  : node scripts/00-system-management/check-payment-provider.js');
     }
-    throw new Error(`SumUp checkout ${r.status} ${JSON.stringify(j)}`);
+    throw providerError('SumUp checkout', r.status, j, [j?.message || j?.error_message || j?.detail]);
   }
   // SumUp sometimes only returns links on GET, not POST — fetch to get the real checkout URL
   let jGet = j;
