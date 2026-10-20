@@ -13,7 +13,7 @@ import { Venue } from '../../models/Venue.js';
 import { Season } from '../../models/Season.js';
 import { Voucher } from '../../models/Voucher.js';
 import { Event } from '../../models/Event.js';
-import { listPartnerConfigs } from '../../config/partners.js';
+import { listPartnerConfigs, partnerPaymentMode } from '../../config/partners.js';
 import { Tariff } from '../../models/Tariff.js';
 import { TariffPrice } from '../../models/TariffPrice.js';
 import { TariffPriceCatalog } from '../../models/TariffPriceCatalog.js';
@@ -2169,7 +2169,7 @@ router.get('/monitor', async (req, res) => {
   const partnersList = (partnersRaw || []).map(p => ({
     slug: p.slug,
     name: p.name || '',
-    paymentMode: p.paymentMode || '',
+    paymentMode: partnerPaymentMode(p),
     allowPublicTariffs: Boolean(p.allowPublicTariffs),
     venueView: p.venueView || null
   }));

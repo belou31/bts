@@ -228,6 +228,9 @@ affiche aussi, en lecture seule, l'identifiant et les droits restants.
 | `per` | période de décompte ; seul `event` (par match) existe |
 | `max` | entier, ou `{ "attribute": "…" }` lu dans la session |
 | `tariffs` | codes tarif couverts ; absent = tous |
+| `tariffChannel` | `partner` : tarifs propres au partenaire ; `public` : tarifs de la grille publique (`allowPublicTariffs`) |
+| `limitDuring` | états de vente où `max` s'applique (ex. `["presale"]`) ; hors de ces états, aucune limite |
+| `icon` | pictogramme affiché après le décompte dans le panneau Contact (ex. `"❤️"`) |
 
 - une ligne relève du **premier** panier qui couvre son tarif ; une ligne
   qu'aucun ne couvre est refusée ;
@@ -240,6 +243,27 @@ affiche aussi, en lecture seule, l'identifiant et les droits restants.
 - les droits exigent une session : sans elle, l'API répond
   `partner_login_required` ;
 - le quota global du partenaire (`presale.events`) reste le plafond commun.
+
+Places « en plus » au tarif public, bornées en prévente et libres à
+l'ouverture publique :
+
+```json
+"allowPublicTariffs": true,
+"entitlements": [
+  { "key": "ayants-droit", "label": "Places ayants droit",
+    "tariffChannel": "partner", "max": { "attribute": "beneficiaries" } },
+  { "key": "public-extra", "label": "Places en plus (tarif public)",
+    "tariffChannel": "public", "max": 2, "limitDuring": ["presale"] }
+]
+```
+
+Sur la page partenaire, les tarifs propres au partenaire sont listés en tête
+de chaque ligne du panier, et le premier est choisi par défaut (sinon NORMAL).
+
+Un tarif est « partenaire » si ses canaux nomment le partenaire
+(`partner:<slug>`, `partner` ou `all`), « public » sinon. Hors de son état de
+vente, un panier est marqué `unlimited` et le panneau Contact affiche « sans
+limite ».
 
 Évolutions prévues sans changer la forme : un panier par catégorie
 (adultes / ados / enfants, chacun avec ses tarifs et son attribut), un panier

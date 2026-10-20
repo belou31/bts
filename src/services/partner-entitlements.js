@@ -16,6 +16,13 @@
 //   max      nombre fixe, ou { "attribute": "<nom> } lu dans la session
 //            (cf. oidc.identity.attributes) ;
 //   tariffs  codes tarif couverts. Absent : tous les tarifs.
+//   tariffChannel  "partner" | "public" : ne couvre que les tarifs propres au
+//            partenaire, ou que les tarifs publics (allowPublicTariffs) —
+//            plutôt qu'une liste de codes, qui change d'une grille à l'autre ;
+//   icon     pictogramme affiché après le décompte (ex. "❤️") ;
+//   limitDuring  états de vente où `max` s'applique (ex. ["presale"]). Hors de
+//            ces états, le panier n'a PAS de limite : places « en plus » au
+//            tarif public bornées en prévente, libres à l'ouverture publique.
 //
 // Une ligne de panier relève du PREMIER panier qui couvre son tarif. Une ligne
 // qu'aucun panier ne couvre est refusée : un tarif oublié dans la
@@ -27,6 +34,8 @@
 import { Order } from '../models/Order.js';
 
 const PERIODS = ['event'];
+const TARIFF_CHANNELS = ['partner', 'public'];
+const SALE_STATES = ['notopen', 'presale', 'onsale', 'soldout', 'closed'];
 
 /** Règles normalisées du partenaire ; [] s'il n'en déclare aucune. */
 export function entitlementRules(cfg) {
@@ -43,6 +52,17 @@ export function entitlementRules(cfg) {
     if (!validMax) {
       throw new Error(`entitlements[${key}] : max doit être un entier ou { "attribute": "…" }`);
     }
+    const tariffChannel = r?.tariffChannel ? String(r.tariffChannel).trim() : null;
+    if (tariffChannel && !TARIFF_CHANNELS.includes(tariffChannel)) {
+      throw new Error(`entitlements[${key}] : tariffChannel « ${tariffChannel} » inconnu (attendu : ${TARIFF_CHANNELS.join(', ')})`);
+    }
+    const limitDuring = Array.isArray(r?.limitDuring) && r.limitDuring.length
+      ? r.limitDuring.map(x => String(x).trim())
+      : null;
+    const badState = (limitDuring || []).find(x => !SALE_STATES.includes(x));
+    if (badState) {
+      throw new Error(`entitlements[${key}] : limitDuring « ${badState} » inconnu (attendu : ${SALE_STATES.join(', ')})`);
+    }
     return {
       key,
       label: String(r?.label || key),
@@ -50,32 +70,47 @@ export function entitlementRules(cfg) {
       max: typeof max === 'object' ? { attribute: String(max.attribute).trim() } : max,
       tariffs: Array.isArray(r?.tariffs) && r.tariffs.length
         ? r.tariffs.map(t => String(t).trim().toUpperCase()).filter(Boolean)
-        : null
+        : null,
+      tariffChannel,
+      limitDuring,
+      icon: r?.icon ? String(r.icon).trim() : null
     };
   });
 }
 
-/** Plafond d'un panier pour cette session ; null si l'attribut manque. */
-export function resolveMax(rule, session) {
+/**
+ * Plafond d'un panier pour cette session ; null si l'attribut manque,
+ * Infinity hors des états de vente de `limitDuring`.
+ */
+export function resolveMax(rule, session, ctx = {}) {
+  if (rule.limitDuring && !rule.limitDuring.includes(String(ctx.sale || ''))) return Infinity;
   if (typeof rule.max === 'number') return rule.max;
   const v = session?.attributes?.[rule.max.attribute];
   const n = Number(v);
   return v === null || v === undefined || !Number.isFinite(n) ? null : Math.max(0, Math.floor(n));
 }
 
-export function ruleForTariff(rules, tariffCode) {
+/**
+ * `ctx.tariffChannels` : Map code → "partner" | "public", d'après la grille
+ * proposée au partenaire (cf. event-flow.factory.js).
+ */
+export function ruleForTariff(rules, tariffCode, ctx = {}) {
   const code = String(tariffCode || '').toUpperCase();
-  return rules.find(r => !r.tariffs || r.tariffs.includes(code)) || null;
+  const channel = ctx.tariffChannels?.get?.(code) || null;
+  return rules.find(r =>
+    (!r.tariffs || r.tariffs.includes(code))
+    && (!r.tariffChannel || r.tariffChannel === channel)
+  ) || null;
 }
 
 const lineQty = (ln) => Number(ln?.qty ?? ln?.quantity ?? 1) || 1;
 
 /** Places par panier ; `uncovered` liste les tarifs qu'aucun panier ne couvre. */
-export function tally(rules, lines) {
+export function tally(rules, lines, ctx = {}) {
   const byKey = new Map(rules.map(r => [r.key, 0]));
   const uncovered = new Set();
   for (const ln of lines || []) {
-    const rule = ruleForTariff(rules, ln?.tariffCode);
+    const rule = ruleForTariff(rules, ln?.tariffCode, ctx);
     if (!rule) { uncovered.add(String(ln?.tariffCode || '?').toUpperCase()); continue; }
     byKey.set(rule.key, byKey.get(rule.key) + lineQty(ln));
   }
@@ -83,16 +118,26 @@ export function tally(rules, lines) {
 }
 
 /** État des droits : ce que montre le panier et ce que vérifie le paiement. */
-export function entitlementState(rules, session, usedLines) {
-  const used = tally(rules, usedLines).byKey;
+export function entitlementState(rules, session, usedLines, ctx = {}) {
+  const used = tally(rules, usedLines, ctx).byKey;
   return rules.map(r => {
-    const max = resolveMax(r, session);
+    const max = resolveMax(r, session, ctx);
     const u = used.get(r.key) || 0;
+    // Sans limite dans cet état de vente : max / remaining à null (JSON ne
+    // connaît pas Infinity), `unlimited` le dit.
+    if (max === Infinity) {
+      return {
+        key: r.key, label: r.label, icon: r.icon, per: r.per, tariffs: r.tariffs, tariffChannel: r.tariffChannel,
+        max: null, used: u, remaining: null, unlimited: true
+      };
+    }
     return {
       key: r.key,
       label: r.label,
+      icon: r.icon,
       per: r.per,
       tariffs: r.tariffs,
+      tariffChannel: r.tariffChannel,
       max,
       used: u,
       remaining: max === null ? 0 : Math.max(0, max - u),
@@ -104,8 +149,8 @@ export function entitlementState(rules, session, usedLines) {
 }
 
 /** null si le panier tient dans les droits, sinon le refus à renvoyer. */
-export function cartRefusal(rules, state, cartLines) {
-  const { byKey, uncovered } = tally(rules, cartLines);
+export function cartRefusal(rules, state, cartLines, ctx = {}) {
+  const { byKey, uncovered } = tally(rules, cartLines, ctx);
   if (uncovered.length) {
     return {
       error: 'entitlement_tariff_not_covered',
@@ -114,6 +159,7 @@ export function cartRefusal(rules, state, cartLines) {
     };
   }
   for (const s of state) {
+    if (s.unlimited) continue;
     const asked = byKey.get(s.key) || 0;
     if (asked > s.remaining) {
       return {
@@ -147,7 +193,7 @@ export async function linesAlreadyOrdered({ eventId, partnerSlug, identifier }) 
  * déclare pas. Sans session, lève : des droits ne se calculent pas pour un
  * inconnu.
  */
-export async function entitlementsForEvent({ cfg, partnerSlug, session, event }) {
+export async function entitlementsForEvent({ cfg, partnerSlug, session, event, tariffChannels = null }) {
   const rules = entitlementRules(cfg);
   if (!rules.length) return null;
   if (!session?.sub) {
@@ -156,5 +202,6 @@ export async function entitlementsForEvent({ cfg, partnerSlug, session, event })
     throw err;
   }
   const usedLines = await linesAlreadyOrdered({ eventId: event._id, partnerSlug, identifier: session.sub });
-  return { rules, state: entitlementState(rules, session, usedLines) };
+  const ctx = { tariffChannels: tariffChannels || new Map(), sale: event?.sale };
+  return { rules, ctx, state: entitlementState(rules, session, usedLines, ctx) };
 }

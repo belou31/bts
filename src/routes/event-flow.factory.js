@@ -24,6 +24,7 @@ import { withMetaZonePrices } from '../utils/meta-zones.js';
 import { isZoneUnit } from '../utils/seat-id.js';
 import { isEventOnSale, isPartnerSaleWindow } from '../utils/event-sale.js';
 import { entitlementsForEvent, cartRefusal } from '../services/partner-entitlements.js';
+import { loadCartRules, rulesForChannel, cartRuleViolation } from '../services/cart-rules.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
@@ -102,12 +103,25 @@ function isPartnerPresaleAllowed(ev, channelCtx) {
 // canal partenaire ou sans règles. Lève code=partner_login_required sans session.
 async function getPartnerEntitlements(ev, channelCtx) {
   if (!channelCtx || channelCtx.kind !== 'partner') return null;
+  if (!Array.isArray(channelCtx.partnerConfig?.entitlements) || !channelCtx.partnerConfig.entitlements.length) return null;
   return entitlementsForEvent({
     cfg: channelCtx.partnerConfig || {},
     partnerSlug: channelCtx.partnerSlug,
     session: channelCtx.session,
-    event: ev
+    event: ev,
+    tariffChannels: await partnerTariffChannels(ev, channelCtx)
   });
+}
+
+// Origine de chaque tarif proposé au partenaire : « partner » s'il lui est
+// propre (canaux partner:<slug>, partner, all), « public » s'il vient de la
+// grille publique (allowPublicTariffs). Base de `tariffChannel` des droits.
+async function partnerTariffChannels(ev, channelCtx) {
+  const { tariffs } = await loadTariffsAndPrices(ev, channelCtx);
+  return new Map((tariffs || []).map(t => [
+    String(t.code || '').toUpperCase(),
+    matchesChannel(t.channels, channelCtx) ? 'partner' : 'public'
+  ]));
 }
 
 // Refus 400/401 à renvoyer si le panier dépasse les droits ; null sinon.
@@ -122,8 +136,21 @@ async function entitlementRefusal(ev, channelCtx, lines) {
     throw e;
   }
   if (!ent) return null;
-  const refusal = cartRefusal(ent.rules, ent.state, lines);
+  const refusal = cartRefusal(ent.rules, ent.state, lines, ent.ctx);
   return refusal ? { status: 400, body: { ok: false, ...refusal } } : null;
+}
+
+// Contrôles de panier (data/customization/cart-rules.json) applicables au
+// canal. Fichier mal formé : signalé au journal, et aucun contrôle plutôt
+// qu'aucune vente — ce sont des règles de cohérence, pas de sécurité.
+function cartRulesFor(channelCtx) {
+  const channel = channelCtx?.kind === 'partner' ? `partner:${channelCtx.partnerSlug || ''}` : 'public';
+  try {
+    return rulesForChannel(loadCartRules(), channel);
+  } catch (e) {
+    console.error('[cart-rules] fichier ignoré :', e.message);
+    return [];
+  }
 }
 
 // Identité de l'acheteur à reporter sur la commande : c'est elle qui permet
@@ -441,7 +468,10 @@ export function createEventFlowRouter({
       } catch (e) {
         if (e?.code !== 'partner_login_required') throw e;
       }
-      const entitlementMax = entitlements
+      // Plafond côté panier : somme des restes. Un panier sans limite dans cet
+      // état de vente (places en plus à l'ouverture publique) lève le plafond
+      // global ; le serveur contrôle toujours chaque panier au paiement.
+      const entitlementMax = entitlements && !entitlements.some(r => r.unlimited)
         ? entitlements.reduce((sum, r) => sum + r.remaining, 0)
         : null;
       const session = channelCtx?.kind === 'partner' ? channelCtx.session : null;
@@ -632,13 +662,21 @@ export function createEventFlowRouter({
           ...(entitlementMax !== null ? { entitlementMax } : {})
         },
         entitlements,
+        // Contrôles de panier du canal : le panier les vérifie avant paiement
+        // (generic-view.js), le paiement les revérifie.
+        cartRules: cartRulesFor(channelCtx),
         // Pré-remplit l'acheteur avec l'identité reçue à la connexion, et
         // l'affiche (identifiant) dans le panneau Contact.
         ...(session?.sub ? {
           payer: { firstName: session.firstName || '', lastName: session.lastName || '', email: session.email || '' },
           beneficiary: { identifier: String(session.sub), name: session.name || '' }
         } : {}),
-        tariffs, prices, scope,
+        // `partner` : tarif propre au partenaire (le panier les présente en
+        // tête et choisit le premier par défaut). Absent hors canal partenaire.
+        tariffs: channelCtx?.kind === 'partner'
+          ? tariffs.map(t => ({ ...t, partner: matchesChannel(t.channels, channelCtx) }))
+          : tariffs,
+        prices, scope,
         allowedZones: Array.from(allowedSet),
         allowedTariffsByZone,
         zonesMeta,
@@ -772,6 +810,8 @@ export function createEventFlowRouter({
       assert(isPartner ? (remaining ?? 0) > 0 : isEventOnSale(ev), 'Vente fermée pour cet événement.');
 
       const ctxData = await prepareOrderContext(req, ev, channelCtx);
+      const ruleBreak = cartRuleViolation(cartRulesFor(channelCtx), ctxData.lines);
+      if (ruleBreak) return res.status(400).json({ ok: false, ...ruleBreak });
       const entRefusal = await entitlementRefusal(ev, channelCtx, ctxData.lines);
       if (entRefusal) return res.status(entRefusal.status).json(entRefusal.body);
       if (isPartner) {
@@ -1036,6 +1076,8 @@ export function createEventFlowRouter({
         assert(isPartner ? (remaining ?? 0) > 0 : isEventOnSale(ev), 'Vente fermée pour cet événement.');
 
         const ctxData = await prepareOrderContext(req, ev, channelCtx);
+        const ruleBreak = cartRuleViolation(cartRulesFor(channelCtx), ctxData.lines);
+        if (ruleBreak) return res.status(400).json({ ok: false, ...ruleBreak });
         const entRefusal = await entitlementRefusal(ev, channelCtx, ctxData.lines);
         if (entRefusal) return res.status(entRefusal.status).json(entRefusal.body);
         if (isPartner) {

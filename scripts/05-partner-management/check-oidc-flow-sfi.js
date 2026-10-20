@@ -229,6 +229,32 @@ try {
   let bad = '';
   try { E.entitlementRules({ entitlements: [{ key: 'x', per: 'season', max: 1 }] }); } catch (e) { bad = e.message; }
   check('per non pris en charge → erreur de configuration', /per « season »/.test(bad), bad);
+  // Places en plus au tarif public, bornées en prévente seulement.
+  const extra = E.entitlementRules({ entitlements: [
+    { key: 'ad', label: 'Ayants droit', tariffChannel: 'partner', max: { attribute: 'beneficiaries' } },
+    { key: 'pub', label: 'En plus', tariffChannel: 'public', max: 2, limitDuring: ['presale'] }
+  ] });
+  const chans = new Map([['AISC', 'partner'], ['NORMAL', 'public']]);
+  const pre = { tariffChannels: chans, sale: 'presale' };
+  const on = { tariffChannels: chans, sale: 'onsale' };
+  const stPre = E.entitlementState(extra, sess, [], pre);
+  const iconRules = E.entitlementRules({ entitlements: [{ key: 'ad', max: 1, icon: '❤️' }, { key: 'b', max: 1 }] });
+  const stIcon = E.entitlementState(iconRules, sess, []);
+  check('icon transmis au panier (absent = null)', stIcon[0].icon === '❤️' && stIcon[1].icon === null);
+  check('prévente : 5 ayants droit + 2 publics', stPre[0].max === 5 && stPre[1].max === 2, JSON.stringify(stPre.map(x => x.max)));
+  check('prévente : 5 AISC + 2 NORMAL acceptés',
+    E.cartRefusal(extra, stPre, [...line('AISC', 5), ...line('NORMAL', 2)], pre) === null);
+  check('prévente : 3e NORMAL refusé', E.cartRefusal(extra, stPre, line('NORMAL', 3), pre)?.key === 'pub');
+  check('prévente : 6e AISC refusé (pas pris sur le public)',
+    E.cartRefusal(extra, stPre, line('AISC', 6), pre)?.key === 'ad');
+  const stOn = E.entitlementState(extra, sess, [], on);
+  check('vente publique : publics sans limite', stOn[1].unlimited === true && stOn[1].remaining === null);
+  check('vente publique : 10 NORMAL acceptés', E.cartRefusal(extra, stOn, line('NORMAL', 10), on) === null);
+  check('vente publique : ayants droit toujours bornés', E.cartRefusal(extra, stOn, line('AISC', 6), on)?.key === 'ad');
+  let badLd = '';
+  try { E.entitlementRules({ entitlements: [{ key: 'x', max: 1, limitDuring: ['soon'] }] }); } catch (e) { badLd = e.message; }
+  check('limitDuring inconnu → erreur de configuration', /limitDuring « soon »/.test(badLd), badLd);
+
   let login = '';
   try {
     await E.entitlementsForEvent({ cfg: { entitlements: [{ key: 'x', max: 1 }] }, partnerSlug: 'p', session: null, event: {} });
