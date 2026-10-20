@@ -186,6 +186,8 @@ function tariffsForZone(tariffs, pricesIdx, zoneKey) {
   const codes = new Set([...zMap.keys(), ...star.keys()]);
   const list = tariffs.filter(t => codes.has(String(t.code||'').toUpperCase()));
   list.sort((a, b) => {
+    // Tarifs propres au partenaire en tête (flux partenaire, cf. `partner`).
+    if (!!a?.partner !== !!b?.partner) return a?.partner ? -1 : 1;
     const aOrder = Number.isFinite(Number(a?.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
     const bOrder = Number.isFinite(Number(b?.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
     if (aOrder !== bOrder) return aOrder - bOrder;
@@ -478,10 +480,20 @@ function renderContactExtra(data) {
     parts.push([document.createTextNode(`${translate('order.beneficiaryIdentifier')} `), strong]);
   }
   const ents = Array.isArray(data?.entitlements) ? data.entitlements : [];
-  if (ents.length) {
-    const remaining = ents.reduce((sum, e) => sum + (Number(e.remaining) || 0), 0);
-    const max = ents.reduce((sum, e) => sum + (Number(e.max) || 0), 0);
-    parts.push([document.createTextNode(translate('saleStatus.entitlementRemaining', { remaining, max }))]);
+  // Pictogramme du panier de droits (entitlements[].icon), après le décompte.
+  const withIcon = (text, e) => (e.icon ? `${text} ${e.icon}` : text);
+  if (ents.length === 1 && !ents[0].unlimited) {
+    const { remaining, max } = ents[0];
+    parts.push([document.createTextNode(withIcon(translate('saleStatus.entitlementRemaining', { remaining, max }), ents[0]))]);
+  } else {
+    // Plusieurs paniers de droits (ex. ayants droit + places en plus au tarif
+    // public) : un libellé chacun, « sans limite » hors de son état de vente.
+    ents.forEach(e => {
+      const label = String(e.label || e.key || '');
+      parts.push([document.createTextNode(withIcon(e.unlimited
+        ? translate('saleStatus.entitlementUnlimited', { label })
+        : translate('saleStatus.entitlementBucket', { label, remaining: e.remaining, max: e.max }), e))]);
+    });
   }
   parts.forEach((nodes, i) => {
     if (i) el.append(document.createTextNode(' · '));
@@ -598,7 +610,9 @@ function makeRowForSeat(seat) {
     email    : seat?.holderEmail     ?? seat?.email     ?? ''
   };
   const list = tariffsForZone(CTX.tariffs, CTX.pricesIdx, z);
-  const def  = list.find(t => String(t.code).toUpperCase()==='NORMAL') || list[0] || null;
+  // Défaut : le premier tarif du partenaire s'il y en a, sinon NORMAL.
+  const def  = list.find(t => t.partner)
+    || list.find(t => String(t.code).toUpperCase()==='NORMAL') || list[0] || null;
 
   const row = document.createElement('div');
   row.className = 'cart-row';
@@ -872,12 +886,36 @@ function collectCheckoutPayload() {
     return;
   }
 
+  // Contrôles de panier du canal (cart-rules.json, via l'API de statut) :
+  // dits ici pour ne pas perdre la saisie ; le serveur les revérifie.
+  const ruleBreak = cartRuleViolation(CTX?.raw?.cartRules, items);
+  if (ruleBreak) {
+    setFeedback('error', translate('generic.cartRuleTitle'), [ruleBreak.message]);
+    return;
+  }
+
   const scheduleEl = $('#paySchedule');
   const schedule = Number(scheduleEl ? (scheduleEl.value || 1) : 1);
   const totalAmount = CTX.currentTotal || 0;
   return { items, payer, schedule, totalAmount };
 }
 window.BTS_VIEW.collectCheckoutPayload = collectCheckoutPayload;
+
+// Même calcul que src/services/cart-rules.js (cartRuleViolation) : première
+// règle enfreinte, ou null. Une ligne de panier vaut une place.
+function cartRuleViolation(rules, items) {
+  if (!Array.isArray(rules) || !rules.length) return null;
+  const count = (set) => items.reduce(
+    (n, it) => n + (set.includes(String(it.tariffCode || '').toUpperCase()) ? 1 : 0), 0);
+  for (const r of rules) {
+    const whenN = count(r?.when?.tariffs || []);
+    if (!whenN) continue;
+    const min = r?.require?.min || 1;
+    const needed = r?.require?.per ? Math.ceil(whenN / r.require.per) * min : min;
+    if (count(r?.require?.tariffs || []) < needed) return { key: r.key, message: r.message };
+  }
+  return null;
+}
 
 async function submitPayment() {
   const payload = collectCheckoutPayload();

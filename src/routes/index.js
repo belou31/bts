@@ -11,7 +11,7 @@ import { Venue } from '../models/Venue.js';
 import { Order } from '../models/Order.js';
 import { loadCustomization, resolveOrganizationName } from '../services/customization.js';
 import { formatDate } from '../utils/format.js';
-import { getPartnerConfig } from '../config/partners.js';
+import { getPartnerConfig, isInvoicePartner } from '../config/partners.js';
 import { isEventOnSale, isPartnerSaleWindow } from '../utils/event-sale.js';
 import { seasonDoorStatus } from '../utils/season-sale.js';
 import { resolveSeasonSubscribeAccess, seasonAccessMessage } from '../services/season-access.js';
@@ -860,10 +860,10 @@ export default function routes(router) {
 
       const partnerOptions = {
         slug: partnerCfg.slug,
-        invoiceMode: partnerCfg.paymentMode === 'psp' ? 'psp' : 'invoice',
+        invoiceMode: isInvoicePartner(partnerCfg) ? 'invoice' : 'psp',
         reserveApi: null,
         payButtonLabel: customization['subscription.payButton'] || partnerCfg?.reserve?.payButtonLabel
-          || (partnerCfg.paymentMode === 'psp' ? 'Procéder au paiement' : 'Envoyer la demande'),
+          || (isInvoicePartner(partnerCfg) ? 'Envoyer la demande' : 'Procéder au paiement'),
         successMessage: partnerCfg?.reserve?.successMessage || 'Demande envoyée. Vous recevrez une confirmation prochainement.',
         errorMessage: partnerCfg?.reserve?.errorMessage || 'Impossible d’enregistrer votre demande. Réessayez.'
       };
@@ -878,7 +878,7 @@ export default function routes(router) {
       const planHelp = customization['subscription.help']
         ? tmpl(customization['subscription.help'], tmplVars)
         : 'Sélectionnez un siège sur le plan ou ajoutez des places en zone.';
-      const isInvoiceMode = partnerCfg.paymentMode !== 'psp';
+      const isInvoiceMode = isInvoicePartner(partnerCfg);
       const paymentHelp = partnerCfg?.ui?.paymentHelp ||
         // Facturation différée : le dire, aucun paiement en ligne. Sinon l'aide
         // commune « Payer avec <prestataire> » de la vue.
@@ -964,7 +964,7 @@ export default function routes(router) {
     const tokenSuffix = providedToken ? `?token=${encodeURIComponent(providedToken)}` : '';
     const statusPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'status') + tokenSuffix;
     const checkoutPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'checkout') + tokenSuffix;
-    const reservePath = partnerCfg.paymentMode !== 'psp'
+    const reservePath = isInvoicePartner(partnerCfg)
       ? path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'reserve') + tokenSuffix
       : null;
 
@@ -990,9 +990,9 @@ export default function routes(router) {
 
     const partnerOptions = {
       slug: partnerCfg.slug,
-      invoiceMode: partnerCfg.paymentMode === 'psp' ? 'psp' : 'invoice',
+      invoiceMode: isInvoicePartner(partnerCfg) ? 'invoice' : 'psp',
       reserveApi: reservePath,
-      payButtonLabel: customization['event.payButton'] || partnerCfg?.reserve?.payButtonLabel || (partnerCfg.paymentMode === 'psp' ? 'Procéder au paiement' : 'Envoyer la demande'),
+      payButtonLabel: customization['event.payButton'] || partnerCfg?.reserve?.payButtonLabel || (isInvoicePartner(partnerCfg) ? 'Envoyer la demande' : 'Procéder au paiement'),
       successMessage: partnerCfg?.reserve?.successMessage || 'Demande envoyée. Vous recevrez une confirmation prochainement.',
       errorMessage: partnerCfg?.reserve?.errorMessage || 'Impossible d’enregistrer votre demande. Réessayez.'
     };
@@ -1007,7 +1007,7 @@ export default function routes(router) {
       ? tmpl(customization['event.help'], tmplVars)
       : 'Sélectionnez un siège disponible ou ajoutez des places en zone Debout lorsque proposé.';
     const headingCustom = Boolean(customization['event.title']);
-    const isInvoiceMode = partnerCfg.paymentMode !== 'psp';
+    const isInvoiceMode = isInvoicePartner(partnerCfg);
     const paymentHelp = partnerCfg?.ui?.paymentHelp ||
       (isInvoiceMode
         ? 'Demande enregistrée puis facturation différée. Aucun paiement en ligne n’est requis.'

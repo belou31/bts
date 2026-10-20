@@ -49,7 +49,9 @@
     "presaleQuotaUsed": "Quota utilisé ({{n}})",
     "soldOut": "Complet",
     "soldOutSub": "Plus de places disponibles",
-    "entitlementRemaining": "Vos droits : {{remaining}} / {{max}} place(s)"
+    "entitlementRemaining": "Vos droits : {{remaining}} / {{max}} place(s)",
+    "entitlementBucket": "{{label}} : {{remaining}} / {{max}}",
+    "entitlementUnlimited": "{{label}} : sans limite"
   },
   "order": {
     "defaultHeading": "Billetterie BTS",
@@ -120,6 +122,7 @@
     "emptyCartError": "Veuillez ajouter au moins une ligne.",
     "missingEmailError": "Renseignez un email de contact.",
     "placementRuleTitle": "Règle de placement",
+    "cartRuleTitle": "Panier incomplet",
     "singleGapLocation": " en rangée {{row}} (zone {{zone}})",
     "singleGapError": "Votre sélection créerait un siège isolé{{location}}. Merci de choisir une autre combinaison.",
     "seatUnavailableTitle": "Siège indisponible",

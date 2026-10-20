@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import createEventFlowRouter from './event-flow.factory.js';
 import subscriptionRouter from './subscription.js';
-import { getPartnerConfig } from '../config/partners.js';
+import { getPartnerConfig, isInvoicePartner } from '../config/partners.js';
 import { Order } from '../models/Order.js';
 import { checkPartnerAccess } from '../services/partner-access.js';
 import { readSession } from '../services/partner-session.js';
@@ -30,7 +30,7 @@ const partnerEventRouter = createEventFlowRouter({
   }),
   invoiceReservations: (req) => {
     const cfg = req.partnerConfig;
-    if (!cfg || cfg.paymentMode === 'psp') return null;
+    if (!cfg || !isInvoicePartner(cfg)) return null;
     return {
       enabled: true,
       status: cfg.reserve?.status || 'pending_invoice',
@@ -102,6 +102,10 @@ function requirePartnerAdmin(cfg) {
   };
 }
 
+// Identifiant venu de l'IdP du partenaire : échappé avant d'entrer dans le HTML.
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 function orderToCsvRow(ord) {
   const lines = Array.isArray(ord.lines) ? ord.lines : [];
   return lines.map((ln, idx) => {
@@ -124,9 +128,11 @@ function orderToCsvRow(ord) {
       partnerTotal,
       holderFirst,
       holderLast,
-      ord.payerEmail || '',
       ord.payerFirstName || '',
-      ord.payerLastName || ''
+      ord.payerLastName || '',
+      // Identifiant du bénéficiaire connecté (OpenID), cf. partner-entitlements.
+      ord?.meta?.partner?.identifier || '',
+      ord.payerEmail || ''
     ].join(',');
   }).join('\n');
 }
@@ -144,7 +150,7 @@ adminRouter.get('/:partnerSlug/admin', (req, res, next) => {
     const orders = await Order.find({ 'meta.partner.slug': slug, ...matchStatus }).lean();
     const format = (req.query.format || '').toLowerCase();
     if (format === 'csv') {
-      const header = ['orderId','createdAt','eventSlug','eventName','seatId','zoneKey','tariffCode','displayPriceCents','partnerPriceCents','partnerTotalCents','holderFirstName','holderLastName','payerEmail','payerFirstName','payerLastName'].join(',');
+      const header = ['orderId','createdAt','eventSlug','eventName','seatId','zoneKey','tariffCode','displayPriceCents','partnerPriceCents','partnerTotalCents','holderFirstName','holderLastName','payerFirstName','payerLastName','identifier','payerEmail'].join(',');
       const rows = orders.map(orderToCsvRow).filter(Boolean).join('\n');
       res.setHeader('Content-Type', 'text/csv');
       res.send([header, rows].filter(Boolean).join('\n'));
@@ -183,6 +189,7 @@ adminRouter.get('/:partnerSlug/admin', (req, res, next) => {
             <td>${ln.holderLastName || ''}</td>
             <td>${o.payerFirstName || ''}</td>
             <td>${o.payerLastName || ''}</td>
+            <td>${esc(meta.identifier || '')}</td>
             <td>${o.payerEmail || ''}</td>
           </tr>`;
         }).join('');
@@ -197,7 +204,7 @@ adminRouter.get('/:partnerSlug/admin', (req, res, next) => {
           <table border="1" cellspacing="0" cellpadding="4">
             <thead>
               <tr>
-                <th>orderId</th><th>createdAt</th><th>eventSlug</th><th>eventName</th><th>seatId</th><th>zoneKey</th><th>tariffCode</th><th>displayPriceCents</th><th>partnerPriceCents</th><th>partnerTotalCents</th><th>holderFirstName</th><th>holderLastName</th><th>payerFirstName</th><th>payerLastName</th><th>payerEmail</th>
+                <th>orderId</th><th>createdAt</th><th>eventSlug</th><th>eventName</th><th>seatId</th><th>zoneKey</th><th>tariffCode</th><th>displayPriceCents</th><th>partnerPriceCents</th><th>partnerTotalCents</th><th>holderFirstName</th><th>holderLastName</th><th>payerFirstName</th><th>payerLastName</th><th>identifier</th><th>payerEmail</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>

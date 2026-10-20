@@ -49,7 +49,9 @@
     "presaleQuotaUsed": "Quota used ({{n}})",
     "soldOut": "Sold out",
     "soldOutSub": "No more tickets available",
-    "entitlementRemaining": "Your entitlement: {{remaining}} / {{max}} seat(s)"
+    "entitlementRemaining": "Your entitlement: {{remaining}} / {{max}} seat(s)",
+    "entitlementBucket": "{{label}}: {{remaining}} / {{max}}",
+    "entitlementUnlimited": "{{label}}: no limit"
   },
   "order": {
     "defaultHeading": "BTS Ticketing",
@@ -120,6 +122,7 @@
     "emptyCartError": "Please add at least one line.",
     "missingEmailError": "Please provide a contact email.",
     "placementRuleTitle": "Seating rule",
+    "cartRuleTitle": "Incomplete cart",
     "singleGapLocation": " in row {{row}} (zone {{zone}})",
     "singleGapError": "Your selection would leave an isolated seat{{location}}. Please choose a different combination.",
     "seatUnavailableTitle": "Seat unavailable",
