@@ -19,3 +19,10 @@ export { AdCampaign }    from './AdCampaign.js';
 export { AdCampaignCatalog } from './AdCampaignCatalog.js';
 export { AdCampaignPlacement } from './AdCampaignPlacement.js';
 export { AdClick }       from './AdClick.js';
+// Annuaire partenaire (services/partner-directory.js) : sans ces exports,
+// scripts/sync-indexes.mjs ignorait ces modèles, et INT/PROD (autoIndex
+// coupé hors développement) restaient sans unicité ni expiration des codes.
+export { PartnerMember } from './PartnerMember.js';
+export { PartnerLoginCode } from './PartnerLoginCode.js';
+// Catalogue de zones d'un lieu : même raison (index unique venueSlug + key).
+export { ZoneCatalog } from './ZoneCatalog.js';

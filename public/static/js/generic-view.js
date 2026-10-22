@@ -625,6 +625,7 @@ function makeRowForSeat(seat) {
     <div class="col name"><input type="text" class="holder-first" placeholder="Prénom" value="${subs.firstName || ''}"></div>
     <div class="col seat"><span class="seat-label" title="${seatDisplay}">${seatDisplay}</span></div>
     <div class="col tariff"><select class="tariff-select"></select></div>
+    <div class="col price"><span class="line-price"></span></div>
 
     <!-- sous-ligne compacte (visible uniquement si extras requis) -->
     <div class="line-extra-inline" hidden>
@@ -644,7 +645,9 @@ function makeRowForSeat(seat) {
     opt.value = t.code;
     const price = computeLineAmount(CTX.pricesIdx, z, t.code);
     // Préfixe d'affichage (icône du panier de droits, ex. ❤️), hors libellé.
-    opt.textContent = `${t.icon ? t.icon + ' ' : ''}${t.label || t.code} — ${fmtEuro(price)}`;
+    // Le prix n'est plus dans l'option : il a sa colonne (voir updateTotals).
+    opt.textContent = `${t.icon ? t.icon + ' ' : ''}${t.label || t.code}`;
+    opt.title = `${t.label || t.code} — ${fmtEuro(price)}`;
     $sel.appendChild(opt);
   }
   if (def) $sel.value = def.code;
@@ -673,7 +676,11 @@ function updateTotals() {
     // ⬅️ privilégie la zone portée dans dataset (lignes “zone” incluses)
     const z = row.dataset.zoneKey || zoneKeyFromSeatId(seatId);
     const tariff = $('.tariff-select', row).value;
-    total += computeLineAmount(CTX.pricesIdx, z, tariff);
+    const amount = computeLineAmount(CTX.pricesIdx, z, tariff);
+    total += amount;
+    // Prix de la ligne, dans sa colonne : suit le tarif choisi.
+    const priceEl = $('.line-price', row);
+    if (priceEl) priceEl.textContent = fmtEuro(amount);
   });
   CTX.currentTotal = total;
   $('#totalBox').textContent = fmtEuro(total);
