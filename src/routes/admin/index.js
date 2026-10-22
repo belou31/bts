@@ -2187,6 +2187,34 @@ router.get('/monitor', async (req, res) => {
     channels: Array.isArray(t.channels) ? t.channels : []
   }));
 
+  // Tarifs globaux (priceTableKey null : le catalogue) et tarifs instanciés
+  // (copies dans la table de prix d'un événement), en deux tableaux. Pour les
+  // globaux, leur utilisation — calculée sur l'onglet Tarifs seulement : le
+  // décompte des lignes de commande parcourt toutes les commandes.
+  let tariffUsage = null;
+  if (monitorTab === 'tariffs') {
+    const byCode = (rows) => new Map(rows.map(r => [String(r._id || '').toUpperCase(), r.n]));
+    const [catRows, evRows, seasonRows, orderRows] = await Promise.all([
+      TariffPriceCatalog.aggregate([{ $group: { _id: '$tariffCode', n: { $sum: 1 } } }]),
+      Tariff.aggregate([{ $match: { priceTableKey: { $type: 'string' } } }, { $group: { _id: '$code', n: { $sum: 1 } } }]),
+      TariffPrice.aggregate([{ $match: { priceTableKey: null } }, { $group: { _id: '$tariffCode', n: { $sum: 1 } } }]),
+      Order.aggregate([{ $unwind: '$lines' }, { $group: { _id: '$lines.tariffCode', n: { $sum: 1 } } }])
+    ]);
+    tariffUsage = { catalogs: byCode(catRows), events: byCode(evRows), season: byCode(seasonRows), orders: byCode(orderRows) };
+  }
+  const globalTariffs = tariffsFull.filter(t => !t.priceTableKey).map(t => {
+    if (!tariffUsage) return t;
+    const code = String(t.code || '').toUpperCase();
+    const usage = {
+      catalogs: tariffUsage.catalogs.get(code) || 0,
+      events: tariffUsage.events.get(code) || 0,
+      season: tariffUsage.season.get(code) || 0,
+      orders: tariffUsage.orders.get(code) || 0
+    };
+    return { ...t, usage, unused: Object.values(usage).every(n => n === 0) };
+  });
+  const instantiatedTariffs = tariffsFull.filter(t => t.priceTableKey);
+
   const requestedPartnerSlug = (req.query.partner || '').toString().trim().toLowerCase();
   const selectedPartnerRaw = (partnersRaw || []).find(p => String(p?.slug || '').toLowerCase() === requestedPartnerSlug)
     || (partnersRaw || [])[0]
@@ -2557,6 +2585,8 @@ router.get('/monitor', async (req, res) => {
       seasons: seasonsList,
       events: eventsList,
       tariffs: tariffsFull,
+      globalTariffs,
+      instantiatedTariffs,
       tariffPriceCatalogGroups,
       selectedCatalogKey,
       tariffPriceCatalogEntries,

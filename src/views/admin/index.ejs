@@ -3040,17 +3040,41 @@
 
 
     <div class="monitoring-panel <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-panel="tariffs">
-      <h3>Catalogue des tarifs</h3>
-      <% if (monitoring.lists.tariffs && monitoring.lists.tariffs.length) { %>
+      <% const globalTariffs = monitoring.lists.globalTariffs || []; const instTariffs = monitoring.lists.instantiatedTariffs || []; %>
+      <h3>Tarifs globaux (catalogue)</h3>
+      <% if (globalTariffs.length) { const unusedCount = globalTariffs.filter(t => t.unused).length; %>
+        <p class="muted"><%= globalTariffs.length %> tarif(s)<% if (globalTariffs[0].usage) { %> · <strong><%= unusedCount %></strong> utilisé(s) nulle part (ni catalogue de prix, ni événement, ni saison, ni commande)<% } %>.</p>
         <div class="scroll-table" style="margin-bottom:16px;">
           <table>
-            <tr><th>Code</th><th>Libellé</th><th>Actif</th><th>Table de prix</th><th>Champ requis</th><th>Canaux</th></tr>
-            <% for (const t of monitoring.lists.tariffs) { %>
+            <tr><th>Code</th><th>Libellé</th><th>Actif</th><th>Champ requis</th><th>Canaux</th>
+              <% if (globalTariffs[0].usage) { %><th>Catalogues</th><th>Événements</th><th>Saison</th><th>Lignes de commande</th><% } %></tr>
+            <% for (const t of globalTariffs) { %>
+              <tr<%= t.unused ? ' style="opacity:.55"' : '' %>>
+                <td><code><%= t.code %></code><%= t.unused ? ' · inutilisé' : '' %></td>
+                <td><%= t.label %></td>
+                <td><%= t.active ? 'Oui' : 'Non' %></td>
+                <td><%= t.fieldLabel || t.requiresField || '—' %></td>
+                <td><%= t.channels.length ? t.channels.join(', ') : 'public (implicite)' %></td>
+                <% if (t.usage) { %><td><%= t.usage.catalogs %></td><td><%= t.usage.events %></td><td><%= t.usage.season %></td><td><%= t.usage.orders %></td><% } %>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun tarif global.</div>
+      <% } %>
+
+      <h3>Tarifs instanciés (tables de prix des événements)</h3>
+      <% if (instTariffs.length) { %>
+        <div class="scroll-table" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Table de prix</th><th>Code</th><th>Libellé</th><th>Actif</th><th>Champ requis</th><th>Canaux</th></tr>
+            <% for (const t of instTariffs) { %>
               <tr>
+                <td><code><%= t.priceTableKey %></code></td>
                 <td><code><%= t.code %></code></td>
                 <td><%= t.label %></td>
                 <td><%= t.active ? 'Oui' : 'Non' %></td>
-                <td><%= t.priceTableKey || 'Global' %></td>
                 <td><%= t.fieldLabel || t.requiresField || '—' %></td>
                 <td><%= t.channels.length ? t.channels.join(', ') : 'public (implicite)' %></td>
               </tr>
@@ -3058,7 +3082,7 @@
           </table>
         </div>
       <% } else { %>
-        <div class="empty-state">Aucun tarif disponible.</div>
+        <div class="empty-state">Aucun tarif instancié.</div>
       <% } %>
 
       <h3>Catalogues de prix (Tariff Price Catalog)</h3>
