@@ -1151,13 +1151,19 @@ export const adminScriptGroups = [
         label: 'Import Tariff Catalog',
         order: 0,
         path: 'scripts/02-tariff-management/import-tariffs.js',
-        command: 'node scripts/02-tariff-management/import-tariffs.js <path/to/tariff_catalog.csv>',
+        command: 'node scripts/02-tariff-management/import-tariffs.js <path/to/tariff_catalog.csv> [--dry-run]',
         run: {
           script: 'scripts/02-tariff-management/import-tariffs.js',
           args: []
         },
-        description: 'Imports the master tariff catalog (code, label, justification requirements).',
+        description: 'Imports the master tariff catalog (code, label, justification requirements). Global tariffs only: event copies are never modified.',
         templates: ['data_references/csv/tariff-catalog.template.csv'],
+        notes: [
+          'Colonnes : code,label obligatoires ; requiresField, fieldLabel, requiresInfo, sortOrder (100), active (true), channels.',
+          'Colonne channels absente : canaux inchangés ; présente mais vide : canaux retirés (tarif public).',
+          '« false », « no », « 0 » valent vide pour requiresField, fieldLabel et requiresInfo.',
+          'Simulation : liste, par tarif, création / mise à jour (champs modifiés) / inchangé, sans rien écrire.'
+        ],
         form: {
           fields: [
             {
@@ -1166,7 +1172,8 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/tariff_catalog.csv',
               required: true,
               arg: { type: 'positional', index: 0 }
-            }
+            },
+            { name: 'dryRun', label: 'Simulation', type: 'checkbox', arg: { type: 'flag', flag: '--dry-run' } }
           ]
         }
       },
@@ -1372,6 +1379,30 @@ export const adminScriptGroups = [
               placeholder: '30',
               arg: { type: 'option', template: '--discount=${value}' }
             }
+          ]
+        }
+      },
+      {
+        id: 'remove-global-tariff',
+        label: 'Remove Global Tariff',
+        order: 7,
+        path: 'scripts/02-tariff-management/remove-global-tariff.js',
+        command: 'node scripts/02-tariff-management/remove-global-tariff.js --code=<CODE> [--dry-run]',
+        run: {
+          script: 'scripts/02-tariff-management/remove-global-tariff.js',
+          args: []
+        },
+        description: 'Supprime UN tarif global du catalogue, seulement s\'il n\'est utilisé nulle part (catalogue de prix, événement, prix de saison, commande).',
+        notes: [
+          'Refusé si le code est utilisé ; le détail des usages est affiché.',
+          'Les copies du tarif dans les tables d\'événement ne sont jamais touchées.',
+          'Monitor → Tarifs signale les tarifs globaux inutilisés.',
+          'Un code cité dans data/customization (partners.json, cart-rules.json) est signalé, à retirer à la main.'
+        ],
+        form: {
+          fields: [
+            { name: 'code', label: 'Code tarif', placeholder: 'TBH7_NORMAL', required: true, arg: { type: 'option', template: '--code=${value}' } },
+            { name: 'dryRun', label: 'Simulation', type: 'checkbox', arg: { type: 'flag', flag: '--dry-run' } }
           ]
         }
       },

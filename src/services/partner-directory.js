@@ -20,6 +20,7 @@ import crypto from 'crypto';
 import { PartnerMember } from '../models/PartnerMember.js';
 import { PartnerLoginCode } from '../models/PartnerLoginCode.js';
 import { sendMail } from '../loaders/mailer.js';
+import { splitCsvLine, detectCsvDelimiter } from '../utils/csv-line.js';
 
 export const CODE_TTL_MIN = 10;
 export const MAX_CODE_ATTEMPTS = 5;
@@ -34,24 +35,6 @@ export function directoryEnabled(cfg) {
 
 // ── CSV ─────────────────────────────────────────────────────────────────────
 
-function splitCsvLine(line, delimiter) {
-  const out = [];
-  let cur = '';
-  let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (quoted) {
-      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-      else if (c === '"') quoted = false;
-      else cur += c;
-    } else if (c === '"') quoted = true;
-    else if (c === delimiter) { out.push(cur); cur = ''; }
-    else cur += c;
-  }
-  out.push(cur);
-  return out.map(v => v.trim());
-}
-
 /**
  * { members, errors } — `errors` liste les lignes ou identifiants écartés,
  * avec le motif. Un identifiant dont les lignes se contredisent (nom, nombre
@@ -65,7 +48,7 @@ export function parseDirectoryCsv(text) {
   if (headerIdx < 0) return { members: [], errors: [{ line: 0, reason: 'fichier vide' }] };
 
   const headerLine = lines[headerIdx];
-  const delimiter = (headerLine.split(';').length > headerLine.split(',').length) ? ';' : ',';
+  const delimiter = detectCsvDelimiter(headerLine);
   const header = splitCsvLine(headerLine, delimiter).map(h => h.toLowerCase());
   const missing = COLUMNS.filter(c => !header.includes(c));
   if (missing.length) {
