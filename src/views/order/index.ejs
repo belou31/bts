@@ -89,7 +89,7 @@
     const planHeadHelpText = planHelpText || planStatusText;
 
     // Nom / Prénom d'abord, dans l'ordre du panneau Contact dont ils se recopient.
-    const defaultColumns = ['', t('common.lastName'), t('common.firstName'), t('common.seat'), t('common.tariff')];
+    const defaultColumns = ['', t('common.lastName'), t('common.firstName'), t('common.seat'), t('common.tariff'), t('common.price')];
     const cartColumns = Array.isArray(localColumns) && localColumns.length ? localColumns : defaultColumns;
 
     const payerLabelsResolved = Object.assign({

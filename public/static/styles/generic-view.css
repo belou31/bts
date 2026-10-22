@@ -138,7 +138,10 @@ body.fs-lock{ overflow:hidden; }
 
 /* LIGNES — master */
 .lines-head, .cart-row{
-  display:grid; grid-template-columns: 44px 1fr 1fr 1.2fr 1.2fr; gap:8px;
+  /* Nom 1/4 · Prénom 1/4 · Place 1/6 · Tarif 1/4 · Prix 1/8 (×120 : 30/30/20/30/15).
+     Le prix a sa colonne : collé au libellé du tarif, il disparaissait dès que
+     le libellé était long. */
+  display:grid; grid-template-columns: 44px 30fr 30fr 20fr 30fr 15fr; gap:8px;
   align-items:center; border-bottom:1px dashed var(--line); padding:8px 4px;
 }
 .lines-head{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
@@ -169,10 +172,13 @@ body.fs-lock{ overflow:hidden; }
   border:1px solid var(--line); border-radius:8px; outline:none;
 }
 .cart-row select{ cursor:pointer; }
+.cart-row .col, .lines-head > div{ min-width:0; }
+.cart-row .col.price, .lines-head > div:last-child{ text-align:right; white-space:nowrap; }
+.cart-row .line-price{ font-variant-numeric: tabular-nums; }
 
 /* LIGNES — sous-ligne compacte (une seule ligne, masquée par défaut) */
 .line-extra-inline{
-  grid-column: 2 / span 4;
+  grid-column: 2 / -1;
   display:flex; align-items:center; gap:10px;
   justify-content: flex-end;     /* ⬅️ aligne toute la sous-ligne à droite */
   padding:8px 4px 12px;
