@@ -96,6 +96,9 @@
   <main class="events-list">
     <%
       const isPartnerPage = typeof partner !== 'undefined' && !!partner;
+      // Colonne « Public » sur la page partenaire, sauf si le partenaire vend
+      // déjà les tarifs publics (allowPublicTariffs).
+      const showPublic = isPartnerPage && (typeof showPublicColumn === 'undefined' || showPublicColumn !== false);
       // Un lien n'est cliquable que si la vente est ouverte ET qu'on en a un
       // (jeton partenaire correct) ; sinon pastille grisée.
       const access = (status, link) => {
@@ -116,7 +119,7 @@
             <th>Date</th>
             <% if (isPartnerPage) { %>
               <th>Privé</th>
-              <th>Public</th>
+              <% if (showPublic) { %><th>Public</th><% } %>
             <% } else { %>
               <th>Accès</th>
             <% } %>
@@ -127,7 +130,7 @@
             <tr>
               <td><%= ev.name %> <span class="muted">(<%= ev.slug %>)</span></td>
               <td><%= ev.startsAt ? formatDate(ev.startsAt, { weekday:'long', day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '' %></td>
-              <% const cells = isPartnerPage ? [access(ev.status, ev.link), access(ev.publicStatus, ev.publicLink)] : [access(ev.status, ev.link)]; %>
+              <% const cells = showPublic ? [access(ev.status, ev.link), access(ev.publicStatus, ev.publicLink)] : [access(ev.status, ev.link)]; %>
               <% cells.forEach(c => { %>
                 <td>
                   <% if (c.link) { %>

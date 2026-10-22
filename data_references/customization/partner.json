@@ -8,10 +8,6 @@
     "fr": "Billetterie réservée aux ayants-droits de {{partnerName}} — Date : {{eventStartsAtFormatted}} · Lieu : {{venueName}}",
     "en": "Ticketing reserved for {{partnerName}} rights holders — Date: {{eventStartsAtFormatted}} · Venue: {{venueName}}"
   },
-  "event.payButton": {
-    "fr": "Valider ma commande partenaire",
-    "en": "Confirm my partner order"
-  },
   "subscription.title": {
     "fr": "{{partnerName}} — Abonnement {{seasonCode}}",
     "en": "{{partnerName}} — Season Pass {{seasonCode}}"
@@ -19,9 +15,5 @@
   "subscription.lead": {
     "fr": "Billetterie réservée aux ayants-droits de {{partnerName}} — l'abonnement donne accès à tous les matchs à domicile pour {{seasonCode}}.",
     "en": "Ticketing reserved for {{partnerName}} rights holders — the season pass grants access to all home matches for {{seasonCode}}."
-  },
-  "subscription.payButton": {
-    "fr": "Valider ma commande partenaire",
-    "en": "Confirm my partner order"
   }
 }

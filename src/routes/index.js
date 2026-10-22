@@ -31,7 +31,7 @@ import adminOrderSeatRoutes from './admin/order-seat.routes.js';
 import adminSeatStateRoutes from './admin/seat-state.routes.js';
 import partnerAuthRoutes from './partner-auth.routes.js';
 import {
-  checkPartnerAccess, expectedPartnerToken, isOidcRequired, partnerLoginPath
+  checkPartnerAccess, expectedPartnerToken, isLoginRequired, partnerLoginPath
 } from '../services/partner-access.js';
 import payRoutes from './pay.js';      
 import controlGuestlistRoutes from './control/guestlist.js';
@@ -62,6 +62,16 @@ const MEDIA_PREFIX = path.posix.join(DYNAMIC_PREFIX, 'assets/').replace(/\/{2,}/
 const VENUES_PREFIX = path.posix.join(DYNAMIC_PREFIX, 'venues/').replace(/\/{2,}/g, '/');
 const ASSETS_BASE = { static: STATIC_PREFIX, media: MEDIA_PREFIX, venues: VENUES_PREFIX, base: DYNAMIC_PREFIX };
 const PARTNER_FRAME_ANCESTORS = (process.env.PARTNER_FRAME_ANCESTORS || '').trim();
+// Libellé du bouton de paiement d'une page partenaire. Facturation différée :
+// rien n'est payé, son libellé propre (reserve.payButtonLabel) ou « Envoyer la
+// demande » prime sur l'habillage commun, qui dit « payer ». Paiement en
+// ligne : l'habillage (event.payButton / subscription.payButton, par défaut
+// « Valider et payer »).
+function partnerPayButtonLabel(partnerCfg, customizedLabel) {
+  if (isInvoicePartner(partnerCfg)) return partnerCfg?.reserve?.payButtonLabel || 'Envoyer la demande';
+  return customizedLabel || 'Procéder au paiement';
+}
+
 // Refus d'accès partenaire : sans session OIDC obligatoire, on envoie se
 // connecter puis revenir ici ; sinon 403 comme avant.
 function denyPartnerAccess(req, res, slug, access) {
@@ -703,7 +713,7 @@ export default function routes(router) {
       const providedToken = (req.query?.token || '').trim();
       const access = checkPartnerAccess(req, partnerCfg, null);
       if (!access.ok) return denyPartnerAccess(req, res, partnerSlug, access);
-      const oidcRequired = isOidcRequired(partnerCfg);
+      const loginRequired = isLoginRequired(partnerCfg);
       if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
         return res.status(403).send('Access restricted for this partner.');
       }
@@ -740,7 +750,7 @@ export default function routes(router) {
         })();
         const expectedToken = expectedPartnerToken(partnerCfg, ev.slug);
         // Connexion OIDC obligatoire : la session vaut pour tous les matchs.
-        const sameToken = oidcRequired || !expectedToken || expectedToken === providedToken;
+        const sameToken = loginRequired || !expectedToken || expectedToken === providedToken;
         const link = (sameToken && (status === 'sale_opened' || status === 'presale_opened'))
           ? path.posix.join(BASE_PATH || '/', 'partner', partnerSlug, 'event', ev.slug) +
               (providedToken ? `?token=${encodeURIComponent(providedToken)}` : '')
@@ -769,6 +779,9 @@ export default function routes(router) {
       res.render(path.resolve(VIEWS_DIR, 'events'), {
         title: `${partnerCfg.name || partnerSlug} — Événements`,
         partner: partnerCfg,
+        // Tarifs publics autorisés : la page partenaire les vend déjà, la
+        // colonne « Public » ferait doublon.
+        showPublicColumn: partnerCfg.allowPublicTariffs !== true,
         events: list,
         assets: ASSETS_BASE,
         brand: { logo: brandLogo, alt: partnerCfg.name || partnerSlug }
@@ -862,8 +875,7 @@ export default function routes(router) {
         slug: partnerCfg.slug,
         invoiceMode: isInvoicePartner(partnerCfg) ? 'invoice' : 'psp',
         reserveApi: null,
-        payButtonLabel: customization['subscription.payButton'] || partnerCfg?.reserve?.payButtonLabel
-          || (isInvoicePartner(partnerCfg) ? 'Envoyer la demande' : 'Procéder au paiement'),
+        payButtonLabel: partnerPayButtonLabel(partnerCfg, customization['subscription.payButton']),
         successMessage: partnerCfg?.reserve?.successMessage || 'Demande envoyée. Vous recevrez une confirmation prochainement.',
         errorMessage: partnerCfg?.reserve?.errorMessage || 'Impossible d’enregistrer votre demande. Réessayez.'
       };
@@ -992,7 +1004,7 @@ export default function routes(router) {
       slug: partnerCfg.slug,
       invoiceMode: isInvoicePartner(partnerCfg) ? 'invoice' : 'psp',
       reserveApi: reservePath,
-      payButtonLabel: customization['event.payButton'] || partnerCfg?.reserve?.payButtonLabel || (isInvoicePartner(partnerCfg) ? 'Envoyer la demande' : 'Procéder au paiement'),
+      payButtonLabel: partnerPayButtonLabel(partnerCfg, customization['event.payButton']),
       successMessage: partnerCfg?.reserve?.successMessage || 'Demande envoyée. Vous recevrez une confirmation prochainement.',
       errorMessage: partnerCfg?.reserve?.errorMessage || 'Impossible d’enregistrer votre demande. Réessayez.'
     };
