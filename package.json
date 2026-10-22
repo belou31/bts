@@ -18,6 +18,7 @@
     "test:order-limits": "node scripts/06-misc/check-order-max-items.js",
     "test:oidc": "node scripts/05-partner-management/check-oidc-flow.js",
     "test:oidc-sfi": "node scripts/05-partner-management/check-oidc-flow-sfi.js",
+    "test:partner-directory": "node scripts/05-partner-management/check-partner-directory.js",
     "lint": "eslint .",
     "db:sync-indexes": "node scripts/sync-indexes.mjs",
     "db:verify-models": "node scripts/verify-models.mjs",

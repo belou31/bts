@@ -3419,6 +3419,31 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'partner-set-directory',
+        label: 'Set Partner Directory',
+        order: 1,
+        path: 'scripts/05-partner-management/set-partner-directory.js',
+        command: 'node scripts/05-partner-management/set-partner-directory.js --partner=<slug> --enabled=yes|no [--dry-run]',
+        run: {
+          script: 'scripts/05-partner-management/set-partner-directory.js',
+          args: []
+        },
+        description: 'Active ou désactive la connexion par annuaire local d\'un partenaire sans fournisseur OpenID : identifiant + e-mail de l\'annuaire, puis code reçu par e-mail.',
+        notes: [
+          'Ne modifie que `directory.enabled` de ce partenaire dans partners.json.',
+          'L\'annuaire s\'importe en CSV sur /partner/<slug>/admin/directory (identifiants du bloc admin du partenaire).',
+          'Activé, la connexion devient obligatoire sur les pages du partenaire ; le jeton statique n\'ouvre plus l\'accès.',
+          'Refusé pour un partenaire qui a un bloc oidc.'
+        ],
+        form: {
+          fields: [
+            { name: 'partner', label: 'Slug', placeholder: 'cseairbus', required: true, arg: { type: 'option', template: '--partner=${value}' } },
+            { name: 'enabled', label: 'Annuaire actif', placeholder: 'yes|no', required: true, arg: { type: 'option', template: '--enabled=${value}' } },
+            { name: 'dryRun', label: 'Simulation', type: 'checkbox', arg: { type: 'flag', flag: '--dry-run' } }
+          ]
+        }
+      },
+      {
         id: 'partner-set-security',
         label: 'Partner Security (origins)',
         order: 3,

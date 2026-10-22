@@ -2326,6 +2326,9 @@
                 <% } %>>
                 <% if (script.form && script.form.fields && script.form.fields.length) { %>
                   <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'create-season'; const freeCatalogField = script.id === 'import-tariff-prices';
+                     // Création de partenaire : le slug se SAISIT (texte libre), les existants
+                     // ne sont que suggérés — une liste fermée interdisait d'en créer un.
+                     const freePartnerField = script.id === 'partner-upsert';
                      const adCampaignCatalogScriptIds = ['event-instantiate-ad-campaigns', 'season-instantiate-ad-campaigns', 'import-ad-campaign-catalog', 'export-ad-campaign-catalog', 'remove-ad-campaign-catalog'];
                      const catalogOptionsSource = adCampaignCatalogScriptIds.includes(script.id) ? opt.adCampaignCatalogs : opt.tariffCatalogs;
                   %>
@@ -2356,7 +2359,8 @@
                          const hasVenueSelect = field.name === 'venue' && Array.isArray(opt.venues) && opt.venues.length;
                          const hasVenueViewSelect = field.name === 'venueView' && Array.isArray(opt.venueViews) && opt.venueViews.length;
                          const isPartnerField = (field.name === 'partner' || field.name === 'partnerSlug' || (field.name === 'slug' && group.id === '05-partner-management'));
-                         const hasPartnerSelect = isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
+                         const hasPartnerSelect = !freePartnerField && isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
+                         const hasPartnerSuggest = freePartnerField && isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
                           const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(catalogOptionsSource) && catalogOptionsSource.length;
                           const hasGoogleLibrarySelect = field.name === 'library' && Array.isArray(opt.googleLibraries) && opt.googleLibraries.length;
                           const hasMultiInputFiles = field.multi === true && Array.isArray(opt.inputFiles) && opt.inputFiles.length && field.placeholder && field.placeholder.startsWith('data/inputs');
@@ -2418,6 +2422,15 @@
                                 </option>
                               <% } %>
                             </select>
+                          <% } else if (hasPartnerSuggest) { %>
+                            <input type="text" data-role="<%= inputRole %>" list="partner-slugs-<%= script.id %>"
+                                   placeholder="<%= field.placeholder || '' %>" autocomplete="off" <%= field.required ? 'required' : '' %> />
+                            <datalist id="partner-slugs-<%= script.id %>">
+                              <% for (const partner of opt.partners) { %>
+                                <option value="<%= partner.slug %>"><%= partner.name || '' %></option>
+                              <% } %>
+                            </datalist>
+                            <small class="field-hint">Nouveau slug pour créer un partenaire, ou un existant pour le modifier.</small>
                           <% } else if (hasPartnerSelect) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Choisir un partenaire —</option>
@@ -3596,6 +3609,7 @@
                 <th>Slug</th>
                 <th>Nom</th>
                 <th>Mode</th>
+                <th>Connexion</th>
                 <th>Tarifs publics</th>
                 <th>Vue lieu</th>
               </tr>
@@ -3606,6 +3620,7 @@
                   <td><code><%= p.slug %></code></td>
                   <td><%= p.name || '—' %></td>
                   <td><%= p.paymentMode || '—' %></td>
+                  <td><%= p.login || '—' %></td>
                   <td><%= p.allowPublicTariffs ? 'Oui' : 'Non' %></td>
                   <td><%= p.venueView || '—' %></td>
                 </tr>

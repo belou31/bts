@@ -2170,6 +2170,9 @@ router.get('/monitor', async (req, res) => {
     slug: p.slug,
     name: p.name || '',
     paymentMode: partnerPaymentMode(p),
+    // Mode de connexion des ayants droit : fournisseur OpenID, annuaire local
+    // (services/partner-directory.js), ou jeton statique.
+    login: p.oidc ? 'OpenID' : (p.directory?.enabled === true ? 'Annuaire' : 'Jeton'),
     allowPublicTariffs: Boolean(p.allowPublicTariffs),
     venueView: p.venueView || null
   }));
