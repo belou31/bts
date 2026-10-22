@@ -22,11 +22,32 @@ import { computeEventSeatStates as computeSeatStates } from '../services/event-s
 import { claimEventSeatHolds, releaseOrderSeatHolds } from '../services/event-seat-holds.js';
 import { withMetaZonePrices } from '../utils/meta-zones.js';
 import { isZoneUnit } from '../utils/seat-id.js';
-import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
+import { isEventOnSale, isPartnerSaleWindow } from '../utils/event-sale.js';
+import { entitlementsForEvent, cartRefusal, ruleForTariff } from '../services/partner-entitlements.js';
+import { loadCartRules, rulesForChannel, cartRuleViolation } from '../services/cart-rules.js';
+import { isProviderRejection } from '../services/payments/provider-error.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
-const SEAT_HOLD_TTL_MIN = Number(process.env.SEAT_HOLD_TTL_MIN || '3');
+// Durée d'un hold de sélection : une base, plus un temps par ligne du panier
+// — saisir dix porteurs ne se fait pas dans le délai d'un seul. Défaut :
+// 1 min + 30 s par ligne (1 ligne → 1:30, 10 lignes → 6:00).
+const SEAT_HOLD_BASE_SEC = Number(process.env.SEAT_HOLD_BASE_SEC || '60');
+const SEAT_HOLD_PER_LINE_SEC = Number(process.env.SEAT_HOLD_PER_LINE_SEC || '30');
+
+/**
+ * Durée du hold pour un panier de `lineCount` lignes (places en siège ET en
+ * zone : c'est le nombre de porteurs à saisir). Le nombre vient du client :
+ * borné par le nombre de sièges demandés en bas, et par le plafond de places
+ * par commande en haut, pour qu'un client ne puisse pas s'octroyer un hold
+ * sans fin.
+ */
+function seatHoldTtlSec(lineCount, seatCount = 1) {
+  const cap = Math.max(orderMaxItems() || 30, seatCount);
+  const n = Number.isInteger(lineCount) ? lineCount : seatCount;
+  const lines = Math.min(Math.max(n, seatCount, 1), cap);
+  return SEAT_HOLD_BASE_SEC + SEAT_HOLD_PER_LINE_SEC * lines;
+}
 // Durée de réutilisation de la base du plan de salle, pour l'AFFICHAGE seul.
 // Le sondage des navigateurs est à 5 s : 3 s garantissent que deux sondages
 // consécutifs ne retombent jamais sur la même base, tout en absorbant la
@@ -73,9 +94,71 @@ function shouldFallbackToPublic(channelCtx) {
 
 function isPartnerPresaleAllowed(ev, channelCtx) {
   if (!channelCtx || channelCtx.kind !== 'partner') return false;
+  if (!isPartnerSaleWindow(ev)) return false;
   const cfg = channelCtx.partnerConfig || {};
   const quota = Number(cfg?.presale?.events?.[ev?.slug]?.quota || 0);
   return quota > 0;
+}
+
+// Droits du bénéficiaire connecté (partners.json → entitlements) ; null hors
+// canal partenaire ou sans règles. Lève code=partner_login_required sans session.
+async function getPartnerEntitlements(ev, channelCtx) {
+  if (!channelCtx || channelCtx.kind !== 'partner') return null;
+  if (!Array.isArray(channelCtx.partnerConfig?.entitlements) || !channelCtx.partnerConfig.entitlements.length) return null;
+  return entitlementsForEvent({
+    cfg: channelCtx.partnerConfig || {},
+    partnerSlug: channelCtx.partnerSlug,
+    session: channelCtx.session,
+    event: ev,
+    tariffChannels: await partnerTariffChannels(ev, channelCtx)
+  });
+}
+
+// Origine de chaque tarif proposé au partenaire : « partner » s'il lui est
+// propre (canaux partner:<slug>, partner, all), « public » s'il vient de la
+// grille publique (allowPublicTariffs). Base de `tariffChannel` des droits.
+async function partnerTariffChannels(ev, channelCtx) {
+  const { tariffs } = await loadTariffsAndPrices(ev, channelCtx);
+  return new Map((tariffs || []).map(t => [
+    String(t.code || '').toUpperCase(),
+    matchesChannel(t.channels, channelCtx) ? 'partner' : 'public'
+  ]));
+}
+
+// Refus 400/401 à renvoyer si le panier dépasse les droits ; null sinon.
+async function entitlementRefusal(ev, channelCtx, lines) {
+  let ent;
+  try {
+    ent = await getPartnerEntitlements(ev, channelCtx);
+  } catch (e) {
+    if (e?.code === 'partner_login_required') {
+      return { status: 401, body: { ok: false, error: 'partner_login_required', message: e.message } };
+    }
+    throw e;
+  }
+  if (!ent) return null;
+  const refusal = cartRefusal(ent.rules, ent.state, lines, ent.ctx);
+  return refusal ? { status: 400, body: { ok: false, ...refusal } } : null;
+}
+
+// Contrôles de panier (data/customization/cart-rules.json) applicables au
+// canal. Fichier mal formé : signalé au journal, et aucun contrôle plutôt
+// qu'aucune vente — ce sont des règles de cohérence, pas de sécurité.
+function cartRulesFor(channelCtx) {
+  const channel = channelCtx?.kind === 'partner' ? `partner:${channelCtx.partnerSlug || ''}` : 'public';
+  try {
+    return rulesForChannel(loadCartRules(), channel);
+  } catch (e) {
+    console.error('[cart-rules] fichier ignoré :', e.message);
+    return [];
+  }
+}
+
+// Identité de l'acheteur à reporter sur la commande : c'est elle qui permet
+// de décompter les droits par bénéficiaire.
+function partnerHolderMeta(channelCtx) {
+  const s = channelCtx?.session;
+  return s?.sub ? { identifier: String(s.sub), holderName: s.name || '' } : {};
 }
 
 async function getPartnerPresaleRemaining(ev, channelCtx) {
@@ -373,14 +456,27 @@ export function createEventFlowRouter({
         ? Number(channelCtx?.partnerConfig?.presale?.events?.[ev?.slug]?.quota || 0)
         : 0;
       const saleStatus = (() => {
-        if (isEventOnSale(ev)) return 'sale_opened';
         if (ev.sale === 'soldout') return 'sold_out';
-        if (!isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx)) {
-          if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
-          return 'presale_opened';
-        }
-        return 'sale_closed';
+        if (channelCtx.kind !== 'partner') return isEventOnSale(ev) ? 'sale_opened' : 'sale_closed';
+        // Partenaire : le quota plafonne aussi pendant la vente publique.
+        if (!isPartnerPresaleAllowed(ev, channelCtx)) return 'sale_closed';
+        if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
+        return isEventOnSale(ev) ? 'sale_opened' : 'presale_opened';
       })();
+      let ent = null;
+      try {
+        ent = await getPartnerEntitlements(ev, channelCtx);
+      } catch (e) {
+        if (e?.code !== 'partner_login_required') throw e;
+      }
+      const entitlements = ent?.state || null;
+      // Plafond côté panier : somme des restes. Un panier sans limite dans cet
+      // état de vente (places en plus à l'ouverture publique) lève le plafond
+      // global ; le serveur contrôle toujours chaque panier au paiement.
+      const entitlementMax = entitlements && !entitlements.some(r => r.unlimited)
+        ? entitlements.reduce((sum, r) => sum + r.remaining, 0)
+        : null;
+      const session = channelCtx?.kind === 'partner' ? channelCtx.session : null;
       const resolvedVenueView = resolveVenueViewForEvent(ev, channelCtx);
       const [seatsBase, { tariffs, prices, scope }] = await Promise.all([
         // Affichage : cache autorisé (voir SEAT_STATES_CACHE_MS).
@@ -560,8 +656,35 @@ export function createEventFlowRouter({
         // Le front en a besoin pour refuser la place de trop AVANT le
         // paiement : un panier bâti puis rejeté au checkout fait perdre la
         // saisie des porteurs.
-        limits: { maxItems: orderMaxItems() },
-        tariffs, prices, scope,
+        // entitlementMax : places restantes au titre des droits du
+        // bénéficiaire connecté. Champ distinct car 0 y veut dire « plus rien »,
+        // alors que maxItems = 0 veut dire « pas de plafond ».
+        limits: {
+          maxItems: orderMaxItems(),
+          ...(entitlementMax !== null ? { entitlementMax } : {})
+        },
+        entitlements,
+        // Contrôles de panier du canal : le panier les vérifie avant paiement
+        // (generic-view.js), le paiement les revérifie.
+        cartRules: cartRulesFor(channelCtx),
+        // Pré-remplit l'acheteur avec l'identité reçue à la connexion, et
+        // l'affiche (identifiant) dans le panneau Contact.
+        ...(session?.sub ? {
+          payer: { firstName: session.firstName || '', lastName: session.lastName || '', email: session.email || '' },
+          beneficiary: { identifier: String(session.sub), name: session.name || '' }
+        } : {}),
+        // `partner` : tarif propre au partenaire (le panier les présente en
+        // tête et choisit le premier par défaut). Absent hors canal partenaire.
+        // `icon` : celui du panier de droits qui couvre le tarif — préfixe
+        // d'affichage (ex. ❤️), jamais écrit dans le libellé en base.
+        tariffs: channelCtx?.kind === 'partner'
+          ? tariffs.map(t => ({
+              ...t,
+              partner: matchesChannel(t.channels, channelCtx),
+              icon: (ent && ruleForTariff(ent.rules, t.code, ent.ctx)?.icon) || null
+            }))
+          : tariffs,
+        prices, scope,
         allowedZones: Array.from(allowedSet),
         allowedTariffsByZone,
         zonesMeta,
@@ -572,7 +695,7 @@ export function createEventFlowRouter({
           ? { allowed: true, remaining: presaleRemaining ?? null, quota: presaleQuota }
           : { allowed: false },
         saleStatus,
-        holdTtlSec: SEAT_HOLD_TTL_MIN * 60,
+        holdTtlSec: seatHoldTtlSec(1),
         channel: channelCtx?.kind === 'partner'
           ? `partner:${channelCtx.partnerSlug || ''}`
           : (channelCtx?.kind || 'public')
@@ -604,10 +727,13 @@ export function createEventFlowRouter({
 
       const seatIds = (Array.isArray(req.body?.seatIds) ? req.body.seatIds : [])
         .map(s => String(s || '').trim()).filter(Boolean).slice(0, 30);
-      if (!seatIds.length) return res.json({ ok: true, held: [], conflicts: [], holdTtlSec: SEAT_HOLD_TTL_MIN * 60 });
+      if (!seatIds.length) return res.json({ ok: true, held: [], conflicts: [], holdTtlSec: seatHoldTtlSec(1) });
 
+      // Le client renvoie TOUS les sièges du panier à chaque changement : ils
+      // reçoivent donc tous la même échéance, calculée sur le panier entier.
+      const ttlSec = seatHoldTtlSec(Number(req.body?.lineCount), seatIds.length);
       const now = new Date();
-      const expiresAt = new Date(now.getTime() + SEAT_HOLD_TTL_MIN * 60 * 1000);
+      const expiresAt = new Date(now.getTime() + ttlSec * 1000);
       const held = [];
       const conflicts = [];
 
@@ -655,7 +781,7 @@ export function createEventFlowRouter({
       }
 
       const ok = conflicts.length === 0 && held.length > 0;
-      res.json({ ok, held, conflicts, heldUntil: expiresAt.toISOString(), holdTtlSec: SEAT_HOLD_TTL_MIN * 60 });
+      res.json({ ok, held, conflicts, heldUntil: expiresAt.toISOString(), holdTtlSec: ttlSec });
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message });
     }
@@ -687,13 +813,16 @@ export function createEventFlowRouter({
     try {
       const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
-      const onSale = isEventOnSale(ev);
-      const presale = !isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx);
+      const isPartner = channelCtx.kind === 'partner';
       const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
-      assert(onSale || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
+      assert(isPartner ? (remaining ?? 0) > 0 : isEventOnSale(ev), 'Vente fermée pour cet événement.');
 
       const ctxData = await prepareOrderContext(req, ev, channelCtx);
-      if (!onSale && presale) {
+      const ruleBreak = cartRuleViolation(cartRulesFor(channelCtx), ctxData.lines);
+      if (ruleBreak) return res.status(400).json({ ok: false, ...ruleBreak });
+      const entRefusal = await entitlementRefusal(ev, channelCtx, ctxData.lines);
+      if (entRefusal) return res.status(entRefusal.status).json(entRefusal.body);
+      if (isPartner) {
         const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
         if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
           return res.status(400).json({
@@ -713,6 +842,7 @@ export function createEventFlowRouter({
       const partnerMeta = (channelCtx?.kind === 'partner')
         ? {
             slug: channelCtx.partnerSlug || null,
+            ...partnerHolderMeta(channelCtx),
             ...(ctxData.partnerTotals ? {
               displayTotalCents: ctxData.partnerTotals.displayTotal,
               partnerContributionCents: ctxData.partnerTotals.partnerContribution,
@@ -867,6 +997,17 @@ export function createEventFlowRouter({
       } catch (err) {
         console.error(`[${flowKey}/checkout] provider intent failed:`, err?.message || err);
         await rollbackStillbornOrder(err?.message || err);
+        // Le prestataire a répondu mais refuse les données (ex. HelloAsso :
+        // « Le champ nom est invalide ») : l'acheteur peut corriger, ce n'est
+        // pas une panne.
+        if (isProviderRejection(err)) {
+          return res.status(400).json({
+            ok: false,
+            error: 'payment_rejected',
+            reasons: err.providerMessages || [],
+            retryable: false
+          });
+        }
         return res.status(503).json({
           ok: false,
           error: 'provider_unavailable',
@@ -949,13 +1090,16 @@ export function createEventFlowRouter({
 
       try {
         const ev = await loadEvent(req.params.eventId);
-        const onSale = isEventOnSale(ev);
-        const presale = !isEventSaleLocked(ev) && isPartnerPresaleAllowed(ev, channelCtx);
+        const isPartner = channelCtx.kind === 'partner';
         const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
-        assert(onSale || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
+        assert(isPartner ? (remaining ?? 0) > 0 : isEventOnSale(ev), 'Vente fermée pour cet événement.');
 
         const ctxData = await prepareOrderContext(req, ev, channelCtx);
-        if (!onSale && presale) {
+        const ruleBreak = cartRuleViolation(cartRulesFor(channelCtx), ctxData.lines);
+        if (ruleBreak) return res.status(400).json({ ok: false, ...ruleBreak });
+        const entRefusal = await entitlementRefusal(ev, channelCtx, ctxData.lines);
+        if (entRefusal) return res.status(entRefusal.status).json(entRefusal.body);
+        if (isPartner) {
           const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
           if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
             return res.status(400).json({
@@ -977,6 +1121,7 @@ export function createEventFlowRouter({
         const partnerMeta = (channelCtx?.kind === 'partner')
           ? {
               slug: channelCtx.partnerSlug || null,
+            ...partnerHolderMeta(channelCtx),
               ...(ctxData.partnerTotals ? {
                 displayTotalCents: ctxData.partnerTotals.displayTotal,
                 partnerContributionCents: ctxData.partnerTotals.partnerContribution,

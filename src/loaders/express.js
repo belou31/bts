@@ -9,6 +9,8 @@ import { fileURLToPath } from 'url';
 import routes from '../routes/index.js';
 import { requestMetricsMiddleware } from '../services/requestMetrics.js';
 import { localeMiddleware } from '../middlewares/locale.js';
+import { resolvePanelIconFiles } from '../services/customization.js';
+import { currentPaymentProviderLabel } from '../services/payments/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -28,6 +30,20 @@ export async function buildApp() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(localeMiddleware);
+  // Icônes personnalisées des panneaux de commande (customize-app.js). Getter :
+  // app.json n'est lu qu'au rendu d'une vue, et une icône déposée s'affiche
+  // sans redémarrage.
+  app.use((_req, res, next) => {
+    Object.defineProperty(res.locals, 'panelIconFiles', {
+      get: resolvePanelIconFiles, enumerable: true, configurable: true
+    });
+    // Nom du prestataire de paiement (PAYMENT_PROVIDER_NAME), pour l'aide du
+    // panneau Paiement (« Payer avec … »).
+    Object.defineProperty(res.locals, 'paymentProviderName', {
+      get: currentPaymentProviderLabel, enumerable: true, configurable: true
+    });
+    next();
+  });
 
   // Healthz
   app.get('/healthz', (_req, res) => res.json({ ok: true }));

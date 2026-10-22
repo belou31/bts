@@ -13,10 +13,12 @@
     "helloasso:stub": "node stub_helloasso/server.js",
     "mollie:stub": "node stub_mollie/server.js",
     "sumup:stub": "node stub_sumup/server.js",
+    "oidc:stub": "node stub_oidc/server.js",
     "test": "jest --runInBand",
     "test:order-limits": "node scripts/06-misc/check-order-max-items.js",
     "test:oidc": "node scripts/05-partner-management/check-oidc-flow.js",
     "test:oidc-sfi": "node scripts/05-partner-management/check-oidc-flow-sfi.js",
+    "test:partner-directory": "node scripts/05-partner-management/check-partner-directory.js",
     "lint": "eslint .",
     "db:sync-indexes": "node scripts/sync-indexes.mjs",
     "db:verify-models": "node scripts/verify-models.mjs",
@@ -24,7 +26,8 @@
     "test:finalize-race": "node scripts/06-misc/check-finalize-race.js",
     "test:seat-release": "node scripts/06-misc/check-seat-release.js",
     "test:seat-states-cost": "node scripts/06-misc/check-seat-states-cost.js",
-    "test:attestation-deferral": "node scripts/06-misc/check-attestation-deferral.js"
+    "test:attestation-deferral": "node scripts/06-misc/check-attestation-deferral.js",
+    "test:cart-rules": "node scripts/06-misc/check-cart-rules.js"
   },
   "dependencies": {
     "@google/clasp": "^3.3.0",

@@ -13,6 +13,8 @@
     const localPlanTitle = (typeof planTitle === 'undefined') ? null : planTitle;
     const localCartTitle = (typeof cartTitle === 'undefined') ? null : cartTitle;
     const localPaymentTitle = (typeof paymentTitle === 'undefined') ? null : paymentTitle;
+    const localContactTitle = (typeof contactTitle === 'undefined') ? null : contactTitle;
+    const localPanelIconFiles = (typeof panelIconFiles === 'object' && panelIconFiles) ? panelIconFiles : {};
     const localPlanStatus = (typeof planStatus === 'undefined') ? null : planStatus;
     const localPlanHelp = (typeof planHelp === 'undefined') ? null : planHelp;
     const localPayerLabels = (typeof payerLabels === 'undefined') ? null : payerLabels;
@@ -29,6 +31,9 @@
     const localTotalLabel = (typeof totalLabel === 'undefined') ? null : totalLabel;
     const localPayButtonLabel = (typeof payButtonLabel === 'undefined') ? null : payButtonLabel;
     const localPaymentHelp = (typeof paymentHelp === 'undefined') ? null : paymentHelp;
+    const localContactHelp = (typeof contactHelp === 'undefined') ? null : contactHelp;
+    const localCartHelp = (typeof cartHelp === 'undefined') ? null : cartHelp;
+    const localProviderName = (typeof paymentProviderName === 'undefined') ? '' : String(paymentProviderName || '');
     const localBrand = (typeof brand === 'undefined') ? null : brand;
     const localLeadHtml = (typeof leadHtml === 'undefined') ? null : leadHtml;
     const localLead = (typeof lead === 'undefined') ? null : lead;
@@ -76,10 +81,15 @@
     const planTitleText = localPlanTitle || t('common.seatingPlan');
     const cartTitleText = localCartTitle || t('order.cartTitle');
     const paymentTitleText = localPaymentTitle || t('common.payment');
+    const contactTitleText = localContactTitle || t('order.contactTitle');
     const planStatusText = localPlanStatus || t('order.planStatus');
     const planHelpText = (localPlanHelp === undefined || localPlanHelp === null) ? '' : localPlanHelp;
+    // Aide du plan à droite de son icône : celle de la vue, sinon la consigne
+    // de navigation (qui reste alors en bas du plan si l'aide la remplace).
+    const planHeadHelpText = planHelpText || planStatusText;
 
-    const defaultColumns = ['', t('common.seat'), t('common.lastName'), t('common.firstName'), t('common.tariff')];
+    // Nom / Prénom d'abord, dans l'ordre du panneau Contact dont ils se recopient.
+    const defaultColumns = ['', t('common.lastName'), t('common.firstName'), t('common.seat'), t('common.tariff')];
     const cartColumns = Array.isArray(localColumns) && localColumns.length ? localColumns : defaultColumns;
 
     const payerLabelsResolved = Object.assign({
@@ -134,7 +144,12 @@
     const schedulePreviewLabelText = localSchedulePreviewLabel || t('order.schedulePreviewLabel');
     const totalLabelText = localTotalLabel || t('common.total');
     const payButtonText = localPayButtonLabel || t('order.payButtonDefault');
-    const paymentHelpText = localPaymentHelp || t('order.paymentHelpDefault');
+    // Aides des panneaux, à droite de leur icône. Défauts communs à tous les
+    // flux ; une vue peut les remplacer (contactHelp, cartHelp, paymentHelp).
+    const contactHelpText = localContactHelp || t('order.contactHelp');
+    const cartHelpText = localCartHelp || t(zoneSelectorConfig ? 'order.cartHelpZones' : 'order.cartHelp');
+    const paymentHelpText = localPaymentHelp
+      || (localProviderName ? t('order.paymentHelpProvider', { provider: localProviderName }) : '');
 
     const brandData = (localBrand && (localBrand.logo || localBrand.text))
       ? localBrand
@@ -159,6 +174,12 @@
     const cssFiles = [staticBase + 'styles/generic-view.css', staticBase + 'styles/order.css'];
     const cssExtras = Array.isArray(localCustomCss) ? localCustomCss : [];
     cssExtras.forEach((href) => cssFiles.push(href));
+
+    // Titres de panneau rendus en icône : fichier personnalisé déposé par
+    // customize-app.js (public/dynamic/assets), sinon l'icône livrée.
+    const panelIconSrc = (name) => localPanelIconFiles[name]
+      ? mediaBase + localPanelIconFiles[name]
+      : `${staticBase}img/panel-icons/${name}.svg`;
 
     const hasEventJs = Array.isArray(localCustomJs)
       ? localCustomJs.some(src => typeof src === 'string' && src.includes('event.js'))
@@ -207,7 +228,11 @@
     <section class="col plan-col">
       <div id="plan" class="panel">
         <div class="panel-head">
-          <h2 class="panel-title"><%= planTitleText %></h2>
+          <h2 class="panel-title panel-heading" title="<%= planTitleText %>">
+            <img class="panel-icon" src="<%= panelIconSrc('plan') %>" alt="">
+            <span class="visually-hidden"><%= planTitleText %></span>
+          </h2>
+          <% if (planHeadHelpText) { %><p class="panel-help"><%= planHeadHelpText %></p><% } %>
           <div class="plan-actions" role="toolbar" aria-label="<%= t('order.displayToggleAria') %>">
             <button id="layoutToggle" class="tool-btn" type="button" title="<%= t('order.toggleLayoutTitle') %>">
               <svg class="icon icon-h" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
@@ -231,11 +256,8 @@
         </div>
         <div class="plan-wrap">
           <object id="venuePlan" type="image/svg+xml" data="" class="plan-object" aria-label="<%= t('order.planAria') %>"></object>
-          <div class="plan-status"><%= planStatusText %></div>
+          <% if (planHelpText) { %><div class="plan-status"><%= planStatusText %></div><% } %>
         </div>
-        <% if (planHelpText) { %>
-          <div class="help"><%= planHelpText %></div>
-        <% } %>
       </div>
     </section>
 
@@ -243,36 +265,23 @@
       <div id="order" class="panel">
         <%# Colonne de droite alternative (ex: changement de place) : le plan,
             son zoom/déplacement et sa barre d'outils restent identiques, seul
-            le contenu de cette colonne change. Panier et paiement sont alors
+            le contenu de cette colonne change. Contact, panier et paiement sont alors
             masqués — mais TOUJOURS présents dans le DOM, car generic-view.js
             s'y accroche sans condition (#payBtn, #payer*, #cartRows…) et
             planterait avant d'installer le zoom s'ils disparaissaient. %>
         <% if (sidePanelPath) { %>
           <%- include(sidePanelPath) %>
         <% } %>
-        <div id="linesPanel" class="block"<%= sidePanelPath ? ' hidden' : '' %>>
-          <h2><%= cartTitleText %></h2>
-          <% if (zoneSelectorConfig) { %>
-            <div class="zone-toolbar">
-              <% if (zoneSelectorConfig.label) { %>
-                <p class="help zone-label"><%= zoneSelectorConfig.label %></p>
-              <% } %>
-              <div id="zoneButtons" class="zone-buttons" role="group" aria-label="<%= t('order.zonesAria') %>"></div>
-            </div>
-          <% } %>
-          <div class="lines-head">
-            <% cartColumns.forEach((col) => { %>
-              <div><%= col %></div>
-            <% }); %>
+        <%# Ordre universel : Contact > Panier > Paiement. Les identifiants
+            (#payer*, #cartRows, #payBtn…) sont ceux qu'attend generic-view.js. %>
+        <div id="contactPanel" class="block"<%= sidePanelPath ? ' hidden' : '' %>>
+          <div class="panel-heading-row">
+            <h2 class="panel-heading" title="<%= contactTitleText %>">
+              <img class="panel-icon" src="<%= panelIconSrc('contact') %>" alt="">
+              <span class="visually-hidden"><%= contactTitleText %></span>
+            </h2>
+            <% if (contactHelpText) { %><p class="panel-help"><%= contactHelpText %></p><% } %>
           </div>
-          <div id="cartRows"></div>
-        </div>
-
-        <div id="payPanel" class="block"<%= sidePanelPath ? ' hidden' : '' %>>
-          <h2><%= paymentTitleText %></h2>
-          <% if (paymentHelpText) { %>
-            <p><small class="help"><%= paymentHelpText %></small></p>
-          <% } %>
           <div class="form-grid">
             <div class="form-group">
               <label for="payerLast"><%= payerLabelsResolved.lastName %></label>
@@ -286,6 +295,40 @@
               <label for="payerEmail"><%= payerLabelsResolved.email %></label>
               <input id="payerEmail" type="email" placeholder="<%= payerPlaceholdersResolved.email %>">
             </div>
+          </div>
+          <%# Identifiant du bénéficiaire connecté et ses droits : rempli par
+              generic-view.js depuis l'API de statut, masqué sans données. %>
+          <p id="contactExtra" class="contact-extra" hidden></p>
+        </div>
+
+        <div id="linesPanel" class="block"<%= sidePanelPath ? ' hidden' : '' %>>
+          <div class="panel-heading-row">
+            <h2 class="panel-heading" title="<%= cartTitleText %>">
+              <img class="panel-icon" src="<%= panelIconSrc('cart') %>" alt="">
+              <span class="visually-hidden"><%= cartTitleText %></span>
+            </h2>
+            <% if (cartHelpText) { %><p class="panel-help"><%= cartHelpText %></p><% } %>
+          </div>
+          <% if (zoneSelectorConfig) { %>
+            <div class="zone-toolbar">
+              <div id="zoneButtons" class="zone-buttons" role="group" aria-label="<%= t('order.zonesAria') %>"></div>
+            </div>
+          <% } %>
+          <div class="lines-head">
+            <% cartColumns.forEach((col) => { %>
+              <div><%= col %></div>
+            <% }); %>
+          </div>
+          <div id="cartRows"></div>
+        </div>
+
+        <div id="payPanel" class="block"<%= sidePanelPath ? ' hidden' : '' %>>
+          <div class="panel-heading-row">
+            <h2 class="panel-heading" title="<%= paymentTitleText %>">
+              <img class="panel-icon" src="<%= panelIconSrc('payment') %>" alt="">
+              <span class="visually-hidden"><%= paymentTitleText %></span>
+            </h2>
+            <% if (paymentHelpText) { %><p class="panel-help"><%= paymentHelpText %></p><% } %>
           </div>
 
           <% if (showScheduleSection) { %>

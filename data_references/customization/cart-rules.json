@@ -1,0 +1,15 @@
+[
+  {
+    "key": "enfant-accompagne",
+    "message": "Un tarif Enfant doit être accompagné d'au moins un adulte.",
+    "when": { "tariffs": ["ENFANT"] },
+    "require": { "tariffs": ["NORMAL", "ETUDIANT", "AUTRES_REDUITS"], "min": 1 }
+  },
+  {
+    "key": "un-adulte-pour-quatre-enfants",
+    "message": "Un adulte accompagnateur pour quatre enfants au plus.",
+    "channels": ["partner:mon-partenaire"],
+    "when": { "tariffs": ["ENFANT"] },
+    "require": { "tariffs": ["NORMAL"], "min": 1, "per": 4 }
+  }
+]

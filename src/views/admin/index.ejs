@@ -2326,6 +2326,9 @@
                 <% } %>>
                 <% if (script.form && script.form.fields && script.form.fields.length) { %>
                   <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'create-season'; const freeCatalogField = script.id === 'import-tariff-prices';
+                     // Création de partenaire : le slug se SAISIT (texte libre), les existants
+                     // ne sont que suggérés — une liste fermée interdisait d'en créer un.
+                     const freePartnerField = script.id === 'partner-upsert';
                      const adCampaignCatalogScriptIds = ['event-instantiate-ad-campaigns', 'season-instantiate-ad-campaigns', 'import-ad-campaign-catalog', 'export-ad-campaign-catalog', 'remove-ad-campaign-catalog'];
                      const catalogOptionsSource = adCampaignCatalogScriptIds.includes(script.id) ? opt.adCampaignCatalogs : opt.tariffCatalogs;
                   %>
@@ -2356,7 +2359,8 @@
                          const hasVenueSelect = field.name === 'venue' && Array.isArray(opt.venues) && opt.venues.length;
                          const hasVenueViewSelect = field.name === 'venueView' && Array.isArray(opt.venueViews) && opt.venueViews.length;
                          const isPartnerField = (field.name === 'partner' || field.name === 'partnerSlug' || (field.name === 'slug' && group.id === '05-partner-management'));
-                         const hasPartnerSelect = isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
+                         const hasPartnerSelect = !freePartnerField && isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
+                         const hasPartnerSuggest = freePartnerField && isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
                           const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(catalogOptionsSource) && catalogOptionsSource.length;
                           const hasGoogleLibrarySelect = field.name === 'library' && Array.isArray(opt.googleLibraries) && opt.googleLibraries.length;
                           const hasMultiInputFiles = field.multi === true && Array.isArray(opt.inputFiles) && opt.inputFiles.length && field.placeholder && field.placeholder.startsWith('data/inputs');
@@ -2418,6 +2422,15 @@
                                 </option>
                               <% } %>
                             </select>
+                          <% } else if (hasPartnerSuggest) { %>
+                            <input type="text" data-role="<%= inputRole %>" list="partner-slugs-<%= script.id %>"
+                                   placeholder="<%= field.placeholder || '' %>" autocomplete="off" <%= field.required ? 'required' : '' %> />
+                            <datalist id="partner-slugs-<%= script.id %>">
+                              <% for (const partner of opt.partners) { %>
+                                <option value="<%= partner.slug %>"><%= partner.name || '' %></option>
+                              <% } %>
+                            </datalist>
+                            <small class="field-hint">Nouveau slug pour créer un partenaire, ou un existant pour le modifier.</small>
                           <% } else if (hasPartnerSelect) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Choisir un partenaire —</option>
@@ -3027,17 +3040,41 @@
 
 
     <div class="monitoring-panel <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-panel="tariffs">
-      <h3>Catalogue des tarifs</h3>
-      <% if (monitoring.lists.tariffs && monitoring.lists.tariffs.length) { %>
+      <% const globalTariffs = monitoring.lists.globalTariffs || []; const instTariffs = monitoring.lists.instantiatedTariffs || []; %>
+      <h3>Tarifs globaux (catalogue)</h3>
+      <% if (globalTariffs.length) { const unusedCount = globalTariffs.filter(t => t.unused).length; %>
+        <p class="muted"><%= globalTariffs.length %> tarif(s)<% if (globalTariffs[0].usage) { %> · <strong><%= unusedCount %></strong> utilisé(s) nulle part (ni catalogue de prix, ni événement, ni saison, ni commande)<% } %>.</p>
         <div class="scroll-table" style="margin-bottom:16px;">
           <table>
-            <tr><th>Code</th><th>Libellé</th><th>Actif</th><th>Table de prix</th><th>Champ requis</th><th>Canaux</th></tr>
-            <% for (const t of monitoring.lists.tariffs) { %>
+            <tr><th>Code</th><th>Libellé</th><th>Actif</th><th>Champ requis</th><th>Canaux</th>
+              <% if (globalTariffs[0].usage) { %><th>Catalogues</th><th>Événements</th><th>Saison</th><th>Lignes de commande</th><% } %></tr>
+            <% for (const t of globalTariffs) { %>
+              <tr<%= t.unused ? ' style="opacity:.55"' : '' %>>
+                <td><code><%= t.code %></code><%= t.unused ? ' · inutilisé' : '' %></td>
+                <td><%= t.label %></td>
+                <td><%= t.active ? 'Oui' : 'Non' %></td>
+                <td><%= t.fieldLabel || t.requiresField || '—' %></td>
+                <td><%= t.channels.length ? t.channels.join(', ') : 'public (implicite)' %></td>
+                <% if (t.usage) { %><td><%= t.usage.catalogs %></td><td><%= t.usage.events %></td><td><%= t.usage.season %></td><td><%= t.usage.orders %></td><% } %>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun tarif global.</div>
+      <% } %>
+
+      <h3>Tarifs instanciés (tables de prix des événements)</h3>
+      <% if (instTariffs.length) { %>
+        <div class="scroll-table" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Table de prix</th><th>Code</th><th>Libellé</th><th>Actif</th><th>Champ requis</th><th>Canaux</th></tr>
+            <% for (const t of instTariffs) { %>
               <tr>
+                <td><code><%= t.priceTableKey %></code></td>
                 <td><code><%= t.code %></code></td>
                 <td><%= t.label %></td>
                 <td><%= t.active ? 'Oui' : 'Non' %></td>
-                <td><%= t.priceTableKey || 'Global' %></td>
                 <td><%= t.fieldLabel || t.requiresField || '—' %></td>
                 <td><%= t.channels.length ? t.channels.join(', ') : 'public (implicite)' %></td>
               </tr>
@@ -3045,7 +3082,7 @@
           </table>
         </div>
       <% } else { %>
-        <div class="empty-state">Aucun tarif disponible.</div>
+        <div class="empty-state">Aucun tarif instancié.</div>
       <% } %>
 
       <h3>Catalogues de prix (Tariff Price Catalog)</h3>
@@ -3596,6 +3633,7 @@
                 <th>Slug</th>
                 <th>Nom</th>
                 <th>Mode</th>
+                <th>Connexion</th>
                 <th>Tarifs publics</th>
                 <th>Vue lieu</th>
               </tr>
@@ -3606,6 +3644,7 @@
                   <td><code><%= p.slug %></code></td>
                   <td><%= p.name || '—' %></td>
                   <td><%= p.paymentMode || '—' %></td>
+                  <td><%= p.login || '—' %></td>
                   <td><%= p.allowPublicTariffs ? 'Oui' : 'Non' %></td>
                   <td><%= p.venueView || '—' %></td>
                 </tr>

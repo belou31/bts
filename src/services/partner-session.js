@@ -25,7 +25,14 @@ export function cookieNameFor(slug) {
 
 export function issueSession(res, { slug, identity, via = 'oidc' }) {
   const token = jwt.sign(
-    { slug, sub: identity.subject, email: identity.email || '', name: identity.name || '', via },
+    {
+      // `sub` : champ standard du JWT de session ; c'est l'identifiant.
+      slug, sub: identity.identifier, email: identity.email || '', name: identity.name || '',
+      firstName: identity.firstName || '', lastName: identity.lastName || '', via,
+      // Attributs déclarés dans oidc.identity.attributes : base des droits
+      // (cf. partner-entitlements.js).
+      attributes: identity.attributes || {}
+    },
     secret(),
     { expiresIn: TTL_SECONDS }
   );

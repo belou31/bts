@@ -51,7 +51,14 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ seatIds: ids, sessionToken: SESSION_TOKEN })
+        // lineCount : le serveur en tire la durée du hold (base + temps par
+        // ligne). Un siège cliqué n'est pas encore dans le panier : au moins
+        // autant de lignes que de sièges demandés.
+        body: JSON.stringify({
+          seatIds: ids,
+          sessionToken: SESSION_TOKEN,
+          lineCount: Math.max(document.querySelectorAll('#cartRows .cart-row').length, ids.length)
+        })
       });
       const data = await res.json();
       if (data.held) data.held.forEach(id => heldSeats.add(id));
@@ -168,17 +175,19 @@
   // Ajoute label lorsqu’un siège n’a pas de libellé explicite
   function applyFallbackLabels() {
     document.querySelectorAll('#cartRows .cart-row').forEach(row => {
-      const placeCell =
-        row.querySelector('.cell-place') ||
-        row.querySelector('[data-cell="place"]') ||
-        row.querySelector('div:nth-child(2)');
+      // Par classe, jamais par position : les colonnes ont été réordonnées
+      // (Nom, Prénom, Place, Tarif) et « 2e enfant » visait alors le Nom.
+      const placeCell = row.querySelector('.col.seat .seat-label');
       if (!placeCell) return;
       const current = String(placeCell.textContent || '').trim();
       const zoneKey = normZoneKey(row.dataset.zoneKey);
       const seatId = String(row.dataset.seatId || '').trim();
       const pretty = seatId.replace(/-Z\d{3,}$/i, '');
       const label = (pretty || zoneLabels.get(zoneKey) || zoneKey || '').toUpperCase();
-      if (label && current !== label) placeCell.textContent = label;
+      if (label && current !== label) {
+        placeCell.textContent = label;
+        placeCell.title = label;
+      }
     });
   }
 
@@ -388,7 +397,8 @@
           // Avant le hold : un siège réservé puis refusé resterait verrouillé
           // pour les autres jusqu'à expiration, sans rien apporter à personne.
           if (api.canAddRow && !api.canAddRow()) {
-            showFeedback(false, `Maximum ${api.maxItems()} places par commande. Pour un groupe plus important, contactez-nous.`);
+            if (api.capFeedback) api.capFeedback();
+            else showFeedback(false, `Maximum ${api.maxItems()} places par commande. Pour un groupe plus important, contactez-nous.`);
             return;
           }
           const result = await holdSeats([sid]);

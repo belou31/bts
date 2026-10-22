@@ -333,7 +333,7 @@ Deux points à connaître :
   exprime une allocation contractuelle. Le quota **événement**, lui, ne borne
   que la fenêtre de prévente. C'est une divergence assumée entre les deux.
 - Les commandes partenaire portent `meta.partner.slug` : c'est la clé sur
-  laquelle se compte le quota, et celle qu'interroge `/partner/:slug/admin`.
+  laquelle se compte le quota, et celle qu'interroge `/partner/:slug/admin/orders`.
 
 
 ### Habillage d'une page partenaire

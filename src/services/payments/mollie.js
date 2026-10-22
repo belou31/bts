@@ -1,5 +1,6 @@
 // src/services/payments/mollie.js
 import { providerFetch } from './http.js';
+import { providerError } from './provider-error.js';
 
 const DEFAULT_API_BASE = 'https://api.mollie.com/v2';
 
@@ -86,7 +87,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl }) {
   }, { label: 'mollie create payment' });
   if (!r.ok) {
     console.error('[mollie] payload sent:', JSON.stringify(payload));
-    throw new Error(`Mollie create payment ${r.status}: ${JSON.stringify(j)}`);
+    throw providerError('Mollie create payment', r.status, j, [j?.detail]);
   }
 
   const checkoutUrl = j._links?.checkout?.href || '';

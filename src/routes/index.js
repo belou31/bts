@@ -11,8 +11,8 @@ import { Venue } from '../models/Venue.js';
 import { Order } from '../models/Order.js';
 import { loadCustomization, resolveOrganizationName } from '../services/customization.js';
 import { formatDate } from '../utils/format.js';
-import { getPartnerConfig } from '../config/partners.js';
-import { isEventOnSale, isEventSaleLocked } from '../utils/event-sale.js';
+import { getPartnerConfig, isInvoicePartner } from '../config/partners.js';
+import { isEventOnSale, isPartnerSaleWindow } from '../utils/event-sale.js';
 import { seasonDoorStatus } from '../utils/season-sale.js';
 import { resolveSeasonSubscribeAccess, seasonAccessMessage } from '../services/season-access.js';
 
@@ -30,7 +30,9 @@ import adminOrderContactRoutes from './admin/order-contact.routes.js';
 import adminOrderSeatRoutes from './admin/order-seat.routes.js';
 import adminSeatStateRoutes from './admin/seat-state.routes.js';
 import partnerAuthRoutes from './partner-auth.routes.js';
-import devOidcStub from './dev-oidc-stub.routes.js';
+import {
+  checkPartnerAccess, expectedPartnerToken, isLoginRequired, partnerLoginPath
+} from '../services/partner-access.js';
 import payRoutes from './pay.js';      
 import controlGuestlistRoutes from './control/guestlist.js';
 import qrRoutes   from './qr.js';
@@ -60,12 +62,23 @@ const MEDIA_PREFIX = path.posix.join(DYNAMIC_PREFIX, 'assets/').replace(/\/{2,}/
 const VENUES_PREFIX = path.posix.join(DYNAMIC_PREFIX, 'venues/').replace(/\/{2,}/g, '/');
 const ASSETS_BASE = { static: STATIC_PREFIX, media: MEDIA_PREFIX, venues: VENUES_PREFIX, base: DYNAMIC_PREFIX };
 const PARTNER_FRAME_ANCESTORS = (process.env.PARTNER_FRAME_ANCESTORS || '').trim();
-function expectedPartnerToken(cfg, eventSlug) {
-  if (!cfg) return null;
-  if (cfg.tokens?.events && eventSlug && cfg.tokens.events[eventSlug]) {
-    return cfg.tokens.events[eventSlug];
+// Libellé du bouton de paiement d'une page partenaire. Facturation différée :
+// rien n'est payé, son libellé propre (reserve.payButtonLabel) ou « Envoyer la
+// demande » prime sur l'habillage commun, qui dit « payer ». Paiement en
+// ligne : l'habillage (event.payButton / subscription.payButton, par défaut
+// « Valider et payer »).
+function partnerPayButtonLabel(partnerCfg, customizedLabel) {
+  if (isInvoicePartner(partnerCfg)) return partnerCfg?.reserve?.payButtonLabel || 'Envoyer la demande';
+  return customizedLabel || 'Procéder au paiement';
+}
+
+// Refus d'accès partenaire : sans session OIDC obligatoire, on envoie se
+// connecter puis revenir ici ; sinon 403 comme avant.
+function denyPartnerAccess(req, res, slug, access) {
+  if (access.reason === 'login_required') {
+    return res.redirect(302, partnerLoginPath(BASE_PATH, slug, req));
   }
-  return cfg.accessToken || null;
+  return res.status(403).send('Access restricted for this partner.');
 }
 
 function applyPartnerFrameAncestorsHeaders(res, overrideList) {
@@ -214,7 +227,6 @@ export default function routes(router) {
   });
 
   async function renderRenewPage(req, res, seasonDoc, partnerCfg = null) {
-    const providerName = currentPaymentProviderLabel();
     const qsIndex = req.originalUrl.indexOf('?');
     const suffix = qsIndex >= 0 ? req.originalUrl.slice(qsIndex) : '';
 
@@ -284,11 +296,9 @@ export default function routes(router) {
       // conteneur #zoneButtons et renew.js n'a nulle part où poser les boutons.
       zoneSelector: {
         enabled: true,
-        label: 'Choisir sur le plan ou ajouter une place en zone :',
         addLabel: 'Ajouter',
         options: []
       },
-      paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
       assets: ASSETS_BASE,
       config: {
         api: {
@@ -343,7 +353,6 @@ export default function routes(router) {
 
       const seasonCode = seasonDoc.code || seasonDoc.seasonCode || rawSeason;
       const seasonName = seasonDoc.name || `Saison ${seasonCode}`;
-      const providerName = currentPaymentProviderLabel();
       const venueSlug = seasonDoc.venueSlug || seasonDoc.venue || '';
       const venueDoc = venueSlug ? await Venue.findOne({ slug: venueSlug }).lean().catch(() => null) : null;
       const customization = loadCustomization({ seasonCode, locale: req.locale });
@@ -384,12 +393,10 @@ export default function routes(router) {
         scheduleOptions: availableScheduleOptions(),
         zoneSelector: {
           enabled: true,
-          label: 'Choisir sur Plan ou Ajouter Zone:',
           addLabel: 'Ajouter',
           options: []
         },
-        paymentHelp: `Le reçu ${providerName} et la confirmation d’abonnement seront envoyés à l’email de contact.`,
-        assets: ASSETS_BASE,
+          assets: ASSETS_BASE,
         config: {
           title: `Les Bélougas - Abonnements ${seasonCode}`,
           seasonCode,
@@ -489,11 +496,9 @@ export default function routes(router) {
         lead: leadText,
         planHelp: planHelpText,
         scheduleOptions: [],
-        paymentHelp: t('event.paymentHelp'),
         assets: ASSETS_BASE,
         zoneSelector: {
           enabled: true,
-          label: t('event.zoneSelectorLabel'),
           addLabel: t('common.add'),
           options: []
         },
@@ -654,15 +659,22 @@ export default function routes(router) {
     });
   });
 
+  // Accès public à un événement : listé tel quel sur /events, et en colonne
+  // « Public » de la liste partenaire.
+  function publicAccess(ev) {
+    const status = isEventOnSale(ev) ? 'sale_opened' : (ev.sale === 'soldout' ? 'sold_out' : 'sale_closed');
+    const link = status === 'sale_opened'
+      ? path.posix.join(BASE_PATH || '/', 'event', ev.slug)
+      : null;
+    return { status, link };
+  }
+
   // Public: list all events, open ones link straight to /event/:slug
   router.get('/events', async (req, res) => {
     try {
       const events = await Event.find({ activity: 'active' }).sort({ startsAt: 1 }).lean();
       const list = events.map(ev => {
-        const status = isEventOnSale(ev) ? 'sale_opened' : (ev.sale === 'soldout' ? 'sold_out' : 'sale_closed');
-        const link = status === 'sale_opened'
-          ? path.posix.join(BASE_PATH || '/', 'event', ev.slug)
-          : null;
+        const { status, link } = publicAccess(ev);
         return {
           slug: ev.slug,
           name: ev.name || ev.slug,
@@ -699,10 +711,9 @@ export default function routes(router) {
       if (!partnerCfg) return res.status(404).send('Partner not found');
 
       const providedToken = (req.query?.token || '').trim();
-      const expectedGlobalToken = expectedPartnerToken(partnerCfg, null);
-      if (expectedGlobalToken && providedToken !== expectedGlobalToken) {
-        return res.status(403).send('Access restricted for this partner.');
-      }
+      const access = checkPartnerAccess(req, partnerCfg, null);
+      if (!access.ok) return denyPartnerAccess(req, res, partnerSlug, access);
+      const loginRequired = isLoginRequired(partnerCfg);
       if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
         return res.status(403).send('Access restricted for this partner.');
       }
@@ -717,8 +728,9 @@ export default function routes(router) {
       const list = [];
       for (const ev of events) {
         const quota = Number(partnerCfg?.presale?.events?.[ev.slug]?.quota || 0);
+        const inWindow = isPartnerSaleWindow(ev) && quota > 0;
         let remaining = null;
-        if (quota > 0) {
+        if (inWindow) {
           const usedAgg = await Order.aggregate([
             { $match: { eventId: ev._id, 'meta.partner.slug': partnerSlug, status: { $nin: ['canceled', 'failed'] } } },
             { $unwind: '$lines' },
@@ -727,21 +739,23 @@ export default function routes(router) {
           const used = usedAgg?.[0]?.qty || 0;
           remaining = Math.max(0, quota - used);
         }
+        // Accès privé : ouvert en prévente comme en vente publique, tant que
+        // le quota du partenaire n'est pas épuisé — même règle que le checkout
+        // (event-flow.factory.js, isPartnerPresaleAllowed).
         const status = (() => {
-          if (isEventOnSale(ev)) return 'sale_opened';
           if (ev.sale === 'soldout') return 'sold_out';
-          if (!isEventSaleLocked(ev) && quota > 0) {
-            if (remaining !== null && remaining <= 0) return 'presale_quota_reached';
-            return 'presale_opened';
-          }
-          return 'sale_closed';
+          if (!inWindow) return 'sale_closed';
+          if (remaining <= 0) return 'presale_quota_reached';
+          return isEventOnSale(ev) ? 'sale_opened' : 'presale_opened';
         })();
         const expectedToken = expectedPartnerToken(partnerCfg, ev.slug);
-        const sameToken = !expectedToken || expectedToken === providedToken;
-        const link = (sameToken && status !== 'sale_closed' && status !== 'presale_quota_reached' && status !== 'sold_out')
+        // Connexion OIDC obligatoire : la session vaut pour tous les matchs.
+        const sameToken = loginRequired || !expectedToken || expectedToken === providedToken;
+        const link = (sameToken && (status === 'sale_opened' || status === 'presale_opened'))
           ? path.posix.join(BASE_PATH || '/', 'partner', partnerSlug, 'event', ev.slug) +
               (providedToken ? `?token=${encodeURIComponent(providedToken)}` : '')
           : null;
+        const pub = publicAccess(ev);
         list.push({
           slug: ev.slug,
           name: ev.name || ev.slug,
@@ -750,7 +764,9 @@ export default function routes(router) {
           presaleQuota: quota,
           presaleRemaining: remaining,
           link,
-          tokenMatch: sameToken
+          tokenMatch: sameToken,
+          publicStatus: pub.status,
+          publicLink: pub.link
         });
       }
 
@@ -763,6 +779,9 @@ export default function routes(router) {
       res.render(path.resolve(VIEWS_DIR, 'events'), {
         title: `${partnerCfg.name || partnerSlug} — Événements`,
         partner: partnerCfg,
+        // Tarifs publics autorisés : la page partenaire les vend déjà, la
+        // colonne « Public » ferait doublon.
+        showPublicColumn: partnerCfg.allowPublicTariffs !== true,
         events: list,
         assets: ASSETS_BASE,
         brand: { logo: brandLogo, alt: partnerCfg.name || partnerSlug }
@@ -801,12 +820,10 @@ export default function routes(router) {
       const partnerCfg = getPartnerConfig(partnerSlug);
       if (!partnerCfg) return res.status(404).send('Partner not found');
 
-      // Même garde que le flux événement : jeton global du partenaire.
-      const expectedToken = expectedPartnerToken(partnerCfg, null);
+      // Même garde que le flux événement : jeton global ou session OIDC.
       const providedToken = (req.query?.token || '').trim();
-      if (expectedToken && providedToken !== expectedToken) {
-        return res.status(403).send('Access restricted for this partner.');
-      }
+      const partnerAccess = checkPartnerAccess(req, partnerCfg, null);
+      if (!partnerAccess.ok) return denyPartnerAccess(req, res, partnerSlug, partnerAccess);
       if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
         return res.status(403).send('Access restricted for this partner.');
       }
@@ -833,7 +850,6 @@ export default function routes(router) {
       const remaining = access.partner?.remaining ?? null;
       const doorOpen = seasonDoorStatus(seasonDoc, 'subscribe').open;
 
-      const providerName = currentPaymentProviderLabel();
       const venueDoc = venueSlug ? await Venue.findOne({ slug: venueSlug }).lean().catch(() => null) : null;
       const customization = loadCustomization({ seasonCode, partnerSlug, locale: req.locale });
       const tmplVars = {
@@ -857,10 +873,9 @@ export default function routes(router) {
 
       const partnerOptions = {
         slug: partnerCfg.slug,
-        invoiceMode: partnerCfg.paymentMode === 'psp' ? 'psp' : 'invoice',
+        invoiceMode: isInvoicePartner(partnerCfg) ? 'invoice' : 'psp',
         reserveApi: null,
-        payButtonLabel: customization['subscription.payButton'] || partnerCfg?.reserve?.payButtonLabel
-          || (partnerCfg.paymentMode === 'psp' ? 'Procéder au paiement' : 'Envoyer la demande'),
+        payButtonLabel: partnerPayButtonLabel(partnerCfg, customization['subscription.payButton']),
         successMessage: partnerCfg?.reserve?.successMessage || 'Demande envoyée. Vous recevrez une confirmation prochainement.',
         errorMessage: partnerCfg?.reserve?.errorMessage || 'Impossible d’enregistrer votre demande. Réessayez.'
       };
@@ -875,11 +890,13 @@ export default function routes(router) {
       const planHelp = customization['subscription.help']
         ? tmpl(customization['subscription.help'], tmplVars)
         : 'Sélectionnez un siège sur le plan ou ajoutez des places en zone.';
-      const isInvoiceMode = partnerCfg.paymentMode !== 'psp';
+      const isInvoiceMode = isInvoicePartner(partnerCfg);
       const paymentHelp = partnerCfg?.ui?.paymentHelp ||
+        // Facturation différée : le dire, aucun paiement en ligne. Sinon l'aide
+        // commune « Payer avec <prestataire> » de la vue.
         (isInvoiceMode
           ? 'Demande enregistrée puis facturation différée. Aucun paiement en ligne n’est requis.'
-          : `Paiement sécurisé ${providerName}.`);
+          : null);
 
       res.render(path.resolve(VIEWS_DIR, 'partner', 'index'), {
         title: `${partnerCfg.name || 'Billetterie Partenaire'} — Abonnements ${seasonCode}`,
@@ -891,7 +908,6 @@ export default function routes(router) {
         assets: ASSETS_BASE,
         zoneSelector: {
           enabled: true,
-          label: 'Choisir sur Plan ou Ajouter Zone:',
           addLabel: 'Ajouter',
           options: []
         },
@@ -930,11 +946,9 @@ export default function routes(router) {
       return res.status(404).send('Partner not found');
     }
 
-    const expectedToken = expectedPartnerToken(partnerCfg, eventSlug);
     const providedToken = (req.query?.token || '').trim();
-    if (expectedToken && providedToken !== expectedToken) {
-      return res.status(403).send('Access restricted for this partner.');
-    }
+    const access = checkPartnerAccess(req, partnerCfg, eventSlug);
+    if (!access.ok) return denyPartnerAccess(req, res, partnerSlug, access);
 
     if (!isOriginAllowed(req, partnerCfg.allowedOrigins)) {
       return res.status(403).send('Access restricted for this partner.');
@@ -942,7 +956,6 @@ export default function routes(router) {
 
     applyPartnerFrameAncestorsHeaders(res, partnerCfg.frameAncestors);
 
-    const providerName = currentPaymentProviderLabel();
     const ev = await resolveEventByKey(eventSlug).catch(() => null);
     const venueDoc = ev?.venueSlug ? await Venue.findOne({ slug: ev.venueSlug }).lean().catch(() => null) : null;
     const customization = loadCustomization({ eventSlug, seasonCode: ev?.seasonCode, partnerSlug, locale: req.locale });
@@ -963,7 +976,7 @@ export default function routes(router) {
     const tokenSuffix = providedToken ? `?token=${encodeURIComponent(providedToken)}` : '';
     const statusPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'status') + tokenSuffix;
     const checkoutPath = path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'checkout') + tokenSuffix;
-    const reservePath = partnerCfg.paymentMode !== 'psp'
+    const reservePath = isInvoicePartner(partnerCfg)
       ? path.posix.join(baseForJoin, 'api/partner', encodedPartner, 'event', encodedEvent, 'reserve') + tokenSuffix
       : null;
 
@@ -989,9 +1002,9 @@ export default function routes(router) {
 
     const partnerOptions = {
       slug: partnerCfg.slug,
-      invoiceMode: partnerCfg.paymentMode === 'psp' ? 'psp' : 'invoice',
+      invoiceMode: isInvoicePartner(partnerCfg) ? 'invoice' : 'psp',
       reserveApi: reservePath,
-      payButtonLabel: customization['event.payButton'] || partnerCfg?.reserve?.payButtonLabel || (partnerCfg.paymentMode === 'psp' ? 'Procéder au paiement' : 'Envoyer la demande'),
+      payButtonLabel: partnerPayButtonLabel(partnerCfg, customization['event.payButton']),
       successMessage: partnerCfg?.reserve?.successMessage || 'Demande envoyée. Vous recevrez une confirmation prochainement.',
       errorMessage: partnerCfg?.reserve?.errorMessage || 'Impossible d’enregistrer votre demande. Réessayez.'
     };
@@ -1006,11 +1019,11 @@ export default function routes(router) {
       ? tmpl(customization['event.help'], tmplVars)
       : 'Sélectionnez un siège disponible ou ajoutez des places en zone Debout lorsque proposé.';
     const headingCustom = Boolean(customization['event.title']);
-    const isInvoiceMode = partnerCfg.paymentMode !== 'psp';
+    const isInvoiceMode = isInvoicePartner(partnerCfg);
     const paymentHelp = partnerCfg?.ui?.paymentHelp ||
       (isInvoiceMode
         ? 'Demande enregistrée puis facturation différée. Aucun paiement en ligne n’est requis.'
-        : `Paiement sécurisé ${providerName}.`);
+        : null);
 
     res.render(path.resolve(VIEWS_DIR, 'partner', 'index'), {
       title: `${partnerCfg.name || 'Billetterie Partenaire'} — BTS`,
@@ -1022,7 +1035,6 @@ export default function routes(router) {
       assets: ASSETS_BASE,
       zoneSelector: {
         enabled: true,
-        label: 'Choisir sur Plan ou Ajouter Zone:',
         addLabel: 'Ajouter',
         options: []
       },
@@ -1068,7 +1080,6 @@ export default function routes(router) {
       lead: `Choisissez vos places pour ce match et suivez le tunnel de paiement sécurisé ${providerName}.`,
       planHelp: 'Cliquez sur un siège disponible ou ajoutez des places en zone Debout lorsque proposé.',
       scheduleOptions: [1],
-      paymentHelp: 'Vous recevrez un email de confirmation avec vos billets une fois le paiement validé.',
       assets: ASSETS_BASE,
       config: {
         api: {
@@ -1085,7 +1096,6 @@ export default function routes(router) {
       },
       zoneSelector: {
         enabled: true,
-        label: 'Zones debout disponibles :'
       },
       customJs: [STATIC_PREFIX + 'js/event.js']
     });
@@ -1127,17 +1137,6 @@ export default function routes(router) {
   // Parcours OIDC partenaire. Ne répond que pour un partenaire dont la
   // configuration porte un bloc `oidc` ; les autres gardent jeton et iframe.
   router.use(partnerAuthRoutes);
-
-  // Fournisseur d'identité factice, pour éprouver le parcours sans tiers.
-  // Jamais en production : il délivre une identité à qui la demande.
-  if (String(process.env.OIDC_STUB || '').toLowerCase() === 'true') {
-    if (String(process.env.APP_ENV || '').toLowerCase() === 'production') {
-      console.error('[oidc-stub] REFUSÉ : OIDC_STUB=true avec APP_ENV=production');
-    } else {
-      router.use('/dev/oidc', devOidcStub);
-      console.warn('[oidc-stub] fournisseur d\'identité de TEST monté sur /dev/oidc');
-    }
-  }
 
   router.use('/', scanRoutes);
   router.use('/', controlGuestlistRoutes);

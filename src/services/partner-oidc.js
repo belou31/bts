@@ -98,9 +98,10 @@ export function oidcConfigFor(partnerCfg) {
     // Quel claim identifie le bénéficiaire chez ce partenaire. `sub` est le
     // seul garanti stable par la norme ; les autres sont là parce que les
     // annuaires d'entreprise exposent souvent autre chose.
-    subjectClaim: str(o.subjectClaim) || 'sub',
-    emailClaim: str(o.emailClaim) || 'email',
-    nameClaim: str(o.nameClaim) || 'name',
+    // Correspondance claims → identité BTS (cf. identityFromClaims). Les
+    // anciennes clés subjectClaim / emailClaim / nameClaim en restent les
+    // défauts.
+    identity: identityMapping(o),
     // Restreindre l'accès à un groupe / rôle porté par un claim.
     requiredClaim: o.requiredClaim && typeof o.requiredClaim === 'object'
       ? { claim: str(o.requiredClaim.claim), value: o.requiredClaim.value }
@@ -124,6 +125,11 @@ async function fetchJson(url, options) {
     throw new Error(`${url} → ${res.status} ${detail}`);
   }
   if (!json) throw new Error(`${url} → réponse non JSON`);
+  // SFI rend les erreurs OAuth de /token en HTTP 200 : le statut ne suffit
+  // pas, seul le champ `error` du corps les distingue d'une réussite.
+  if (json.error) {
+    throw new Error(`${url} → ${json.error}${json.error_description ? ' : ' + json.error_description : ''}`);
+  }
   return json;
 }
 
@@ -229,8 +235,8 @@ export async function buildAuthorizeUrl({ oidc, redirectUri, state, nonce, chall
  * affirmation du réseau, et l'accepter ouvrirait l'accès à qui sait forger un
  * JWT.
  */
-async function verifyIdToken({ oidc, doc, idToken, nonce }) {
-  const header = JSON.parse(Buffer.from(idToken.split('.')[0] || '', 'base64url').toString('utf8'));
+async function signingKeyFor({ oidc, doc, token }) {
+  const header = JSON.parse(Buffer.from(token.split('.')[0] || '', 'base64url').toString('utf8'));
   const alg = SIGN_ALGS.includes(header.alg) ? header.alg : 'RS256';
 
   let pem = oidc.idTokenPublicKey;
@@ -241,18 +247,28 @@ async function verifyIdToken({ oidc, doc, idToken, nonce }) {
       '« idTokenPublicKey » n\'est configuré pour ce partenaire'
     );
   }
+  return { pem, alg };
+}
+
+async function verifyIdToken({ oidc, doc, idToken, nonce }) {
+  const { pem, alg } = await signingKeyFor({ oidc, doc, token: idToken });
 
   const claims = jwt.verify(idToken, pem, {
     algorithms: [alg],
-    issuer: oidc.issuer,
+    // La barre finale n'est qu'une question d'écriture : SFI la met dans
+    // `iss` (« …/sfi/oauth/v1/ »), la configuration l'a perdue au chargement.
+    issuer: [oidc.issuer, `${oidc.issuer}/`],
     audience: oidc.clientId,
     clockTolerance: 60
   });
 
   // Le nonce ne peut pas être délégué à la bibliothèque : c'est à nous de
   // savoir lequel nous avions émis.
-  if (!claims.nonce || claims.nonce !== nonce) {
-    throw new Error('nonce absent ou différent de celui émis');
+  // Absent et différent appellent deux corrections différentes chez le
+  // partenaire : le message les distingue. Le nonce n'est pas un secret.
+  if (!claims.nonce) throw new Error('nonce absent de l\'id_token (émis : ' + nonce + ')');
+  if (claims.nonce !== nonce) {
+    throw new Error(`nonce différent de celui émis (reçu : ${claims.nonce}, émis : ${nonce})`);
   }
   return claims;
 }
@@ -264,20 +280,49 @@ async function verifyIdToken({ oidc, doc, idToken, nonce }) {
  * contrôle, un access_token obtenu pour un compte pourrait rapporter le profil
  * d'un autre.
  */
-async function fetchUserInfo({ doc, accessToken, subject }) {
+async function fetchUserInfo({ oidc, doc, accessToken, subject }) {
   if (!doc.userinfo_endpoint) {
     throw new Error('« fetchUserInfo » demandé mais aucun endpoint userinfo configuré');
   }
   if (!accessToken) throw new Error('réponse sans access_token : userinfo inaccessible');
 
-  const info = await fetchJson(doc.userinfo_endpoint, {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' }
+  const url = doc.userinfo_endpoint;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/jwt, application/json' }
   });
+  const ctype = String(res.headers.get('content-type') || '');
+  // OIDC Core §5.3.2 : une réponse application/jwt est un JWT signé, à
+  // vérifier comme l'id_token. C'est le cas de SFI, qui y loge aussi ses
+  // erreurs (toujours en HTTP 200).
+  const info = ctype.includes('application/jwt')
+    ? await readSignedUserInfo({ oidc, doc, url, res })
+    : await fetchJson(url, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } });
   const sub = str(info.sub);
   if (sub && sub !== str(subject)) {
     throw new Error(`userinfo renvoie un autre sujet (${sub}) que l'id_token (${subject})`);
   }
   return info;
+}
+
+async function readSignedUserInfo({ oidc, doc, url, res }) {
+  const text = (await res.text()).trim();
+  if (!res.ok) throw new Error(`${url} → ${res.status} ${text.slice(0, 200)}`);
+  // Le JWT arrive nu ; le schéma OpenAPI de SFI le décrit aussi dans un
+  // tableau JSON d'un élément. On accepte les deux écritures.
+  let token = text;
+  if (text.startsWith('[') || text.startsWith('"')) {
+    const parsed = JSON.parse(text);
+    token = str(Array.isArray(parsed) ? parsed[0] : parsed);
+  }
+  if (!token) throw new Error(`${url} → réponse JWT vide`);
+
+  const { pem, alg } = await signingKeyFor({ oidc, doc, token });
+  const payload = jwt.verify(token, pem, { algorithms: [alg], clockTolerance: 60 });
+  if (Array.isArray(payload)) throw new Error(`${url} → réponse vide (jeton d'accès non reçu)`);
+  if (payload?.error) {
+    throw new Error(`${url} → ${payload.error}${payload.error_description ? ' : ' + payload.error_description : ''}`);
+  }
+  return payload;
 }
 
 /**
@@ -327,7 +372,7 @@ export async function exchangeCode({ oidc, redirectUri, code, verifier, nonce })
   let claims = verified;
   if (oidc.fetchUserInfo) {
     const info = await fetchUserInfo({
-      doc, accessToken: tokens.access_token, subject: verified.sub
+      oidc, doc, accessToken: tokens.access_token, subject: verified.sub
     });
     claims = { ...info, ...verified };
   }
@@ -335,14 +380,77 @@ export async function exchangeCode({ oidc, redirectUri, code, verifier, nonce })
   return { claims, accessToken: tokens.access_token || '', raw: tokens };
 }
 
+/**
+ * Correspondance déclarée dans `oidc.identity` :
+ *
+ *   "identity": {
+ *     "identifier": "sub", "firstName": "given_name", "lastName": "family_name",
+ *     "email": "email", "name": "name",
+ *     "attributes": { "beneficiaries": { "sum": [1, "conjoint", "autres_ad"] } }
+ *   }
+ *
+ * `identifier` : identifiant stable du bénéficiaire chez l'IdP — le « Subject
+ * Identifier » d'OpenID Connect (claim `sub`, OIDC Core §2). L'ancienne clé
+ * `subject` reste lue.
+ *
+ * Chaque valeur est une expression (cf. evalClaim). `name` absent : prénom +
+ * nom. `attributes` porte ce que les règles de quota exploitent
+ * (cf. services/partner-entitlements.js).
+ */
+function identityMapping(o) {
+  const id = o.identity && typeof o.identity === 'object' ? o.identity : {};
+  return {
+    identifier: id.identifier ?? id.subject ?? (str(o.subjectClaim) || 'sub'),
+    email: id.email ?? (str(o.emailClaim) || 'email'),
+    name: id.name ?? (str(o.nameClaim) || 'name'),
+    firstName: id.firstName ?? 'given_name',
+    lastName: id.lastName ?? 'family_name',
+    attributes: id.attributes && typeof id.attributes === 'object' ? id.attributes : {}
+  };
+}
+
+function claimAt(claims, path) {
+  // Chemin pointé admis : SFI range ses données billetterie dans un objet
+  // (« billetterie.code_societe »).
+  return String(path).split('.')
+    .reduce((v, k) => (v && typeof v === 'object' ? v[k] : undefined), claims);
+}
+
+/**
+ * Évalue une expression de la correspondance :
+ *   "claim"  ou "objet.claim" → valeur du claim (undefined si absent) ;
+ *   nombre                    → lui-même ;
+ *   { "sum": [ … ] }          → somme des termes ; un booléen vaut 1 ou 0.
+ *                               Un terme absent rend la somme ABSENTE (null)
+ *                               plutôt que de compter 0 : un droit sous-évalué
+ *                               en silence serait pire qu'un refus explicite.
+ */
+export function evalClaim(spec, claims) {
+  if (typeof spec === 'number') return spec;
+  if (typeof spec === 'string') return claimAt(claims, spec);
+  if (spec && typeof spec === 'object' && Array.isArray(spec.sum)) {
+    let total = 0;
+    for (const term of spec.sum) {
+      const v = evalClaim(term, claims);
+      if (v === undefined || v === null) return null;
+      if (typeof v === 'boolean') total += v ? 1 : 0;
+      else if (Number.isFinite(Number(v))) total += Number(v);
+      else return null;
+    }
+    return total;
+  }
+  throw new Error(`expression d'identité non reconnue : ${JSON.stringify(spec)}`);
+}
+
 /** Identité retenue pour la session, et contrôle d'appartenance éventuel. */
 export function identityFromClaims(oidc, claims) {
-  const pick = (name) => (name && claims[name] !== undefined ? claims[name] : undefined);
-  const subject = String(pick(oidc.subjectClaim) ?? claims.sub ?? '').trim();
-  if (!subject) throw new Error(`claim « ${oidc.subjectClaim} » absent de l'identité reçue`);
+  const map = oidc.identity;
+  const text = (spec) => String(evalClaim(spec, claims) ?? '').trim();
+  const identifier = text(map.identifier);
+  if (!identifier) throw new Error(`claim « ${map.identifier} » absent de l'identité reçue`);
 
   if (oidc.requiredClaim?.claim) {
-    const actual = claims[oidc.requiredClaim.claim];
+    const actual = claimAt(claims, oidc.requiredClaim.claim);
     const expected = oidc.requiredClaim.value;
     const ok = Array.isArray(actual)
       ? actual.map(String).includes(String(expected))
@@ -354,9 +462,21 @@ export function identityFromClaims(oidc, claims) {
     }
   }
 
+  const firstName = text(map.firstName);
+  const lastName = text(map.lastName);
+  const attributes = {};
+  for (const [key, spec] of Object.entries(map.attributes)) {
+    const v = evalClaim(spec, claims);
+    attributes[key] = v === undefined ? null : v;
+  }
   return {
-    subject,
-    email: String(pick(oidc.emailClaim) ?? '').trim(),
-    name: String(pick(oidc.nameClaim) ?? '').trim()
+    identifier,
+    firstName,
+    lastName,
+    email: text(map.email),
+    // Sans `name` (le scope « partenaires » de SFI n'en donne pas), on
+    // compose prénom + nom.
+    name: text(map.name) || [firstName, lastName].filter(Boolean).join(' '),
+    attributes
   };
 }

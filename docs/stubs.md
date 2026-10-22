@@ -9,6 +9,7 @@ nav_order: 90
 
 - HelloAsso: `npm run helloasso:stub`
 - SumUp: `npm run sumup:stub`
+- OpenID Connect (partner login): `npm run oidc:stub` — see [partner-oidc.md](partner-oidc.md#éprouver-sur-dev) and `stub_oidc/README.md`
 
 ## Purpose
 

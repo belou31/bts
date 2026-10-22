@@ -8,8 +8,10 @@
 // dans un répertoire jetable, et le test le vérifie avant de rendre la main.
 //
 // Éprouve le parcours contre un IdP qui NE publie PAS de découverte, PAS de
-// JWKS, n'accepte PAS PKCE, veut du JSON sur /token et ne met aucun claim de
-// profil dans l'id_token. Puis met chaque contrôle en échec volontairement.
+// JWKS, n'accepte PAS PKCE, exige client_secret sur /token, y rend ses
+// erreurs en HTTP 200, ne met aucun claim de profil dans l'id_token et sert
+// infoUser en JWT signé — comportement de la préproduction AISC (swagger
+// /api/openapi.json). Puis met chaque contrôle en échec volontairement.
 import express from 'express';
 import fs from 'fs';
 import os from 'os';
@@ -48,7 +50,10 @@ function check(label, pass, detail = '') {
 }
 
 try {
-  const stub = (await import(path.join(ROOT, 'src/routes/dev-oidc-stub.routes.js'))).default;
+  // Même fournisseur factice que « npm run oidc:stub » (stub_oidc/idp.js),
+  // monté ici en mémoire sur un port éphémère.
+  const { createIdp } = await import(path.join(ROOT, 'stub_oidc/idp.js'));
+  const stub = createIdp({ baseUrl: () => `${B}/dev/oidc` }).router;
   const partnerAuth = (await import(path.join(ROOT, 'src/routes/partner-auth.routes.js'))).default;
   app.use('/dev/oidc', stub);
   app.use(partnerAuth);
@@ -66,14 +71,19 @@ try {
       token: `${SFI}/oauth/v1/token`,
       userinfo: `${SFI}/oauth/v1/infoUser`
     },
-    scopes: ['openid', 'profile', 'email', 'billetterie'],
+    clientSecret: 'secret-sfi-test',
+    scopes: ['openid', 'partenaires', 'family', 'billetterie'],
+    identity: {
+      identifier: 'sub', firstName: 'given_name', lastName: 'family_name', email: 'email',
+      attributes: { beneficiaries: { sum: [1, 'conjoint', 'autres_ad'] } }
+    },
     pkce: false,
     tokenRequest: 'json',
-    clientAuth: 'none',
+    clientAuth: 'body',
     fetchUserInfo: true,
     idTokenPublicKey: pem,
     subjectClaim: 'sub',
-    requiredClaim: { claim: 'societe', value: 'AIRBUS SAS' },
+    requiredClaim: { claim: 'billetterie.code_societe', value: 'AER' },
     required: true
   };
   const list = [{ slug: 'zzaisc', name: 'AISC (test SFI)', oidc: sfiOidc }];
@@ -134,7 +144,7 @@ try {
   check('aucun paramètre PKCE envoyé',
     !au.searchParams.has('code_challenge') && !au.searchParams.has('code_challenge_method'));
   check('scopes du partenaire transmis',
-    au.searchParams.get('scope') === 'openid profile email billetterie',
+    au.searchParams.get('scope') === 'openid partenaires family billetterie',
     au.searchParams.get('scope'));
   check('state et nonce présents',
     !!au.searchParams.get('state') && !!au.searchParams.get('nonce'));
@@ -147,9 +157,109 @@ try {
   const who = await get(`${B}/partner/zzaisc/auth/whoami`);
   const w = await who.json();
   check('session ouverte', who.status === 200, `HTTP ${who.status}`);
-  check('sujet = matricule AISC', w.subject === 'M1234569', String(w.subject));
+  check('identifiant = matricule AISC', w.identifier === 'M1234569', String(w.identifier));
   check('courriel repris d\'infoUser', w.email === 'jean.dupont@aisc.test', String(w.email));
-  check('nom repris d\'infoUser', w.name === 'Jean DUPONT', String(w.name));
+  check('nom composé prénom + nom (scope partenaires)', w.name === 'Jean DUPONT', String(w.name));
+  check('prénom / nom séparés (pré-remplissage acheteur)',
+    w.firstName === 'Jean' && w.lastName === 'DUPONT', `${w.firstName} / ${w.lastName}`);
+  check('attribut beneficiaries = 1 + conjoint + enfants = 4',
+    w.attributes?.beneficiaries === 4, JSON.stringify(w.attributes));
+  const jSolo = await journey('zzaisc', { conjoint: '0' });
+  const wSolo = await (await get(`${B}/partner/zzaisc/auth/whoami`)).json();
+  check('sans conjoint : beneficiaries = 3',
+    jSolo.res.status === 302 && wSolo.attributes?.beneficiaries === 3, JSON.stringify(wSolo.attributes));
+  // Rétablit la session du parcours principal pour la suite.
+  await journey('zzaisc', {}, '?next=/partner/zzaisc/events');
+
+  console.log('\n\x1b[1m3b. Connexion obligatoire (oidc.required)\x1b[0m');
+  const { checkPartnerAccess, partnerLoginPath } =
+    await import(path.join(ROOT, 'src/services/partner-access.js'));
+  const { getPartnerConfig } = await import(path.join(ROOT, 'src/config/partners.js'));
+  const reqWith = (cookie, query = {}) => ({
+    headers: { cookie }, query, params: { partnerSlug: 'zzaisc' }, url: '/partner/zzaisc/events?x=1',
+    get: () => ''
+  });
+  const reqCfg = { ...getPartnerConfig('zzaisc'), accessToken: 'jeton-statique' };
+  check('session OIDC → accès', checkPartnerAccess(reqWith(cookieHeader()), reqCfg).ok === true);
+  check('sans session → connexion demandée',
+    checkPartnerAccess(reqWith(''), reqCfg).reason === 'login_required');
+  check('jeton statique seul → refusé (pas de contournement)',
+    checkPartnerAccess(reqWith('', { token: 'jeton-statique' }), reqCfg).reason === 'login_required');
+  const foreign = [...jar].map(([k, v]) => `${k.replace('zzaisc', 'zzautre')}=${v}`).join('; ');
+  check('session d\'un autre partenaire → refusée',
+    checkPartnerAccess({ ...reqWith(foreign), params: { partnerSlug: 'zzautre' } },
+      { ...reqCfg, slug: 'zzautre' }).ok === false);
+  check('connexion ramène à la page demandée',
+    partnerLoginPath('/bts', 'zzaisc', reqWith('')) ===
+      '/bts/partner/zzaisc/auth/login?next=%2Fpartner%2Fzzaisc%2Fevents%3Fx%3D1');
+  const tokCfg = { slug: 'zzjeton', accessToken: 'abc' };
+  check('partenaire à jeton : inchangé',
+    checkPartnerAccess(reqWith('', { token: 'abc' }), tokCfg).ok === true
+    && checkPartnerAccess(reqWith(''), tokCfg).reason === 'token_invalid');
+
+  console.log('\n\x1b[1m3c. Droits (entitlements) : règles pures\x1b[0m');
+  const E = await import(path.join(ROOT, 'src/services/partner-entitlements.js'));
+  const { evalClaim } = await import(path.join(ROOT, 'src/services/partner-oidc.js'));
+  check('sum : booléen compte 1', evalClaim({ sum: [1, 'a', 'b'] }, { a: true, b: 2 }) === 4);
+  check('sum : terme absent → null (pas 0)', evalClaim({ sum: [1, 'a', 'b'] }, { a: true }) === null);
+  check('chemin pointé', evalClaim('x.y', { x: { y: 'v' } }) === 'v');
+  const rules = E.entitlementRules({ entitlements: [
+    { key: 'ad', label: 'Ayants droit', max: { attribute: 'beneficiaries' } }
+  ] });
+  const sess = { sub: 'M1', attributes: { beneficiaries: 5 } };
+  const line = (t, n = 1) => Array.from({ length: n }, () => ({ tariffCode: t }));
+  let st = E.entitlementState(rules, sess, line('AISC', 2));
+  check('état : max 5, déjà 2, reste 3', st[0].max === 5 && st[0].used === 2 && st[0].remaining === 3,
+    JSON.stringify(st[0]));
+  check('panier de 3 accepté', E.cartRefusal(rules, st, line('AISC', 3)) === null);
+  const over = E.cartRefusal(rules, st, line('AISC', 4));
+  check('panier de 4 refusé', over?.error === 'entitlement_exceeded' && over.remaining === 3, over?.message);
+  st = E.entitlementState(rules, { sub: 'M1', attributes: {} }, []);
+  const noAttr = E.cartRefusal(rules, st, line('AISC', 1));
+  check('attribut absent → refus explicite', st[0].unavailable === 'attribute_missing'
+    && noAttr?.error === 'entitlement_exceeded', noAttr?.message);
+  const split = E.entitlementRules({ entitlements: [
+    { key: 'enfants', max: 2, tariffs: ['ENFANT'] },
+    { key: 'adultes', max: { attribute: 'beneficiaries' }, tariffs: ['ADULTE'] }
+  ] });
+  const stSplit = E.entitlementState(split, sess, []);
+  check('paniers par tarif : 3 enfants refusés', E.cartRefusal(split, stSplit, line('ENFANT', 3))?.key === 'enfants');
+  const unc = E.cartRefusal(split, stSplit, line('PLEIN', 1));
+  check('tarif non couvert → refusé', unc?.error === 'entitlement_tariff_not_covered', unc?.message);
+  let bad = '';
+  try { E.entitlementRules({ entitlements: [{ key: 'x', per: 'season', max: 1 }] }); } catch (e) { bad = e.message; }
+  check('per non pris en charge → erreur de configuration', /per « season »/.test(bad), bad);
+  // Places en plus au tarif public, bornées en prévente seulement.
+  const extra = E.entitlementRules({ entitlements: [
+    { key: 'ad', label: 'Ayants droit', tariffChannel: 'partner', max: { attribute: 'beneficiaries' } },
+    { key: 'pub', label: 'En plus', tariffChannel: 'public', max: 2, limitDuring: ['presale'] }
+  ] });
+  const chans = new Map([['AISC', 'partner'], ['NORMAL', 'public']]);
+  const pre = { tariffChannels: chans, sale: 'presale' };
+  const on = { tariffChannels: chans, sale: 'onsale' };
+  const stPre = E.entitlementState(extra, sess, [], pre);
+  const iconRules = E.entitlementRules({ entitlements: [{ key: 'ad', max: 1, icon: '❤️' }, { key: 'b', max: 1 }] });
+  const stIcon = E.entitlementState(iconRules, sess, []);
+  check('icon transmis au panier (absent = null)', stIcon[0].icon === '❤️' && stIcon[1].icon === null);
+  check('prévente : 5 ayants droit + 2 publics', stPre[0].max === 5 && stPre[1].max === 2, JSON.stringify(stPre.map(x => x.max)));
+  check('prévente : 5 AISC + 2 NORMAL acceptés',
+    E.cartRefusal(extra, stPre, [...line('AISC', 5), ...line('NORMAL', 2)], pre) === null);
+  check('prévente : 3e NORMAL refusé', E.cartRefusal(extra, stPre, line('NORMAL', 3), pre)?.key === 'pub');
+  check('prévente : 6e AISC refusé (pas pris sur le public)',
+    E.cartRefusal(extra, stPre, line('AISC', 6), pre)?.key === 'ad');
+  const stOn = E.entitlementState(extra, sess, [], on);
+  check('vente publique : publics sans limite', stOn[1].unlimited === true && stOn[1].remaining === null);
+  check('vente publique : 10 NORMAL acceptés', E.cartRefusal(extra, stOn, line('NORMAL', 10), on) === null);
+  check('vente publique : ayants droit toujours bornés', E.cartRefusal(extra, stOn, line('AISC', 6), on)?.key === 'ad');
+  let badLd = '';
+  try { E.entitlementRules({ entitlements: [{ key: 'x', max: 1, limitDuring: ['soon'] }] }); } catch (e) { badLd = e.message; }
+  check('limitDuring inconnu → erreur de configuration', /limitDuring « soon »/.test(badLd), badLd);
+
+  let login = '';
+  try {
+    await E.entitlementsForEvent({ cfg: { entitlements: [{ key: 'x', max: 1 }] }, partnerSlug: 'p', session: null, event: {} });
+  } catch (e) { login = e.code; }
+  check('sans session → connexion requise', login === 'partner_login_required', login);
 
   console.log('\n\x1b[1m4. L\'id_token est nu : le profil vient d\'infoUser\x1b[0m');
   // Rejoue l'échange à la main pour inspecter les jetons bruts.
@@ -162,7 +272,10 @@ try {
   const rawCode = new URL(rawAuth.headers.get('location')).searchParams.get('code');
   const tokRes = await fetch(`${SFI}/oauth/v1/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: 'bts-belougas', grant_type: 'authorization_code', code: rawCode })
+    body: JSON.stringify({
+      client_id: 'bts-belougas', client_secret: 'secret-sfi-test', grant_type: 'authorization_code',
+      code: rawCode, redirect_uri: au.searchParams.get('redirect_uri')
+    })
   });
   const tok = await tokRes.json();
   const idClaims = JSON.parse(Buffer.from(tok.id_token.split('.')[1], 'base64url').toString('utf8'));
@@ -172,25 +285,31 @@ try {
   const infoRes = await fetch(`${SFI}/oauth/v1/infoUser`, {
     headers: { Authorization: `Bearer ${tok.access_token}` }
   });
-  const info = await infoRes.json();
-  check('infoUser porte les claims billetterie',
-    info.matricule_groupe === 'G0042' && info.societe === 'AIRBUS SAS' && info.subvention === 'A');
-  check('dates au format JJ/MM/AAAA (non ISO)',
-    /^\d{2}\/\d{2}\/\d{4}$/.test(info.birthdate || ''), String(info.birthdate));
+  check('infoUser répond en application/jwt',
+    (infoRes.headers.get('content-type') || '').includes('application/jwt'),
+    infoRes.headers.get('content-type') || '');
+  const infoJwt = (await infoRes.text()).trim();
+  const info = JSON.parse(Buffer.from(infoJwt.split('.')[1], 'base64url').toString('utf8'));
+  check('infoUser porte nom, prénom, courriel (partenaires)',
+    info.given_name === 'Jean' && info.family_name === 'DUPONT' && info.email === 'jean.dupont@aisc.test');
+  check('infoUser porte l\'objet billetterie',
+    info.billetterie?.code_societe === 'AER' && info.billetterie?.matricule_groupe === 'M1234569',
+    JSON.stringify(info.billetterie));
 
   console.log('\n\x1b[1m5. Dialecte du endpoint /token\x1b[0m');
-  const formTok = await fetch(`${SFI}/oauth/v1/token`, {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: 'bts-belougas', grant_type: 'authorization_code', code: 'x' })
-  });
-  check('form-urlencoded refusé par l\'IdP (415)', formTok.status === 415,
-    `HTTP ${formTok.status} — donc le succès ci-dessus prouve l'envoi en JSON`);
-  const pb = await (await fetch(`${SFI}/oauth/v1/token`, {
+  const noSecret = await fetch(`${SFI}/oauth/v1/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: 'bts-belougas', grant_type: 'password' })
-  })).json();
-  check('erreurs au format problem-detail', pb.title === 'unsupported_grant_type' && pb.status === 400,
-    JSON.stringify(pb));
+    body: JSON.stringify({ client_id: 'bts-belougas', grant_type: 'authorization_code', code: 'x' })
+  });
+  check('client_secret exigé (400 unknow_client)', noSecret.status === 400
+    && (await noSecret.json()).error === 'unknow_client', `HTTP ${noSecret.status}`);
+  const badGrantRes = await fetch(`${SFI}/oauth/v1/token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: 'bts-belougas', client_secret: 's', grant_type: 'password' })
+  });
+  const badGrant = await badGrantRes.json();
+  check('erreur OAuth rendue en HTTP 200 avec « error »',
+    badGrantRes.status === 200 && badGrant.error === 'unsupported_grant_type', JSON.stringify(badGrant));
 
   console.log('\n\x1b[1m6. Contrôles de sécurité mis en échec\x1b[0m');
   // Le cookie de transaction doit être VIVANT, sinon le refus viendrait de son
@@ -215,26 +334,48 @@ try {
   // consommé, donc un second callback échouerait de toute façon et ne
   // prouverait rien sur l'usage unique du code.
   const codeOnce = cbS.searchParams.get('code');
-  const body1 = { client_id: 'bts-belougas', grant_type: 'authorization_code', code: codeOnce };
+  const body1 = {
+    client_id: 'bts-belougas', client_secret: 'secret-sfi-test', grant_type: 'authorization_code',
+    code: codeOnce, redirect_uri: cbS.origin + cbS.pathname
+  };
   const t1 = await fetch(`${SFI}/oauth/v1/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body1)
   });
   const t2 = await fetch(`${SFI}/oauth/v1/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body1)
   });
+  const t1j = await t1.json();
   const t2j = await t2.json();
   check('code valable une seule fois',
-    t1.status === 200 && t2.status === 400 && t2j.title === 'invalid_grant',
-    `1er ${t1.status}, 2e ${t2.status} ${t2j.detail || ''}`);
+    !!t1j.id_token && t2j.error === 'invalid_grant',
+    `1er ${t1j.error || 'id_token'}, 2e ${t2j.error || 'id_token'}`);
 
   const jDeny = await journey('zzaisc', { deny: '1' });
   check('refus de l\'ayant droit → 403', jDeny.res.status === 403,
     (await jDeny.res.text()).slice(0, 60));
 
-  const jSoc = await journey('zzaisc', { societe: 'AUTRE SA' });
+  const jSoc = await journey('zzaisc', { code_societe: 'XYZ' });
   check('société non conforme → 403', jSoc.res.status === 403,
     (await jSoc.res.text()).slice(0, 60));
 
+  const jInfo = await journey('zzaisc', { infouser_error: '1' });
+  const infoTxt = await jInfo.res.text();
+  check('erreur infoUser (JWT en 200) → refus', jInfo.res.status === 502 && /invalid_token/.test(infoTxt),
+    infoTxt.slice(0, 90));
+
+  // Scénarios du stub (stub_oidc/idp.js) : chacun doit être REFUSÉ par BTS.
+  for (const [scenario, pattern, label] of [
+    ['no_nonce', /nonce/, 'id_token sans nonce'],
+    ['wrong_nonce', /nonce différent/, 'id_token avec un autre nonce'],
+    ['bad_signature', /signature/i, 'id_token signé par une autre clé'],
+    ['expired', /expired|expir/i, 'id_token expiré'],
+    ['token_error', /invalid_client|→ 401/, '/token refuse le client'],
+    ['userinfo_error', /invalid_token|401/, 'erreur userinfo']
+  ]) {
+    const jS = await journey('zzaisc', { ...{}, scenario });
+    const txt = await jS.res.text();
+    check(`scénario ${scenario} → refus (${label})`, jS.res.status === 502 && pattern.test(txt), txt.slice(0, 90));
+  }
   const jNonce = await journey('zzaisc', { no_nonce: '1' });
   const nonceTxt = await jNonce.res.text();
   check('id_token sans nonce refusé', jNonce.res.status === 502 && /nonce/.test(nonceTxt),
@@ -262,7 +403,7 @@ try {
   const badScope = await (await fetch(
     `${SFI}/oauth/v1/authorize?client_id=bts-belougas&response_type=code&state=s`
     + `&scope=openid+inconnu&redirect_uri=${encodeURIComponent(B + '/x')}`)).json();
-  check('scope inconnu refusé', badScope.title === 'invalid_scope', badScope.detail || '');
+  check('scope inconnu refusé', badScope.error === 'invalid_scope', badScope.error_description || '');
   const cc = await (await fetch(`${SFI}/oauth/v1/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ client_id: 'bts-belougas', client_secret: 'srv', grant_type: 'client_credentials' })

@@ -63,44 +63,57 @@ normalisé :
 | `fetchUserInfo` | `false` | `true` si l'`id_token` ne porte aucun claim de profil |
 | `authorizeParams` | — | paramètres supplémentaires sur `/authorize` (ex. `prompt`) |
 
-## Profil AISC / SFI v2.2 (Castelis)
+## Profil AISC / SFI (Castelis)
 
-Premier partenaire raccordé. Sa spécification s'écarte de la norme sur six
-points, tous couverts par les réglages ci-dessus :
+Premier partenaire raccordé. La spécification SFI v2.2 (2016) diffère du
+service réellement servi ; ce qui suit est ce que sert la **préproduction**
+(réponse de Castelis du 16/10/2026 et swagger
+`https://ws-preprod.airbus-staffcouncil.com/api/swagger`) :
 
+- les endpoints sont sur le domaine **WS** (`ws-preprod.…`), pas sur le site
+  des salariés (`preprod.…`, qui répond 404 après connexion) ;
 - pas de document de découverte, pas de JWKS ;
-- endpoints fixes `…/sfi/oauth/v1/{authorize,token,infoUser}` ;
-- PKCE non mentionné ;
-- `/token` attend un corps **JSON**, sans `client_secret` pour
-  `authorization_code` ;
-- l'`id_token` ne porte que `iss`, `iat`, `exp`, `sub`, `aud` : le profil
-  s'obtient sur `infoUser` (GET, `Authorization: Bearer …`) ;
-- erreurs au format RFC 7807 (`{type, title, status, detail}`).
+- PKCE non utilisé ;
+- `/token` : POST avec `client_id`, `client_secret`, `code`, `redirect_uri`
+  (identique à celle de l'autorisation). Les erreurs OAuth répondent
+  **HTTP 200** avec `{error, error_description}` ; seul un client inconnu ou
+  sans secret répond 400 (`unknow_client`) ;
+- l'`id_token` ne porte que `iss`, `iat`, `exp`, `sub`, `aud` (+ `nonce`) ;
+  `iss` vaut `https://ws-preprod.airbus-staffcouncil.com` ;
+- `infoUser` (GET, `Authorization: Bearer …`) répond **`application/jwt`** :
+  un JWT signé par la même clé, erreurs comprises (charge `{error}` ou `[]`,
+  toujours en 200). BTS le vérifie comme l'id_token ;
+- scope **`partenaires`** : `given_name`, `family_name`, `email`, matricule,
+  famille. Pas de `name` : BTS compose prénom + nom. Le scope `billetterie`
+  range ses données dans un objet `billetterie` (`code_societe`, `societe` —
+  un code, pas un libellé —, `subvention`…), d'où le chemin pointé admis par
+  `requiredClaim`.
 
-Le `sub` est le matricule AISC (`M1234569`). Scopes propres au partenaire :
-`od`, `family`, `billetterie` (`matricule_groupe`, `societe`, `code_societe`,
-`conjoint`, `autres_ad`, `subvention`).
+Le `sub` est le matricule AISC.
 
 ```jsonc
 {
   "slug": "aisc",
-  "name": "AISC — Comité social Airbus",
+  "name": "Airbus Staff Council (AISC)",
   "oidc": {
-    "issuer": "https://sfi.aisc.example/sfi",
-    "clientId": "bts-belougas",
+    "issuer": "https://ws-preprod.airbus-staffcouncil.com",
+    "clientId": "belouga",
+    "clientSecret": "…",
     "endpoints": {
-      "authorization": "https://sfi.aisc.example/sfi/oauth/v1/authorize",
-      "token":         "https://sfi.aisc.example/sfi/oauth/v1/token",
-      "userinfo":      "https://sfi.aisc.example/sfi/oauth/v1/infoUser"
+      "authorization": "https://ws-preprod.airbus-staffcouncil.com/sfi/oauth/v1/authorize",
+      "token":         "https://ws-preprod.airbus-staffcouncil.com/sfi/oauth/v1/token",
+      "userinfo":      "https://ws-preprod.airbus-staffcouncil.com/sfi/oauth/v1/infoUser"
     },
-    "scopes": ["openid", "profile", "email", "billetterie"],
+    "scopes": ["openid", "partenaires"],
     "pkce": false,
     "tokenRequest": "json",
-    "clientAuth": "none",
+    "clientAuth": "body",
     "fetchUserInfo": true,
     "idTokenPublicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkq…\n-----END PUBLIC KEY-----",
-    "subjectClaim": "sub",
-    "requiredClaim": { "claim": "societe", "value": "AIRBUS SAS" }
+    "identity": {
+      "identifier": "sub", "firstName": "given_name", "lastName": "family_name", "email": "email",
+      "attributes": { "beneficiaries": { "sum": [1, "conjoint", "autres_ad"] } }
+    }
   }
 }
 ```
@@ -130,21 +143,31 @@ aujourd'hui).
 
 ## Éprouver sur DEV
 
-Un fournisseur d'identité **factice** est fourni. Il n'est monté que si
-`OIDC_STUB=true`, et il refuse de démarrer quand `APP_ENV=production` : il
-délivre une identité à quiconque la demande.
+Un fournisseur d'identité **factice** tourne à part, comme les stubs de
+paiement (`stub_oidc/`, détails dans `stub_oidc/README.md`). Il délivre une
+identité à quiconque la demande et refuse de démarrer avec `APP_ENV=production`.
 
 ```
-OIDC_STUB=true npm run dev
+npm run oidc:stub        # http://127.0.0.1:3016, tableau de bord sur /
 ```
 
-- profil normalisé : `<APP_URL>/dev/oidc` (découverte, PKCE, JWKS, userinfo) ;
-- profil SFI : `<APP_URL>/dev/oidc/sfi` — ni découverte ni JWKS, `/token` en
-  JSON, `id_token` nu, erreurs RFC 7807. La clé publique se récupère sur
-  `/dev/oidc/sfi/keys/public.pem` (hors spec, pour le test seulement).
+- profil normalisé : émetteur `http://127.0.0.1:3016` (découverte, PKCE, JWKS,
+  userinfo) ;
+- profil SFI : `http://127.0.0.1:3016/sfi/oauth/v1/{authorize,token,infoUser}`
+  — calqué sur la préproduction AISC : ni découverte, `client_secret` exigé sur
+  `/token`, erreurs OAuth en HTTP 200, `id_token` nu, `infoUser` en JWT signé ;
+- **scénarios** : connexion manuelle ou automatique, refus, `id_token` sans
+  nonce / autre nonce / mauvaise signature / expiré, `/token` qui refuse le
+  client, erreur userinfo. Le défaut se choisit sur le tableau de bord ; en
+  manuel, l'écran de connexion permet d'en choisir un pour une seule connexion ;
+- identités de test modifiables (dont conjoint et nombre d'enfants pour SFI) ;
+- le tableau de bord donne le bloc `oidc` à coller dans `partners.json` pour
+  chaque profil, et la clé publique PEM. La clé de signature est conservée dans
+  `stub_oidc/.keys/` (hors git) : elle survit au redémarrage.
 
-Deux harnais rejouent le parcours complet puis mettent chaque contrôle en
-échec. Ils travaillent dans un répertoire jetable et vérifient en sortie que la
+Deux harnais rejouent le parcours complet contre ce même fournisseur (monté en
+mémoire), puis mettent chaque contrôle et chaque scénario en échec. Ils
+travaillent dans un répertoire jetable et vérifient en sortie que la
 configuration partenaire réelle est intacte :
 
 ```
@@ -153,14 +176,117 @@ npm run test:oidc-sfi    # profil AISC / SFI
 ```
 
 Sources : `scripts/05-partner-management/check-oidc-flow.js` et
-`check-oidc-flow-sfi.js`. Les deux démarrent leur propre serveur sur un port
-libre et ne demandent ni base de données ni `.env`.
+`check-oidc-flow-sfi.js`. Ni base de données ni `.env`.
 
-## Limite connue
+## Identité et droits d'achat
 
-`required: true` est lu et transporté, mais **pas encore appliqué** : les pages
-partenaire continuent de vérifier le jeton statique comme avant. Une session
-OIDC s'ouvre et `whoami` la renvoie, mais elle ne remplace pas encore le jeton.
-C'est le prochain pas à franchir, et il mérite d'être décidé partenaire par
-partenaire — le basculer d'un coup couperait l'accès à ceux qui utilisent
-l'iframe.
+### Correspondance des claims (`oidc.identity`)
+
+```json
+"identity": {
+  "identifier": "sub",
+  "firstName": "given_name",
+  "lastName": "family_name",
+  "email": "email",
+  "attributes": {
+    "beneficiaries": { "sum": [1, "conjoint", "autres_ad"] }
+  }
+}
+```
+
+Chaque valeur est une expression :
+
+- `"claim"` ou `"objet.claim"` : valeur du claim ;
+- un nombre : lui-même ;
+- `{ "sum": [ … ] }` : somme des termes, un booléen valant 1 ou 0. Si un terme
+  manque, la somme est **absente** (et non 0) : un droit sous-évalué en silence
+  serait pire qu'un refus explicite.
+
+`identifier` est l'identifiant stable du bénéficiaire chez l'IdP : le
+« Subject Identifier » d'OpenID Connect (claim `sub`, OIDC Core §2). `name`
+absent : prénom + nom. Sans bloc `identity`, les anciennes clés `subject`,
+`subjectClaim` / `emailClaim` / `nameClaim` restent lues.
+
+La session garde identifiant, nom, prénom, courriel et `attributes` ;
+`/partner/<slug>/auth/whoami` les affiche. Le prénom, le nom et le courriel
+pré-remplissent le panneau Contact de la page de commande (modifiables), qui
+affiche aussi, en lecture seule, l'identifiant et les droits restants.
+
+### Droits (`entitlements`, au niveau du partenaire)
+
+```json
+"entitlements": [
+  { "key": "ayants-droit", "label": "Places ayants droit", "per": "event",
+    "max": { "attribute": "beneficiaries" } }
+]
+```
+
+| Champ | Rôle |
+| --- | --- |
+| `key` | identifiant stable du panier de droits |
+| `label` | libellé montré à l'acheteur et dans les refus |
+| `per` | période de décompte ; seul `event` (par match) existe |
+| `max` | entier, ou `{ "attribute": "…" }` lu dans la session |
+| `tariffs` | codes tarif couverts ; absent = tous |
+| `tariffChannel` | `partner` : tarifs propres au partenaire ; `public` : tarifs de la grille publique (`allowPublicTariffs`) |
+| `limitDuring` | états de vente où `max` s'applique (ex. `["presale"]`) ; hors de ces états, aucune limite |
+| `icon` | pictogramme (ex. `"❤️"`) affiché après le décompte dans le panneau Contact, et en préfixe des tarifs couverts dans le choix du tarif — affichage seulement, le libellé en base n'est pas modifié |
+
+- une ligne relève du **premier** panier qui couvre son tarif ; une ligne
+  qu'aucun ne couvre est refusée ;
+- le décompte porte sur les commandes de ce bénéficiaire (`meta.partner.identifier`,
+  désormais enregistré) sur ce match, hors annulées / échouées ;
+- l'API de statut renvoie `entitlements` (max, déjà commandé, restant) et
+  `limits.entitlementMax` ; le panier bloque la place de trop, le panneau
+  Contact affiche « Vos droits : x / y place(s) » ; le paiement et la réservation refusent un
+  dépassement (`entitlement_exceeded`, `entitlement_tariff_not_covered`) ;
+- les droits exigent une session : sans elle, l'API répond
+  `partner_login_required` ;
+- le quota global du partenaire (`presale.events`) reste le plafond commun.
+
+Places « en plus » au tarif public, bornées en prévente et libres à
+l'ouverture publique :
+
+```json
+"allowPublicTariffs": true,
+"entitlements": [
+  { "key": "ayants-droit", "label": "Places ayants droit",
+    "tariffChannel": "partner", "max": { "attribute": "beneficiaries" } },
+  { "key": "public-extra", "label": "Places en plus (tarif public)",
+    "tariffChannel": "public", "max": 2, "limitDuring": ["presale"] }
+]
+```
+
+Sur la page partenaire, les tarifs propres au partenaire sont listés en tête
+de chaque ligne du panier, et le premier est choisi par défaut (sinon NORMAL).
+
+Un tarif est « partenaire » si ses canaux nomment le partenaire
+(`partner:<slug>`, `partner` ou `all`), « public » sinon. Hors de son état de
+vente, un panier est marqué `unlimited` et le panneau Contact affiche « sans
+limite ».
+
+Évolutions prévues sans changer la forme : un panier par catégorie
+(adultes / ados / enfants, chacun avec ses tarifs et son attribut), un panier
+« places en plus » au tarif public avec un `max` fixe.
+
+## Connexion obligatoire
+
+`"required": true` dans le bloc `oidc` rend la connexion obligatoire pour ce
+partenaire (`src/services/partner-access.js`) :
+
+- pages `/partner/<slug>/events`, `/event/<match>`, `/season/<code>/subscribe` :
+  sans session, redirection vers `/partner/<slug>/auth/login?next=<page>`, qui
+  ramène sur la page demandée après connexion ;
+- API `/api/partner/<slug>/…` : `401 {"error": "partner_login_required"}` ;
+- le jeton statique (`?token=`, `x-partner-token`) **n'ouvre plus l'accès** :
+  sinon l'obligation se contournerait en le recopiant.
+
+Sans `required` (ou à `false`), le partenaire reste au jeton statique, inchangé.
+
+La session dure `PARTNER_SESSION_TTL_MIN` minutes (120 par défaut). Son cookie
+est `SameSite=Lax` : il n'est pas envoyé dans une iframe hébergée sur un autre
+site. Un partenaire à connexion obligatoire s'ouvre donc en page directe, pas
+en iframe.
+
+Les liens de renouvellement d'abonnement (`/season/<code>/renew?id=…`) restent
+nominatifs et signés : ils ne demandent pas de connexion.

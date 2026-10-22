@@ -273,7 +273,7 @@ export const adminScriptGroups = [
         label: 'Customize Application',
         order: 0,
         path: 'scripts/00-system-management/customize-app.js',
-        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png]',
+        command: 'node scripts/00-system-management/customize-app.js --name="<Organization>" [--short-name="<Short>"] [--logo-svg=logo.svg] [--logo-png=logo.png] [--favicon=favicon.ico] [--icon-192=icon-192.png] [--icon-512=icon-512.png] [--icon-plan=plan.svg] [--icon-contact=contact.svg] [--icon-cart=cart.svg] [--icon-payment=payment.svg]',
         run: {
           script: 'scripts/00-system-management/customize-app.js',
           args: []
@@ -283,7 +283,8 @@ export const adminScriptGroups = [
         notes: [
           'Input files can be referenced by absolute path or relative to data/inputs.',
           'Use --dry-run to preview the configuration without writing files.',
-          'Run with --show to print the current customization metadata.'
+          'Run with --show to print the current customization metadata.',
+          'Panel icons (plan, contact, cart, payment) replace the titles of the order page panels: square .svg or .png. Without one, the built-in icon is used.'
         ],
         form: {
           fields: [
@@ -328,6 +329,30 @@ export const adminScriptGroups = [
               label: 'Icône 512×512 (.png)',
               placeholder: 'public/dynamic/assets/icon-512.png',
               arg: { type: 'option', template: '--icon-512=${value}' }
+            },
+            {
+              name: 'iconPlan',
+              label: 'Icône du panneau Plan (.svg/.png)',
+              placeholder: 'data/inputs/plan.svg',
+              arg: { type: 'option', template: '--icon-plan=${value}' }
+            },
+            {
+              name: 'iconContact',
+              label: 'Icône du panneau Contact (.svg/.png)',
+              placeholder: 'data/inputs/contact.svg',
+              arg: { type: 'option', template: '--icon-contact=${value}' }
+            },
+            {
+              name: 'iconCart',
+              label: 'Icône du panneau Panier (.svg/.png)',
+              placeholder: 'data/inputs/cart.svg',
+              arg: { type: 'option', template: '--icon-cart=${value}' }
+            },
+            {
+              name: 'iconPayment',
+              label: 'Icône du panneau Paiement (.svg/.png)',
+              placeholder: 'data/inputs/payment.svg',
+              arg: { type: 'option', template: '--icon-payment=${value}' }
             }
           ]
         }
@@ -1126,13 +1151,19 @@ export const adminScriptGroups = [
         label: 'Import Tariff Catalog',
         order: 0,
         path: 'scripts/02-tariff-management/import-tariffs.js',
-        command: 'node scripts/02-tariff-management/import-tariffs.js <path/to/tariff_catalog.csv>',
+        command: 'node scripts/02-tariff-management/import-tariffs.js <path/to/tariff_catalog.csv> [--dry-run]',
         run: {
           script: 'scripts/02-tariff-management/import-tariffs.js',
           args: []
         },
-        description: 'Imports the master tariff catalog (code, label, justification requirements).',
+        description: 'Imports the master tariff catalog (code, label, justification requirements). Global tariffs only: event copies are never modified.',
         templates: ['data_references/csv/tariff-catalog.template.csv'],
+        notes: [
+          'Colonnes : code,label obligatoires ; requiresField, fieldLabel, requiresInfo, sortOrder (100), active (true), channels.',
+          'Colonne channels absente : canaux inchangés ; présente mais vide : canaux retirés (tarif public).',
+          '« false », « no », « 0 » valent vide pour requiresField, fieldLabel et requiresInfo.',
+          'Simulation : liste, par tarif, création / mise à jour (champs modifiés) / inchangé, sans rien écrire.'
+        ],
         form: {
           fields: [
             {
@@ -1141,7 +1172,8 @@ export const adminScriptGroups = [
               placeholder: 'data/inputs/tariff_catalog.csv',
               required: true,
               arg: { type: 'positional', index: 0 }
-            }
+            },
+            { name: 'dryRun', label: 'Simulation', type: 'checkbox', arg: { type: 'flag', flag: '--dry-run' } }
           ]
         }
       },
@@ -1347,6 +1379,30 @@ export const adminScriptGroups = [
               placeholder: '30',
               arg: { type: 'option', template: '--discount=${value}' }
             }
+          ]
+        }
+      },
+      {
+        id: 'remove-global-tariff',
+        label: 'Remove Global Tariff',
+        order: 7,
+        path: 'scripts/02-tariff-management/remove-global-tariff.js',
+        command: 'node scripts/02-tariff-management/remove-global-tariff.js --code=<CODE> [--dry-run]',
+        run: {
+          script: 'scripts/02-tariff-management/remove-global-tariff.js',
+          args: []
+        },
+        description: 'Supprime UN tarif global du catalogue, seulement s\'il n\'est utilisé nulle part (catalogue de prix, événement, prix de saison, commande).',
+        notes: [
+          'Refusé si le code est utilisé ; le détail des usages est affiché.',
+          'Les copies du tarif dans les tables d\'événement ne sont jamais touchées.',
+          'Monitor → Tarifs signale les tarifs globaux inutilisés.',
+          'Un code cité dans data/customization (partners.json, cart-rules.json) est signalé, à retirer à la main.'
+        ],
+        form: {
+          fields: [
+            { name: 'code', label: 'Code tarif', placeholder: 'TBH7_NORMAL', required: true, arg: { type: 'option', template: '--code=${value}' } },
+            { name: 'dryRun', label: 'Simulation', type: 'checkbox', arg: { type: 'flag', flag: '--dry-run' } }
           ]
         }
       },
@@ -3390,6 +3446,31 @@ export const adminScriptGroups = [
             { name: 'errorMessage', label: 'Message erreur (invoice_auto)', placeholder: 'Impossible d’enregistrer votre demande...', arg: { type: 'option', template: '--error-message=${value}' } },
             { name: 'autoFinalize', label: 'Auto-finaliser (invoice_auto)', placeholder: 'yes|no', arg: { type: 'option', template: '--auto-finalize=${value}' } },
             { name: 'sendTickets', label: 'Envoyer billets (invoice_auto)', placeholder: 'yes|no', arg: { type: 'option', template: '--send-tickets=${value}' } }
+          ]
+        }
+      },
+      {
+        id: 'partner-set-directory',
+        label: 'Set Partner Directory',
+        order: 1,
+        path: 'scripts/05-partner-management/set-partner-directory.js',
+        command: 'node scripts/05-partner-management/set-partner-directory.js --partner=<slug> --enabled=yes|no [--dry-run]',
+        run: {
+          script: 'scripts/05-partner-management/set-partner-directory.js',
+          args: []
+        },
+        description: 'Active ou désactive la connexion par annuaire local d\'un partenaire sans fournisseur OpenID : identifiant + e-mail de l\'annuaire, puis code reçu par e-mail.',
+        notes: [
+          'Ne modifie que `directory.enabled` de ce partenaire dans partners.json.',
+          'L\'annuaire s\'importe en CSV sur /partner/<slug>/admin/directory (identifiants du bloc admin du partenaire).',
+          'Activé, la connexion devient obligatoire sur les pages du partenaire ; le jeton statique n\'ouvre plus l\'accès.',
+          'Refusé pour un partenaire qui a un bloc oidc.'
+        ],
+        form: {
+          fields: [
+            { name: 'partner', label: 'Slug', placeholder: 'cseairbus', required: true, arg: { type: 'option', template: '--partner=${value}' } },
+            { name: 'enabled', label: 'Annuaire actif', placeholder: 'yes|no', required: true, arg: { type: 'option', template: '--enabled=${value}' } },
+            { name: 'dryRun', label: 'Simulation', type: 'checkbox', arg: { type: 'flag', flag: '--dry-run' } }
           ]
         }
       },

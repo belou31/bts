@@ -72,9 +72,7 @@ window.BTS_VIEW = {
       // paiement. Rend null plutôt que de lever : les appelants enchaînent sur
       // le retour, et une exception laisserait le siège surligné comme choisi.
       if (orderMaxItemsReached()) {
-        setFeedback('error', translate('generic.tooManyItemsTitle'), [
-          translate('generic.tooManyItemsDetail', { max: orderMaxItems() })
-        ]);
+        capFeedback();
         return null;
       }
       const row = makeRowForSeat(seatLike);
@@ -88,6 +86,7 @@ window.BTS_VIEW = {
     // refuser après avoir réservé le siège le laisserait verrouillé pour rien.
     canAddRow: () => !orderMaxItemsReached(),
     maxItems: () => orderMaxItems(),
+    capFeedback: () => capFeedback(),
     getCTX: () => CTX,
     getData: () => CTX.raw || null,
     findSeatElement,
@@ -187,6 +186,8 @@ function tariffsForZone(tariffs, pricesIdx, zoneKey) {
   const codes = new Set([...zMap.keys(), ...star.keys()]);
   const list = tariffs.filter(t => codes.has(String(t.code||'').toUpperCase()));
   list.sort((a, b) => {
+    // Tarifs propres au partenaire en tête (flux partenaire, cf. `partner`).
+    if (!!a?.partner !== !!b?.partner) return a?.partner ? -1 : 1;
     const aOrder = Number.isFinite(Number(a?.sortOrder)) ? Number(a.sortOrder) : Number.MAX_SAFE_INTEGER;
     const bOrder = Number.isFinite(Number(b?.sortOrder)) ? Number(b.sortOrder) : Number.MAX_SAFE_INTEGER;
     if (aOrder !== bOrder) return aOrder - bOrder;
@@ -463,13 +464,75 @@ function syncSelectedHighlights() {
   });
 }
 
+/* ========= CONTACT : identifiant et droits ========= */
+// Fournis par l'API de statut quand un bénéficiaire est connecté
+// (beneficiary.identifier) ou que le partenaire déclare des droits
+// (entitlements). Sans l'un ni l'autre, la ligne reste masquée.
+function renderContactExtra(data) {
+  const el = document.querySelector('#contactExtra');
+  if (!el) return;
+  el.replaceChildren();
+  const parts = [];
+  const id = data?.beneficiary?.identifier;
+  if (id) {
+    const strong = document.createElement('strong');
+    strong.textContent = String(id);
+    parts.push([document.createTextNode(`${translate('order.beneficiaryIdentifier')} `), strong]);
+  }
+  const ents = Array.isArray(data?.entitlements) ? data.entitlements : [];
+  // Pictogramme du panier de droits (entitlements[].icon), après le décompte.
+  const withIcon = (text, e) => (e.icon ? `${text} ${e.icon}` : text);
+  if (ents.length === 1 && !ents[0].unlimited) {
+    const { remaining, max } = ents[0];
+    parts.push([document.createTextNode(withIcon(translate('saleStatus.entitlementRemaining', { remaining, max }), ents[0]))]);
+  } else {
+    // Plusieurs paniers de droits (ex. ayants droit + places en plus au tarif
+    // public) : un libellé chacun, « sans limite » hors de son état de vente.
+    ents.forEach(e => {
+      const label = String(e.label || e.key || '');
+      parts.push([document.createTextNode(withIcon(e.unlimited
+        ? translate('saleStatus.entitlementUnlimited', { label })
+        : translate('saleStatus.entitlementBucket', { label, remaining: e.remaining, max: e.max }), e))]);
+    });
+  }
+  parts.forEach((nodes, i) => {
+    if (i) el.append(document.createTextNode(' · '));
+    el.append(...nodes);
+  });
+  el.hidden = !parts.length;
+}
+
 /* ========= PLAFOND DE PLACES ========= */
 // Fourni par le serveur dans le payload de statut (limits.maxItems). Absent —
 // vieux cache, vue non encore adaptée — on ne plafonne pas côté client : le
 // serveur reste l'autorité, mieux vaut un refus tardif qu'un blocage à tort.
 function orderMaxItems() {
+  return cartCap()?.max ?? 0;
+}
+
+// Plafond effectif du panier : le plus bas entre le plafond par commande
+// (maxItems, 0 = aucun) et les droits restants du bénéficiaire connecté
+// (entitlementMax, où 0 veut bien dire « plus aucune place »).
+function cartCap() {
   const n = Number(CTX?.raw?.limits?.maxItems);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  const order = Number.isFinite(n) && n > 0 ? n : null;
+  const e = CTX?.raw?.limits?.entitlementMax;
+  const ent = Number.isInteger(e) && e >= 0 ? e : null;
+  if (ent !== null && (order === null || ent <= order)) return { max: ent, reason: 'entitlement' };
+  return order !== null ? { max: order, reason: 'order' } : null;
+}
+
+function capFeedback() {
+  const cap = cartCap();
+  if (cap?.reason === 'entitlement') {
+    setFeedback('error', translate('generic.entitlementReachedTitle'), [
+      translate('generic.entitlementReachedDetail', { max: cap.max })
+    ]);
+  } else {
+    setFeedback('error', translate('generic.tooManyItemsTitle'), [
+      translate('generic.tooManyItemsDetail', { max: orderMaxItems() })
+    ]);
+  }
 }
 
 function cartPlaceCount() {
@@ -477,8 +540,8 @@ function cartPlaceCount() {
 }
 
 function orderMaxItemsReached() {
-  const max = orderMaxItems();
-  return max > 0 && cartPlaceCount() >= max;
+  const cap = cartCap();
+  return !!cap && cartPlaceCount() >= cap.max;
 }
 
 /* ========= LIGNES (cart) ========= */
@@ -547,7 +610,9 @@ function makeRowForSeat(seat) {
     email    : seat?.holderEmail     ?? seat?.email     ?? ''
   };
   const list = tariffsForZone(CTX.tariffs, CTX.pricesIdx, z);
-  const def  = list.find(t => String(t.code).toUpperCase()==='NORMAL') || list[0] || null;
+  // Défaut : le premier tarif du partenaire s'il y en a, sinon NORMAL.
+  const def  = list.find(t => t.partner)
+    || list.find(t => String(t.code).toUpperCase()==='NORMAL') || list[0] || null;
 
   const row = document.createElement('div');
   row.className = 'cart-row';
@@ -556,8 +621,9 @@ function makeRowForSeat(seat) {
 
   row.innerHTML = `
     <button class="trash" title="Supprimer" aria-label="Supprimer la ligne" type="button">🗑</button>
-    <div class="col seat"><span class="seat-label" title="${seatDisplay}">${seatDisplay}</span></div>    <div class="col name"><input type="text" class="holder-last"  placeholder="Nom" value="${subs.lastName || ''}"></div>
+    <div class="col name"><input type="text" class="holder-last"  placeholder="Nom" value="${subs.lastName || ''}"></div>
     <div class="col name"><input type="text" class="holder-first" placeholder="Prénom" value="${subs.firstName || ''}"></div>
+    <div class="col seat"><span class="seat-label" title="${seatDisplay}">${seatDisplay}</span></div>
     <div class="col tariff"><select class="tariff-select"></select></div>
 
     <!-- sous-ligne compacte (visible uniquement si extras requis) -->
@@ -577,7 +643,8 @@ function makeRowForSeat(seat) {
     const opt = document.createElement('option');
     opt.value = t.code;
     const price = computeLineAmount(CTX.pricesIdx, z, t.code);
-    opt.textContent = `${t.label || t.code} — ${fmtEuro(price)}`;
+    // Préfixe d'affichage (icône du panier de droits, ex. ❤️), hors libellé.
+    opt.textContent = `${t.icon ? t.icon + ' ' : ''}${t.label || t.code} — ${fmtEuro(price)}`;
     $sel.appendChild(opt);
   }
   if (def) $sel.value = def.code;
@@ -648,20 +715,14 @@ dlog('syncPayerMaybe after:', { pf: pf.value, pl: pl.value, pe: pe.value });
   }
 }
 
+// Recopie le nom (ou le prénom) du panneau Contact sur les lignes du panier
+// encore vides : le cas courant est l'acheteur qui s'inscrit lui-même, ou sa
+// famille sous le même nom. Une ligne déjà saisie n'est jamais écrasée.
 function autoFillNames(kind) {
-  const selector = kind === 'first' ? '.holder-first' : '.holder-last';
-  const inputs = Array.from(document.querySelectorAll(`#cartRows ${selector}`));
-  if (!inputs.length) return;
-
-  let sourceValue = '';
-  const firstFilled = inputs.find(inp => String(inp.value || '').trim());
-  if (firstFilled) {
-    sourceValue = String(firstFilled.value || '').trim();
-  } else {
-    const payer = document.querySelector(kind === 'first' ? '#payerFirst' : '#payerLast');
-    sourceValue = String(payer?.value || '').trim();
-  }
-  if (!sourceValue) return;
+  const inputs = Array.from(document.querySelectorAll(`#cartRows ${kind === 'first' ? '.holder-first' : '.holder-last'}`));
+  const payer = document.querySelector(kind === 'first' ? '#payerFirst' : '#payerLast');
+  const sourceValue = String(payer?.value || '').trim();
+  if (!inputs.length || !sourceValue) return;
 
   inputs.forEach(inp => {
     if (!String(inp.value || '').trim()) {
@@ -671,6 +732,9 @@ function autoFillNames(kind) {
   });
 }
 
+// Pictogramme « copier » (deux feuilles), à la couleur du texte.
+const COPY_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2.5"/><path d="M4 15V5.5A2.5 2.5 0 0 1 6.5 3H15"/></svg>';
+
 function attachNameAutofillButtons() {
   const head = document.querySelector('.lines-head');
   if (!head) return;
@@ -678,10 +742,11 @@ function attachNameAutofillButtons() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'auto-fill-btn';
-    btn.textContent = '↳';
+    btn.innerHTML = COPY_SVG;
     btn.title = kind === 'first'
       ? translate('generic.copyFirstNameTitle')
       : translate('generic.copyLastNameTitle');
+    btn.setAttribute('aria-label', btn.title);
     btn.addEventListener('click', () => autoFillNames(kind));
     return btn;
   };
@@ -822,12 +887,36 @@ function collectCheckoutPayload() {
     return;
   }
 
+  // Contrôles de panier du canal (cart-rules.json, via l'API de statut) :
+  // dits ici pour ne pas perdre la saisie ; le serveur les revérifie.
+  const ruleBreak = cartRuleViolation(CTX?.raw?.cartRules, items);
+  if (ruleBreak) {
+    setFeedback('error', translate('generic.cartRuleTitle'), [ruleBreak.message]);
+    return;
+  }
+
   const scheduleEl = $('#paySchedule');
   const schedule = Number(scheduleEl ? (scheduleEl.value || 1) : 1);
   const totalAmount = CTX.currentTotal || 0;
   return { items, payer, schedule, totalAmount };
 }
 window.BTS_VIEW.collectCheckoutPayload = collectCheckoutPayload;
+
+// Même calcul que src/services/cart-rules.js (cartRuleViolation) : première
+// règle enfreinte, ou null. Une ligne de panier vaut une place.
+function cartRuleViolation(rules, items) {
+  if (!Array.isArray(rules) || !rules.length) return null;
+  const count = (set) => items.reduce(
+    (n, it) => n + (set.includes(String(it.tariffCode || '').toUpperCase()) ? 1 : 0), 0);
+  for (const r of rules) {
+    const whenN = count(r?.when?.tariffs || []);
+    if (!whenN) continue;
+    const min = r?.require?.min || 1;
+    const needed = r?.require?.per ? Math.ceil(whenN / r.require.per) * min : min;
+    if (count(r?.require?.tariffs || []) < needed) return { key: r.key, message: r.message };
+  }
+  return null;
+}
 
 async function submitPayment() {
   const payload = collectCheckoutPayload();
@@ -887,6 +976,13 @@ async function submitPayment() {
           else if (err?.error === 'provider_unavailable') {
             title = translate('generic.providerUnavailableTitle');
             details = [translate('generic.providerUnavailableDetail')];
+          }
+          // 🔹 Données refusées par le prestataire (ex. nom de payeur) : à
+          // corriger par l'acheteur, ce n'est pas une panne.
+          else if (err?.error === 'payment_rejected') {
+            title = translate('generic.paymentRejectedTitle');
+            const reason = (Array.isArray(err?.reasons) && err.reasons.length) ? err.reasons.join(' ; ') : '—';
+            details = [translate('generic.paymentRejectedDetail', { reason })];
           }
           // 🔹 Siège indisponible
           else if (err?.error === 'seat_unavailable') {
@@ -1310,6 +1406,7 @@ dlog('payer inputs after set:', {
   updateTotals(); updateInstallmentsPreview();
   syncSelectedHighlights();
   CTX.raw = data;              // expose le payload brut aux vues spécifiques
+  renderContactExtra(data);
   emitHook('afterData', { ctx: CTX, data });
   // c) Si pas de contact côté API, complète depuis la 1ʳᵉ ligne
   if (!$('#payerFirst').value && !$('#payerLast').value) {

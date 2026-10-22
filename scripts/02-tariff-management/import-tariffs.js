@@ -2,7 +2,15 @@
  * Import the tariff catalog from CSV.
  *
  * Usage:
- *   node scripts/02-tariff-management/import-tariffs.js <path/to/tariff_catalog.csv>
+ *   node scripts/02-tariff-management/import-tariffs.js <path/to/tariff_catalog.csv> [--dry-run]
+ *
+ * Colonnes : code,label (obligatoires) ; requiresField, fieldLabel,
+ * requiresInfo, sortOrder (défaut 100), active (défaut true), channels.
+ * Colonne channels absente : canaux inchangés ; présente mais vide : canaux
+ * retirés (tarif public).
+ *
+ * Ne touche QUE les tarifs globaux (priceTableKey null) : les copies d'un
+ * tarif dans la table de prix d'un événement ne sont jamais modifiées.
  *
  * Environment:
  *   - MONGO_URI or MONGODB_URI (required)
@@ -19,6 +27,7 @@ import mongoose from 'mongoose';
 
 import { Tariff } from '../../src/models/Tariff.js';
 import { serializeChannelList } from '../../src/utils/channel-scopes.js';
+import { splitCsvLine, detectCsvDelimiter } from '../../src/utils/csv-line.js';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -34,6 +43,14 @@ function resolveInputFile(p) {
   return absolute;
 }
 
+// « false », « no », « 0 » ou vide : pas de valeur. Ces mots étaient
+// enregistrés tels quels — la page de commande affichait alors « false » comme
+// texte d'information sous la ligne.
+function textOrNull(v) {
+  const s = String(v ?? '').trim();
+  return (!s || ['false', 'no', 'non', '0', 'null'].includes(s.toLowerCase())) ? null : s;
+}
+
 function parseBool(v, def=true) {
   if (v == null || v === '') return def;
   const s = String(v).trim().toLowerCase();
@@ -43,9 +60,10 @@ function parseBool(v, def=true) {
 }
 
 (async () => {
-  const [, , csvPath] = process.argv;
+  const csvPath = process.argv.slice(2).find(a => !a.startsWith('--'));
+  const dryRun = process.argv.includes('--dry-run');
   if (!csvPath) {
-    console.error('Usage: node scripts/02-tariff-management/import-tariffs.js <csvPath>');
+    console.error('Usage: node scripts/02-tariff-management/import-tariffs.js <csvPath> [--dry-run]');
    process.exit(1);
   }
   const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
@@ -59,58 +77,61 @@ function parseBool(v, def=true) {
 
   const rl = readline.createInterface({ input: fs.createReadStream(full, 'utf8'), crlfDelay: Infinity });
 
-  let header = null, upserts = 0, hasChannelsColumn = false;
+  let header = null, delimiter = ',', hasChannelsColumn = false;
+  const counts = { created: 0, updated: 0, unchanged: 0, skipped: 0 };
   for await (const raw of rl) {
     const line = raw.replace(/\r$/, '');
-    if (!line.trim()) continue;
+    if (!line.trim() || line.trim().startsWith('#')) continue;
     if (!header) {
-      header = line.split(',').map(h => h.trim().toLowerCase());
+      delimiter = detectCsvDelimiter(line);
+      header = splitCsvLine(line, delimiter).map(h => h.toLowerCase());
       hasChannelsColumn = header.includes('channels') || header.includes('channel');
       continue;
     }
-    // support des champs CSV quotés pour label/fieldLabel/requiresInfo
-    // on fait simple: on split basique puis on retire les quotes de début/fin si présentes
-    const cells = line.split(',').map(x => x.trim());
+    const cells = splitCsvLine(line, delimiter);
     const get = (name) => {
       const idx = header.indexOf(name);
       return idx >= 0 ? cells[idx] || '' : '';
     };
-    const unquote = (s) => {
-      if (s.startsWith('"') && s.endsWith('"')) return s.slice(1,-1).replace(/""/g,'"');
-      return s;
-    };
 
     const code = String(get('code') || '').toUpperCase();
-    const label = unquote(get('label'));
-    const requiresField = get('requiresfield') || null;
-    const fieldLabel = unquote(get('fieldlabel')) || null;
-    const requiresInfo = unquote(get('requiresinfo')) || null;
-    const active = parseBool(get('active'), true);
-    const sortOrder = Number(get('sortorder')) || 100;
+    const label = get('label');
+    if (!code || !label) { console.warn('SKIP ligne invalide (code et label requis) :', line); counts.skipped++; continue; }
 
-    if (!code || !label) { console.warn('SKIP invalid row:', line); continue; }
-
-    const channelsInput = hasChannelsColumn ? (get('channels') || get('channel')) : null;
-    const parsedChannels = hasChannelsColumn ? serializeChannelList(channelsInput || '') : undefined;
-
-    const setDoc = { label, requiresField: requiresField || null, fieldLabel, requiresInfo, active, sortOrder };
+    const rf = textOrNull(get('requiresfield'));
+    const setDoc = {
+      label,
+      // « true »/« yes »/« 1 » → 'true' : seule valeur que la page de commande
+      // reconnaît pour exiger un justificatif.
+      requiresField: rf && ['true', 'yes', 'oui', '1'].includes(rf.toLowerCase()) ? 'true' : rf,
+      fieldLabel: textOrNull(get('fieldlabel')),
+      requiresInfo: textOrNull(get('requiresinfo')),
+      active: parseBool(get('active'), true),
+      sortOrder: Number(get('sortorder')) || 100
+    };
     const updateDoc = { $set: setDoc };
     if (hasChannelsColumn) {
-      if (parsedChannels && parsedChannels.length) {
-        setDoc.channels = parsedChannels;
-      } else {
-        updateDoc.$unset = { channels: '' };
-      }
+      const parsedChannels = serializeChannelList(get('channels') || get('channel') || '');
+      if (parsedChannels && parsedChannels.length) setDoc.channels = parsedChannels;
+      else updateDoc.$unset = { channels: '' };
     }
 
-    await Tariff.findOneAndUpdate(
-      { code },
-      updateDoc,
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-    upserts++;
+    // Le tarif GLOBAL de ce code, jamais une copie d'événement : un filtre sur
+    // le seul code pouvait viser la copie d'un match (NORMAL en a une par
+    // événement) et laisser le catalogue inchangé.
+    const filter = { code, priceTableKey: null };
+    const existing = await Tariff.findOne(filter).lean();
+    const changed = existing
+      ? Object.keys(setDoc).filter(k => JSON.stringify(existing[k] ?? null) !== JSON.stringify(setDoc[k] ?? null))
+        .concat(updateDoc.$unset && existing.channels?.length ? ['channels'] : [])
+      : null;
+    if (existing && !changed.length) { counts.unchanged++; continue; }
+    console.log(`${existing ? '~ mis à jour' : '+ créé     '} ${code}${existing ? ' (' + changed.join(', ') + ')' : ''}`);
+    if (existing) counts.updated++; else counts.created++;
+    if (dryRun) continue;
+    await Tariff.findOneAndUpdate(filter, updateDoc, { upsert: true, new: true, setDefaultsOnInsert: true });
   }
 
-  console.log(`Imported/updated ${upserts} tariffs from ${full}`);
+  console.log(`${dryRun ? 'Dry-run — ' : ''}créés=${counts.created} mis à jour=${counts.updated} inchangés=${counts.unchanged} ignorés=${counts.skipped} (${full})`);
   await mongoose.disconnect();
 })();

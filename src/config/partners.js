@@ -46,6 +46,20 @@ export function getPartnerConfig(slug) {
   return base;
 }
 
+/**
+ * Mode de paiement d'un partenaire : « psp » (paiement en ligne) par défaut,
+ * comme le créent upsert-partner / import-partners. Seule une valeur
+ * explicite autre (« invoice_auto »…) bascule en demande facturée.
+ */
+export function partnerPaymentMode(cfg) {
+  const mode = String(cfg?.paymentMode || '').trim();
+  return mode || 'psp';
+}
+
+export function isInvoicePartner(cfg) {
+  return partnerPaymentMode(cfg) !== 'psp';
+}
+
 export function listPartnerConfigs() {
   return getMergedConfigs();
 }
