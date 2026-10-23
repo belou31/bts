@@ -154,14 +154,6 @@ function loadPartnerForAdmin(req, res, next) {
 }
 const partnerAdminAuth = (req, res, next) => requirePartnerAdmin(req.partnerConfig)(req, res, next);
 
-// Liens entre les pages d'administration (relatifs : suivent BASE_PATH).
-function adminNav(current) {
-  const link = (href, label, key) => (key === current
-    ? `<strong>${label}</strong>`
-    : `<a href="${href}">${label}</a>`);
-  return `<p>${link('orders', 'Commandes', 'orders')} · ${link('directory', 'Annuaire', 'directory')}</p>`;
-}
-
 // Ancienne adresse : les commandes vivent désormais sous /admin/orders.
 adminRouter.get('/:partnerSlug/admin', loadPartnerForAdmin, (req, res) => {
   const qs = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
@@ -170,6 +162,105 @@ adminRouter.get('/:partnerSlug/admin', loadPartnerForAdmin, (req, res) => {
 
 const fmtEuro = (cents) => `${(Number(cents || 0) / 100).toFixed(2).replace('.', ',')} €`;
 const fmtWhen = (d) => (d ? new Date(d).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short' }) : '');
+const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Habillage commun des pages d'administration du partenaire (commandes,
+// annuaire), repris de /control/guestlist : barre d'en-tête au nom du
+// partenaire, blocs, statistiques, contrôles, tableau à en-tête collant.
+const ADMIN_CSS = `
+  :root { color-scheme: dark; font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: #0b0f17; color: #e2e8f0; }
+  a { color: inherit; }
+  .top-bar { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 28px; background: #0f172a; border-bottom: 1px solid #1e293b; box-shadow: 0 6px 24px rgba(15, 23, 42, 0.55); position: sticky; top: 0; z-index: 20; }
+  .brand { display: flex; align-items: center; gap: 16px; }
+  .brand img { height: 44px; width: auto; filter: brightness(1.1); }
+  .title-block { display: flex; flex-direction: column; }
+  .title-block strong { font-size: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; }
+  .title-block span { font-size: 22px; font-weight: 600; color: #f8fafc; }
+  .links { display: flex; flex-wrap: wrap; gap: 12px; }
+  .pill-link, .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 999px; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; text-decoration: none; font-weight: 600; font-size: 15px; border: 0; cursor: pointer; box-shadow: 0 10px 30px rgba(37, 99, 235, 0.4); transition: transform 0.15s ease, box-shadow 0.15s ease; }
+  .pill-link.secondary { background: #111c31; border: 1px solid #1e293b; box-shadow: none; color: #cbd5f5; }
+  .pill-link:hover, .btn:hover { transform: translateY(-1px); }
+  .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+  main { padding: 0 0 48px; }
+  .page { display: grid; gap: 28px; }
+  .info-block { padding: 32px 28px 0; }
+  h1 { margin: 0; font-size: 28px; font-weight: 700; color: #f8fafc; }
+  h2 { margin: 0 0 12px; font-size: 18px; font-weight: 600; color: #f8fafc; }
+  .muted { margin-top: 8px; color: #94a3b8; font-size: 14px; line-height: 1.5; }
+  .stats { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 20px; }
+  .stats span { background: #111c31; border: 1px solid #1e293b; border-radius: 12px; padding: 10px 14px; font-size: 14px; display: inline-flex; gap: 8px; align-items: center; color: #cbd5f5; }
+  .stats span strong { font-size: 18px; color: #f8fafc; }
+  .badge { display: inline-flex; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .badge.ok { background: rgba(34, 197, 94, 0.16); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
+  .badge.warn { background: rgba(249, 115, 22, 0.16); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.4); }
+  .controls { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 24px; align-items: flex-end; }
+  .controls form { display: flex; flex-wrap: wrap; gap: 20px; }
+  .controls label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #cbd5f5; }
+  select, input[type="search"], input[type="file"] { appearance: none; padding: 10px 14px; font-size: 15px; background: #0f172a; border: 1px solid #1f2a41; border-radius: 10px; color: #f8fafc; min-width: 240px; box-shadow: 0 4px 20px rgba(15, 23, 42, 0.35) inset; }
+  select:focus, input[type="search"]:focus { outline: 2px solid rgba(59, 130, 246, 0.4); outline-offset: 0; }
+  .card { margin: 0 28px; padding: 22px 24px; background: #0f172a; border: 1px solid #1f2a41; border-radius: 14px; box-shadow: 0 18px 38px rgba(15, 23, 42, 0.45); }
+  .feedback { padding: 12px 16px; border-radius: 12px; font-weight: 500; margin-top: 16px; }
+  .feedback.ok { background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.4); color: #4ade80; }
+  .feedback.err { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; }
+  .feedback.info { background: #111c31; border: 1px solid #1e293b; color: #cbd5f5; }
+  pre { background: #0b0f17; border: 1px solid #1e293b; border-radius: 10px; padding: 12px 14px; overflow-x: auto; color: #cbd5f5; font-size: 13px; }
+  code { background: #111c31; border-radius: 4px; padding: 0 4px; color: #e2e8f0; }
+  details summary { cursor: pointer; color: #cbd5f5; font-weight: 600; }
+  .table-wrapper { background: #0f172a; border: 1px solid #1f2a41; padding: 12px 0 18px; box-shadow: 0 18px 38px rgba(15, 23, 42, 0.65); overflow-x: auto; }
+  .card .table-wrapper { margin-top: 12px; box-shadow: none; border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; }
+  thead th { position: sticky; top: 0; background: linear-gradient(180deg, rgba(30, 58, 138, 0.45), rgba(15, 23, 42, 0.9)); backdrop-filter: blur(6px); color: #e2e8f0; text-align: left; padding: 12px 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(148, 163, 184, 0.12); }
+  tbody td { padding: 12px 14px; border-bottom: 1px solid rgba(30, 41, 59, 0.7); color: #cbd5f5; white-space: nowrap; }
+  tbody tr:nth-child(even) td { background: rgba(15, 23, 42, 0.55); }
+  tbody tr:hover td { background: rgba(30, 58, 138, 0.18); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .empty { padding: 24px 28px; color: #94a3b8; }
+  @media (max-width: 768px) {
+    .top-bar { flex-direction: column; align-items: flex-start; gap: 18px; }
+    select, input[type="search"], input[type="file"] { min-width: 100%; }
+    .card { margin: 0 12px; }
+  }
+`;
+
+/**
+ * Page d'administration du partenaire. `links` : [{ href, label, secondary }]
+ * (relatifs à /partner/<slug>/admin/, BASE_PATH compris d'office).
+ */
+function partnerAdminPage({ req, cfg, title, links = [], body, script = '' }) {
+  const name = cfg.name || cfg.slug;
+  const appBase = String(req.baseUrl || '').replace(/\/partner$/, '');
+  const nav = links.map(l => `<a class="pill-link${l.secondary ? ' secondary' : ''}" href="${escHtml(l.href)}">${escHtml(l.label)}</a>`).join('');
+  return `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escHtml(title)} — ${escHtml(name)}</title>
+<style>${ADMIN_CSS}</style>
+</head>
+<body>
+  <header class="top-bar">
+    <div class="brand">
+      <img src="${escHtml(`${appBase}/dynamic/assets/logo.png`)}" alt="" onerror="this.style.display='none'" />
+      <div class="title-block">
+        <strong>Espace partenaire</strong>
+        <span>${escHtml(name)}</span>
+      </div>
+    </div>
+    <nav class="links">${nav}</nav>
+  </header>
+  <main>
+    <div class="page">
+${body}
+    </div>
+  </main>
+${script ? `  <script>\n${script}\n  </script>` : ''}
+</body>
+</html>`;
+}
 
 // Commandes du partenaire : HTML par défaut (même habillage que
 // /control/guestlist), CSV (?format=csv) et JSON (?format=json). Plus récentes
@@ -219,9 +310,6 @@ adminRouter.get('/:partnerSlug/admin/orders', loadPartnerForAdmin, partnerAdminA
     }
 
     // ── HTML ──
-    const name = cfg.name || slug;
-    const appBase = String(req.baseUrl || '').replace(/\/partner$/, '');
-    const logoSrc = `${appBase}/dynamic/assets/logo.png`;
     let places = 0;
     let amount = 0;
     const rowsHtml = orders.map(o => {
@@ -256,71 +344,13 @@ adminRouter.get('/:partnerSlug/admin/orders', loadPartnerForAdmin, partnerAdminA
       .join('');
     const csvQuery = new URLSearchParams({ format: 'csv', ...(selected ? { event: selected.slug } : {}), ...(status === 'all' ? { status } : {}) });
 
-    res.type('html').send(`<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Commandes — ${escHtml(name)}</title>
-<style>
-  :root { color-scheme: dark; font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-  * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; background: #0b0f17; color: #e2e8f0; }
-  a { color: inherit; }
-  .top-bar { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 28px; background: #0f172a; border-bottom: 1px solid #1e293b; box-shadow: 0 6px 24px rgba(15, 23, 42, 0.55); position: sticky; top: 0; z-index: 20; }
-  .brand { display: flex; align-items: center; gap: 16px; }
-  .brand img { height: 44px; width: auto; filter: brightness(1.1); }
-  .title-block { display: flex; flex-direction: column; }
-  .title-block strong { font-size: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; }
-  .title-block span { font-size: 22px; font-weight: 600; color: #f8fafc; }
-  .links { display: flex; flex-wrap: wrap; gap: 12px; }
-  .pill-link { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 999px; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; text-decoration: none; font-weight: 600; box-shadow: 0 10px 30px rgba(37, 99, 235, 0.4); transition: transform 0.15s ease, box-shadow 0.15s ease; }
-  .pill-link.secondary { background: #111c31; border: 1px solid #1e293b; box-shadow: none; color: #cbd5f5; }
-  .pill-link:hover { transform: translateY(-1px); }
-  main { padding: 0 0 48px; }
-  .page { display: grid; gap: 28px; }
-  .info-block { padding: 32px 28px 0; }
-  h1 { margin: 0; font-size: 28px; font-weight: 700; color: #f8fafc; }
-  .muted { margin-top: 8px; color: #94a3b8; font-size: 14px; }
-  .stats { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 20px; }
-  .stats span { background: #111c31; border: 1px solid #1e293b; border-radius: 12px; padding: 10px 14px; font-size: 14px; display: inline-flex; gap: 8px; align-items: center; color: #cbd5f5; }
-  .stats span strong { font-size: 18px; color: #f8fafc; }
-  .controls { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 24px; align-items: flex-end; }
-  .controls form { display: flex; flex-wrap: wrap; gap: 20px; }
-  .controls label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #cbd5f5; }
-  select, input[type="search"] { appearance: none; padding: 10px 14px; font-size: 15px; background: #0f172a; border: 1px solid #1f2a41; border-radius: 10px; color: #f8fafc; min-width: 240px; box-shadow: 0 4px 20px rgba(15, 23, 42, 0.35) inset; }
-  select:focus, input[type="search"]:focus { outline: 2px solid rgba(59, 130, 246, 0.4); outline-offset: 0; }
-  .table-wrapper { background: #0f172a; border: 1px solid #1f2a41; padding: 12px 0 18px; box-shadow: 0 18px 38px rgba(15, 23, 42, 0.65); overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; min-width: 960px; font-size: 14px; }
-  thead th { position: sticky; top: 0; background: linear-gradient(180deg, rgba(30, 58, 138, 0.45), rgba(15, 23, 42, 0.9)); backdrop-filter: blur(6px); color: #e2e8f0; text-align: left; padding: 12px 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(148, 163, 184, 0.12); }
-  tbody td { padding: 12px 14px; border-bottom: 1px solid rgba(30, 41, 59, 0.7); color: #cbd5f5; white-space: nowrap; }
-  tbody tr:nth-child(even) td { background: rgba(15, 23, 42, 0.55); }
-  tbody tr:hover td { background: rgba(30, 58, 138, 0.18); }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .empty { padding: 24px 28px; color: #94a3b8; }
-  @media (max-width: 768px) {
-    .top-bar { flex-direction: column; align-items: flex-start; gap: 18px; }
-    select, input[type="search"] { min-width: 100%; }
-  }
-</style>
-</head>
-<body>
-  <header class="top-bar">
-    <div class="brand">
-      <img src="${escHtml(logoSrc)}" alt="" onerror="this.style.display='none'" />
-      <div class="title-block">
-        <strong>Espace partenaire</strong>
-        <span>${escHtml(name)}</span>
-      </div>
-    </div>
-    <nav class="links">
-      <a class="pill-link" href="orders?${escHtml(csvQuery.toString())}">Exporter CSV</a>
-      ${directoryEnabled(cfg) ? '<a class="pill-link secondary" href="directory">Annuaire</a>' : ''}
-    </nav>
-  </header>
-  <main>
-    <div class="page">
-      <section class="info-block">
+    res.type('html').send(partnerAdminPage({
+      req, cfg, title: 'Commandes',
+      links: [
+        { href: `orders?${csvQuery.toString()}`, label: 'Exporter CSV' },
+        ...(directoryEnabled(cfg) ? [{ href: 'directory', label: 'Annuaire', secondary: true }] : [])
+      ],
+      body: `      <section class="info-block">
         <h1>Commandes</h1>
         <p class="muted">${selected ? escHtml(`${selected.name || selected.slug} — ${fmtWhen(selected.startsAt)}`) : 'Tous les événements'} · ${status === 'all' ? 'tous statuts' : 'commandes payées'} · les plus récentes en tête</p>
         <div class="stats">
@@ -360,11 +390,8 @@ adminRouter.get('/:partnerSlug/admin/orders', loadPartnerForAdmin, partnerAdminA
           </thead>
           <tbody>${rowsHtml}</tbody>
         </table>
-      </div>` : '<p class="empty">Aucune commande pour cette sélection.</p>'}
-    </div>
-  </main>
-  <script>
-  (function () {
+      </div>` : '<p class="empty">Aucune commande pour cette sélection.</p>'}`,
+      script: `  (function () {
     const input = document.getElementById('filter');
     const rows = Array.from(document.querySelectorAll('tbody tr'));
     if (!input || !rows.length) return;
@@ -374,10 +401,8 @@ adminRouter.get('/:partnerSlug/admin/orders', loadPartnerForAdmin, partnerAdminA
         row.style.display = !needle || (row.getAttribute('data-search') || '').includes(needle) ? '' : 'none';
       });
     });
-  })();
-  </script>
-</body>
-</html>`);
+  })();`
+    }));
   } catch (err) {
     console.error('[partner/admin] error:', err);
     res.status(500).json({ ok: false, error: err.message || 'admin_error' });
@@ -386,67 +411,81 @@ adminRouter.get('/:partnerSlug/admin/orders', loadPartnerForAdmin, partnerAdminA
 
 // ── Annuaire local (partenaires sans fournisseur d'identité) ───────────────
 
-const fmtDate = (d) => (d ? new Date(d).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }) : '—');
-const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c =>
-  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 adminRouter.get('/:partnerSlug/admin/directory', loadPartnerForAdmin, partnerAdminAuth, async (req, res) => {
   try {
     const cfg = req.partnerConfig;
     const stats = await directoryStats(cfg.slug);
     const enabled = directoryEnabled(cfg);
-    res.type('html').send(`<!doctype html><html lang="fr"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Annuaire — ${escHtml(cfg.name || cfg.slug)}</title>
-<style>
-body{font-family:system-ui,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem;color:#1d2733}
-.card{border:1px solid #dde3ea;border-radius:10px;padding:1rem 1.2rem;margin:1rem 0}
-.muted{color:#667;font-size:.9rem}.warn{color:#b45309}.err{color:#b91c1c}.ok{color:#047857}
-code,pre{background:#eef2f6;border-radius:4px;padding:0 .25rem}pre{padding:.6rem;overflow:auto}
-table{border-collapse:collapse}td,th{border:1px solid #dde3ea;padding:.25rem .5rem;font-size:.9rem;text-align:left}
-</style>
-<h1>Annuaire — ${escHtml(cfg.name || cfg.slug)}</h1>
-${adminNav('directory')}
-<div class="card">
-  <p>Connexion par annuaire : ${enabled
-    ? '<strong class="ok">activée</strong> — les ayants droit se connectent avec leur identifiant et une adresse e-mail de cette liste.'
-    : '<strong class="warn">non activée</strong> — l\'annuaire peut être préparé ; la connexion s\'active depuis la console d\'administration (Set Partner Directory).'}</p>
-  <p>${stats.members} ayant(s) droit · ${stats.emails} adresse(s) e-mail · dernier import : ${escHtml(fmtDate(stats.lastImport))}</p>
-  <p><a href="directory.csv">Télécharger l'annuaire actuel (CSV)</a></p>
-</div>
-<div class="card">
-  <h2 style="font-size:1rem;margin-top:0">Importer un annuaire</h2>
-  <p>L'import <strong>remplace</strong> l'annuaire entier. Il est refusé en bloc si une ligne est invalide : rien n'est modifié tant que le fichier n'est pas entièrement correct.</p>
-  <p><input type="file" id="csv" accept=".csv,text/csv,text/plain"> <button id="send" type="button">Importer</button></p>
-  <div id="report" aria-live="polite"></div>
-  <details><summary>Format attendu</summary>
+    const body = `
+      <section class="info-block">
+        <h1>Annuaire</h1>
+        <p class="muted">
+          ${enabled
+            ? '<span class="badge ok">Connexion par annuaire activée</span> — les ayants droit se connectent avec leur identifiant et une adresse e-mail de cette liste, puis un code reçu par e-mail.'
+            : '<span class="badge warn">Connexion par annuaire non activée</span> — l\'annuaire peut être préparé ; la connexion s\'active depuis la console d\'administration (Set Partner Directory).'}
+        </p>
+        <div class="stats">
+          <span><strong>${stats.members}</strong> ayant(s) droit</span>
+          <span><strong>${stats.emails}</strong> adresse(s) e-mail</span>
+          <span><strong>${escHtml(stats.lastImport ? fmtWhen(stats.lastImport) : '—')}</strong> dernier import</span>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Importer un annuaire</h2>
+        <p class="muted">L'import <strong>remplace</strong> l'annuaire entier. Il est refusé en bloc si une ligne est invalide : rien n'est modifié tant que le fichier n'est pas entièrement correct.</p>
+        <div class="controls">
+          <label>
+            <span>Fichier CSV</span>
+            <input type="file" id="csv" accept=".csv,text/csv,text/plain">
+          </label>
+          <button class="btn" id="send" type="button">Importer</button>
+        </div>
+        <div id="report" aria-live="polite"></div>
+      </section>
+      <section class="card">
+        <details>
+          <summary>Format attendu</summary>
 <pre>identifier,lastName,firstName,email,beneficiaries,extraPublic
 A123456,DUPONT,Camille,camille.dupont@example.com,4,2
 A123456,DUPONT,Camille,c.dupont@perso.example,4,2
 B987654,MARTIN,Léo,leo.martin@example.com,2,</pre>
-  <p class="muted">Une ligne par adresse e-mail : un identifiant répété reçoit plusieurs adresses (nom, prénom et nombres identiques sur ses lignes). Séparateur <code>,</code> ou <code>;</code>, UTF-8. <code>beneficiaries</code> = nombre de places au titre des droits. <code>extraPublic</code> (colonne facultative) = places en plus au tarif public pour cet ayant droit ; vide = la valeur par défaut du partenaire.</p>
-  </details>
-</div>
-<script>
-const report = document.getElementById('report');
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-document.getElementById('send').addEventListener('click', async () => {
-  const file = document.getElementById('csv').files[0];
-  if (!file) { report.innerHTML = '<p class="err">Choisissez un fichier CSV.</p>'; return; }
-  report.innerHTML = '<p class="muted">Import en cours…</p>';
-  const res = await fetch('directory', { method: 'POST', headers: { 'Content-Type': 'text/csv; charset=utf-8' }, body: await file.text() });
-  const r = await res.json().catch(() => ({ ok: false, message: 'Réponse illisible' }));
-  if (r.ok) {
-    report.innerHTML = '<p class="ok">' + esc(r.imported) + ' ayant(s) droit importé(s), ' + esc(r.removed) + ' retiré(s).</p>';
-    setTimeout(() => location.reload(), 1500);
-    return;
-  }
-  const rows = (r.errors || []).map(e => '<tr><td>' + esc(e.line) + '</td><td>' + esc(e.identifier || '') + '</td><td>' + esc(e.reason) + '</td></tr>').join('');
-  report.innerHTML = '<p class="err">' + esc(r.message || 'Import refusé') + '</p>'
-    + (rows ? '<table><tr><th>Ligne</th><th>Identifiant</th><th>Motif</th></tr>' + rows + '</table>' : '');
-});
-</script>
-</html>`);
+          <p class="muted">Une ligne par adresse e-mail : un identifiant répété reçoit plusieurs adresses (nom, prénom et nombres identiques sur ses lignes). Séparateur <code>,</code> ou <code>;</code>, UTF-8. <code>beneficiaries</code> = nombre de places au titre des droits. <code>extraPublic</code> (colonne facultative) = places en plus au tarif public pour cet ayant droit ; vide = la valeur par défaut du partenaire.</p>
+        </details>
+      </section>`;
+    const script = `
+  const report = document.getElementById('report');
+  const button = document.getElementById('send');
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  button.addEventListener('click', async () => {
+    const file = document.getElementById('csv').files[0];
+    if (!file) { report.innerHTML = '<div class="feedback err">Choisissez un fichier CSV.</div>'; return; }
+    button.disabled = true;
+    report.innerHTML = '<div class="feedback info">Import en cours…</div>';
+    try {
+      const res = await fetch('directory', { method: 'POST', headers: { 'Content-Type': 'text/csv; charset=utf-8' }, body: await file.text() });
+      const r = await res.json().catch(() => ({ ok: false, message: 'Réponse illisible' }));
+      if (r.ok) {
+        report.innerHTML = '<div class="feedback ok">' + esc(r.imported) + ' ayant(s) droit importé(s), ' + esc(r.removed) + ' retiré(s).</div>';
+        setTimeout(() => location.reload(), 1500);
+        return;
+      }
+      const rows = (r.errors || []).map(e => '<tr><td class="num">' + esc(e.line) + '</td><td>' + esc(e.identifier || '') + '</td><td>' + esc(e.reason) + '</td></tr>').join('');
+      report.innerHTML = '<div class="feedback err">' + esc(r.message || 'Import refusé') + '</div>'
+        + (rows ? '<div class="table-wrapper"><table><thead><tr><th class="num">Ligne</th><th>Identifiant</th><th>Motif</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '');
+    } finally {
+      button.disabled = false;
+    }
+  });`;
+    res.type('html').send(partnerAdminPage({
+      req, cfg, title: 'Annuaire',
+      links: [
+        { href: 'directory.csv', label: 'Exporter CSV' },
+        { href: 'orders', label: 'Commandes', secondary: true }
+      ],
+      body,
+      script
+    }));
   } catch (err) {
     console.error('[partner/admin/directory] error:', err);
     res.status(500).send('Erreur de chargement de l\'annuaire');
