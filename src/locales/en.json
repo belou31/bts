@@ -49,16 +49,15 @@
     "presaleQuotaReached": "Presale quota reached",
     "presaleQuotaUsed": "Quota used ({{n}})",
     "soldOut": "Sold out",
-    "soldOutSub": "No more tickets available",
-    "entitlementRemaining": "Your entitlement: {{remaining}} / {{max}} seat(s)",
-    "entitlementBucket": "{{label}}: {{remaining}} / {{max}}",
-    "entitlementUnlimited": "{{label}}: no limit"
+    "soldOutSub": "No more tickets available"
   },
   "order": {
     "defaultHeading": "BTS Ticketing",
     "cartTitle": "Your seats",
     "contactTitle": "Contact",
     "beneficiaryIdentifier": "Identifier",
+    "entitlementQuota": "Allowance",
+    "entitlementAvailable": "Still available:",
     "contactHelp": "Enter your contact details",
     "cartHelp": "Pick a seat on the plan",
     "cartHelpZones": "Pick on the plan or add a zone directly here:",

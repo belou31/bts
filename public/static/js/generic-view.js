@@ -479,21 +479,20 @@ function renderContactExtra(data) {
     strong.textContent = String(id);
     parts.push([document.createTextNode(`${translate('order.beneficiaryIdentifier')} `), strong]);
   }
+  // Résumé des droits sur une ligne, paniers dans l'ordre de la configuration :
+  //   Quota ayants droit = 10 ❤️ + 1 extra (tarif public) — Reste disponible : 9 ❤️ + 0
+  // Le premier panier porte son libellé court devant le « = », les suivants
+  // derrière leur nombre ; « ∞ » pour un panier sans limite (vente publique).
   const ents = Array.isArray(data?.entitlements) ? data.entitlements : [];
-  // Pictogramme du panier de droits (entitlements[].icon), après le décompte.
-  const withIcon = (text, e) => (e.icon ? `${text} ${e.icon}` : text);
-  if (ents.length === 1 && !ents[0].unlimited) {
-    const { remaining, max } = ents[0];
-    parts.push([document.createTextNode(withIcon(translate('saleStatus.entitlementRemaining', { remaining, max }), ents[0]))]);
-  } else {
-    // Plusieurs paniers de droits (ex. ayants droit + places en plus au tarif
-    // public) : un libellé chacun, « sans limite » hors de son état de vente.
-    ents.forEach(e => {
-      const label = String(e.label || e.key || '');
-      parts.push([document.createTextNode(withIcon(e.unlimited
-        ? translate('saleStatus.entitlementUnlimited', { label })
-        : translate('saleStatus.entitlementBucket', { label, remaining: e.remaining, max: e.max }), e))]);
-    });
+  if (ents.length) {
+    const short = (e) => String(e.shortLabel || e.label || e.key || '');
+    const count = (e, n) => `${e.unlimited ? '∞' : n}${e.icon ? ' ' + e.icon : ''}`;
+    const [first, ...others] = ents;
+    const quota = `${translate('order.entitlementQuota')} ${short(first)} = ${count(first, first.max)}`
+      + others.map(e => ` + ${count(e, e.max)} ${short(e)}`).join('');
+    const left = `${translate('order.entitlementAvailable')} ${count(first, first.remaining)}`
+      + others.map(e => ` + ${count(e, e.remaining)}`).join('');
+    parts.push([document.createTextNode(`${quota} — ${left}`)]);
   }
   parts.forEach((nodes, i) => {
     if (i) el.append(document.createTextNode(' · '));
