@@ -49,16 +49,15 @@
     "presaleQuotaReached": "Quota prévente atteint",
     "presaleQuotaUsed": "Quota utilisé ({{n}})",
     "soldOut": "Complet",
-    "soldOutSub": "Plus de places disponibles",
-    "entitlementRemaining": "Vos droits : {{remaining}} / {{max}} place(s)",
-    "entitlementBucket": "{{label}} : {{remaining}} / {{max}}",
-    "entitlementUnlimited": "{{label}} : sans limite"
+    "soldOutSub": "Plus de places disponibles"
   },
   "order": {
     "defaultHeading": "Billetterie BTS",
     "cartTitle": "Vos places",
     "contactTitle": "Contact",
     "beneficiaryIdentifier": "Identifiant",
+    "entitlementQuota": "Quota",
+    "entitlementAvailable": "Reste disponible :",
     "contactHelp": "Renseignez vos informations de contact",
     "cartHelp": "Choisir une place sur le plan",
     "cartHelpZones": "Choisissez sur le plan ou une zone directement ici :",

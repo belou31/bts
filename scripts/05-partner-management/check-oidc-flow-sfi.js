@@ -238,9 +238,10 @@ try {
   const pre = { tariffChannels: chans, sale: 'presale' };
   const on = { tariffChannels: chans, sale: 'onsale' };
   const stPre = E.entitlementState(extra, sess, [], pre);
-  const iconRules = E.entitlementRules({ entitlements: [{ key: 'ad', max: 1, icon: '❤️' }, { key: 'b', max: 1 }] });
+  const iconRules = E.entitlementRules({ entitlements: [{ key: 'ad', max: 1, icon: '❤️', shortLabel: 'ayants droit' }, { key: 'b', max: 1 }] });
   const stIcon = E.entitlementState(iconRules, sess, []);
   check('icon transmis au panier (absent = null)', stIcon[0].icon === '❤️' && stIcon[1].icon === null);
+  check('shortLabel transmis au panier (absent = null)', stIcon[0].shortLabel === 'ayants droit' && stIcon[1].shortLabel === null);
   check('prévente : 5 ayants droit + 2 publics', stPre[0].max === 5 && stPre[1].max === 2, JSON.stringify(stPre.map(x => x.max)));
   check('prévente : 5 AISC + 2 NORMAL acceptés',
     E.cartRefusal(extra, stPre, [...line('AISC', 5), ...line('NORMAL', 2)], pre) === null);

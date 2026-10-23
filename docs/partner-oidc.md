@@ -231,6 +231,7 @@ affiche aussi, en lecture seule, l'identifiant et les droits restants.
 | `tariffChannel` | `partner` : tarifs propres au partenaire ; `public` : tarifs de la grille publique (`allowPublicTariffs`) |
 | `limitDuring` | états de vente où `max` s'applique (ex. `["presale"]`) ; hors de ces états, aucune limite |
 | `icon` | pictogramme (ex. `"❤️"`) affiché après le décompte dans le panneau Contact, et en préfixe des tarifs couverts dans le choix du tarif — affichage seulement, le libellé en base n'est pas modifié |
+| `shortLabel` | libellé court du résumé du panneau Contact (ex. `"ayants droit"`, `"extra (tarif public)"`) ; absent : `label` |
 
 - une ligne relève du **premier** panier qui couvre son tarif ; une ligne
   qu'aucun ne couvre est refusée ;
@@ -238,7 +239,9 @@ affiche aussi, en lecture seule, l'identifiant et les droits restants.
   désormais enregistré) sur ce match, hors annulées / échouées ;
 - l'API de statut renvoie `entitlements` (max, déjà commandé, restant) et
   `limits.entitlementMax` ; le panier bloque la place de trop, le panneau
-  Contact affiche « Vos droits : x / y place(s) » ; le paiement et la réservation refusent un
+  Contact résume les droits sur une ligne — « Quota ayants droit = 10 ❤️ + 1
+  extra (tarif public) — Reste disponible : 9 ❤️ + 0 » (« ∞ » pour un panier
+  sans limite) ; le paiement et la réservation refusent un
   dépassement (`entitlement_exceeded`, `entitlement_tariff_not_covered`) ;
 - les droits exigent une session : sans elle, l'API répond
   `partner_login_required` ;

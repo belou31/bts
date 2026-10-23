@@ -118,7 +118,9 @@ try {
   check('réimport → remplace (1 retiré)', j.imported === 1 && j.removed === 1, JSON.stringify(j));
   await post(`/partner/${SLUG}/admin/directory`, CSV, { headers: { ...ADMIN, 'Content-Type': 'text/csv' } });
   const html = await (await fetch(`${B}/partner/${SLUG}/admin/directory`, { headers: ADMIN })).text();
-  check('page : statut et compteurs', /activée/.test(html) && /2 ayant\(s\) droit · 3 adresse\(s\)/.test(html));
+  check('page : statut et compteurs', /annuaire activée/.test(html)
+    && /<strong>2<\/strong> ayant\(s\) droit/.test(html) && /<strong>3<\/strong> adresse\(s\)/.test(html));
+  check('page : titre au nom du partenaire', /<title>Annuaire — Annuaire test<\/title>/.test(html));
   const csvOut = await (await fetch(`${B}/partner/${SLUG}/admin/directory.csv`, { headers: ADMIN })).text();
   check('export : une ligne par adresse, réimportable', csvOut.trim().split('\n').length === 4 && D.parseDirectoryCsv(csvOut).members.length === 2);
 

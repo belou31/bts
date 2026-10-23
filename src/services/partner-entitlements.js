@@ -22,6 +22,8 @@
 //            partenaire, ou que les tarifs publics (allowPublicTariffs) —
 //            plutôt qu'une liste de codes, qui change d'une grille à l'autre ;
 //   icon     pictogramme affiché après le décompte (ex. "❤️") ;
+//   shortLabel  libellé court du résumé du panneau Contact (ex. « ayants
+//            droit », « extra (tarif public) ») ; absent : `label` ;
 //   limitDuring  états de vente où `max` s'applique (ex. ["presale"]). Hors de
 //            ces états, le panier n'a PAS de limite : places « en plus » au
 //            tarif public bornées en prévente, libres à l'ouverture publique.
@@ -81,7 +83,8 @@ export function entitlementRules(cfg) {
         : null,
       tariffChannel,
       limitDuring,
-      icon: r?.icon ? String(r.icon).trim() : null
+      icon: r?.icon ? String(r.icon).trim() : null,
+      shortLabel: r?.shortLabel ? String(r.shortLabel).trim() : null
     };
   });
 }
@@ -139,13 +142,14 @@ export function entitlementState(rules, session, usedLines, ctx = {}) {
     // connaît pas Infinity), `unlimited` le dit.
     if (max === Infinity) {
       return {
-        key: r.key, label: r.label, icon: r.icon, per: r.per, tariffs: r.tariffs, tariffChannel: r.tariffChannel,
+        key: r.key, label: r.label, shortLabel: r.shortLabel, icon: r.icon, per: r.per, tariffs: r.tariffs, tariffChannel: r.tariffChannel,
         max: null, used: u, remaining: null, unlimited: true
       };
     }
     return {
       key: r.key,
       label: r.label,
+      shortLabel: r.shortLabel,
       icon: r.icon,
       per: r.per,
       tariffs: r.tariffs,
