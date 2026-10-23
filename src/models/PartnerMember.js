@@ -15,6 +15,9 @@ const PartnerMemberSchema = new mongoose.Schema({
   emails:        { type: [String], default: [] },
   // Nombre de places au titre des droits (attribut « beneficiaries »).
   beneficiaries: { type: Number, default: null },
+  // Places « en plus » au tarif public propres à cet ayant droit (attribut
+  // « extraPublic ») ; null : la valeur par défaut du panier de droits.
+  extraPublic:   { type: Number, default: null },
   importedAt:    { type: Date, default: Date.now }
 }, { timestamps: true });
 
