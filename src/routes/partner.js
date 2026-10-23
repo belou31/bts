@@ -282,11 +282,11 @@ ${adminNav('directory')}
   <p><input type="file" id="csv" accept=".csv,text/csv,text/plain"> <button id="send" type="button">Importer</button></p>
   <div id="report" aria-live="polite"></div>
   <details><summary>Format attendu</summary>
-<pre>identifier,lastName,firstName,email,beneficiaries
-A123456,DUPONT,Camille,camille.dupont@example.com,4
-A123456,DUPONT,Camille,c.dupont@perso.example,4
-B987654,MARTIN,Léo,leo.martin@example.com,2</pre>
-  <p class="muted">Une ligne par adresse e-mail : un identifiant répété reçoit plusieurs adresses (nom, prénom et nombre de places identiques sur ses lignes). Séparateur <code>,</code> ou <code>;</code>, UTF-8. <code>beneficiaries</code> = nombre de places au titre des droits.</p>
+<pre>identifier,lastName,firstName,email,beneficiaries,extraPublic
+A123456,DUPONT,Camille,camille.dupont@example.com,4,2
+A123456,DUPONT,Camille,c.dupont@perso.example,4,2
+B987654,MARTIN,Léo,leo.martin@example.com,2,</pre>
+  <p class="muted">Une ligne par adresse e-mail : un identifiant répété reçoit plusieurs adresses (nom, prénom et nombres identiques sur ses lignes). Séparateur <code>,</code> ou <code>;</code>, UTF-8. <code>beneficiaries</code> = nombre de places au titre des droits. <code>extraPublic</code> (colonne facultative) = places en plus au tarif public pour cet ayant droit ; vide = la valeur par défaut du partenaire.</p>
   </details>
 </div>
 <script>

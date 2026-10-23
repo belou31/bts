@@ -13,8 +13,10 @@
 //   key      identifiant stable (rapports, messages) ;
 //   label    libellé montré à l'acheteur ;
 //   per      période de décompte — seul "event" existe (par match) ;
-//   max      nombre fixe, ou { "attribute": "<nom> } lu dans la session
-//            (cf. oidc.identity.attributes) ;
+//   max      nombre fixe, ou { "attribute": "<nom>", "default": n } lu dans
+//            la session (oidc.identity.attributes, ou colonne de l'annuaire).
+//            `default` (facultatif) sert quand l'ayant droit n'a pas de valeur ;
+//            sans lui, une valeur absente refuse le panier ;
 //   tariffs  codes tarif couverts. Absent : tous les tarifs.
 //   tariffChannel  "partner" | "public" : ne couvre que les tarifs propres au
 //            partenaire, ou que les tarifs publics (allowPublicTariffs) —
@@ -50,7 +52,11 @@ export function entitlementRules(cfg) {
     const validMax = Number.isInteger(max) && max >= 0
       || (max && typeof max === 'object' && String(max.attribute || '').trim());
     if (!validMax) {
-      throw new Error(`entitlements[${key}] : max doit être un entier ou { "attribute": "…" }`);
+      throw new Error(`entitlements[${key}] : max doit être un entier ou { "attribute": "…", "default": n }`);
+    }
+    const hasDefault = max && typeof max === 'object' && max.default !== undefined;
+    if (hasDefault && !(Number.isInteger(max.default) && max.default >= 0)) {
+      throw new Error(`entitlements[${key}] : max.default doit être un entier ≥ 0`);
     }
     const tariffChannel = r?.tariffChannel ? String(r.tariffChannel).trim() : null;
     if (tariffChannel && !TARIFF_CHANNELS.includes(tariffChannel)) {
@@ -67,7 +73,9 @@ export function entitlementRules(cfg) {
       key,
       label: String(r?.label || key),
       per,
-      max: typeof max === 'object' ? { attribute: String(max.attribute).trim() } : max,
+      max: typeof max === 'object'
+        ? { attribute: String(max.attribute).trim(), ...(hasDefault ? { default: max.default } : {}) }
+        : max,
       tariffs: Array.isArray(r?.tariffs) && r.tariffs.length
         ? r.tariffs.map(t => String(t).trim().toUpperCase()).filter(Boolean)
         : null,
@@ -87,7 +95,11 @@ export function resolveMax(rule, session, ctx = {}) {
   if (typeof rule.max === 'number') return rule.max;
   const v = session?.attributes?.[rule.max.attribute];
   const n = Number(v);
-  return v === null || v === undefined || !Number.isFinite(n) ? null : Math.max(0, Math.floor(n));
+  if (v === null || v === undefined || v === '' || !Number.isFinite(n)) {
+    // Valeur propre à l'ayant droit absente : le défaut du panier s'il en a un.
+    return rule.max.default !== undefined ? rule.max.default : null;
+  }
+  return Math.max(0, Math.floor(n));
 }
 
 /**

@@ -88,6 +88,13 @@ try {
   check('champs entre guillemets', p.members[0]?.lastName === 'DE LA "TOUR"', p.members[0]?.lastName);
   p = D.parseDirectoryCsv(CSV + 'A123456,DUPONT,Camille,autre@example.com,5\n');
   check('lignes contradictoires → identifiant écarté', p.members.length === 1 && p.errors.some(e => /beneficiaries/.test(e.reason)), JSON.stringify(p.errors[0]));
+  p = D.parseDirectoryCsv('identifier,lastName,firstName,email,beneficiaries,extraPublic\nA1,X,Y,a@b.fr,3,2\nA2,X,Z,c@d.fr,1,\n');
+  check('extraPublic : lu (2), vide → null', p.members[0]?.extraPublic === 2 && p.members[1]?.extraPublic === null && !p.errors.length);
+  p = D.parseDirectoryCsv('identifier,lastName,firstName,email,beneficiaries,extraPublic\nA1,X,Y,a@b.fr,3,-1\nA2,X,Y,c@d.fr,1,2\nA2,X,Y,e@f.fr,1,3\n');
+  check('extraPublic : négatif refusé, lignes contradictoires écartées',
+    p.errors.some(e => /extraPublic doit/.test(e.reason)) && p.errors.some(e => /extraPublic/.test(e.reason) && /diffère/.test(e.reason)), p.errors.map(e => e.reason).join(' | '));
+  check('sans colonne extraPublic → null', D.parseDirectoryCsv(CSV).members.every(m => m.extraPublic === null));
+  check('session : extraPublic transmis', D.identityFromMember({ identifier: 'A', emails: ['a@b.fr'], beneficiaries: 3, extraPublic: 2 }, 'a@b.fr').attributes.extraPublic === 2);
   p = D.parseDirectoryCsv('identifier,nom,email\nA,B,c@d.fr\n');
   check('colonnes manquantes → refus', p.errors.length === 1 && /colonnes manquantes/.test(p.errors[0].reason));
   p = D.parseDirectoryCsv('identifier,lastName,firstName,email,beneficiaries\nA1,X,Y,pas-un-email,1\nA2,X,Y,a@b.fr,0\n');

@@ -32,10 +32,10 @@ d'adresses, la date du dernier import, l'export CSV de l'annuaire courant
 (`directory.csv`), et le formulaire d'import.
 
 ```
-identifier,lastName,firstName,email,beneficiaries
-A123456,DUPONT,Camille,camille.dupont@example.com,4
-A123456,DUPONT,Camille,c.dupont@perso.example,4
-B987654,MARTIN,Léo,leo.martin@example.com,2
+identifier,lastName,firstName,email,beneficiaries,extraPublic
+A123456,DUPONT,Camille,camille.dupont@example.com,4,2
+A123456,DUPONT,Camille,c.dupont@perso.example,4,2
+B987654,MARTIN,Léo,leo.martin@example.com,2,
 ```
 
 - une ligne par adresse e-mail ; un identifiant répété reçoit plusieurs
@@ -44,6 +44,11 @@ B987654,MARTIN,Léo,leo.martin@example.com,2
 - séparateur `,` ou `;`, UTF-8, champs entre guillemets admis ;
 - `beneficiaries` : entier ≥ 1, nombre de places au titre des droits (vide :
   attribut absent, les droits qui en dépendent sont refusés) ;
+- `extraPublic` (colonne facultative) : entier ≥ 0, places en plus au tarif
+  public **propres à cet ayant droit**, attribut de session `extraPublic`. Vide
+  ou colonne absente : la valeur par défaut du panier de droits (voir
+  ci-dessous). Comme pour `beneficiaries`, la valeur doit être la même sur
+  toutes les lignes d'un identifiant ;
 - l'import **remplace** l'annuaire entier, et il est **refusé en bloc** si une
   ligne est invalide (le rapport liste les lignes et leur motif) ou s'il ne
   contient aucune ligne valide ;
@@ -51,6 +56,21 @@ B987654,MARTIN,Léo,leo.martin@example.com,2
   n'est jamais vide pendant un import.
 
 Stockage : collection MongoDB `partnermembers` (un document par identifiant).
+
+## Places en plus par ayant droit
+
+Le panier « places en plus » lit l'attribut au lieu d'un nombre fixe, avec un
+défaut pour qui n'a pas de valeur :
+
+```json
+{ "key": "public-extra", "label": "Places en plus (tarif public)", "per": "event",
+  "tariffChannel": "public", "limitDuring": ["presale"],
+  "max": { "attribute": "extraPublic", "default": 2 } }
+```
+
+Un ayant droit à `extraPublic = 5` a 5 places en plus, un autre sans valeur en
+a 2, un troisième à `0` n'en a aucune. Sans `default`, une valeur absente
+refuse ce panier.
 
 ## Connexion de l'ayant droit
 
