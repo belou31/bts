@@ -251,6 +251,19 @@ try {
   check('vente publique : publics sans limite', stOn[1].unlimited === true && stOn[1].remaining === null);
   check('vente publique : 10 NORMAL acceptés', E.cartRefusal(extra, stOn, line('NORMAL', 10), on) === null);
   check('vente publique : ayants droit toujours bornés', E.cartRefusal(extra, stOn, line('AISC', 6), on)?.key === 'ad');
+  // Places en plus propres à l'ayant droit (attribut), avec défaut.
+  const perMember = E.entitlementRules({ entitlements: [
+    { key: 'pub', label: 'En plus', tariffChannel: 'public', max: { attribute: 'extraPublic', default: 2 }, limitDuring: ['presale'] }
+  ] });
+  check('extraPublic propre (5) prime sur le défaut',
+    E.entitlementState(perMember, { sub: 'M', attributes: { extraPublic: 5 } }, [], pre)[0].max === 5);
+  check('extraPublic absent → défaut (2)',
+    E.entitlementState(perMember, { sub: 'M', attributes: {} }, [], pre)[0].max === 2);
+  check('extraPublic à 0 → aucune place en plus',
+    E.entitlementState(perMember, { sub: 'M', attributes: { extraPublic: 0 } }, [], pre)[0].max === 0);
+  let badDef = '';
+  try { E.entitlementRules({ entitlements: [{ key: 'x', max: { attribute: 'a', default: -1 } }] }); } catch (e) { badDef = e.message; }
+  check('max.default invalide → erreur de configuration', /max\.default/.test(badDef), badDef);
   let badLd = '';
   try { E.entitlementRules({ entitlements: [{ key: 'x', max: 1, limitDuring: ['soon'] }] }); } catch (e) { badLd = e.message; }
   check('limitDuring inconnu → erreur de configuration', /limitDuring « soon »/.test(badLd), badLd);

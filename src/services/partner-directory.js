@@ -13,9 +13,13 @@
 // CSV : une ligne par adresse e-mail ; un identifiant répété sur plusieurs
 // lignes reçoit plusieurs adresses.
 //
-//   identifier,lastName,firstName,email,beneficiaries
-//   A123456,DUPONT,Camille,camille.dupont@example.com,4
-//   A123456,DUPONT,Camille,c.dupont@perso.example,4
+//   identifier,lastName,firstName,email,beneficiaries,extraPublic
+//   A123456,DUPONT,Camille,camille.dupont@example.com,4,2
+//   A123456,DUPONT,Camille,c.dupont@perso.example,4,2
+//
+// `extraPublic` (facultative) : places en plus au tarif public propres à cet
+// ayant droit, attribut de session du même nom (cf. entitlements, max
+// { attribute: "extraPublic", default: … }). Vide : la valeur par défaut.
 import crypto from 'crypto';
 import { PartnerMember } from '../models/PartnerMember.js';
 import { PartnerLoginCode } from '../models/PartnerLoginCode.js';
@@ -27,6 +31,8 @@ export const MAX_CODE_ATTEMPTS = 5;
 export const MAX_CODES_PER_WINDOW = 3;
 export const CODE_WINDOW_MIN = 15;
 const COLUMNS = ['identifier', 'lastname', 'firstname', 'email', 'beneficiaries'];
+// Colonnes facultatives : absentes de l'en-tête, la valeur vaut null.
+const OPTIONAL_COLUMNS = ['extrapublic'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function directoryEnabled(cfg) {
@@ -54,7 +60,7 @@ export function parseDirectoryCsv(text) {
   if (missing.length) {
     return { members: [], errors: [{ line: headerIdx + 1, reason: `colonnes manquantes : ${missing.join(', ')} (attendu : identifier,lastName,firstName,email,beneficiaries)` }] };
   }
-  const col = Object.fromEntries(COLUMNS.map(c => [c, header.indexOf(c)]));
+  const col = Object.fromEntries([...COLUMNS, ...OPTIONAL_COLUMNS].map(c => [c, header.indexOf(c)]));
 
   const byId = new Map();
   const rejected = new Set();
@@ -62,7 +68,7 @@ export function parseDirectoryCsv(text) {
     const raw = lines[i];
     if (!raw.trim() || raw.trim().startsWith('#')) continue;
     const cells = splitCsvLine(raw, delimiter);
-    const get = (c) => cells[col[c]] ?? '';
+    const get = (c) => (col[c] >= 0 ? cells[col[c]] ?? '' : '');
     const lineNo = i + 1;
     const identifier = get('identifier');
     const email = get('email').toLowerCase();
@@ -75,14 +81,21 @@ export function parseDirectoryCsv(text) {
       if (!Number.isInteger(n) || n < 1) { errors.push({ line: lineNo, identifier, reason: `beneficiaries doit être un entier ≥ 1 : « ${benefRaw} »` }); continue; }
       beneficiaries = n;
     }
-    const row = { identifier, lastName: get('lastname'), firstName: get('firstname'), beneficiaries };
+    const extraRaw = get('extrapublic');
+    let extraPublic = null;
+    if (extraRaw !== '') {
+      const n = Number(extraRaw);
+      if (!Number.isInteger(n) || n < 0) { errors.push({ line: lineNo, identifier, reason: `extraPublic doit être un entier ≥ 0 : « ${extraRaw} »` }); continue; }
+      extraPublic = n;
+    }
+    const row = { identifier, lastName: get('lastname'), firstName: get('firstname'), beneficiaries, extraPublic };
     const key = identifier.toUpperCase();
     const prev = byId.get(key);
     if (!prev) {
       byId.set(key, { ...row, emails: [email], lines: [lineNo] });
       continue;
     }
-    const conflict = ['lastName', 'firstName', 'beneficiaries'].find(f => String(prev[f] ?? '') !== String(row[f] ?? ''));
+    const conflict = ['lastName', 'firstName', 'beneficiaries', 'extraPublic'].find(f => String(prev[f] ?? '') !== String(row[f] ?? ''));
     if (conflict) {
       rejected.add(key);
       errors.push({ line: lineNo, identifier, reason: `« ${conflict} » diffère de la ligne ${prev.lines[0]} pour le même identifiant` });
@@ -94,7 +107,10 @@ export function parseDirectoryCsv(text) {
 
   const members = [...byId.entries()]
     .filter(([key]) => !rejected.has(key))
-    .map(([, m]) => ({ identifier: m.identifier, lastName: m.lastName, firstName: m.firstName, emails: m.emails, beneficiaries: m.beneficiaries }));
+    .map(([, m]) => ({
+      identifier: m.identifier, lastName: m.lastName, firstName: m.firstName,
+      emails: m.emails, beneficiaries: m.beneficiaries, extraPublic: m.extraPublic
+    }));
   for (const key of rejected) {
     errors.push({ line: byId.get(key).lines[0], identifier: byId.get(key).identifier, reason: 'identifiant écarté (lignes contradictoires)' });
   }
@@ -142,10 +158,10 @@ export async function directoryStats(partnerSlug) {
 /** Annuaire courant au format d'import (une ligne par adresse). */
 export async function exportDirectoryCsv(partnerSlug) {
   const rows = await PartnerMember.find({ partnerSlug: String(partnerSlug).toLowerCase() }).sort({ identifier: 1 }).lean();
-  const out = ['identifier,lastName,firstName,email,beneficiaries'];
+  const out = ['identifier,lastName,firstName,email,beneficiaries,extraPublic'];
   for (const m of rows) {
     for (const email of m.emails || []) {
-      out.push([m.identifier, m.lastName, m.firstName, email, m.beneficiaries ?? ''].map(csvCell).join(','));
+      out.push([m.identifier, m.lastName, m.firstName, email, m.beneficiaries ?? '', m.extraPublic ?? ''].map(csvCell).join(','));
     }
   }
   return out.join('\n') + '\n';
@@ -240,6 +256,6 @@ export function identityFromMember(member, email) {
     lastName: member.lastName || '',
     email: String(email || member.emails?.[0] || '').toLowerCase(),
     name: [member.firstName, member.lastName].filter(Boolean).join(' '),
-    attributes: { beneficiaries: member.beneficiaries ?? null }
+    attributes: { beneficiaries: member.beneficiaries ?? null, extraPublic: member.extraPublic ?? null }
   };
 }

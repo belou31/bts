@@ -226,7 +226,7 @@ affiche aussi, en lecture seule, l'identifiant et les droits restants.
 | `key` | identifiant stable du panier de droits |
 | `label` | libellé montré à l'acheteur et dans les refus |
 | `per` | période de décompte ; seul `event` (par match) existe |
-| `max` | entier, ou `{ "attribute": "…" }` lu dans la session |
+| `max` | entier, ou `{ "attribute": "…", "default": n }` lu dans la session ; `default` (facultatif) sert quand l'ayant droit n'a pas de valeur, sans lui une valeur absente refuse le panier |
 | `tariffs` | codes tarif couverts ; absent = tous |
 | `tariffChannel` | `partner` : tarifs propres au partenaire ; `public` : tarifs de la grille publique (`allowPublicTariffs`) |
 | `limitDuring` | états de vente où `max` s'applique (ex. `["presale"]`) ; hors de ces états, aucune limite |
