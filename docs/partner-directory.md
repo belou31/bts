@@ -94,9 +94,11 @@ Courriels : en DEV, `EMAIL_STUB=true` les écrit dans `data/outputs/outbox/`.
 
 ## Commandes
 
-La page des commandes du partenaire est désormais
-`/partner/<slug>/admin/orders` (`?format=html`, `?format=csv`, JSON par
-défaut). L'ancienne adresse `/partner/<slug>/admin` y redirige.
+La page des commandes du partenaire est `/partner/<slug>/admin/orders` : page
+HTML par défaut (titre au nom du partenaire, plus récentes en tête), filtre par
+événement et par statut (payées / toutes), filtre texte instantané sur les noms,
+l'e-mail et l'identifiant. `?format=csv` exporte la sélection, `?format=json`
+la renvoie en JSON. L'ancienne adresse `/partner/<slug>/admin` y redirige.
 
 ## Vérification
 
