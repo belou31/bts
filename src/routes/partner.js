@@ -9,7 +9,7 @@ import { checkPartnerAccess } from '../services/partner-access.js';
 import { readSession } from '../services/partner-session.js';
 import express from 'express';
 import {
-  directoryEnabled, parseDirectoryCsv, replaceDirectory, directoryStats, exportDirectoryCsv
+  directoryEnabled, parseDirectoryCsv, replaceDirectory, directoryStats, listDirectory, exportDirectoryCsv
 } from '../services/partner-directory.js';
 
 const router = Router();
@@ -182,6 +182,8 @@ const ADMIN_CSS = `
   .links { display: flex; flex-wrap: wrap; gap: 12px; }
   .pill-link, .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 999px; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; text-decoration: none; font-weight: 600; font-size: 15px; border: 0; cursor: pointer; box-shadow: 0 10px 30px rgba(37, 99, 235, 0.4); transition: transform 0.15s ease, box-shadow 0.15s ease; }
   .pill-link.secondary { background: #111c31; border: 1px solid #1e293b; box-shadow: none; color: #cbd5f5; }
+  button.pill-link { border: 0; cursor: pointer; font-family: inherit; }
+  button.pill-link:disabled { opacity: .55; cursor: not-allowed; }
   .pill-link:hover, .btn:hover { transform: translateY(-1px); }
   .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
   main { padding: 0 0 48px; }
@@ -227,12 +229,15 @@ const ADMIN_CSS = `
 
 /**
  * Page d'administration du partenaire. `links` : [{ href, label, secondary }]
- * (relatifs à /partner/<slug>/admin/, BASE_PATH compris d'office).
+ * (relatifs à /partner/<slug>/admin/, BASE_PATH compris d'office), ou
+ * [{ id, label }] pour un bouton que la page anime elle-même.
  */
 function partnerAdminPage({ req, cfg, title, links = [], body, script = '' }) {
   const name = cfg.name || cfg.slug;
   const appBase = String(req.baseUrl || '').replace(/\/partner$/, '');
-  const nav = links.map(l => `<a class="pill-link${l.secondary ? ' secondary' : ''}" href="${escHtml(l.href)}">${escHtml(l.label)}</a>`).join('');
+  const nav = links.map(l => (l.id
+    ? `<button type="button" class="pill-link${l.secondary ? ' secondary' : ''}" id="${escHtml(l.id)}">${escHtml(l.label)}</button>`
+    : `<a class="pill-link${l.secondary ? ' secondary' : ''}" href="${escHtml(l.href)}">${escHtml(l.label)}</a>`)).join('');
   return `<!doctype html>
 <html lang="fr">
 <head>
@@ -415,8 +420,23 @@ adminRouter.get('/:partnerSlug/admin/orders', loadPartnerForAdmin, partnerAdminA
 adminRouter.get('/:partnerSlug/admin/directory', loadPartnerForAdmin, partnerAdminAuth, async (req, res) => {
   try {
     const cfg = req.partnerConfig;
-    const stats = await directoryStats(cfg.slug);
+    const [stats, members] = await Promise.all([directoryStats(cfg.slug), listDirectory(cfg.slug)]);
     const enabled = directoryEnabled(cfg);
+    const num = (v) => (v === null || v === undefined ? '—' : escHtml(v));
+    const rowsHtml = members.map(m => {
+      const emails = m.emails || [];
+      const search = [m.identifier, m.redirect, m.lastName, m.firstName, ...emails]
+        .map(v => String(v || '').toLowerCase()).join(' ');
+      return `<tr data-search="${escHtml(search)}">
+          <td>${m.redirect ? '↳ ' : ''}${escHtml(m.identifier)}</td>
+          <td>${m.redirect ? escHtml(m.redirect) : ''}</td>
+          <td>${escHtml(m.lastName || '')}</td>
+          <td>${escHtml(m.firstName || '')}</td>
+          <td>${emails.map(escHtml).join('<br>')}</td>
+          <td class="num">${num(m.beneficiaries)}</td>
+          <td class="num">${num(m.extraPublic)}</td>
+        </tr>`;
+    }).join('');
     const body = `
       <section class="info-block">
         <h1>Annuaire</h1>
@@ -431,37 +451,55 @@ adminRouter.get('/:partnerSlug/admin/directory', loadPartnerForAdmin, partnerAdm
           <span><strong>${stats.emails}</strong> adresse(s) e-mail</span>
           <span><strong>${escHtml(stats.lastImport ? fmtWhen(stats.lastImport) : '—')}</strong> dernier import</span>
         </div>
-      </section>
-      <section class="card">
-        <h2>Importer un annuaire</h2>
-        <p class="muted">L'import <strong>remplace</strong> l'annuaire entier. Il est refusé en bloc si une ligne est invalide : rien n'est modifié tant que le fichier n'est pas entièrement correct.</p>
+        <input type="file" id="csv" accept=".csv,text/csv" hidden>
+        <div id="report" aria-live="polite"></div>
         <div class="controls">
           <label>
-            <span>Fichier CSV</span>
-            <input type="file" id="csv" accept=".csv,text/csv,text/plain">
+            <span>Filtrer identifiant / noms / email</span>
+            <input type="search" id="filter" placeholder="Tapez un identifiant, un nom ou un email">
           </label>
-          <button class="btn" id="send" type="button">Importer</button>
         </div>
-        <div id="report" aria-live="polite"></div>
       </section>
+      ${rowsHtml ? `<div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Identifiant</th><th>Redirection</th><th>Nom</th><th>Prénom</th><th>Email(s)</th>
+              <th class="num">Places (droits)</th><th class="num">Extra public</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>` : '<p class="empty">Annuaire vide : importez un fichier CSV (bouton « Importer CSV »).</p>'}
       <section class="card">
         <details>
-          <summary>Format attendu</summary>
+          <summary>Format du fichier CSV</summary>
 <pre>identifier,redirect,lastName,firstName,email,beneficiaries,extraPublic
 A123456,,DUPONT,Camille,camille.dupont@example.com,4,2
 A123456,,DUPONT,Camille,c.dupont@perso.example,4,2
 A123457,A123456,DUPONT,Léo,leo.dupont@example.com,1,
 B987654,,MARTIN,Léo,leo.martin@example.com,2,</pre>
+          <p class="muted">L'import <strong>remplace</strong> l'annuaire entier. Il est refusé en bloc si une ligne est invalide : rien n'est modifié tant que le fichier n'est pas entièrement correct.</p>
           <p class="muted">Une ligne par adresse e-mail : un identifiant répété reçoit plusieurs adresses (nom, prénom et nombres identiques sur ses lignes). Séparateur <code>,</code> ou <code>;</code>, UTF-8. <code>beneficiaries</code> = nombre de places au titre des droits (0 : connectable, sans place à ce titre). <code>extraPublic</code> (colonne facultative) = places en plus au tarif public pour cet ayant droit ; vide = la valeur par défaut du partenaire. <code>redirect</code> (colonne facultative) = identifiant de la fiche de la famille : on se connecte avec sa propre ligne, mais on commande sous l'identifiant visé (même e-mail de connexion), avec le quota de toute la famille (ses <code>beneficiaries</code> et <code>extraPublic</code> s'additionnent). La fiche visée ne redirige pas elle-même.</p>
         </details>
       </section>`;
+    // Un seul bouton « Importer CSV » (comme admin/io) : choix du fichier,
+    // confirmation — l'import remplace tout — puis envoi.
     const script = `
   const report = document.getElementById('report');
-  const button = document.getElementById('send');
+  const button = document.getElementById('import');
+  const fileInput = document.getElementById('csv');
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  button.addEventListener('click', async () => {
-    const file = document.getElementById('csv').files[0];
-    if (!file) { report.innerHTML = '<div class="feedback err">Choisissez un fichier CSV.</div>'; return; }
+  button.addEventListener('click', () => { fileInput.value = ''; fileInput.click(); });
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    // « accept » n'est qu'une indication : « Tous les fichiers » reste possible.
+    if (!/\\.csv$/i.test(file.name)) {
+      report.innerHTML = '<div class="feedback err">Fichier CSV attendu (.csv) : « ' + esc(file.name) + ' » refusé.</div>';
+      return;
+    }
+    if (!confirm('Remplacer l\\'annuaire entier (${stats.members} ayant(s) droit) par « ' + file.name + ' » ?')) return;
     button.disabled = true;
     report.innerHTML = '<div class="feedback info">Import en cours…</div>';
     try {
@@ -478,10 +516,22 @@ B987654,,MARTIN,Léo,leo.martin@example.com,2,</pre>
     } finally {
       button.disabled = false;
     }
-  });`;
+  });
+  (function () {
+    const input = document.getElementById('filter');
+    const rows = Array.from(document.querySelectorAll('.page > .table-wrapper tbody tr'));
+    if (!input || !rows.length) return;
+    input.addEventListener('input', () => {
+      const needle = input.value.trim().toLowerCase();
+      rows.forEach((row) => {
+        row.style.display = !needle || (row.getAttribute('data-search') || '').includes(needle) ? '' : 'none';
+      });
+    });
+  })();`;
     res.type('html').send(partnerAdminPage({
       req, cfg, title: 'Annuaire',
       links: [
+        { id: 'import', label: 'Importer CSV' },
         { href: 'directory.csv', label: 'Exporter CSV' },
         { href: 'orders', label: 'Commandes', secondary: true }
       ],

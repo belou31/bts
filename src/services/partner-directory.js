@@ -188,6 +188,19 @@ export async function directoryStats(partnerSlug) {
   return { members: count, redirected, emails: emails?.[0]?.n || 0, lastImport: last?.importedAt || null };
 }
 
+/**
+ * Fiches de l'annuaire, chaque famille regroupée : la fiche visée puis celles
+ * qui la désignent, par identifiant.
+ */
+export async function listDirectory(partnerSlug) {
+  const rows = await PartnerMember.find({ partnerSlug: String(partnerSlug).toLowerCase() })
+    .collation({ locale: 'fr', strength: 2 }).sort({ identifier: 1 }).lean();
+  const head = (m) => String(m.redirect || m.identifier).toUpperCase();
+  return rows.sort((a, b) => head(a).localeCompare(head(b), 'fr')
+    || (a.redirect ? 1 : 0) - (b.redirect ? 1 : 0)
+    || a.identifier.localeCompare(b.identifier, 'fr'));
+}
+
 /** Annuaire courant au format d'import (une ligne par adresse). */
 export async function exportDirectoryCsv(partnerSlug) {
   const rows = await PartnerMember.find({ partnerSlug: String(partnerSlug).toLowerCase() }).sort({ identifier: 1 }).lean();
