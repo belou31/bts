@@ -14,6 +14,7 @@ import { Season } from '../../models/Season.js';
 import { Voucher } from '../../models/Voucher.js';
 import { Event } from '../../models/Event.js';
 import { listPartnerConfigs, partnerPaymentMode } from '../../config/partners.js';
+import { partnerConnection } from '../../services/partner-connection.js';
 import { Tariff } from '../../models/Tariff.js';
 import { TariffPrice } from '../../models/TariffPrice.js';
 import { TariffPriceCatalog } from '../../models/TariffPriceCatalog.js';
@@ -2172,7 +2173,13 @@ router.get('/monitor', async (req, res) => {
     paymentMode: partnerPaymentMode(p),
     // Mode de connexion des ayants droit : fournisseur OpenID, annuaire local
     // (services/partner-directory.js), ou jeton statique.
-    login: p.oidc ? 'OpenID' : (p.directory?.enabled === true ? 'Annuaire' : 'Jeton'),
+    login: {
+      openid: 'OpenID',
+      directory: 'Annuaire',
+      none: (p.accessToken
+        || Object.keys(p.tokens?.events || {}).length
+        || Object.keys(p.tokens?.seasons || {}).length) ? 'Jeton' : 'Aucune'
+    }[partnerConnection(p)],
     allowPublicTariffs: Boolean(p.allowPublicTariffs),
     venueView: p.venueView || null
   }));

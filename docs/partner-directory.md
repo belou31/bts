@@ -8,21 +8,22 @@ l'identique. Voir [partner-oidc.md](partner-oidc.md) pour ces mécanismes.
 
 ## Activer
 
-Console d'administration → Operate → 05 — Partner → **Set Partner Directory**,
-ou :
+Console d'administration → Operate → 05 — Partner → **Set Partner Connection**,
+mode `directory`, ou :
 
 ```
-node scripts/05-partner-management/set-partner-directory.js --partner=<slug> --enabled=yes [--dry-run]
+node scripts/05-partner-management/set-partner-connection.js --partner=<slug> --mode=directory [--dry-run]
 ```
 
-Écrit `"directory": { "enabled": true }` dans l'entrée du partenaire
-(`partners.json`), sans toucher au reste. Refusé si le partenaire a un bloc
-`oidc` : un seul mode de connexion par partenaire. Activé, **la connexion est
-obligatoire** sur les pages du partenaire ; le jeton statique n'ouvre plus
-l'accès.
+Écrit `"connection": "directory"` dans l'entrée du partenaire
+(`partners.json`) et retire les anciens interrupteurs (`directory.enabled`,
+`oidc.required`) ; le reste de l'entrée, bloc `oidc` compris, est conservé.
+Activé, **la connexion est obligatoire** sur les pages du partenaire ; le
+jeton statique n'ouvre plus l'accès. `--mode=none` la désactive, `--mode=openid`
+bascule sur le fournisseur d'identité du partenaire (bloc `oidc` requis).
 
 La console (Monitor → Partenaires) affiche le mode de chaque partenaire :
-OpenID, Annuaire ou Jeton.
+OpenID, Annuaire, Jeton ou Aucune.
 
 ## Importer l'annuaire
 

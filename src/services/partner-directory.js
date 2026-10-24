@@ -2,8 +2,9 @@
 //
 // Annuaire local d'un partenaire qui n'a pas de fournisseur d'identité.
 //
-// Activation : `"directory": { "enabled": true }` dans partners.json (script
-// set-partner-directory.js). L'administrateur du partenaire importe la liste
+// Activation : `"connection": "directory"` dans partners.json (script
+// set-partner-connection.js, cf. services/partner-connection.js).
+// L'administrateur du partenaire importe la liste
 // de ses ayants droit en CSV sur /partner/<slug>/admin/directory ; l'ayant
 // droit se connecte en saisissant son identifiant ET l'une des adresses
 // e-mail de la liste, puis le code reçu par e-mail. La session ouverte est la
@@ -24,6 +25,7 @@ import crypto from 'crypto';
 import { PartnerMember } from '../models/PartnerMember.js';
 import { PartnerLoginCode } from '../models/PartnerLoginCode.js';
 import { sendMail } from '../loaders/mailer.js';
+import { partnerConnection } from './partner-connection.js';
 import { splitCsvLine, detectCsvDelimiter } from '../utils/csv-line.js';
 
 export const CODE_TTL_MIN = 10;
@@ -36,7 +38,7 @@ const OPTIONAL_COLUMNS = ['extrapublic'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function directoryEnabled(cfg) {
-  return cfg?.directory?.enabled === true;
+  return partnerConnection(cfg) === 'directory';
 }
 
 // ── CSV ─────────────────────────────────────────────────────────────────────

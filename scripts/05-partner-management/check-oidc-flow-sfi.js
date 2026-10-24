@@ -192,6 +192,19 @@ try {
   check('connexion ramène à la page demandée',
     partnerLoginPath('/bts', 'zzaisc', reqWith('')) ===
       '/bts/partner/zzaisc/auth/login?next=%2Fpartner%2Fzzaisc%2Fevents%3Fx%3D1');
+  const { partnerConnection } = await import(path.join(ROOT, 'src/services/partner-connection.js'));
+  check('connection explicite prime sur les anciens interrupteurs',
+    partnerConnection({ connection: 'directory', oidc: { required: true } }) === 'directory'
+    && partnerConnection({ connection: 'none', directory: { enabled: true } }) === 'none');
+  check('sans connection : déduit (directory.enabled, oidc.required, sinon none)',
+    partnerConnection({ directory: { enabled: true } }) === 'directory'
+    && partnerConnection({ oidc: { issuer: 'x', clientId: 'y', required: true } }) === 'openid'
+    && partnerConnection({ oidc: { issuer: 'x', clientId: 'y' } }) === 'none'
+    && partnerConnection({}) === 'none');
+  check('mode none + jeton → le jeton fait foi',
+    checkPartnerAccess(reqWith('', { token: 'abc' }), { slug: 'zzjeton', connection: 'none', accessToken: 'abc' }).ok === true);
+  check('mode openid explicite (sans oidc.required) → connexion exigée',
+    checkPartnerAccess(reqWith(''), { slug: 'zzx', connection: 'openid', oidc: { issuer: 'x', clientId: 'y' } }).reason === 'login_required');
   const tokCfg = { slug: 'zzjeton', accessToken: 'abc' };
   check('partenaire à jeton : inchangé',
     checkPartnerAccess(reqWith('', { token: 'abc' }), tokCfg).ok === true

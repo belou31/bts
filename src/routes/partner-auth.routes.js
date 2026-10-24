@@ -15,8 +15,9 @@ import {
 } from '../services/partner-oidc.js';
 import { issueSession, clearSession, readSession } from '../services/partner-session.js';
 import {
-  directoryEnabled, requestLoginCode, verifyLoginCode, identityFromMember, CODE_TTL_MIN
+  requestLoginCode, verifyLoginCode, identityFromMember, CODE_TTL_MIN
 } from '../services/partner-directory.js';
+import { partnerConnection } from '../services/partner-connection.js';
 
 const router = Router();
 
@@ -97,17 +98,21 @@ function resolvePartner(req, res) {
     res.status(404).send('Partner not found');
     return null;
   }
-  const oidc = oidcConfigFor(cfg);
-  // Annuaire local : seulement à défaut d'OpenID, un partenaire n'a qu'un
-  // mode de connexion.
-  const directory = !oidc && directoryEnabled(cfg);
-  if (!oidc && !directory) {
+  // Un seul mode de connexion par partenaire (services/partner-connection.js) ;
+  // les blocs oidc / directory ne sont que des réglages.
+  const mode = partnerConnection(cfg);
+  if (mode === 'none') {
     // Dire que ce partenaire n'a pas de connexion, plutôt qu'un 404 qui
     // laisserait croire à une faute de frappe.
     res.status(404).send('Ce partenaire n\'utilise pas de connexion (ni OpenID, ni annuaire).');
     return null;
   }
-  return { slug, cfg, oidc, directory };
+  const oidc = mode === 'openid' ? oidcConfigFor(cfg) : null;
+  if (mode === 'openid' && !oidc) {
+    res.status(500).send('Connexion OpenID choisie pour ce partenaire, mais son bloc oidc est absent ou incomplet (issuer, clientId).');
+    return null;
+  }
+  return { slug, cfg, oidc, directory: mode === 'directory' };
 }
 
 // ── Annuaire local : identifiant + e-mail, puis code reçu par e-mail ────────

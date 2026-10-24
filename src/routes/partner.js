@@ -423,7 +423,7 @@ adminRouter.get('/:partnerSlug/admin/directory', loadPartnerForAdmin, partnerAdm
         <p class="muted">
           ${enabled
             ? '<span class="badge ok">Connexion par annuaire activée</span> — les ayants droit se connectent avec leur identifiant et une adresse e-mail de cette liste, puis un code reçu par e-mail.'
-            : '<span class="badge warn">Connexion par annuaire non activée</span> — l\'annuaire peut être préparé ; la connexion s\'active depuis la console d\'administration (Set Partner Directory).'}
+            : '<span class="badge warn">Connexion par annuaire non activée</span> — l\'annuaire peut être préparé ; la connexion s\'active depuis la console d\'administration (Set Partner Connection, mode directory).'}
         </p>
         <div class="stats">
           <span><strong>${stats.members}</strong> ayant(s) droit</span>
