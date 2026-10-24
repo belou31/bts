@@ -44,7 +44,8 @@ B987654,,MARTIN,Léo,leo.martin@example.com,2,
   adresses (nom, prénom et `beneficiaries` identiques sur ses lignes, sinon
   l'identifiant est écarté) ;
 - séparateur `,` ou `;`, UTF-8, champs entre guillemets admis ;
-- `beneficiaries` : entier ≥ 1, nombre de places au titre des droits (vide :
+- `beneficiaries` : entier ≥ 0, nombre de places au titre des droits (0 :
+  l'ayant droit se connecte mais n'a aucune place à ce titre ; vide :
   attribut absent, les droits qui en dépendent sont refusés) ;
 - `extraPublic` (colonne facultative) : entier ≥ 0, places en plus au tarif
   public **propres à cet ayant droit**, attribut de session `extraPublic`. Vide

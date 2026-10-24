@@ -106,8 +106,10 @@ try {
   check('session : extraPublic transmis', D.identityFromMember({ identifier: 'A', emails: ['a@b.fr'], beneficiaries: 3, extraPublic: 2 }, 'a@b.fr').attributes.extraPublic === 2);
   p = D.parseDirectoryCsv('identifier,nom,email\nA,B,c@d.fr\n');
   check('colonnes manquantes → refus', p.errors.length === 1 && /colonnes manquantes/.test(p.errors[0].reason));
-  p = D.parseDirectoryCsv('identifier,lastName,firstName,email,beneficiaries\nA1,X,Y,pas-un-email,1\nA2,X,Y,a@b.fr,0\n');
+  p = D.parseDirectoryCsv('identifier,lastName,firstName,email,beneficiaries\nA1,X,Y,pas-un-email,1\nA2,X,Y,a@b.fr,-1\n');
   check('e-mail et nombre de places invalides signalés', p.errors.length === 2, p.errors.map(e => e.reason).join(' | '));
+  p = D.parseDirectoryCsv('identifier,lastName,firstName,email,beneficiaries,extraPublic\nZ1,X,Y,z@b.fr,0,0\n');
+  check('beneficiaries 0 et extraPublic 0 : importés (connectable, sans place)', !p.errors.length && p.members[0]?.beneficiaries === 0 && p.members[0]?.extraPublic === 0, JSON.stringify(p));
   p = D.parseDirectoryCsv(FAMILY);
   check('redirect : lu, casse de la fiche visée, vide ou soi-même → null', !p.errors.length
     && p.members.find(m => m.identifier === 'F2')?.redirect === 'F1'

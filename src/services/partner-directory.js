@@ -89,7 +89,8 @@ export function parseDirectoryCsv(text) {
     let beneficiaries = null;
     if (benefRaw !== '') {
       const n = Number(benefRaw);
-      if (!Number.isInteger(n) || n < 1) { errors.push({ line: lineNo, identifier, reason: `beneficiaries doit être un entier ≥ 1 : « ${benefRaw} »` }); continue; }
+      // 0 admis : l'ayant droit reste connectable, sans place au titre des droits.
+      if (!Number.isInteger(n) || n < 0) { errors.push({ line: lineNo, identifier, reason: `beneficiaries doit être un entier ≥ 0 : « ${benefRaw} »` }); continue; }
       beneficiaries = n;
     }
     const extraRaw = get('extrapublic');
