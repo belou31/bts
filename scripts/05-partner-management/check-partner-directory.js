@@ -229,6 +229,7 @@ try {
   const famHtml = await (await fetch(`${B}/partner/${SLUG}/admin/directory`, { headers: ADMIN })).text();
   check('page : compteur des redirigés', /<strong>2<\/strong> redirigé\(s\)/.test(famHtml));
   check('page : bouton unique « Importer CSV » près de l\'export', /<button type="button" class="pill-link" id="import">Importer CSV<\/button><a class="pill-link" href="directory.csv">/.test(famHtml));
+  check('page : sélecteur limité aux .csv, contrôle de l\'extension', /id="csv" accept="\.csv,text\/csv"/.test(famHtml) && famHtml.includes('if (!/\\.csv$/i.test(file.name))'));
   check('page : tableau des fiches, famille regroupée (F1, ↳ F2, ↳ F3, puis G1)',
     /<th>Identifiant<\/th><th>Redirection<\/th>/.test(famHtml)
     && [...famHtml.matchAll(/<tr data-search[^>]*>\s*<td>([^<]*)<\/td>/g)].map(m => m[1]).join('|') === 'F1|↳ F2|↳ F3|G1',

@@ -451,7 +451,7 @@ adminRouter.get('/:partnerSlug/admin/directory', loadPartnerForAdmin, partnerAdm
           <span><strong>${stats.emails}</strong> adresse(s) e-mail</span>
           <span><strong>${escHtml(stats.lastImport ? fmtWhen(stats.lastImport) : '—')}</strong> dernier import</span>
         </div>
-        <input type="file" id="csv" accept=".csv,text/csv,text/plain" hidden>
+        <input type="file" id="csv" accept=".csv,text/csv" hidden>
         <div id="report" aria-live="polite"></div>
         <div class="controls">
           <label>
@@ -494,6 +494,11 @@ B987654,,MARTIN,Léo,leo.martin@example.com,2,</pre>
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files[0];
     if (!file) return;
+    // « accept » n'est qu'une indication : « Tous les fichiers » reste possible.
+    if (!/\\.csv$/i.test(file.name)) {
+      report.innerHTML = '<div class="feedback err">Fichier CSV attendu (.csv) : « ' + esc(file.name) + ' » refusé.</div>';
+      return;
+    }
     if (!confirm('Remplacer l\\'annuaire entier (${stats.members} ayant(s) droit) par « ' + file.name + ' » ?')) return;
     button.disabled = true;
     report.innerHTML = '<div class="feedback info">Import en cours…</div>';
