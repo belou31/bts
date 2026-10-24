@@ -33,10 +33,11 @@ d'adresses, la date du dernier import, l'export CSV de l'annuaire courant
 (`directory.csv`), et le formulaire d'import.
 
 ```
-identifier,lastName,firstName,email,beneficiaries,extraPublic
-A123456,DUPONT,Camille,camille.dupont@example.com,4,2
-A123456,DUPONT,Camille,c.dupont@perso.example,4,2
-B987654,MARTIN,Léo,leo.martin@example.com,2,
+identifier,redirect,lastName,firstName,email,beneficiaries,extraPublic
+A123456,,DUPONT,Camille,camille.dupont@example.com,4,2
+A123456,,DUPONT,Camille,c.dupont@perso.example,4,2
+A123457,A123456,DUPONT,Léo,leo.dupont@example.com,1,
+B987654,,MARTIN,Léo,leo.martin@example.com,2,
 ```
 
 - une ligne par adresse e-mail ; un identifiant répété reçoit plusieurs
@@ -50,6 +51,9 @@ B987654,MARTIN,Léo,leo.martin@example.com,2,
   ou colonne absente : la valeur par défaut du panier de droits (voir
   ci-dessous). Comme pour `beneficiaries`, la valeur doit être la même sur
   toutes les lignes d'un identifiant ;
+- `redirect` (colonne facultative) : identifiant d'une autre fiche, celle de
+  la famille (voir « Familles » ci-dessous). Vide, ou égal à l'identifiant de
+  la ligne : pas de redirection ;
 - l'import **remplace** l'annuaire entier, et il est **refusé en bloc** si une
   ligne est invalide (le rapport liste les lignes et leur motif) ou s'il ne
   contient aucune ligne valide ;
@@ -57,6 +61,26 @@ B987654,MARTIN,Léo,leo.martin@example.com,2,
   n'est jamais vide pendant un import.
 
 Stockage : collection MongoDB `partnermembers` (un document par identifiant).
+
+### Familles (`redirect`)
+
+Pour une famille de plusieurs ayants droit (enfants…), qui réserve plus
+simplement ses places ensemble :
+
+- chacun se connecte avec **sa propre ligne** (son identifiant et l'une de ses
+  adresses) ;
+- la session porte l'**identifiant, le nom et le prénom de la fiche visée** —
+  panneau Contact, commandes (`meta.partner.identifier`) et compteur de droits
+  sont ceux de la famille — et garde **l'e-mail de connexion** ;
+- le quota de la famille **additionne** `beneficiaries` (et `extraPublic`) de
+  la fiche visée et de toutes celles qui la désignent, quel que soit le membre
+  connecté. Avec l'exemple ci-dessus : 4 + 1 = 5 places au titre des droits
+  pour A123456 comme pour A123457. `extraPublic` vide partout : la valeur par
+  défaut, une fois pour la famille ;
+- l'identifiant de connexion reste visible dans `whoami`
+  (`attributes.loginIdentifier`) ;
+- refusé à l'import (ligne écartée, donc import refusé) : fiche visée absente
+  du fichier ou écartée, ou qui redirige elle-même (pas de chaîne).
 
 ## Places en plus par ayant droit
 

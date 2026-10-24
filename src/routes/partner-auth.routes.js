@@ -15,7 +15,7 @@ import {
 } from '../services/partner-oidc.js';
 import { issueSession, clearSession, readSession } from '../services/partner-session.js';
 import {
-  requestLoginCode, verifyLoginCode, identityFromMember, CODE_TTL_MIN
+  requestLoginCode, verifyLoginCode, directoryIdentity, CODE_TTL_MIN
 } from '../services/partner-directory.js';
 import { partnerConnection } from '../services/partner-connection.js';
 
@@ -205,7 +205,7 @@ router.post('/partner/:partnerSlug/auth/directory/verify', async (req, res) => {
         error: 'Code invalide ou expiré. Vérifiez-le, ou demandez-en un nouveau.'
       });
     }
-    issueSession(res, { slug, identity: identityFromMember(member, email), via: 'directory' });
+    issueSession(res, { slug, identity: await directoryIdentity(slug, member, email), via: 'directory' });
     return res.redirect(`${appBase()}${next}`);
   } catch (err) {
     console.error('[partner-directory/verify]', err);
