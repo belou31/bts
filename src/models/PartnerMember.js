@@ -9,6 +9,9 @@ import mongoose from 'mongoose';
 const PartnerMemberSchema = new mongoose.Schema({
   partnerSlug:   { type: String, required: true, lowercase: true, trim: true },
   identifier:    { type: String, required: true, trim: true },
+  // Identifiant d'une autre fiche (famille) : on se connecte avec cette fiche,
+  // mais la session, les commandes et le quota sont ceux de la fiche visée.
+  redirect:      { type: String, default: null },
   lastName:      { type: String, default: '' },
   firstName:     { type: String, default: '' },
   // En minuscules : la comparaison à la connexion ignore la casse.

@@ -3634,6 +3634,8 @@
                 <th>Nom</th>
                 <th>Mode</th>
                 <th>Connexion</th>
+                <th>Jetons</th>
+                <th>Admin</th>
                 <th>Tarifs publics</th>
                 <th>Vue lieu</th>
               </tr>
@@ -3645,6 +3647,8 @@
                   <td><%= p.name || '—' %></td>
                   <td><%= p.paymentMode || '—' %></td>
                   <td><%= p.login || '—' %></td>
+                  <td><%= p.tokens.length ? p.tokens.join(', ') : '—' %></td>
+                  <td><% if (p.adminUrl) { %><a href="<%= p.adminUrl %>" target="_blank" rel="noopener">Commandes</a><% } else { %>—<% } %></td>
                   <td><%= p.allowPublicTariffs ? 'Oui' : 'Non' %></td>
                   <td><%= p.venueView || '—' %></td>
                 </tr>
@@ -3678,8 +3682,11 @@
               <% if (pd.eventsUrl) { %><a href="<%= pd.eventsUrl %>" target="_blank" rel="noopener"><%= pd.eventsUrl %></a><% } else { %>—<% } %>
             </div>
 
+            <div>Connexion : <%= pd.connection %></div>
+
             <div>Jeton d'accès (accessToken) :
-              <% if (pd.accessToken) { %><code><%= pd.accessToken %></code><% } else { %>— (aucun jeton configuré : accès libre)<% } %>
+              <% if (pd.accessToken) { %><code><%= pd.accessToken %></code><% } else { %>—<% } %>
+              <% if (pd.tokensIgnored && (pd.accessToken || pd.eventTokens.length || pd.seasonTokens.length)) { %><span class="muted">(ignoré tant que la connexion est obligatoire)</span><% } %>
             </div>
 
             <% if (pd.eventTokens.length) { %>
@@ -3698,9 +3705,13 @@
               </div>
             <% } %>
 
-            <div>Accès admin partenaire (<code>/partner/<%= pd.slug %>/admin</code>, Basic Auth) :
+            <div>Accès admin partenaire (Basic Auth) :
               <% if (pd.admin) { %>login <code><%= pd.admin.user %></code> / mot de passe <code><%= pd.admin.pass %></code>
-              <% } else { %>— (non configuré, accès désactivé)<% } %>
+                <ul>
+                  <li>Commandes : <a href="<%= pd.adminOrdersUrl %>" target="_blank" rel="noopener"><%= pd.adminOrdersUrl %></a></li>
+                  <% if (pd.adminDirectoryUrl) { %><li>Annuaire : <a href="<%= pd.adminDirectoryUrl %>" target="_blank" rel="noopener"><%= pd.adminDirectoryUrl %></a></li><% } %>
+                </ul>
+              <% } else { %>— (non configuré, accès désactivé — Set Partner Admin Credentials)<% } %>
             </div>
 
             <div>Quota présaison :

@@ -2,15 +2,14 @@
 //
 // Qui peut entrer sur les pages et l'API d'un partenaire.
 //
-// Deux régimes, choisis partenaire par partenaire :
-//   - jeton statique (défaut) : `?token=` ou en-tête x-partner-token ;
-//   - connexion obligatoire : OpenID (`oidc.required: true`) ou annuaire local
-//     (`directory.enabled: true`, services/partner-directory.js). Seule une
-//     session ouverte par /partner/<slug>/auth/… donne accès. Le jeton statique
-//     n'y suffit plus — sinon l'obligation se contournerait en le recopiant.
-import { oidcConfigFor } from './partner-oidc.js';
+// Selon le mode de connexion du partenaire (services/partner-connection.js) :
+//   - "none" : jeton statique s'il y en a un (`?token=` ou en-tête
+//     x-partner-token), sinon accès libre ;
+//   - "openid" ou "directory" : connexion obligatoire. Seule une session ouverte
+//     par /partner/<slug>/auth/… donne accès. Le jeton statique n'y suffit plus
+//     — sinon l'obligation se contournerait en le recopiant.
 import { readSession } from './partner-session.js';
-import { directoryEnabled } from './partner-directory.js';
+import { partnerConnection } from './partner-connection.js';
 
 export function expectedPartnerToken(cfg, eventSlug) {
   if (!cfg) return null;
@@ -20,13 +19,9 @@ export function expectedPartnerToken(cfg, eventSlug) {
   return cfg.accessToken || null;
 }
 
-export function isOidcRequired(cfg) {
-  return oidcConfigFor(cfg)?.required === true;
-}
-
-/** Connexion obligatoire : OpenID imposé, ou annuaire local activé. */
+/** Connexion obligatoire : mode "openid" ou "directory". */
 export function isLoginRequired(cfg) {
-  return isOidcRequired(cfg) || directoryEnabled(cfg);
+  return partnerConnection(cfg) !== 'none';
 }
 
 /**

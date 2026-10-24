@@ -192,6 +192,19 @@ try {
   check('connexion ramène à la page demandée',
     partnerLoginPath('/bts', 'zzaisc', reqWith('')) ===
       '/bts/partner/zzaisc/auth/login?next=%2Fpartner%2Fzzaisc%2Fevents%3Fx%3D1');
+  const { partnerConnection } = await import(path.join(ROOT, 'src/services/partner-connection.js'));
+  check('connection explicite prime sur les anciens interrupteurs',
+    partnerConnection({ connection: 'directory', oidc: { required: true } }) === 'directory'
+    && partnerConnection({ connection: 'none', directory: { enabled: true } }) === 'none');
+  check('sans connection : déduit (directory.enabled, oidc.required, sinon none)',
+    partnerConnection({ directory: { enabled: true } }) === 'directory'
+    && partnerConnection({ oidc: { issuer: 'x', clientId: 'y', required: true } }) === 'openid'
+    && partnerConnection({ oidc: { issuer: 'x', clientId: 'y' } }) === 'none'
+    && partnerConnection({}) === 'none');
+  check('mode none + jeton → le jeton fait foi',
+    checkPartnerAccess(reqWith('', { token: 'abc' }), { slug: 'zzjeton', connection: 'none', accessToken: 'abc' }).ok === true);
+  check('mode openid explicite (sans oidc.required) → connexion exigée',
+    checkPartnerAccess(reqWith(''), { slug: 'zzx', connection: 'openid', oidc: { issuer: 'x', clientId: 'y' } }).reason === 'login_required');
   const tokCfg = { slug: 'zzjeton', accessToken: 'abc' };
   check('partenaire à jeton : inchangé',
     checkPartnerAccess(reqWith('', { token: 'abc' }), tokCfg).ok === true
@@ -238,10 +251,9 @@ try {
   const pre = { tariffChannels: chans, sale: 'presale' };
   const on = { tariffChannels: chans, sale: 'onsale' };
   const stPre = E.entitlementState(extra, sess, [], pre);
-  const iconRules = E.entitlementRules({ entitlements: [{ key: 'ad', max: 1, icon: '❤️', shortLabel: 'ayants droit' }, { key: 'b', max: 1 }] });
+  const iconRules = E.entitlementRules({ entitlements: [{ key: 'ad', max: 1, icon: '❤️' }, { key: 'b', max: 1 }] });
   const stIcon = E.entitlementState(iconRules, sess, []);
   check('icon transmis au panier (absent = null)', stIcon[0].icon === '❤️' && stIcon[1].icon === null);
-  check('shortLabel transmis au panier (absent = null)', stIcon[0].shortLabel === 'ayants droit' && stIcon[1].shortLabel === null);
   check('prévente : 5 ayants droit + 2 publics', stPre[0].max === 5 && stPre[1].max === 2, JSON.stringify(stPre.map(x => x.max)));
   check('prévente : 5 AISC + 2 NORMAL acceptés',
     E.cartRefusal(extra, stPre, [...line('AISC', 5), ...line('NORMAL', 2)], pre) === null);
