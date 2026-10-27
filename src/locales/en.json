@@ -57,7 +57,7 @@
     "contactTitle": "Contact",
     "beneficiaryIdentifier": "Identifier",
     "entitlementQuota": "Allowance",
-    "entitlementAvailable": "Still available:",
+    "entitlementAvailable": "Available:",
     "contactHelp": "Enter your contact details",
     "cartHelp": "Pick a seat on the plan",
     "cartHelpZones": "Pick on the plan or add a zone directly here:",

@@ -14,6 +14,7 @@ import { Season } from '../../models/Season.js';
 import { Voucher } from '../../models/Voucher.js';
 import { Event } from '../../models/Event.js';
 import { listPartnerConfigs, partnerPaymentMode } from '../../config/partners.js';
+import { partnerConnection } from '../../services/partner-connection.js';
 import { Tariff } from '../../models/Tariff.js';
 import { TariffPrice } from '../../models/TariffPrice.js';
 import { TariffPriceCatalog } from '../../models/TariffPriceCatalog.js';
@@ -2166,13 +2167,27 @@ router.get('/monitor', async (req, res) => {
     activity: e.activity
   }));
 
+  // Adresse absolue d'une page partenaire : APP_URL (BASE_PATH compris), sinon
+  // l'hôte de la requête.
+  const appBase = String(process.env.APP_URL || '').trim().replace(/\/+$/, '')
+    || `${req.protocol}://${req.get('host')}${urlFor('')}`.replace(/\/+$/, '');
+  const partnerUrl = (slug, p) => `${appBase}/partner/${encodeURIComponent(slug)}${p}`;
+  // Jetons : mesure complémentaire, indépendante du mode de connexion ; portée
+  // globale, par saison ou par événement.
+  const tokenScopes = (p) => [
+    p.accessToken ? 'global' : null,
+    Object.keys(p.tokens?.seasons || {}).length ? `saison ×${Object.keys(p.tokens.seasons).length}` : null,
+    Object.keys(p.tokens?.events || {}).length ? `événement ×${Object.keys(p.tokens.events).length}` : null
+  ].filter(Boolean);
+  const CONNECTION_LABELS = { openid: 'OpenID', directory: 'Annuaire', none: 'Aucune' };
+
   const partnersList = (partnersRaw || []).map(p => ({
     slug: p.slug,
     name: p.name || '',
     paymentMode: partnerPaymentMode(p),
-    // Mode de connexion des ayants droit : fournisseur OpenID, annuaire local
-    // (services/partner-directory.js), ou jeton statique.
-    login: p.oidc ? 'OpenID' : (p.directory?.enabled === true ? 'Annuaire' : 'Jeton'),
+    login: CONNECTION_LABELS[partnerConnection(p)],
+    tokens: tokenScopes(p),
+    adminUrl: (p.admin?.user && p.admin?.pass) ? partnerUrl(p.slug, '/admin/orders') : null,
     allowPublicTariffs: Boolean(p.allowPublicTariffs),
     venueView: p.venueView || null
   }));
@@ -2225,8 +2240,10 @@ router.get('/monitor', async (req, res) => {
   if (selectedPartnerRaw) {
     const cfg = selectedPartnerRaw;
     const globalToken = cfg.accessToken || null;
-    const eventsUrl = urlFor('/partner/' + selectedPartnerSlug + '/events')
-      + (globalToken ? `?token=${encodeURIComponent(globalToken)}` : '');
+    const connection = partnerConnection(cfg);
+    // En mode connexion le jeton est ignoré (services/partner-access.js).
+    const eventsUrl = partnerUrl(selectedPartnerSlug, '/events')
+      + (globalToken && connection === 'none' ? `?token=${encodeURIComponent(globalToken)}` : '');
     // Specific tariffs: Tariff codes scoped to this partner via the channels
     // mechanism (channels: ["partner:<slug>"], or the broader "partner"/"all") —
     // see src/utils/channel-scopes.js, the same scoping shown as "Canaux" in
@@ -2238,6 +2255,10 @@ router.get('/monitor', async (req, res) => {
       slug: selectedPartnerSlug,
       name: cfg.name || selectedPartnerSlug,
       eventsUrl,
+      connection: CONNECTION_LABELS[connection],
+      tokensIgnored: connection !== 'none',
+      adminOrdersUrl: partnerUrl(selectedPartnerSlug, '/admin/orders'),
+      adminDirectoryUrl: connection === 'directory' ? partnerUrl(selectedPartnerSlug, '/admin/directory') : null,
       accessToken: globalToken,
       eventTokens: Object.entries(cfg.tokens?.events || {}).map(([eventSlug, token]) => ({ eventSlug, token })),
       seasonTokens: Object.entries(cfg.tokens?.seasons || {}).map(([seasonCode, token]) => ({ seasonCode, token })),

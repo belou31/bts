@@ -69,7 +69,7 @@ app.get('/', (_req, res) => {
   };
   const standardSnippet = JSON.stringify({
     issuer: PUBLIC_URL, clientId: 'bts-dev', clientSecret: 'dev-secret',
-    scopes: ['openid', 'profile', 'email', 'groups'], required: true
+    scopes: ['openid', 'profile', 'email', 'groups']
   }, null, 2);
   const sfiSnippet = JSON.stringify({
     issuer: `${sfi}/`, clientId: 'belouga', clientSecret: 'dev-secret',
@@ -84,8 +84,7 @@ app.get('/', (_req, res) => {
     identity: {
       identifier: 'sub', firstName: 'given_name', lastName: 'family_name', email: 'email',
       attributes: { beneficiaries: { sum: [1, 'conjoint', 'autres_ad'] } }
-    },
-    required: true
+    }
   }, null, 2);
   const events = state.events.map(e =>
     `<tr><td>${esc(e.at.slice(11, 19))}</td><td>${esc(e.profile)}</td><td>${esc(e.endpoint)}</td><td>${esc(e.detail)}</td></tr>`
@@ -123,6 +122,7 @@ Clé de signature <code>${esc(idp.keys().kid)}</code> conservée dans <code>${es
 </div>
 
 <section><h2>Configurer un partenaire BTS (bloc <code>oidc</code> de partners.json)</h2>
+<p class="muted">Puis activer la connexion : <code>"connection": "openid"</code> dans l'entrée du partenaire (console : Set Partner Connection).</p>
 <div class="cols">
 <div><p><strong>Standard</strong> — découverte sur <code>${esc(PUBLIC_URL)}/.well-known/openid-configuration</code></p><pre>${esc(standardSnippet)}</pre></div>
 <div><p><strong>SFI</strong> — ni découverte ni JWKS chez le vrai ; ici <code>endpoints.jwks</code> évite de recopier la clé.</p><pre>${esc(sfiSnippet)}</pre></div>

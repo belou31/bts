@@ -36,8 +36,7 @@ affirmation du réseau.
     "subjectClaim": "sub",                     // claim qui identifie le bénéficiaire
     "emailClaim": "email",
     "nameClaim": "name",
-    "requiredClaim": { "claim": "groups", "value": "abonnes" },
-    "required": false                          // cf. « Limite connue »
+    "requiredClaim": { "claim": "groups", "value": "abonnes" }
   }
 }
 ```
@@ -231,7 +230,6 @@ affiche aussi, en lecture seule, l'identifiant et les droits restants.
 | `tariffChannel` | `partner` : tarifs propres au partenaire ; `public` : tarifs de la grille publique (`allowPublicTariffs`) |
 | `limitDuring` | états de vente où `max` s'applique (ex. `["presale"]`) ; hors de ces états, aucune limite |
 | `icon` | pictogramme (ex. `"❤️"`) affiché après le décompte dans le panneau Contact, et en préfixe des tarifs couverts dans le choix du tarif — affichage seulement, le libellé en base n'est pas modifié |
-| `shortLabel` | libellé court du résumé du panneau Contact (ex. `"ayants droit"`, `"extra (tarif public)"`) ; absent : `label` |
 
 - une ligne relève du **premier** panier qui couvre son tarif ; une ligne
   qu'aucun ne couvre est refusée ;
@@ -240,8 +238,9 @@ affiche aussi, en lecture seule, l'identifiant et les droits restants.
 - l'API de statut renvoie `entitlements` (max, déjà commandé, restant) et
   `limits.entitlementMax` ; le panier bloque la place de trop, le panneau
   Contact résume les droits sur une ligne — « Quota ayants droit = 10 ❤️ + 1
-  extra (tarif public) — Reste disponible : 9 ❤️ + 0 » (« ∞ » pour un panier
-  sans limite) ; le paiement et la réservation refusent un
+  extra (tarif public) — Disponible : 9 ❤️ + 0 », avec `label` tel quel (le
+  choisir court) ; « Disponible » se met à jour à chaque ligne ajoutée, retirée
+  ou changée de tarif ; « ∞ » pour un panier sans limite ; le paiement et la réservation refusent un
   dépassement (`entitlement_exceeded`, `entitlement_tariff_not_covered`) ;
 - les droits exigent une session : sans elle, l'API répond
   `partner_login_required` ;
@@ -272,10 +271,15 @@ limite ».
 (adultes / ados / enfants, chacun avec ses tarifs et son attribut), un panier
 « places en plus » au tarif public avec un `max` fixe.
 
-## Connexion obligatoire
+## Mode de connexion
 
-`"required": true` dans le bloc `oidc` rend la connexion obligatoire pour ce
-partenaire (`src/services/partner-access.js`) :
+Le mode se choisit au niveau du partenaire, par **un** réglage :
+`"connection": "openid" | "directory" | "none"` (console : Operate → 05 —
+Partner → **Set Partner Connection**, script `set-partner-connection.js`).
+Le bloc `oidc` n'est qu'un réglage : sans `"connection": "openid"`, il ne sert
+pas. Voir `src/services/partner-connection.js`.
+
+En mode `openid` (comme en `directory`), la connexion est obligatoire :
 
 - pages `/partner/<slug>/events`, `/event/<match>`, `/season/<code>/subscribe` :
   sans session, redirection vers `/partner/<slug>/auth/login?next=<page>`, qui
@@ -284,7 +288,14 @@ partenaire (`src/services/partner-access.js`) :
 - le jeton statique (`?token=`, `x-partner-token`) **n'ouvre plus l'accès** :
   sinon l'obligation se contournerait en le recopiant.
 
-Sans `required` (ou à `false`), le partenaire reste au jeton statique, inchangé.
+En mode `none`, rien ne change : jeton statique s'il y en a un, sinon accès
+libre. Le jeton (Generate Partner Token) et les origines (Partner Security)
+sont des mesures complémentaires.
+
+Configurations antérieures sans `connection` : le mode se déduit de
+`oidc.required: true` (→ `openid`) et `directory.enabled: true`
+(→ `directory`). Un bloc `oidc` sans `required` (connexion possible mais
+facultative) n'est plus pris en charge : il vaut `none`.
 
 La session dure `PARTNER_SESSION_TTL_MIN` minutes (120 par défaut). Son cookie
 est `SameSite=Lax` : il n'est pas envoyé dans une iframe hébergée sur un autre

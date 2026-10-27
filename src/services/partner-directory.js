@@ -2,8 +2,9 @@
 //
 // Annuaire local d'un partenaire qui n'a pas de fournisseur d'identité.
 //
-// Activation : `"directory": { "enabled": true }` dans partners.json (script
-// set-partner-directory.js). L'administrateur du partenaire importe la liste
+// Activation : `"connection": "directory"` dans partners.json (script
+// set-partner-connection.js, cf. services/partner-connection.js).
+// L'administrateur du partenaire importe la liste
 // de ses ayants droit en CSV sur /partner/<slug>/admin/directory ; l'ayant
 // droit se connecte en saisissant son identifiant ET l'une des adresses
 // e-mail de la liste, puis le code reçu par e-mail. La session ouverte est la
@@ -13,17 +14,27 @@
 // CSV : une ligne par adresse e-mail ; un identifiant répété sur plusieurs
 // lignes reçoit plusieurs adresses.
 //
-//   identifier,lastName,firstName,email,beneficiaries,extraPublic
-//   A123456,DUPONT,Camille,camille.dupont@example.com,4,2
-//   A123456,DUPONT,Camille,c.dupont@perso.example,4,2
+//   identifier,redirect,lastName,firstName,email,beneficiaries,extraPublic
+//   A123456,,DUPONT,Camille,camille.dupont@example.com,4,2
+//   A123456,,DUPONT,Camille,c.dupont@perso.example,4,2
+//   A123457,A123456,DUPONT,Léo,leo.dupont@example.com,1,
 //
 // `extraPublic` (facultative) : places en plus au tarif public propres à cet
 // ayant droit, attribut de session du même nom (cf. entitlements, max
 // { attribute: "extraPublic", default: … }). Vide : la valeur par défaut.
+//
+// `redirect` (facultative) : identifiant d'une autre fiche, celle de la
+// famille. On se connecte avec sa propre ligne (identifiant + e-mail), mais la
+// session porte l'identifiant et le nom de la fiche visée — commandes et
+// compteur de droits communs, les places se réservent ensemble — et garde
+// l'e-mail de connexion. Le quota de la famille additionne `beneficiaries`
+// (et `extraPublic`) de la fiche visée et de celles qui la désignent. Pas de
+// chaîne : la fiche visée ne redirige pas elle-même.
 import crypto from 'crypto';
 import { PartnerMember } from '../models/PartnerMember.js';
 import { PartnerLoginCode } from '../models/PartnerLoginCode.js';
 import { sendMail } from '../loaders/mailer.js';
+import { partnerConnection } from './partner-connection.js';
 import { splitCsvLine, detectCsvDelimiter } from '../utils/csv-line.js';
 
 export const CODE_TTL_MIN = 10;
@@ -32,11 +43,11 @@ export const MAX_CODES_PER_WINDOW = 3;
 export const CODE_WINDOW_MIN = 15;
 const COLUMNS = ['identifier', 'lastname', 'firstname', 'email', 'beneficiaries'];
 // Colonnes facultatives : absentes de l'en-tête, la valeur vaut null.
-const OPTIONAL_COLUMNS = ['extrapublic'];
+const OPTIONAL_COLUMNS = ['extrapublic', 'redirect'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function directoryEnabled(cfg) {
-  return cfg?.directory?.enabled === true;
+  return partnerConnection(cfg) === 'directory';
 }
 
 // ── CSV ─────────────────────────────────────────────────────────────────────
@@ -78,7 +89,8 @@ export function parseDirectoryCsv(text) {
     let beneficiaries = null;
     if (benefRaw !== '') {
       const n = Number(benefRaw);
-      if (!Number.isInteger(n) || n < 1) { errors.push({ line: lineNo, identifier, reason: `beneficiaries doit être un entier ≥ 1 : « ${benefRaw} »` }); continue; }
+      // 0 admis : l'ayant droit reste connectable, sans place au titre des droits.
+      if (!Number.isInteger(n) || n < 0) { errors.push({ line: lineNo, identifier, reason: `beneficiaries doit être un entier ≥ 0 : « ${benefRaw} »` }); continue; }
       beneficiaries = n;
     }
     const extraRaw = get('extrapublic');
@@ -88,14 +100,16 @@ export function parseDirectoryCsv(text) {
       if (!Number.isInteger(n) || n < 0) { errors.push({ line: lineNo, identifier, reason: `extraPublic doit être un entier ≥ 0 : « ${extraRaw} »` }); continue; }
       extraPublic = n;
     }
-    const row = { identifier, lastName: get('lastname'), firstName: get('firstname'), beneficiaries, extraPublic };
+    const redirectRaw = get('redirect');
+    const redirect = redirectRaw && redirectRaw.toUpperCase() !== identifier.toUpperCase() ? redirectRaw : null;
+    const row = { identifier, redirect, lastName: get('lastname'), firstName: get('firstname'), beneficiaries, extraPublic };
     const key = identifier.toUpperCase();
     const prev = byId.get(key);
     if (!prev) {
       byId.set(key, { ...row, emails: [email], lines: [lineNo] });
       continue;
     }
-    const conflict = ['lastName', 'firstName', 'beneficiaries', 'extraPublic'].find(f => String(prev[f] ?? '') !== String(row[f] ?? ''));
+    const conflict = ['redirect', 'lastName', 'firstName', 'beneficiaries', 'extraPublic'].find(f => String(prev[f] ?? '').toUpperCase() !== String(row[f] ?? '').toUpperCase());
     if (conflict) {
       rejected.add(key);
       errors.push({ line: lineNo, identifier, reason: `« ${conflict} » diffère de la ligne ${prev.lines[0]} pour le même identifiant` });
@@ -105,15 +119,33 @@ export function parseDirectoryCsv(text) {
     prev.lines.push(lineNo);
   }
 
-  const members = [...byId.entries()]
-    .filter(([key]) => !rejected.has(key))
-    .map(([, m]) => ({
-      identifier: m.identifier, lastName: m.lastName, firstName: m.firstName,
-      emails: m.emails, beneficiaries: m.beneficiaries, extraPublic: m.extraPublic
-    }));
   for (const key of rejected) {
     errors.push({ line: byId.get(key).lines[0], identifier: byId.get(key).identifier, reason: 'identifiant écarté (lignes contradictoires)' });
   }
+  // Redirections : la fiche visée doit être retenue et ne pas rediriger
+  // elle-même. Sinon la fiche qui redirige est écartée — connectée seule, elle
+  // réserverait hors de sa famille.
+  for (const [key, m] of byId) {
+    if (rejected.has(key) || !m.redirect) continue;
+    const target = byId.get(m.redirect.toUpperCase());
+    let reason = null;
+    if (!target) reason = `redirect « ${m.redirect} » : identifiant absent du fichier`;
+    else if (rejected.has(m.redirect.toUpperCase())) reason = `redirect « ${m.redirect} » : identifiant visé écarté`;
+    else if (target.redirect) reason = `redirect « ${m.redirect} » : l'identifiant visé redirige lui-même vers « ${target.redirect} »`;
+    if (reason) {
+      rejected.add(key);
+      errors.push({ line: m.lines[0], identifier: m.identifier, reason });
+    } else {
+      m.redirect = target.identifier;
+    }
+  }
+
+  const members = [...byId.entries()]
+    .filter(([key]) => !rejected.has(key))
+    .map(([, m]) => ({
+      identifier: m.identifier, redirect: m.redirect, lastName: m.lastName, firstName: m.firstName,
+      emails: m.emails, beneficiaries: m.beneficiaries, extraPublic: m.extraPublic
+    }));
   return { members, errors };
 }
 
@@ -147,21 +179,35 @@ export async function replaceDirectory(partnerSlug, members) {
 
 export async function directoryStats(partnerSlug) {
   const slug = String(partnerSlug).toLowerCase();
-  const [count, last, emails] = await Promise.all([
+  const [count, redirected, last, emails] = await Promise.all([
     PartnerMember.countDocuments({ partnerSlug: slug }),
+    PartnerMember.countDocuments({ partnerSlug: slug, redirect: { $type: 'string' } }),
     PartnerMember.findOne({ partnerSlug: slug }, { importedAt: 1 }).sort({ importedAt: -1 }).lean(),
     PartnerMember.aggregate([{ $match: { partnerSlug: slug } }, { $project: { n: { $size: '$emails' } } }, { $group: { _id: null, n: { $sum: '$n' } } }])
   ]);
-  return { members: count, emails: emails?.[0]?.n || 0, lastImport: last?.importedAt || null };
+  return { members: count, redirected, emails: emails?.[0]?.n || 0, lastImport: last?.importedAt || null };
+}
+
+/**
+ * Fiches de l'annuaire, chaque famille regroupée : la fiche visée puis celles
+ * qui la désignent, par identifiant.
+ */
+export async function listDirectory(partnerSlug) {
+  const rows = await PartnerMember.find({ partnerSlug: String(partnerSlug).toLowerCase() })
+    .collation({ locale: 'fr', strength: 2 }).sort({ identifier: 1 }).lean();
+  const head = (m) => String(m.redirect || m.identifier).toUpperCase();
+  return rows.sort((a, b) => head(a).localeCompare(head(b), 'fr')
+    || (a.redirect ? 1 : 0) - (b.redirect ? 1 : 0)
+    || a.identifier.localeCompare(b.identifier, 'fr'));
 }
 
 /** Annuaire courant au format d'import (une ligne par adresse). */
 export async function exportDirectoryCsv(partnerSlug) {
   const rows = await PartnerMember.find({ partnerSlug: String(partnerSlug).toLowerCase() }).sort({ identifier: 1 }).lean();
-  const out = ['identifier,lastName,firstName,email,beneficiaries,extraPublic'];
+  const out = ['identifier,redirect,lastName,firstName,email,beneficiaries,extraPublic'];
   for (const m of rows) {
     for (const email of m.emails || []) {
-      out.push([m.identifier, m.lastName, m.firstName, email, m.beneficiaries ?? '', m.extraPublic ?? ''].map(csvCell).join(','));
+      out.push([m.identifier, m.redirect ?? '', m.lastName, m.firstName, email, m.beneficiaries ?? '', m.extraPublic ?? ''].map(csvCell).join(','));
     }
   }
   return out.join('\n') + '\n';
@@ -248,14 +294,45 @@ export async function verifyLoginCode({ partnerSlug, identifier, email, code }) 
   return ok ? member : null;
 }
 
-/** Identité de session, de même forme que celle issue d'OpenID. */
-export function identityFromMember(member, email) {
+// Somme des valeurs renseignées ; null si aucune (la valeur par défaut du
+// panier de droits s'applique alors).
+function sumOrNull(values) {
+  const set = values.filter(v => v !== null && v !== undefined);
+  return set.length ? set.reduce((a, b) => a + Number(b), 0) : null;
+}
+
+/**
+ * Identité de session, de même forme que celle issue d'OpenID. `group` : les
+ * fiches de la famille (la fiche elle-même comprise), dont les nombres de
+ * places s'additionnent ; `loginIdentifier` : la fiche qui s'est connectée,
+ * si elle diffère.
+ */
+export function identityFromMember(member, email, { group = [member], loginIdentifier = null } = {}) {
+  const attributes = {
+    beneficiaries: sumOrNull(group.map(m => m.beneficiaries)),
+    extraPublic: sumOrNull(group.map(m => m.extraPublic))
+  };
+  if (loginIdentifier && loginIdentifier !== member.identifier) attributes.loginIdentifier = loginIdentifier;
   return {
     identifier: member.identifier,
     firstName: member.firstName || '',
     lastName: member.lastName || '',
     email: String(email || member.emails?.[0] || '').toLowerCase(),
     name: [member.firstName, member.lastName].filter(Boolean).join(' '),
-    attributes: { beneficiaries: member.beneficiaries ?? null, extraPublic: member.extraPublic ?? null }
+    attributes
   };
+}
+
+/**
+ * Identité de session pour la fiche qui vient de se connecter : celle de la
+ * fiche visée par `redirect` s'il y en a une, avec le quota de toute la
+ * famille, et l'e-mail de connexion.
+ */
+export async function directoryIdentity(partnerSlug, member, email) {
+  const slug = String(partnerSlug).toLowerCase();
+  const head = (member.redirect && await findMember(slug, member.redirect)) || member;
+  const others = await PartnerMember.find({ partnerSlug: slug, redirect: head.identifier })
+    .collation({ locale: 'fr', strength: 2 }).lean();
+  const group = [head, ...others.filter(m => m.identifier !== head.identifier)];
+  return identityFromMember(head, email, { group, loginIdentifier: member.identifier });
 }

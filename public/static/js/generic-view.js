@@ -468,6 +468,47 @@ function syncSelectedHighlights() {
 // Fournis par l'API de statut quand un bénéficiaire est connecté
 // (beneficiary.identifier) ou que le partenaire déclare des droits
 // (entitlements). Sans l'un ni l'autre, la ligne reste masquée.
+// Lignes du panier par panier de droits, selon la règle du serveur
+// (services/partner-entitlements.js, ruleForTariff) : premier panier dont la
+// liste de tarifs (absente = tous) et l'origine (tariffChannel : tarif du
+// partenaire ou public, cf. tariffs[].partner) couvrent le tarif choisi.
+function entitlementForTariff(ents, tariffCode) {
+  const code = String(tariffCode || '').toUpperCase();
+  const channel = CTX.tariffMap.get(code)?.partner ? 'partner' : 'public';
+  return ents.find(x => (!Array.isArray(x.tariffs) || x.tariffs.includes(code))
+    && (!x.tariffChannel || x.tariffChannel === channel)) || null;
+}
+
+function cartCountsByEntitlement(ents) {
+  const counts = new Map();
+  document.querySelectorAll('#cartRows .cart-row').forEach(row => {
+    const code = String($('.tariff-select', row)?.value || '').toUpperCase();
+    if (!code) return;
+    const e = entitlementForTariff(ents, code);
+    if (e) counts.set(e.key, (counts.get(e.key) || 0) + 1);
+  });
+  return counts;
+}
+
+/**
+ * Tarif par défaut d'une nouvelle ligne quand le partenaire déclare des droits :
+ * le premier de la liste (tarifs du partenaire en tête) dont le panier de
+ * droits a encore une place, compte tenu du panier en cours ; à défaut le
+ * premier tarif public ; à défaut le premier. null : pas de droits, la règle
+ * habituelle s'applique.
+ */
+function defaultTariffWithinEntitlements(list) {
+  const ents = Array.isArray(CTX.raw?.entitlements) ? CTX.raw.entitlements : [];
+  if (!ents.length || !list.length) return null;
+  const inCart = cartCountsByEntitlement(ents);
+  const hasRoom = (t) => {
+    const e = entitlementForTariff(ents, t.code);
+    if (!e || e.unlimited) return true;
+    return Number(e.remaining || 0) - (inCart.get(e.key) || 0) > 0;
+  };
+  return list.find(hasRoom) || list.find(t => !t.partner) || list[0];
+}
+
 function renderContactExtra(data) {
   const el = document.querySelector('#contactExtra');
   if (!el) return;
@@ -480,18 +521,21 @@ function renderContactExtra(data) {
     parts.push([document.createTextNode(`${translate('order.beneficiaryIdentifier')} `), strong]);
   }
   // Résumé des droits sur une ligne, paniers dans l'ordre de la configuration :
-  //   Quota ayants droit = 10 ❤️ + 1 extra (tarif public) — Reste disponible : 9 ❤️ + 0
-  // Le premier panier porte son libellé court devant le « = », les suivants
-  // derrière leur nombre ; « ∞ » pour un panier sans limite (vente publique).
+  //   Quota ayants droit = 10 ❤️ + 1 extra (tarif public) — Disponible : 9 ❤️ + 0
+  // « Disponible » est un compteur VIVANT : le reste du serveur (déjà commandé
+  // déduit) moins les lignes du panier, chacune rattachée à son panier de
+  // droits comme le fait le serveur. « ∞ » pour un panier sans limite.
   const ents = Array.isArray(data?.entitlements) ? data.entitlements : [];
   if (ents.length) {
-    const short = (e) => String(e.shortLabel || e.label || e.key || '');
+    const inCart = cartCountsByEntitlement(ents);
+    const label = (e) => String(e.label || e.key || '');
     const count = (e, n) => `${e.unlimited ? '∞' : n}${e.icon ? ' ' + e.icon : ''}`;
+    const avail = (e) => Math.max(0, Number(e.remaining || 0) - (inCart.get(e.key) || 0));
     const [first, ...others] = ents;
-    const quota = `${translate('order.entitlementQuota')} ${short(first)} = ${count(first, first.max)}`
-      + others.map(e => ` + ${count(e, e.max)} ${short(e)}`).join('');
-    const left = `${translate('order.entitlementAvailable')} ${count(first, first.remaining)}`
-      + others.map(e => ` + ${count(e, e.remaining)}`).join('');
+    const quota = `${translate('order.entitlementQuota')} ${label(first)} = ${count(first, first.max)}`
+      + others.map(e => ` + ${count(e, e.max)} ${label(e)}`).join('');
+    const left = `${translate('order.entitlementAvailable')} ${count(first, avail(first))}`
+      + others.map(e => ` + ${count(e, avail(e))}`).join('');
     parts.push([document.createTextNode(`${quota} — ${left}`)]);
   }
   parts.forEach((nodes, i) => {
@@ -609,8 +653,11 @@ function makeRowForSeat(seat) {
     email    : seat?.holderEmail     ?? seat?.email     ?? ''
   };
   const list = tariffsForZone(CTX.tariffs, CTX.pricesIdx, z);
-  // Défaut : le premier tarif du partenaire s'il y en a, sinon NORMAL.
-  const def  = list.find(t => t.partner)
+  // Défaut : avec des droits, le premier tarif qui a encore une place (cf.
+  // defaultTariffWithinEntitlements) ; sinon le premier tarif du partenaire,
+  // puis NORMAL.
+  const def  = defaultTariffWithinEntitlements(list)
+    || list.find(t => t.partner)
     || list.find(t => String(t.code).toUpperCase()==='NORMAL') || list[0] || null;
 
   const row = document.createElement('div');
@@ -683,6 +730,8 @@ function updateTotals() {
   });
   CTX.currentTotal = total;
   $('#totalBox').textContent = fmtEuro(total);
+  // Compteur « Disponible » du panneau Contact : suit le panier.
+  if (CTX.raw) renderContactExtra(CTX.raw);
   $('#payBtn').disabled = (total <= 0);
 }
 

@@ -71,6 +71,15 @@ const ADMIN = { Authorization: 'Basic ' + Buffer.from('adm:pw').toString('base64
 const form = (o) => new URLSearchParams(o);
 const post = (url, body, extra = {}) => fetch(`${B}${url}`, { method: 'POST', redirect: 'manual', body, ...extra });
 
+// Famille : F2 et F3 (dont la casse diffère) se rattachent à F1 ; G1 se
+// désigne lui-même, ce qui ne compte pas.
+const FAMILY = `identifier,redirect,lastName,firstName,email,beneficiaries,extraPublic
+F1,,DURAND,Alice,alice@example.com,2,
+F2,f1,DURAND,Hugo,hugo@example.com,1,
+F3,F1,DURAND,Inès,parents.durand@example.com,1,1
+G1,G1,MOREAU,Paul,paul@example.com,1,
+`;
+
 const CSV = `identifier,lastName,firstName,email,beneficiaries
 A123456,DUPONT,Camille,camille.dupont@example.com,4
 A123456,DUPONT,Camille,C.Dupont@Perso.example,4
@@ -97,8 +106,26 @@ try {
   check('session : extraPublic transmis', D.identityFromMember({ identifier: 'A', emails: ['a@b.fr'], beneficiaries: 3, extraPublic: 2 }, 'a@b.fr').attributes.extraPublic === 2);
   p = D.parseDirectoryCsv('identifier,nom,email\nA,B,c@d.fr\n');
   check('colonnes manquantes → refus', p.errors.length === 1 && /colonnes manquantes/.test(p.errors[0].reason));
-  p = D.parseDirectoryCsv('identifier,lastName,firstName,email,beneficiaries\nA1,X,Y,pas-un-email,1\nA2,X,Y,a@b.fr,0\n');
+  p = D.parseDirectoryCsv('identifier,lastName,firstName,email,beneficiaries\nA1,X,Y,pas-un-email,1\nA2,X,Y,a@b.fr,-1\n');
   check('e-mail et nombre de places invalides signalés', p.errors.length === 2, p.errors.map(e => e.reason).join(' | '));
+  p = D.parseDirectoryCsv('identifier,lastName,firstName,email,beneficiaries,extraPublic\nZ1,X,Y,z@b.fr,0,0\n');
+  check('beneficiaries 0 et extraPublic 0 : importés (connectable, sans place)', !p.errors.length && p.members[0]?.beneficiaries === 0 && p.members[0]?.extraPublic === 0, JSON.stringify(p));
+  p = D.parseDirectoryCsv(FAMILY);
+  check('redirect : lu, casse de la fiche visée, vide ou soi-même → null', !p.errors.length
+    && p.members.find(m => m.identifier === 'F2')?.redirect === 'F1'
+    && p.members.find(m => m.identifier === 'F3')?.redirect === 'F1'
+    && p.members.find(m => m.identifier === 'F1')?.redirect === null
+    && p.members.find(m => m.identifier === 'G1')?.redirect === null, JSON.stringify(p));
+  p = D.parseDirectoryCsv('identifier,redirect,lastName,firstName,email,beneficiaries\nA1,ZZ,X,Y,a@b.fr,1\nB1,,X,Y,b@b.fr,1\nB2,B1,X,Y,c@b.fr,1\nB3,B2,X,Y,d@b.fr,1\n');
+  check('redirect : cible absente ou chaîne → ligne écartée',
+    p.members.map(m => m.identifier).join() === 'B1,B2'
+    && p.errors.some(e => e.identifier === 'A1' && /absent/.test(e.reason))
+    && p.errors.some(e => e.identifier === 'B3' && /redirige lui-même/.test(e.reason)), p.errors.map(e => e.reason).join(' | '));
+  p = D.parseDirectoryCsv('identifier,redirect,lastName,firstName,email,beneficiaries\nB1,,X,Y,b@b.fr,1\nB2,B1,X,Y,c@b.fr,1\nB2,,X,Y,d@b.fr,1\n');
+  check('redirect : lignes contradictoires → identifiant écarté', p.members.length === 1 && p.errors.some(e => /redirect/.test(e.reason) && /diffère/.test(e.reason)));
+  check('session : quota de la famille additionné', D.identityFromMember({ identifier: 'F1', beneficiaries: 2, extraPublic: null },
+    'x@y.fr', { group: [{ beneficiaries: 2, extraPublic: null }, { beneficiaries: 1, extraPublic: null }], loginIdentifier: 'F2' }).attributes
+    .beneficiaries === 3);
 
   console.log('\n\x1b[1m2. Pages d\'administration\x1b[0m');
   let r = await fetch(`${B}/partner/${SLUG}/admin?format=html`, { redirect: 'manual' });
@@ -194,6 +221,39 @@ try {
   check(`au plus ${D.MAX_CODES_PER_WINDOW} codes par ${D.CODE_WINDOW_MIN} min`, mails().length - n0 === D.MAX_CODES_PER_WINDOW - 1, `${mails().length - n0} envoyé(s) (1 déjà émis)`);
   const stored = await PartnerLoginCode.findOne({ partnerSlug: SLUG }).lean();
   check('code jamais conservé en clair', stored && !Object.values(stored).includes(code) && /^[0-9a-f]{64}$/.test(stored.codeHash));
+
+  console.log('\n\x1b[1m4b. Familles (redirect)\x1b[0m');
+  r = await post(`/partner/${SLUG}/admin/directory`, FAMILY, { headers: { ...ADMIN, 'Content-Type': 'text/csv' } });
+  j = await r.json();
+  check('import d\'une famille', r.status === 200 && j.imported === 4, JSON.stringify(j));
+  const famHtml = await (await fetch(`${B}/partner/${SLUG}/admin/directory`, { headers: ADMIN })).text();
+  check('page : compteur des redirigés', /<strong>2<\/strong> redirigé\(s\)/.test(famHtml));
+  check('page : bouton unique « Importer CSV » près de l\'export', /<button type="button" class="pill-link" id="import">Importer CSV<\/button><a class="pill-link" href="directory.csv">/.test(famHtml));
+  check('page : sélecteur limité aux .csv, contrôle de l\'extension', /id="csv" accept="\.csv,text\/csv"/.test(famHtml) && famHtml.includes('if (!/\\.csv$/i.test(file.name))'));
+  check('page : tableau des fiches, famille regroupée (F1, ↳ F2, ↳ F3, puis G1)',
+    /<th>Identifiant<\/th><th>Redirection<\/th>/.test(famHtml)
+    && [...famHtml.matchAll(/<tr data-search[^>]*>\s*<td>([^<]*)<\/td>/g)].map(m => m[1]).join('|') === 'F1|↳ F2|↳ F3|G1',
+    [...famHtml.matchAll(/<tr data-search[^>]*>\s*<td>([^<]*)<\/td>/g)].map(m => m[1]).join('|'));
+  const famCsv = await (await fetch(`${B}/partner/${SLUG}/admin/directory.csv`, { headers: ADMIN })).text();
+  check('export : colonne redirect, réimportable', famCsv.startsWith('identifier,redirect,')
+    && D.parseDirectoryCsv(famCsv).members.find(m => m.identifier === 'F2')?.redirect === 'F1');
+  const loginAs = async (identifier, email) => {
+    await post(`/partner/${SLUG}/auth/directory/request`, form({ identifier, email, next: '/' })).then(x => x.text());
+    const c = lastCode();
+    const res = await post(`/partner/${SLUG}/auth/directory/verify`, form({ identifier, email, code: c, next: '/' }));
+    const ck = (res.headers.getSetCookie?.() || []).map(x => x.split(';')[0]).join('; ');
+    return (await fetch(`${B}/partner/${SLUG}/auth/whoami`, { headers: { Cookie: ck } })).json();
+  };
+  let w = await loginAs('F3', 'parents.durand@example.com');
+  check('connexion par F3 → session de F1, e-mail de connexion, quota famille 4, extra 1',
+    w.identifier === 'F1' && w.firstName === 'Alice' && w.email === 'parents.durand@example.com'
+    && w.attributes?.beneficiaries === 4 && w.attributes?.extraPublic === 1 && w.attributes?.loginIdentifier === 'F3', JSON.stringify(w));
+  w = await loginAs('F1', 'alice@example.com');
+  check('connexion par F1 → même quota de famille, sans loginIdentifier',
+    w.identifier === 'F1' && w.attributes?.beneficiaries === 4 && !('loginIdentifier' in (w.attributes || {})), JSON.stringify(w));
+  check('F3 ne peut pas se connecter avec l\'adresse de F1', (await D.requestLoginCode({ partnerSlug: SLUG, identifier: 'F3', email: 'alice@example.com' })).sent === false);
+  w = await loginAs('G1', 'paul@example.com');
+  check('redirect vers soi-même → fiche normale', w.identifier === 'G1' && w.attributes?.beneficiaries === 1, JSON.stringify(w));
 
   console.log('\n\x1b[1m5. Accès aux pages du partenaire\x1b[0m');
   const cfg = getPartnerConfig(SLUG);

@@ -3345,7 +3345,7 @@ export const adminScriptGroups = [
       {
         id: 'partners-init-template',
         label: 'Init Partner Template',
-        order: 5,
+        order: 10,
         path: 'scripts/05-partner-management/init-partners.js',
         command: 'node scripts/05-partner-management/init-partners.js [--force]',
         run: {
@@ -3362,7 +3362,7 @@ export const adminScriptGroups = [
       {
         id: 'set-partner-custo',
         label: 'Set Partner Customization',
-        order: 1,
+        order: 7,
         path: 'scripts/05-partner-management/set-partner-custo.js',
         command: 'node scripts/05-partner-management/set-partner-custo.js (--partner=<slug> | --all-partners) --file=<customization.json> [--season=<code>] [--event=<slug>]',
         run: {
@@ -3450,26 +3450,37 @@ export const adminScriptGroups = [
         }
       },
       {
-        id: 'partner-set-directory',
-        label: 'Set Partner Directory',
+        id: 'partner-set-connection',
+        label: 'Set Partner Connection',
         order: 1,
-        path: 'scripts/05-partner-management/set-partner-directory.js',
-        command: 'node scripts/05-partner-management/set-partner-directory.js --partner=<slug> --enabled=yes|no [--dry-run]',
+        path: 'scripts/05-partner-management/set-partner-connection.js',
+        command: 'node scripts/05-partner-management/set-partner-connection.js --partner=<slug> --mode=openid|directory|none [--dry-run]',
         run: {
-          script: 'scripts/05-partner-management/set-partner-directory.js',
+          script: 'scripts/05-partner-management/set-partner-connection.js',
           args: []
         },
-        description: 'Active ou désactive la connexion par annuaire local d\'un partenaire sans fournisseur OpenID : identifiant + e-mail de l\'annuaire, puis code reçu par e-mail.',
+        description: 'Choisit comment les ayants droit d\'un partenaire se connectent : openid (fournisseur d\'identité du partenaire), directory (annuaire BTS : identifiant + e-mail + code), none (pas de connexion).',
         notes: [
-          'Ne modifie que `directory.enabled` de ce partenaire dans partners.json.',
-          'L\'annuaire s\'importe en CSV sur /partner/<slug>/admin/directory (identifiants du bloc admin du partenaire).',
-          'Activé, la connexion devient obligatoire sur les pages du partenaire ; le jeton statique n\'ouvre plus l\'accès.',
-          'Refusé pour un partenaire qui a un bloc oidc.'
+          'Écrit `connection` dans l\'entrée du partenaire (partners.json) et retire les anciens interrupteurs (oidc.required, directory.enabled) : un seul réglage fait foi.',
+          'Les blocs oidc et directory sont conservés : changer de mode ne perd ni les secrets du fournisseur d\'identité ni les réglages de l\'annuaire.',
+          'openid exige un bloc oidc complet (issuer, clientId), à saisir dans partners.json.',
+          'directory : l\'annuaire s\'importe sur /partner/<slug>/admin/directory (identifiants de Set Partner Admin Credentials).',
+          'openid / directory : la connexion devient obligatoire, le jeton statique n\'ouvre plus les pages.'
         ],
         form: {
           fields: [
             { name: 'partner', label: 'Slug', placeholder: 'cseairbus', required: true, arg: { type: 'option', template: '--partner=${value}' } },
-            { name: 'enabled', label: 'Annuaire actif', placeholder: 'yes|no', required: true, arg: { type: 'option', template: '--enabled=${value}' } },
+            {
+              name: 'mode',
+              label: 'Mode de connexion',
+              required: true,
+              arg: { type: 'option', template: '--mode=${value}' },
+              options: [
+                { label: 'OpenID (fournisseur du partenaire)', value: 'openid' },
+                { label: 'Annuaire BTS (identifiant + e-mail + code)', value: 'directory' },
+                { label: 'Aucune connexion', value: 'none' }
+              ]
+            },
             { name: 'dryRun', label: 'Simulation', type: 'checkbox', arg: { type: 'flag', flag: '--dry-run' } }
           ]
         }
@@ -3481,7 +3492,7 @@ export const adminScriptGroups = [
         path: 'scripts/05-partner-management/set-partner-security.js',
         command: 'node scripts/05-partner-management/set-partner-security.js --slug=<slug> [--allowed-origins=CSV] [--frame-ancestors=CSV]',
         run: { script: 'scripts/05-partner-management/set-partner-security.js', args: [] },
-        description: 'Updates iframe/embed security for a partner (allowed origins, frame-ancestors).',
+        description: 'Mesure complémentaire : origines autorisées et frame-ancestors, pour un partenaire intégré en iframe sur son site (s\'ajoute au mode de connexion).',
         form: {
           fields: [
             {
@@ -3509,7 +3520,7 @@ export const adminScriptGroups = [
       {
         id: 'partner-set-view',
         label: 'Partner View',
-        order: 1,
+        order: 6,
         path: 'scripts/05-partner-management/set-partner-view.js',
         command: 'node scripts/05-partner-management/set-partner-view.js --slug=<slug> --venue-view=<slug> [--event=<eventSlug>] [--season=<code>]',
         run: { script: 'scripts/05-partner-management/set-partner-view.js', args: [] },
@@ -3551,7 +3562,7 @@ export const adminScriptGroups = [
       {
         id: 'partner-import-csv',
         label: 'Import Partners (CSV)',
-        order: 2,
+        order: 8,
         path: 'scripts/05-partner-management/import-partners.js',
         command: 'node scripts/05-partner-management/import-partners.js <partners.csv> [--replace]',
         run: {
@@ -3578,7 +3589,7 @@ export const adminScriptGroups = [
       {
         id: 'partner-export-csv',
         label: 'Export Partners (CSV)',
-        order: 3,
+        order: 9,
         path: 'scripts/05-partner-management/export-partners.js',
         command: 'node scripts/05-partner-management/export-partners.js [--out=partners.csv]',
         run: {
@@ -3601,14 +3612,14 @@ export const adminScriptGroups = [
       {
         id: 'partner-generate-token',
         label: 'Generate Partner Token',
-        order: 4,
+        order: 2,
         path: 'scripts/05-partner-management/generate-partner-token.js',
         command: 'node scripts/05-partner-management/generate-partner-token.js --partner=<slug> [--event=<eventSlug> | --season=<code> | --default] [--force]',
         run: {
           script: 'scripts/05-partner-management/generate-partner-token.js',
           args: []
         },
-        description: 'Generate or reuse a partner token (default or per-event) in partners.json and print the URL with ?token=...',
+        description: 'Mesure complémentaire : jeton statique (?token=…) d\'un partenaire sans connexion (mode none). Ignoré en mode openid / directory. Génère ou réutilise le jeton (global, par événement ou par saison) et affiche l\'URL.',
         notes: [
           'Defaults to --default when no target is provided.',
           'Use --force to regenerate even if a token already exists.',
@@ -3641,7 +3652,7 @@ export const adminScriptGroups = [
       {
         id: 'partner-set-admin',
         label: 'Set Partner Admin Credentials',
-        order: 5,
+        order: 4,
         path: 'scripts/05-partner-management/set-partner-admin.js',
         command: 'node scripts/05-partner-management/set-partner-admin.js --partner=<slug> --user=<login> --pass=<password>',
         run: {
