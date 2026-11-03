@@ -24,10 +24,7 @@ import { Seat } from '../../models/Seat.js';
 import { SeatHold } from '../../models/SeatHold.js';
 import { Event } from '../../models/Event.js';
 import { adminAuth } from './index.js';
-
-// Un blocage de match se reconnaît à ce motif : il ne doit jamais être confondu
-// avec un verrou de paiement (`reason: 'checkout'`), qu'on ne lève pas.
-const ADMIN_BLOCK_REASON = 'admin-block';
+import { ADMIN_BLOCK_REASON, ADMIN_RELEASE_REASON } from '../../services/event-seat-states.js';
 
 // Jusqu'à quand tenir la place. Le TTL de SeatHold supprime le document tout
 // seul : viser la fin du match évite d'avoir à nettoyer, et laisse de la marge
@@ -88,7 +85,10 @@ router.post('/', async (req, res) => {
       const existing = await SeatHold.findOne({ eventId: eventDoc._id, seatId }).lean();
 
       if (to === 'busy') {
-        if (existing && existing.reason !== ADMIN_BLOCK_REASON) {
+        // Un hold existant d'un release précédent (ADMIN_RELEASE_REASON) se
+        // reprend librement : « re-bloquer pour ce match » après l'avoir
+        // remis à la vente est une décision légitime, pas un vol de verrou.
+        if (existing && existing.reason !== ADMIN_BLOCK_REASON && existing.reason !== ADMIN_RELEASE_REASON) {
           return res.status(409).json({
             ok: false,
             error: `Place ${seatId} déjà retenue pour ce match (${existing.reason || 'motif inconnu'}${existing.orderId ? `, commande ${existing.orderId}` : ''}).`
@@ -113,8 +113,39 @@ router.post('/', async (req, res) => {
       }
 
       if (!existing) {
+        // Rien au niveau évènement. Si la SAISON elle-même est 'busy', ce
+        // blocage vient d'ailleurs (block-free-seats-for-season.js, ou ce
+        // même bouton en portée saison) et aucun SeatHold ne peut le lever —
+        // sans l'overlay dans computeEventSeatStates, cette place resterait
+        // indisponible pour CE match malgré le clic. On pose donc un hold de
+        // SIGNE OPPOSÉ (ADMIN_RELEASE_REASON) : il force 'available' pour cet
+        // évènement précis, sans toucher au blocage saison, qui reste entier
+        // pour tous les autres matchs.
+        if (seat.status === 'busy') {
+          await SeatHold.updateOne(
+            { eventId: eventDoc._id, seatId },
+            { $set: {
+              eventId: eventDoc._id, seatId,
+              seasonCode: eventDoc.seasonCode, venueSlug: eventDoc.venueSlug,
+              reason: ADMIN_RELEASE_REASON, sessionToken: '', orderId: null,
+              expiresAt: blockUntilFor(eventDoc),
+              note: note || ''
+            } },
+            { upsert: true }
+          );
+          return res.json({
+            ok: true, changed: true, scope: 'event', seatId, status: 'available',
+            event: eventDoc.slug,
+            message: `Place ${seatId} remise à la vente pour ${eventDoc.slug} uniquement — le blocage saison reste actif pour les autres matchs.`
+          });
+        }
         return res.json({ ok: true, changed: false, scope: 'event', seatId, status: 'available',
           message: `Aucun blocage sur ${seatId} pour ce match.` });
+      }
+
+      if (existing.reason === ADMIN_RELEASE_REASON) {
+        return res.json({ ok: true, changed: false, scope: 'event', seatId, status: 'available',
+          message: `Place ${seatId} déjà remise à la vente pour ${eventDoc.slug}.` });
       }
       // Ne lever QUE nos propres blocages : un verrou de paiement libéré ici
       // ferait atterrir l'encaissement sur une place revendue entre-temps.
