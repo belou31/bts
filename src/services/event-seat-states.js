@@ -17,6 +17,23 @@ import { SeatHold } from '../models/SeatHold.js';
 import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { isVirtualZoneSeatId } from '../utils/seat-id.js';
 
+// Reasons a SeatHold can carry that this module treats specially — every
+// other reason (the live 'checkout' default included) is just "busy for
+// this event", handled uniformly by applyHoldOverlay below.
+//
+// ADMIN_RELEASE_REASON is the one exception, and the only case where this
+// overlay is allowed to make a seat MORE available rather than less: a
+// season-wide block (Seat.status: 'busy', set by block-free-seats-for-
+// season.js or the season-scoped admin/plan toggle) applies to every event
+// by default, with no per-event mechanism to carve out an exception — a
+// SeatHold normally only ever ADDS busy-ness, never removes it. This reason
+// is admin/plan's event-scoped "Remettre pour ce match" (src/routes/admin/
+// seat-state.routes.js) saying "available for THIS event specifically,
+// regardless of the season-level base" — the season block stays in force
+// for every other event.
+export const ADMIN_BLOCK_REASON = 'admin-block';
+export const ADMIN_RELEASE_REASON = 'admin-release';
+
 // ---------------------------------------------------------------------------
 // Cache de la base, par évènement.
 //
@@ -157,10 +174,32 @@ async function computeBaseSeatStates(ev) {
 async function applyHoldOverlay(ev, byId, sessionToken) {
   const holds = await SeatHold.find(
     { eventId: ev._id, expiresAt: { $gt: new Date() } },
-    { seatId: 1, sessionToken: 1, _id: 0 }
+    { seatId: 1, sessionToken: 1, reason: 1, _id: 0 }
   ).lean();
 
+  // Pass 1 — release overrides first (see ADMIN_RELEASE_REASON above), so
+  // the ordinary busy pass below never re-closes what this just opened. The
+  // unique {eventId, seatId} index on SeatHold means a seat can never carry
+  // both a release override and an ordinary hold at once, but keeping this
+  // as its own pass makes that guarantee explicit rather than relying on it.
   for (const hold of holds) {
+    if (hold.reason !== ADMIN_RELEASE_REASON) continue;
+    const sid = String(hold.seatId || '').trim();
+    if (!sid || !byId.has(sid)) continue;
+    const rec = byId.get(sid);
+    // Only ever loosens a season-level 'busy' — never 'booked'/'provisioned'.
+    // The admin/plan route that creates this hold already refuses those
+    // (a sold or promised seat is out of scope regardless of event), but
+    // the season status could change AFTER the hold was created — a
+    // subscriber buying that exact seat later, say — and this stays safe
+    // either way rather than trusting that guard to still hold true here.
+    if (rec.status === 'busy') rec.status = 'available';
+  }
+
+  // Pass 2 — everything else (live selections, checkout holds, admin
+  // blocks): marks busy, same as always.
+  for (const hold of holds) {
+    if (hold.reason === ADMIN_RELEASE_REASON) continue;
     const sid = String(hold.seatId || '').trim();
     if (!sid) continue;
     if (sessionToken && hold.sessionToken === sessionToken) continue; // propre sélection → reste available
