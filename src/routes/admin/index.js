@@ -25,6 +25,7 @@ import { ScanLog } from '../../models/ScanLog.js';
 import { ZoneCatalog } from '../../models/ZoneCatalog.js';
 import { SeatCatalog } from '../../models/SeatCatalog.js';
 import { resolveLinePlacement, applyAttendancePatch, summarizeAttendance } from '../../utils/event-attendance.js';
+import { ADMIN_RELEASE_REASON } from '../../services/event-seat-states.js';
 import { isVirtualZoneSeatId } from '../../utils/seat-id.js';
 import { matchesChannel } from '../../utils/channel-scopes.js';
 import { exportOrdersCsv, exportSeatsCsv } from '../../services/exports.js';
@@ -1058,6 +1059,19 @@ router.get('/plan', async (req, res) => {
         const sid = String(h.seatId || '').trim();
         if (!sid || !seatStatusById.has(sid)) continue;
         eventHoldsById.set(sid, h);
+      }
+      // Même règle à deux passes que applyHoldOverlay dans
+      // event-seat-states.js (computeEventSeatStates) — à garder synchronisées :
+      // une troisième réimplémentation indépendante de cette même logique est
+      // précisément ce qui a fait qu'un release (ADMIN_RELEASE_REASON) posé
+      // par le bouton "Remettre pour ce match" se voyait ici re-fermé en
+      // 'busy' par la passe générique, sans jamais regarder `reason`.
+      for (const [sid, h] of eventHoldsById) {
+        if (h.reason !== ADMIN_RELEASE_REASON) continue;
+        if (seatStatusById.get(sid) === 'busy') seatStatusById.set(sid, 'available');
+      }
+      for (const [sid, h] of eventHoldsById) {
+        if (h.reason === ADMIN_RELEASE_REASON) continue;
         // On ne masque pas une place vendue : seule une place libre devient
         // occupée par un blocage.
         if (seatStatusById.get(sid) === 'available') seatStatusById.set(sid, 'busy');
