@@ -2,6 +2,7 @@
 import { isZoneUnit } from '../../utils/seat-id.js';
 import { providerFetch, createTokenCache } from './http.js';
 import { providerError } from './provider-error.js';
+import { buildOrderDescription } from './order-description.js';
 
 const API_DEFAULT = 'https://api.helloasso.com';
 
@@ -142,7 +143,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const total = Number(order.totalCents || 0);
   if (!total || total < 0) throw new Error('totalAmount invalid');
 
-  const itemName = order.itemName || 'MyOrder';
+  const itemName = buildOrderDescription(order, { fallback: 'MyOrder', maxLength: 250 });
 
   const base = Math.floor(total / n);
   const remainder = total - base * n;
