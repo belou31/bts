@@ -21,17 +21,20 @@ nav_order: 120
 | `Campaign` | Audience / opérations | 8 | 1 |
 | `Counter` | Audience / opérations | 4 | 1 |
 | `Event` | Événements et contrôle | 14 | 6 |
-| `Order` | Runtime saison / vente | 22 | 17 |
+| `Order` | Runtime saison / vente | 22 | 18 |
+| `PartnerLoginCode` | Autres | 9 | 2 |
+| `PartnerMember` | Autres | 11 | 1 |
 | `Season` | Runtime saison / vente | 10 | 4 |
 | `Seat` | Runtime saison / vente | 8 | 11 |
 | `SeatCatalog` | Catalogue | 9 | 2 |
-| `SeatHold` | Événements et contrôle | 12 | 9 |
+| `SeatHold` | Événements et contrôle | 13 | 9 |
 | `Subscriber` | Audience / opérations | 19 | 7 |
 | `Tariff` | Autres | 11 | 4 |
 | `TariffPrice` | Autres | 12 | 7 |
 | `TariffPriceCatalog` | Catalogue | 11 | 3 |
 | `Venue` | Catalogue | 6 | 1 |
 | `Zone` | Runtime saison / vente | 14 | 6 |
+| `ZoneCatalog` | Catalogue | 13 | 3 |
 | `ZoneHold` | Runtime saison / vente | 8 | 4 |
 
 ## Autres
@@ -120,6 +123,44 @@ nav_order: 120
 #### Indexes
 
 `campaignSlug:1`<br>`ticketId:1`<br>`orderId:1`
+
+### PartnerLoginCode
+
+#### Top-level fields
+
+- `attempts`: `Number`
+- `codeHash`: `String`
+- `createdAt`: `Date`
+- `email`: `String`
+- `expiresAt`: `Date`
+- `identifier`: `String`
+- `partnerSlug`: `String`
+- `updatedAt`: `Date`
+- `usedAt`: `Date`
+
+#### Indexes
+
+`partnerSlug:1, identifier:1, createdAt:-1` (name=idx_partner_identifier_recent)<br>`expiresAt:1` (name=ttl_expiresAt, ttl=0)
+
+### PartnerMember
+
+#### Top-level fields
+
+- `beneficiaries`: `Number`
+- `createdAt`: `Date`
+- `emails`: `Array<String>`
+- `extraPublic`: `Number`
+- `firstName`: `String`
+- `identifier`: `String`
+- `importedAt`: `Date`
+- `lastName`: `String`
+- `partnerSlug`: `String`
+- `redirect`: `String`
+- `updatedAt`: `Date`
+
+#### Indexes
+
+`partnerSlug:1, identifier:1` (name=uniq_partner_identifier, unique)
 
 ### Tariff
 
@@ -278,6 +319,7 @@ nav_order: 120
 - `eventId`: `ObjectId`
 - `expiresAt`: `Date`
 - `forced`: `Boolean`
+- `note`: `String`
 - `orderId`: `ObjectId`
 - `reason`: `String`
 - `seasonCode`: `String`
@@ -322,7 +364,7 @@ nav_order: 120
 
 #### Indexes
 
-`seasonCode:1`<br>`venueSlug:1`<br>`eventId:1`<br>`parentOrderId:1`<br>`groupKey:1`<br>`itemName:1`<br>`payerEmail:1`<br>`lines.tariffCode:1`<br>`status:1`<br>`origin.flow:1`<br>`mailTemplateKind:1`<br>`seasonCode:1, venueSlug:1, groupKey:1, status:1` (name=idx_group_status)<br>`eventId:1, parentOrderId:1, status:1` (name=idx_event_parent_status)<br>`paymentProviderMeta.checkoutIntentId:1` (name=idx_provider_intent, sparse)<br>`paymentProviderMeta.tokenHash:1` (name=idx_provider_tokenhash, sparse)<br>`meta.checkoutIntentId:1` (name=idx_legacy_intent, sparse)<br>`meta.tokenHash:1` (name=idx_legacy_tokenhash, sparse)
+`seasonCode:1`<br>`venueSlug:1`<br>`eventId:1`<br>`parentOrderId:1`<br>`groupKey:1`<br>`itemName:1`<br>`payerEmail:1`<br>`lines.tariffCode:1`<br>`status:1`<br>`origin.flow:1`<br>`mailTemplateKind:1`<br>`seasonCode:1, venueSlug:1, groupKey:1, status:1` (name=idx_group_status)<br>`eventId:1, parentOrderId:1, status:1` (name=idx_event_parent_status)<br>`paymentProviderMeta.checkoutIntentId:1` (name=idx_provider_intent, sparse)<br>`paymentProviderMeta.tokenHash:1` (name=idx_provider_tokenhash, sparse)<br>`meta.checkoutIntentId:1` (name=idx_legacy_intent, sparse)<br>`meta.tokenHash:1` (name=idx_legacy_tokenhash, sparse)<br>`meta.eventId:1` (name=idx_legacy_event, sparse)
 
 ### Season
 
@@ -454,4 +496,26 @@ nav_order: 120
 #### Indexes
 
 `slug:1` (unique)
+
+### ZoneCatalog
+
+#### Top-level fields
+
+- `access`: `String`
+- `capacity`: `Number`
+- `createdAt`: `Date`
+- `isActive`: `Boolean`
+- `key`: `String`
+- `meta`: `Mixed`
+- `metaZone`: `String`
+- `name`: `String`
+- `quota`: `Number`
+- `svgSelector`: `String`
+- `type`: `String`
+- `updatedAt`: `Date`
+- `venueSlug`: `String`
+
+#### Indexes
+
+`venueSlug:1`<br>`metaZone:1`<br>`venueSlug:1, key:1` (unique)
 

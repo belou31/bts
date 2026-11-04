@@ -1,6 +1,7 @@
 // src/services/payments/sumup.js
 import { providerFetch, createTokenCache } from './http.js';
 import { providerError } from './provider-error.js';
+import { buildOrderDescription } from './order-description.js';
 
 const DEFAULT_API_BASE = 'https://api.sumup.com/v0.1';
 const DEFAULT_TOKEN_URL = 'https://api.sumup.com/token';
@@ -142,7 +143,7 @@ function buildCheckoutPayload({ order, urls }) {
     pay_to_email: process.env.SUMUP_PAY_TO_EMAIL || undefined,
     amount: totalAmountFromOrder(order),
     currency,
-    description: order.itemName || `Order ${order._id}`,
+    description: buildOrderDescription(order),
     return_url: urls.returnUrl || undefined,
     cancel_url: urls.backUrl || undefined,
     failure_url: urls.errorUrl || undefined,

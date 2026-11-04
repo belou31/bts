@@ -6,7 +6,14 @@
  *   node scripts/03-season-management/import-subscription-orders.js <path/orders.csv> [--season=2025-2026] [--venue=patinoire-blagnac] [--status=paid] [--commit] [--force] [--sendEmails]
  *
  * Notes:
- *   - CSV columns follow the export format: orderId,createdAt,phase,status,payerFirstName,payerLastName,payerEmail,seasonCode,venueSlug,paymentSplit,totalCents,providerName,haOrderId,checkoutIntentId,lastReturnCode,lastWebhookEvent,attestationSentAt,lineIndex,seatId,zoneKey,tariffCode,priceCents,holderFirstName,holderLastName
+ *   - Required columns: phase,status,payerFirstName,payerLastName,payerEmail,seasonCode,venueSlug,paymentSplit,totalCents,lineIndex,seatId,zoneKey,tariffCode,priceCents,holderFirstName,holderLastName
+ *   - Optional columns (read when present, safely defaulted otherwise):
+ *     orderId,groupKey,orderRef,createdAt,providerName,haOrderId,checkoutIntentId,lastReturnCode,lastWebhookEvent,attestationSentAt
+ *   - orderId identifies a PRE-EXISTING BTS order to update; a brand-new import
+ *     (e.g. subscribers who never had a BTS order) can omit it entirely. Rows
+ *     are then grouped by orderRef/groupKey if present, otherwise each row
+ *     becomes its own order (one seat = one subscriber) — same fallback
+ *     scripts/04-event-management/import-orders.js already uses.
  *   - Only orders with phase=subscription are created/updated.
  *   - By default runs in dry-run mode; add --commit to persist.
  *   - Use --force to ignore seat availability checks.
@@ -74,11 +81,17 @@ const resolveCsvPath = (p) => {
   return abs;
 };
 
+// orderId, createdAt, and the provider/webhook tracking columns are
+// deliberately NOT required here: every one of them already has a safe
+// fallback below when absent (orderId → grouped/auto-generated key,
+// createdAt → now, the rest → '' / undefined on the order's meta). Requiring
+// the header to exist anyway only broke CSVs that never had a prior BTS
+// order or payment trail to carry — exactly the Event Orders importer
+// (src/services/importers/eventOrdersImporter.js) never required them.
 const CSV_COLUMNS = [
-  'orderId', 'createdAt', 'phase', 'status',
+  'phase', 'status',
   'payerFirstName', 'payerLastName', 'payerEmail',
   'seasonCode', 'venueSlug', 'paymentSplit', 'totalCents',
-  'providerName', 'haOrderId', 'checkoutIntentId', 'lastReturnCode', 'lastWebhookEvent', 'attestationSentAt',
   'lineIndex', 'seatId', 'zoneKey', 'tariffCode', 'priceCents', 'holderFirstName', 'holderLastName'
 ];
 
@@ -135,7 +148,8 @@ async function loadRows(csvPath) {
 
   let headerParsed = false;
   let header = [];
-  const orderLines = new Map(); // orderId -> { header, lines: [] }
+  const groups = new Map(); // groupKey -> { orderId: string|null, rows: [] }
+  let auto = 0;
 
   for await (const raw of rl) {
     const line = raw.trimEnd();
@@ -156,19 +170,32 @@ async function loadRows(csvPath) {
       row[header[i]] = cols[i];
     }
 
-    const orderId = row.orderId?.trim();
-    if (!orderId) continue;
-
-    if (!orderLines.has(orderId)) {
-      orderLines.set(orderId, { rows: [] });
+    const orderId = (row.orderId || '').trim();
+    // Même hiérarchie que import-orders.js (eventOrdersImporter.loadCsvGroups) :
+    // orderId d'abord (ré-import d'un export existant), puis orderRef/groupKey
+    // pour grouper plusieurs lignes d'un même abonné sans ID BTS préexistant,
+    // et en dernier recours une clé par ligne — un import "nouveaux abonnés"
+    // n'a jamais eu d'orderId à fournir.
+    let groupKey = orderId || row.orderRef?.trim() || row.groupKey?.trim();
+    if (!groupKey) {
+      auto += 1;
+      const email = (row.payerEmail || 'unknown').trim().toLowerCase();
+      groupKey = `${email}::${auto}`;
     }
-    orderLines.get(orderId).rows.push(row);
+
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, { orderId: orderId || null, rows: [] });
+    }
+    const pack = groups.get(groupKey);
+    if (!pack.orderId && orderId) pack.orderId = orderId;
+    pack.rows.push(row);
   }
 
-  return orderLines;
+  return groups;
 }
 
-function orderFromRows(orderId, group) {
+function orderFromRows(key, group) {
+  const orderId = group.orderId || null;
   const rows = group.rows;
   if (!rows.length) return null;
 
@@ -223,7 +250,9 @@ function orderFromRows(orderId, group) {
 
   const totalCents = lines.reduce((acc, l) => acc + (l.priceCents || 0), 0) || totalCentsCsv;
 
-  const groupKey = first.groupKey || first.orderRef || orderId;
+  // `key` (the loadRows grouping key) is the ultimate fallback: it's never
+  // empty, even when the CSV carries none of orderId/orderRef/groupKey.
+  const groupKey = first.groupKey || first.orderRef || orderId || key;
 
   return {
     orderId,
@@ -272,12 +301,12 @@ async function main() {
   let skipped = 0;
   let bookedSeats = 0;
 
-  for (const [orderId, pack] of groups.entries()) {
+  for (const [key, pack] of groups.entries()) {
     let parsed;
     try {
-      parsed = orderFromRows(orderId, pack);
+      parsed = orderFromRows(key, pack);
     } catch (err) {
-      console.error(`✖ Impossible de parser la commande ${orderId}: ${err.message}`);
+      console.error(`✖ Impossible de parser la commande ${key}: ${err.message}`);
       skipped++;
       continue;
     }
@@ -298,7 +327,7 @@ async function main() {
       for (const seatId of lineSeatIds) {
         const seat = seatMap.get(seatId);
         if (!seat) {
-          console.warn(`  ↳ Seat introuvable ${seatId} pour ${orderId}`);
+          console.warn(`  ↳ Seat introuvable ${seatId} pour ${key}`);
           seatIssue = true;
           continue;
         }
@@ -315,16 +344,16 @@ async function main() {
     }
 
     if (DRY_RUN) {
-      console.log(`• [DRY] ${orderId} seats=${lines.length} payer=${payerEmail} status=${status}`);
+      console.log(`• [DRY] ${key} seats=${lines.length} payer=${payerEmail} status=${status}`);
       continue;
     }
 
     let existing = null;
     if (parsed.objectId) {
       existing = await Order.findById(parsed.objectId);
-    } else {
+    } else if (parsed.orderId) {
       try {
-        existing = await Order.findById(orderId);
+        existing = await Order.findById(parsed.orderId);
       } catch { existing = null; }
     }
 
@@ -333,7 +362,7 @@ async function main() {
       seasonCode,
       venueSlug,
       phase: 'subscription',
-      groupKey: parsed.groupKey || groupKey,
+      groupKey: parsed.groupKey,
       payerFirstName: parsed.payerFirstName || '',
       payerLastName:  parsed.payerLastName  || '',
       payerEmail,
@@ -356,7 +385,7 @@ async function main() {
       paymentProviderMeta: {
         importedAt: new Date(),
         source: 'import-subscription-orders',
-        legacyOrderId: orderId,
+        legacyOrderId: parsed.orderId || undefined,
         haOrderId: parsed.meta.haOrderId || undefined,
         checkoutIntentId: parsed.meta.checkoutIntentId || undefined,
         lastReturnCode: parsed.meta.lastReturnCode || undefined,
@@ -378,11 +407,11 @@ async function main() {
       existing.set(orderDoc);
       order = await existing.save();
       updated++;
-      console.log(`↺ update: ${orderId}`);
+      console.log(`↺ update: ${order._id}`);
     } else {
       order = await Order.create(orderDoc);
       created++;
-      console.log(`✓ insert: ${orderId}`);
+      console.log(`✓ insert: ${order._id}`);
     }
 
     let seatsBookedHere = 0;
@@ -405,7 +434,7 @@ async function main() {
       }
       bookedSeats += seatsBookedHere;
       if (!seatsBookedHere) {
-        console.warn(`  ↳ Aucun siège booké pour ${orderId} (déjà réservé ?)`);
+        console.warn(`  ↳ Aucun siège booké pour ${order._id} (déjà réservé ?)`);
       }
     }
 
@@ -414,7 +443,7 @@ async function main() {
         await sendOrderAttestationIfNeeded(order, { source: 'script:import-subscription-orders' });
         console.log(`  ↳ Confirmation envoyée: ${order.payerEmail}`);
       } catch (err) {
-        console.error(`  ✉️  Échec envoi email pour ${orderId}: ${err.message}`);
+        console.error(`  ✉️  Échec envoi email pour ${order._id}: ${err.message}`);
       }
     }
   }

@@ -6,6 +6,18 @@ import { compileSeatPattern, explainNoMatch } from '../lib/seat-pattern.js';
 import { SeatHold } from '../../src/models/SeatHold.js';
 import { Event } from '../../src/models/Event.js';
 import { Seat } from '../../src/models/Seat.js';
+import { ADMIN_RELEASE_REASON } from '../../src/services/event-seat-states.js';
+
+// Même repli que seat-state.routes.js (admin/plan) quand la ligne CSV ne
+// donne pas d'expiresAt pour un release : tenir jusqu'au coup d'envoi (+12h
+// de marge) plutôt qu'une durée arbitraire ; sans date de match connue,
+// 30 jours.
+function defaultReleaseUntil(eventDoc) {
+  if (eventDoc?.startsAt) {
+    return new Date(Math.max(new Date(eventDoc.startsAt).getTime(), Date.now()) + 12 * 60 * 60 * 1000);
+  }
+  return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+}
 
 const argv = yargs(hideBin(process.argv))
   .option('event', { type: 'string', demandOption: true, desc: 'Slug ou ID de l\'événement' })
@@ -42,9 +54,9 @@ function parseDate(value) {
 
   let eventDoc;
   if (/^[0-9a-fA-F]{24}$/.test(eventKey)) {
-    eventDoc = await Event.findById(eventKey).select({ _id: 1, seasonCode: 1, venueSlug: 1 }).lean();
+    eventDoc = await Event.findById(eventKey).select({ _id: 1, seasonCode: 1, venueSlug: 1, startsAt: 1 }).lean();
   } else {
-    eventDoc = await Event.findOne({ slug: eventKey }).select({ _id: 1, seasonCode: 1, venueSlug: 1 }).lean();
+    eventDoc = await Event.findOne({ slug: eventKey }).select({ _id: 1, seasonCode: 1, venueSlug: 1, startsAt: 1 }).lean();
   }
   if (!eventDoc?._id) {
     console.error(`❌ Événement introuvable pour "${eventKey}"`);
@@ -56,7 +68,6 @@ function parseDate(value) {
 
   const rows = await readCsv(argv.file);
   let blocked = 0, freed = 0;
-  let seatsHeld = 0, seatsFreedCount = 0;
   let holdUpserts = 0, holdDeletes = 0;
 
   for (const r of rows) {
@@ -120,30 +131,12 @@ function parseDate(value) {
         holdUpserts++;
       }
       blocked++;
-
-      const holdReason = reason || (argv.force ? 'Admin hold (force)' : 'Admin hold');
-      const seatUpdate = {
-        $set: {
-          status: 'busy',
-          'meta.hold.reason': holdReason
-        }
-      };
-      if (expiresAt) {
-        seatUpdate.$set['meta.hold.until'] = expiresAt;
-      } else {
-        seatUpdate.$unset = { 'meta.hold.until': '' };
-      }
-
-      const blockFilter = { ...seatFilter };
-      if (!argv.force) {
-        blockFilter.status = { $in: ['available', 'busy'] };
-      }
-      const res = await Seat.updateMany(blockFilter, seatUpdate);
-      const modified = Number(res.modifiedCount || 0);
-      seatsHeld += modified;
-      if (modified === 0) {
-        console.warn('⚠️  Aucun siège mis à jour pour ce blocage (déjà réservé ou introuvable).');
-      }
+      // Rien de plus à écrire : ce script bloque POUR UN MATCH, donc
+      // uniquement via SeatHold (eventId, ci-dessus) — jamais Seat.status,
+      // qui vaut pour la SAISON entière et vaudrait pour tous les autres
+      // matchs. C'est exactement ce que fait admin/plan (src/routes/admin/
+      // seat-state.routes.js) pour un blocage scope "event" ; block-free-
+      // seats-for-SEASON.js reste le seul endroit qui touche Seat.status.
     } else if (action === 'free') {
       const holdDeletionFilter = (() => {
         if (seatsToTarget.length) {
@@ -167,21 +160,38 @@ function parseDate(value) {
       const delRes = await SeatHold.deleteMany(holdDeletionFilter);
       freed++;
       holdDeletes += Number(delRes.deletedCount || 0);
-
-      const seatUpdate = {
-        $set: { status: 'available' },
-        $unset: { 'meta.hold': '' }
-      };
-      const freeFilter = { ...seatFilter };
-      if (!argv.force) {
-        freeFilter.status = { $in: ['busy', 'held'] };
-      }
-
-      const res = await Seat.updateMany(freeFilter, seatUpdate);
-      const modified = Number(res.modifiedCount || 0);
-      seatsFreedCount += modified;
-      if (modified === 0) {
-        console.warn('⚠️  Aucun siège mis à jour pour cette libération (peut-être déjà disponible).');
+      // Même raison que pour "block" : libérer ici ne doit défaire QUE le
+      // SeatHold de CET évènement. L'ancien code remettait aussi Seat.status
+      // à 'available' sans filtrer par eventId — donc au niveau de la SAISON
+      // entière, rendant la place disponible pour TOUS les matchs d'un coup.
+      //
+      // Mais supprimer ce SeatHold ne suffit pas toujours : si la SAISON
+      // elle-même est 'busy' (block-free-seats-for-SEASON.js, ou le même
+      // bouton en portée saison dans admin/plan), rien ne dit « disponible
+      // pour CE match » tant qu'aucun SeatHold de signe opposé n'existe —
+      // computeEventSeatStates et admin/plan lisent tous deux
+      // ADMIN_RELEASE_REASON pour ça (src/services/event-seat-states.js).
+      // Limité aux sièges ciblés individuellement : un blocage de ZONE
+      // (sans seatId résolu) n'a pas de Seat.status par siège à consulter.
+      if (seatsToTarget.length) {
+        const targetSeatIds = seatsToTarget.map(s => s.seatId);
+        const busySeats = await Seat.find(
+          { seasonCode, venueSlug, seatId: { $in: targetSeatIds }, status: 'busy' },
+          { seatId: 1, _id: 0 }
+        ).lean();
+        for (const s of busySeats) {
+          await SeatHold.findOneAndUpdate(
+            { eventId, seatId: s.seatId },
+            {
+              eventId, seatId: s.seatId, seasonCode, venueSlug,
+              reason: ADMIN_RELEASE_REASON, sessionToken: '', orderId: null,
+              expiresAt: expiresAt || defaultReleaseUntil(eventDoc),
+              forced: !!argv.force
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+          );
+          holdUpserts++;
+        }
       }
     } else {
       console.warn('⏭️  action inconnue:', action);
@@ -191,7 +201,6 @@ function parseDate(value) {
   console.log(`✅ Blocked: ${blocked} | Freed: ${freed}`);
   if (argv.commit) {
     console.log(`ℹ️ SeatHold upserts=${holdUpserts} deletes=${holdDeletes}`);
-    console.log(`ℹ️ Seats mis à jour → busy: ${seatsHeld}, freed: ${seatsFreedCount}`);
   }
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

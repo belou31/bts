@@ -2032,7 +2032,7 @@ export const adminScriptGroups = [
           script: 'scripts/03-season-management/import-subscription-orders.js',
           args: []
         },
-        description: 'Re-import subscription orders exported from the system. Dry-run by default; add --commit to apply changes.',
+        description: 'Import subscription orders — re-import an export from this system (orderId present), or a brand-new CSV for subscribers who never had a BTS order (orderId omitted; rows then group by orderRef/groupKey, or one order per row). Dry-run by default; add --commit to apply changes.',
         templates: ['data_references/csv/orders-export.template.csv'],
         form: {
           fields: [
