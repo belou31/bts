@@ -6,17 +6,16 @@
  *   node scripts/05-partner-management/generate-partner-token.js --partner=<slug> [--event=<eventSlug> | --season=<seasonCode> | --default] [--force]
  *
  * Defaults to --default when no target is provided.
- * The token is stored in data/customization/partners.json under:
+ * The token is stored in data/customization/partners/<slug>/partner.json under:
  *   - accessToken (default)
  *   - tokens.events[eventSlug]
  *   - tokens.seasons[seasonCode]
  * If a token already exists and --force is not provided, the existing token is reused.
  */
 
-import fs from 'fs';
-import path from 'path';
 import crypto from 'crypto';
 import process from 'process';
+import { readPartnerConfig, writePartnerConfig } from '../../src/config/partners.js';
 
 const args = process.argv.slice(2);
 const getOpt = (name) => {
@@ -36,28 +35,19 @@ if (!partnerSlug) {
   process.exit(1);
 }
 
-const targetDir = path.resolve(process.cwd(), 'data', 'customization');
-const targetFile = path.join(targetDir, 'partners.json');
-
-if (!fs.existsSync(targetFile)) {
-  console.error(`[partners:token] ${targetFile} not found. Initialize with init-partners or upsert first.`);
+let found;
+try {
+  found = readPartnerConfig(partnerSlug);
+} catch (err) {
+  console.error(`[partners:token] Unable to read ${found?.file || 'partner config'}: ${err.message}`);
+  process.exit(1);
+}
+if (!found.cfg) {
+  console.error(`[partners:token] partner "${partnerSlug}" not found (${found.file})`);
   process.exit(1);
 }
 
-const raw = fs.readFileSync(targetFile, 'utf8');
-const partners = JSON.parse(raw);
-if (!Array.isArray(partners)) {
-  console.error('[partners:token] partners.json is not an array');
-  process.exit(1);
-}
-
-const idx = partners.findIndex(p => (p?.slug || '').toLowerCase() === partnerSlug.toLowerCase());
-if (idx === -1) {
-  console.error(`[partners:token] partner "${partnerSlug}" not found in ${targetFile}`);
-  process.exit(1);
-}
-
-const entry = partners[idx] || {};
+const entry = found.cfg;
 entry.tokens = entry.tokens || { events: {}, seasons: {} };
 
 let targetLabel = 'default';
@@ -80,9 +70,8 @@ if (isDefault) {
   targetLabel = `season:${seasonCode}`;
 }
 
-partners[idx] = entry;
-fs.mkdirSync(targetDir, { recursive: true });
-fs.writeFileSync(targetFile, JSON.stringify(partners, null, 2), 'utf8');
+const written = writePartnerConfig(entry.slug, entry);
+console.log(`[partners:token] Written ${written}`);
 
 console.log(`[partners:token] ${FORCE ? 'Generated' : 'Using'} ${targetLabel} token for "${entry.slug}"`);
 console.log(`[partners:token] Token: ${token}`);

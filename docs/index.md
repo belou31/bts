@@ -21,14 +21,15 @@ Cette arborescence `docs/` est désormais la **source de vérité** de la docume
 7. [API d’automatisation](automation-api.md)
 8. [Paiements](payments.md)
 9. [Stubs de paiement](stubs.md)
-10. [Authentification partenaire (OpenID Connect)](partner-oidc.md)
-11. [Annuaire partenaire (connexion sans OpenID)](partner-directory.md)
-12. [Contrôles de panier](cart-rules.md)
-13. [Intégrations tableur](spreadsheet-integrations.md)
-14. [Runbook d’exploitation](operations-runbook.md)
-15. [Modèle de données](data-model.md)
-16. [Migrations](migrations.md)
-17. [Dépannage](troubleshooting.md)
+10. [Configuration des partenaires](partner-config.md)
+11. [Authentification partenaire (OpenID Connect)](partner-oidc.md)
+12. [Annuaire partenaire (connexion sans OpenID)](partner-directory.md)
+13. [Contrôles de panier](cart-rules.md)
+14. [Intégrations tableur](spreadsheet-integrations.md)
+15. [Runbook d’exploitation](operations-runbook.md)
+16. [Modèle de données](data-model.md)
+17. [Migrations](migrations.md)
+18. [Dépannage](troubleshooting.md)
 
 ## État de migration
 

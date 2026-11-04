@@ -2,7 +2,7 @@
 //
 // Annuaire local d'un partenaire qui n'a pas de fournisseur d'identité.
 //
-// Activation : `"connection": "directory"` dans partners.json (script
+// Activation : `"connection": "directory"` dans le fichier du partenaire (script
 // set-partner-connection.js, cf. services/partner-connection.js).
 // L'administrateur du partenaire importe la liste
 // de ses ayants droit en CSV sur /partner/<slug>/admin/directory ; l'ayant

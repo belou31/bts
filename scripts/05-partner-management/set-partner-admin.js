@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 /**
- * Set or update partner admin credentials in data/customization/partners.json.
+ * Set or update partner admin credentials in data/customization/partners/<slug>/partner.json.
  *
  * Usage:
  *   node scripts/05-partner-management/set-partner-admin.js --partner=<slug> --user=<login> --pass=<password>
  */
 
-import fs from 'fs';
-import path from 'path';
 import process from 'process';
+import { readPartnerConfig, writePartnerConfig } from '../../src/config/partners.js';
 
 const args = process.argv.slice(2);
 const getOpt = (name) => {
@@ -29,34 +28,19 @@ if (!partnerSlug || !user || !pass) {
   process.exit(1);
 }
 
-const targetDir = path.resolve(process.cwd(), 'data', 'customization');
-const targetFile = path.join(targetDir, 'partners.json');
-fs.mkdirSync(targetDir, { recursive: true });
-
-if (!fs.existsSync(targetFile)) {
-  console.error(`[partner-admin] ${targetFile} not found. Initialize partners first.`);
-  process.exit(1);
-}
-
-let entries = [];
+let found;
 try {
-  const raw = fs.readFileSync(targetFile, 'utf8');
-  const parsed = JSON.parse(raw);
-  if (Array.isArray(parsed)) entries = parsed;
+  found = readPartnerConfig(partnerSlug);
 } catch (err) {
-  console.error(`[partner-admin] Unable to read ${targetFile}: ${err.message}`);
+  console.error(`[partner-admin] Unable to read the partner config: ${err.message}`);
+  process.exit(1);
+}
+if (!found.cfg) {
+  console.error(`[partner-admin] partner "${partnerSlug}" not found (${found.file})`);
   process.exit(1);
 }
 
-const idx = entries.findIndex(e => (e?.slug || '').toLowerCase() === partnerSlug.toLowerCase());
-if (idx === -1) {
-  console.error(`[partner-admin] partner "${partnerSlug}" not found in ${targetFile}`);
-  process.exit(1);
-}
-
-const entry = entries[idx] || {};
+const entry = found.cfg;
 entry.admin = { user, pass };
-entries[idx] = entry;
-
-fs.writeFileSync(targetFile, JSON.stringify(entries, null, 2), 'utf8');
-console.log(`[partner-admin] Updated admin credentials for "${entry.slug}" in ${targetFile}`);
+const written = writePartnerConfig(entry.slug, entry);
+console.log(`[partner-admin] Updated admin credentials for "${entry.slug}" in ${written}`);

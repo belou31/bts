@@ -38,12 +38,12 @@ Any `client_id` is accepted; the SFI profile needs a non-empty `client_secret`.
   In `manual`, the login screen also lets you pick a scenario for one login.
 - **Test identities** for each profile (SFI: spouse 1/0, number of children,
   company code).
-- **`oidc` blocks to paste into `data/customization/partners.json`** for each
+- **`oidc` blocks to paste into `data/customization/partners/<slug>/partner.json`** for each
   profile, and the public key (PEM) for `idTokenPublicKey`.
 - **Recent calls** (also at `/events.json`).
 
 The signing key is kept in `stub_oidc/.keys/` (git-ignored), so a key pasted
-into `partners.json` stays valid across restarts. Delete the file to rotate it.
+into a partner's `partner.json` stays valid across restarts. Delete the file to rotate it.
 
 ## Wiring BTS
 

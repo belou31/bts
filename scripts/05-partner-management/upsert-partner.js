@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 /**
- * Create or update a partner entry in data/customization/partners.json.
+ * Create or update a partner: data/customization/partners/<slug>/partner.json.
  *
  * Usage:
- *   node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [options]
+ *   node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [--template=openid|directory|none] [options]
  *
  * Options:
+ *   --template=openid|directory|none   (creation only) start from the template of
+ *                                      this connection kind: a full copy, edited
+ *                                      afterwards in the partner's own file.
  *   --payment-mode=psp|invoice_auto    (default: psp)
  *   --allow-public-tariffs=yes|no    (default: no)
  *   --payment-provider=<id>            (for invoice_auto mode)
@@ -15,13 +18,14 @@
  *   --auto-finalize=yes|no             (invoice_auto, default: yes)
  *   --send-tickets=yes|no              (invoice_auto, default: yes)
  *
- * The script is additive/idempotent: an existing entry with the same slug
- * will be merged with the provided options and rewritten to disk.
+ * Without --template the script is additive/idempotent: an existing partner is
+ * merged with the provided options and rewritten to disk. With --template, the
+ * template is copied and only the options actually given override it; a
+ * partner that already exists is refused (a template is never re-applied).
  */
 
-import fs from 'fs';
-import path from 'path';
 import process from 'process';
+import { readPartnerConfig, writePartnerConfig, loadPartnerTemplate } from '../../src/config/partners.js';
 
 const args = process.argv.slice(2);
 
@@ -36,79 +40,81 @@ const getOption = (name, defaultValue = undefined) => {
   return defaultValue;
 };
 
-const parseList = (val = '') =>
-  aTrim(val)
-    ?.split(/[,\s]+/)
-    .map(v => v.trim())
-    .filter(Boolean) || [];
-
 const boolOption = (name, fallback) => {
   const raw = getOption(name);
-  if (raw == null) return fallback;
+  if (raw == null || raw === '') return fallback;
   return ['1', 'true', 'yes', 'y'].includes(String(raw).toLowerCase());
 };
 
-const slug = getOption('slug');
+const slug = (getOption('slug') || '').toLowerCase();
 const name = getOption('name');
+const templateKind = (getOption('template') || '').toLowerCase();
 
 if (!slug || !name) {
-  console.error('Usage: node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [options]');
+  console.error('Usage: node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [--template=openid|directory|none] [options]');
   process.exit(1);
 }
 
-const paymentMode = getOption('payment-mode', 'psp');
-const allowPublicTariffs = boolOption('allow-public-tariffs', false);
+let existing;
+try {
+  existing = readPartnerConfig(slug);
+} catch (err) {
+  console.error(`[partners:upsert] Unable to read the config of "${slug}": ${err.message}`);
+  process.exit(1);
+}
 
-const reserve =
-  paymentMode === 'invoice_auto'
-    ? {
-        status: 'paid',
-        paymentProvider: getOption('payment-provider', `${slug}_invoice`),
-        autoFinalize: boolOption('auto-finalize', true),
-        sendTickets: boolOption('send-tickets', true),
-        payButtonLabel: getOption('pay-button', 'Envoyer ma demande'),
-        successMessage: getOption('success-message', 'Votre demande a été enregistrée. Vous recevrez vos billets par email.'),
-        errorMessage: getOption('error-message', 'Impossible d’enregistrer votre demande pour le moment.')
-      }
-    : null;
+const reserveFor = (paymentMode) => (paymentMode === 'invoice_auto'
+  ? {
+      status: 'paid',
+      paymentProvider: getOption('payment-provider', `${slug}_invoice`),
+      autoFinalize: boolOption('auto-finalize', true),
+      sendTickets: boolOption('send-tickets', true),
+      payButtonLabel: getOption('pay-button', 'Envoyer ma demande'),
+      successMessage: getOption('success-message', 'Votre demande a été enregistrée. Vous recevrez vos billets par email.'),
+      errorMessage: getOption('error-message', 'Impossible d’enregistrer votre demande pour le moment.')
+    }
+  : null);
 
-const partner = {
-  slug: slug.toLowerCase(),
-  name,
-  paymentMode,
-  allowPublicTariffs,
-  reserve
-};
-
-const targetDir = path.resolve(process.cwd(), 'data', 'customization');
-const targetFile = path.join(targetDir, 'partners.json');
-fs.mkdirSync(targetDir, { recursive: true });
-
-let entries = [];
-if (fs.existsSync(targetFile)) {
-  try {
-    const raw = fs.readFileSync(targetFile, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) entries = parsed;
-  } catch (err) {
-    console.error(`[partners:upsert] Unable to read ${targetFile}: ${err.message}`);
+if (templateKind) {
+  if (existing.cfg) {
+    console.error(`[partners:upsert] "${slug}" already exists (${existing.legacy ? 'partners.json' : existing.file}): a template only applies at creation. Edit the partner's file, or use the Set Partner … scripts.`);
     process.exit(1);
   }
+  let template;
+  try {
+    template = loadPartnerTemplate(templateKind);
+  } catch (err) {
+    console.error(`[partners:upsert] ${err.message}`);
+    process.exit(1);
+  }
+  // Seules les options données remplacent le modèle.
+  const partner = { slug, name, ...template.cfg, name };
+  const paymentMode = getOption('payment-mode');
+  if (paymentMode) {
+    partner.paymentMode = paymentMode;
+    partner.reserve = reserveFor(paymentMode);
+  }
+  const allowPublic = boolOption('allow-public-tariffs', undefined);
+  if (allowPublic !== undefined) partner.allowPublicTariffs = allowPublic;
+
+  const written = writePartnerConfig(slug, partner);
+  console.log(`[partners:upsert] Created partner "${slug}" from template ${template.source}`);
+  console.log(`[partners:upsert] Written ${written}`);
+  template.notes.forEach(n => console.log(`  ℹ ${n}`));
+  process.exit(0);
 }
 
-const idx = entries.findIndex(e => (e?.slug || '').toLowerCase() === partner.slug);
-if (idx >= 0) {
-  entries[idx] = {
-    ...entries[idx],
-    ...partner,
-    reserve: partner.reserve,
-    slug: partner.slug
-  };
-  console.log(`[partners:upsert] Updated partner "${partner.slug}"`);
-} else {
-  entries.push(partner);
-  console.log(`[partners:upsert] Added partner "${partner.slug}"`);
-}
+const paymentMode = getOption('payment-mode', 'psp');
+const partner = {
+  slug,
+  name,
+  paymentMode,
+  allowPublicTariffs: boolOption('allow-public-tariffs', false),
+  reserve: reserveFor(paymentMode)
+};
 
-fs.writeFileSync(targetFile, JSON.stringify(entries, null, 2), 'utf8');
-console.log(`[partners:upsert] Written ${entries.length} partner(s) to ${targetFile}`);
+const merged = existing.cfg ? { ...existing.cfg, ...partner } : partner;
+const written = writePartnerConfig(slug, merged);
+console.log(`[partners:upsert] ${existing.cfg ? 'Updated' : 'Added'} partner "${slug}"`);
+console.log(`[partners:upsert] Written ${written}`);
+if (!existing.cfg) console.log('[partners:upsert] No template given: connection "none". Use --template=openid|directory|none to start from a full model.');

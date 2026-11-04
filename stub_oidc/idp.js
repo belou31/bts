@@ -49,7 +49,7 @@ export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c =>
  * @param {Function} o.baseUrl  rend l'URL publique du profil standard (émetteur)
  * @param {string}  [o.keyFile] PEM de la clé privée, créé au premier lancement
  *                              et relu ensuite : une clé collée dans
- *                              partners.json survit au redémarrage du stub.
+ *                              partner.json survit au redémarrage du stub.
  */
 export function createIdp({ baseUrl, keyFile = null } = {}) {
   const base = () => String(baseUrl()).replace(/\/+$/, '');

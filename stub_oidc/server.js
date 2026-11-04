@@ -7,7 +7,7 @@
 // Two profiles on one server (see stub_oidc/idp.js):
 //   standard  http://127.0.0.1:3016          (discovery, PKCE, JWKS)
 //   sfi       http://127.0.0.1:3016/sfi      (AISC / Castelis preprod dialect)
-// Dashboard at / : default scenario, test identities, partners.json snippets,
+// Dashboard at / : default scenario, test identities, partner.json snippets,
 // recent calls.
 import express from 'express';
 import path from 'path';
@@ -21,7 +21,7 @@ const PORT = Number(process.env.PORT || process.env.OIDC_STUB_PORT || 3016);
 const PUBLIC_URL = (process.env.OIDC_STUB_PUBLIC_URL || `http://${HOST}:${PORT}`).replace(/\/+$/, '');
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 // Clé de signature conservée d'un lancement à l'autre : une clé publique
-// collée dans partners.json reste valable après redémarrage du stub.
+// collée dans partner.json reste valable après redémarrage du stub.
 const KEY_FILE = process.env.OIDC_STUB_KEY_FILE || path.join(DIR, '.keys', 'signing-key.pem');
 
 if (String(process.env.APP_ENV || '').toLowerCase() === 'production') {
@@ -121,7 +121,7 @@ Clé de signature <code>${esc(idp.keys().kid)}</code> conservée dans <code>${es
 <p class="muted"><code>autres_ad</code> = nombre d'enfants (0 à 9) ; <code>conjoint</code> 1/0.</p></section>
 </div>
 
-<section><h2>Configurer un partenaire BTS (bloc <code>oidc</code> de partners.json)</h2>
+<section><h2>Configurer un partenaire BTS (bloc <code>oidc</code> de partners/&lt;slug&gt;/partner.json)</h2>
 <p class="muted">Puis activer la connexion : <code>"connection": "openid"</code> dans l'entrée du partenaire (console : Set Partner Connection).</p>
 <div class="cols">
 <div><p><strong>Standard</strong> — découverte sur <code>${esc(PUBLIC_URL)}/.well-known/openid-configuration</code></p><pre>${esc(standardSnippet)}</pre></div>
