@@ -17,7 +17,7 @@
  *   node scripts/05-partner-management/set-partner-presale.js --partner=<slug> --season=<seasonCode> --quota=<number>
  *   node scripts/05-partner-management/set-partner-presale.js --partner=<slug> --show
  *
- * Stores the quota under data/customization/partners.json:
+ * Stores the quota under data/customization/partners/<slug>/partner.json:
  * {
  *   presale: {
  *     events:  { "<eventSlug>":  { quota: <number> } },
@@ -26,8 +26,7 @@
  * }
  */
 
-import fs from 'fs';
-import path from 'path';
+import { readPartnerConfig, writePartnerConfig } from '../../src/config/partners.js';
 
 function parseArgv(argv) {
   const args = {};
@@ -65,25 +64,19 @@ if (!showOnly) {
   }
 }
 
-const file = path.resolve(process.cwd(), 'data', 'customization', 'partners.json');
-if (!fs.existsSync(file)) {
-  console.error('partners.json not found at', file);
+let found;
+try {
+  found = readPartnerConfig(partner);
+} catch (err) {
+  console.error(`[partner-presale] Unable to read the partner config: ${err.message}`);
+  process.exit(1);
+}
+if (!found.cfg) {
+  console.error(`[partner-presale] Partner "${partner}" not found (${found.file}).`);
   process.exit(1);
 }
 
-const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-if (!Array.isArray(parsed)) {
-  console.error('partners.json must contain an array.');
-  process.exit(1);
-}
-
-const idx = parsed.findIndex(p => (p?.slug || '').toLowerCase() === partner);
-if (idx === -1) {
-  console.error(`Partner "${partner}" not found in partners.json`);
-  process.exit(1);
-}
-
-const cfg = parsed[idx];
+const cfg = found.cfg;
 cfg.presale = cfg.presale || {};
 
 function describe() {
@@ -113,8 +106,7 @@ if (quota === 0) {
   cfg.presale[bucket][key] = { quota };
 }
 
-parsed[idx] = cfg;
-fs.writeFileSync(file, JSON.stringify(parsed, null, 2), 'utf8');
+writePartnerConfig(partner, cfg);
 console.log(quota === 0
   ? `✅ Prévente retirée : partenaire=${partner} ${bucket === 'events' ? 'événement' : 'saison'}=${key}`
   : `✅ Quota de prévente : partenaire=${partner} ${bucket === 'events' ? 'événement' : 'saison'}=${key} → ${quota} ${unit}`);

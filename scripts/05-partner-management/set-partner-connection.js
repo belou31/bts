@@ -12,15 +12,14 @@
  *   none       pas de connexion : pages ouvertes, ou protégées par le jeton
  *              statique (Generate Partner Token).
  *
- * Effet : écrit `"connection": "<mode>"` dans l'entrée du partenaire de
- * data/customization/partners.json et retire les anciens interrupteurs
+ * Effet : écrit `"connection": "<mode>"` dans le fichier du partenaire,
+ * data/customization/partners/<slug>/partner.json, et retire les anciens interrupteurs
  * (oidc.required, directory.enabled), pour qu'un seul réglage fasse foi. Les
  * blocs oidc / directory restent en place : changer de mode ne perd ni les
  * secrets du fournisseur d'identité ni les réglages de l'annuaire. Le reste de
  * l'entrée n'est pas touché. Voir src/services/partner-connection.js.
  */
-import fs from 'fs';
-import path from 'path';
+import { readPartnerConfig, writePartnerConfig } from '../../src/config/partners.js';
 import { CONNECTION_MODES, partnerConnection } from '../../src/services/partner-connection.js';
 
 const args = process.argv.slice(2);
@@ -37,25 +36,20 @@ if (!slug || !CONNECTION_MODES.includes(mode)) {
   process.exit(1);
 }
 
-const file = path.resolve(process.cwd(), 'data', 'customization', 'partners.json');
-let entries;
+let found;
 try {
-  entries = JSON.parse(fs.readFileSync(file, 'utf8'));
+  found = readPartnerConfig(slug);
 } catch (err) {
-  console.error(`❌ Lecture impossible de ${file} : ${err.message}`);
+  console.error(`❌ Lecture impossible de la configuration de « ${slug} » : ${err.message}`);
   process.exit(1);
 }
-if (!Array.isArray(entries)) {
-  console.error(`❌ ${file} : un tableau de partenaires est attendu`);
-  process.exit(1);
-}
-const partner = entries.find(e => String(e?.slug || '').toLowerCase() === slug);
+const partner = found.cfg;
 if (!partner) {
-  console.error(`❌ Partenaire « ${slug} » introuvable dans partners.json`);
+  console.error(`❌ Partenaire « ${slug} » introuvable (${found.file})`);
   process.exit(1);
 }
 if (mode === 'openid' && !(partner.oidc?.issuer && partner.oidc?.clientId)) {
-  console.error(`❌ « ${slug} » n'a pas de bloc oidc complet (issuer, clientId) : configurez-le dans partners.json avant de choisir openid.`);
+  console.error(`❌ « ${slug} » n'a pas de bloc oidc complet (issuer, clientId) : configurez-le dans ${found.file} avant de choisir openid.`);
   process.exit(1);
 }
 
@@ -75,8 +69,7 @@ if (mode === 'directory' && !partner.admin?.user) {
 }
 
 if (dryRun) {
-  console.log('✓ Dry-run : partners.json non modifié.');
+  console.log('✓ Dry-run : configuration non modifiée.');
   process.exit(0);
 }
-fs.writeFileSync(file, JSON.stringify(entries, null, 2) + '\n', 'utf8');
-console.log(`✓ ${file} mis à jour`);
+console.log(`✓ ${writePartnerConfig(slug, partner)} mis à jour`);

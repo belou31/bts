@@ -5,7 +5,7 @@ statique dans l'URL, et iframe sur le site du partenaire — sans les remplacer.
 Un partenaire dont la configuration ne porte pas de bloc `oidc` fonctionne
 exactement comme avant.
 
-Elle se configure par partenaire, dans `data/customization/partners.json`.
+Elle se configure par partenaire, dans `data/customization/partners/<slug>/partner.json` (voir `docs/partner-config.md` ; modèle de départ : `data_references/partners/openid.json`).
 
 ## Ce que BTS vérifie, et pourquoi
 
@@ -160,7 +160,7 @@ npm run oidc:stub        # http://127.0.0.1:3016, tableau de bord sur /
   client, erreur userinfo. Le défaut se choisit sur le tableau de bord ; en
   manuel, l'écran de connexion permet d'en choisir un pour une seule connexion ;
 - identités de test modifiables (dont conjoint et nombre d'enfants pour SFI) ;
-- le tableau de bord donne le bloc `oidc` à coller dans `partners.json` pour
+- le tableau de bord donne le bloc `oidc` à coller dans `partner.json` du partenaire pour
   chaque profil, et la clé publique PEM. La clé de signature est conservée dans
   `stub_oidc/.keys/` (hors git) : elle survit au redémarrage.
 

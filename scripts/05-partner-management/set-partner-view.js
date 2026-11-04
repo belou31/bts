@@ -6,9 +6,8 @@
  *   node scripts/05-partner-management/set-partner-view.js --slug=<slug> --venue-view=<slug> [--event=<eventSlug>] [--season=<code>]
  */
 
-import fs from 'fs';
-import path from 'path';
 import process from 'process';
+import { readPartnerConfig, writePartnerConfig } from '../../src/config/partners.js';
 
 const args = process.argv.slice(2);
 const aTrim = v => (v == null ? v : String(v).trim());
@@ -36,30 +35,19 @@ if (venueViewOpt === undefined) {
   process.exit(1);
 }
 
-const targetDir = path.resolve(process.cwd(), 'data', 'customization');
-const targetFile = path.join(targetDir, 'partners.json');
-if (!fs.existsSync(targetFile)) {
-  console.error(`partners.json not found at ${targetFile} (run init-partners.js first).`);
-  process.exit(1);
-}
-
-let entries = [];
+let found;
 try {
-  const raw = fs.readFileSync(targetFile, 'utf8');
-  const parsed = JSON.parse(raw);
-  if (Array.isArray(parsed)) entries = parsed;
+  found = readPartnerConfig(slug);
 } catch (err) {
-  console.error(`[partner-view] Unable to read ${targetFile}: ${err.message}`);
+  console.error(`[partner-view] Unable to read the partner config: ${err.message}`);
+  process.exit(1);
+}
+if (!found.cfg) {
+  console.error(`[partner-view] Partner "${slug}" not found (${found.file}).`);
   process.exit(1);
 }
 
-const idx = entries.findIndex(e => (e?.slug || '').toLowerCase() === slug.toLowerCase());
-if (idx === -1) {
-  console.error(`[partner-view] Partner "${slug}" not found.`);
-  process.exit(1);
-}
-
-const updated = { ...entries[idx] };
+const updated = { ...found.cfg };
 if (!updated.venueViews) {
   updated.venueViews = { events: {}, seasons: {} };
 }
@@ -71,6 +59,5 @@ if (eventOpt) {
   updated.venueView = venueViewOpt ? String(venueViewOpt) : null;
 }
 
-entries[idx] = updated;
-fs.writeFileSync(targetFile, JSON.stringify(entries, null, 2), 'utf8');
+writePartnerConfig(slug, updated);
 console.log(`[partner-view] Updated venue view for "${slug}"${eventOpt ? ` (event=${eventOpt})` : seasonOpt ? ` (season=${seasonOpt})` : ''}`);

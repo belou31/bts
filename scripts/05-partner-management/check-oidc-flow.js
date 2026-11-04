@@ -19,10 +19,25 @@ process.env.APP_ENV = 'development';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'bts-oidc-'));
 fs.mkdirSync(path.join(SANDBOX, 'data', 'customization'), { recursive: true });
-const REAL_CFG = path.join(ROOT, 'data', 'customization', 'partners.json');
-const REAL_BEFORE = fs.existsSync(REAL_CFG) ? fs.readFileSync(REAL_CFG, 'utf8') : null;
+// Configuration partenaire réelle (ancien tableau et fichiers par partenaire) :
+// le harnais ne doit jamais y toucher.
+const realPartnerSnapshot = () => {
+  const base = path.join(ROOT, 'data', 'customization');
+  const files = [path.join(base, 'partners.json')];
+  const dir = path.join(base, 'partners');
+  if (fs.existsSync(dir)) {
+    for (const d of fs.readdirSync(dir).sort()) files.push(path.join(dir, d, 'partner.json'));
+  }
+  return files.filter(f => fs.existsSync(f)).map(f => `${f}\n${fs.readFileSync(f, 'utf8')}`).join('\n');
+};
+const REAL_BEFORE = realPartnerSnapshot();
+// Un fichier par partenaire, comme data/customization/partners/<slug>/partner.json.
+const writePartners = (list) => list.forEach((p) => {
+  const f = path.join(SANDBOX, 'data', 'customization', 'partners', p.slug, 'partner.json');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(p, null, 2));
+});
 process.chdir(SANDBOX);
-const cfgPath = path.join(SANDBOX, 'data', 'customization', 'partners.json');
 
 const app = express();
 app.use(express.json());
@@ -39,7 +54,7 @@ function check(label, pass, detail = '') {
 }
 
 try {
-  fs.writeFileSync(cfgPath, JSON.stringify([
+  writePartners([
     {
       slug: 'zzoidc', name: 'Partenaire OIDC test',
       oidc: {
@@ -51,7 +66,7 @@ try {
       }
     },
     { slug: 'zzjeton', name: 'Partenaire à jeton statique' }
-  ], null, 2));
+  ]);
 
   // Même fournisseur factice que « npm run oidc:stub » (stub_oidc/idp.js),
   // monté ici en mémoire sur un port éphémère.
@@ -172,8 +187,7 @@ try {
   console.error('\n\x1b[31mErreur du harnais :\x1b[0m', err);
 } finally {
   srv.close();
-  const after = fs.existsSync(REAL_CFG) ? fs.readFileSync(REAL_CFG, 'utf8') : null;
-  check('configuration partenaire réelle intacte', after === REAL_BEFORE);
+  check('configuration partenaire réelle intacte', realPartnerSnapshot() === REAL_BEFORE);
   process.chdir(ROOT);
   fs.rmSync(SANDBOX, { recursive: true, force: true });
   console.log(failures === 0

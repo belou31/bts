@@ -3,7 +3,7 @@
 // Quotas de prévente partenaire — définition unique pour les deux flux.
 //
 // Un partenaire peut vendre avant l'ouverture publique, dans la limite d'un
-// quota déclaré dans data/customization/partners.json :
+// quota déclaré dans data/customization/partners/<slug>/partner.json :
 //
 //   presale.events[<eventSlug>].quota    → nombre de PLACES sur un match
 //   presale.seasons[<seasonCode>].quota  → nombre d'ABONNEMENTS sur une saison
