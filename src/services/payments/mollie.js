@@ -1,6 +1,7 @@
 // src/services/payments/mollie.js
 import { providerFetch } from './http.js';
 import { providerError } from './provider-error.js';
+import { buildOrderDescription } from './order-description.js';
 
 const DEFAULT_API_BASE = 'https://api.mollie.com/v2';
 
@@ -68,7 +69,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl }) {
 
   const payload = {
     amount:      { currency, value: amountStr(order.totalCents) },
-    description: order.itemName || `Order ${order._id}`,
+    description: buildOrderDescription(order, { maxLength: 255 }),
     redirectUrl: returnUrl || '',
     cancelUrl:   backUrl || undefined,
     webhookUrl:  webhookUrl || undefined,
