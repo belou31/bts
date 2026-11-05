@@ -128,7 +128,8 @@
         <tbody>
           <% events.forEach(ev => { %>
             <tr>
-              <td><%= ev.name %> <span class="muted">(<%= ev.slug %>)</span></td>
+              <%# Page partenaire : le titre seul, sans le slug de l'événement. %>
+              <td><%= ev.name %><% if (!locals.partner) { %> <span class="muted">(<%= ev.slug %>)</span><% } %></td>
               <td><%= ev.startsAt ? formatDate(ev.startsAt, { weekday:'long', day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '' %></td>
               <% const cells = showPublic ? [access(ev.status, ev.link), access(ev.publicStatus, ev.publicLink)] : [access(ev.status, ev.link)]; %>
               <% cells.forEach(c => { %>
