@@ -87,7 +87,11 @@
     "planClose": "Fermer le plan",
     "planOpen": "Touchez pour choisir vos places",
     "planDone": "Valider",
-    "planBarSummary": "{{n}} place(s) · {{total}}"
+    "planBarSummary": "{{n}} place(s) · {{total}}",
+    "seatZonesAria": "Zones assises : voir sur le plan",
+    "seatZoneTitle": "Voir la zone {{zone}} sur le plan",
+    "zonesPrev": "Zones précédentes",
+    "zonesNext": "Zones suivantes"
   },
   "event": {
     "genericMatchName": "Match BTS",

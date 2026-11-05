@@ -173,6 +173,10 @@
       ? localBodyClass.join(' ')
       : (localBodyClass || '');
 
+    // Fichiers de /static versionnés (empreinte de contenu, res.locals.versioned) :
+    // après un déploiement, le navigateur ne mélange pas page neuve et ancien
+    // script resté en cache. Les fichiers hors /static restent tels quels.
+    const staticUrl = (url) => ((typeof url === 'string' && url.startsWith(staticBase)) ? versioned(url) : url);
     const cssFiles = [staticBase + 'styles/generic-view.css', staticBase + 'styles/order.css'];
     const cssExtras = Array.isArray(localCustomCss) ? localCustomCss : [];
     cssExtras.forEach((href) => cssFiles.push(href));
@@ -191,7 +195,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="<%= mediaBase %>favicon.ico">
   <% cssFiles.forEach((href) => { %>
-    <link rel="stylesheet" href="<%= href %>">
+    <link rel="stylesheet" href="<%= staticUrl(href) %>">
   <% }); %>
 </head>
 <body class="order-view <%= bodyClasses %>">
@@ -339,8 +343,17 @@
             <% if (cartHelpText) { %><p class="panel-help"><%= cartHelpText %></p><% } %>
           </div>
           <% if (zoneSelectorConfig) { %>
+            <%# Une ligne pour toutes les zones, qui défile ; flèches gérées par
+                generic-view.js (setupZoneScroller), visibles si elle déborde. %>
             <div class="zone-toolbar">
-              <div id="zoneButtons" class="zone-buttons" role="group" aria-label="<%= t('order.zonesAria') %>"></div>
+              <button type="button" class="zone-scroll" data-zone-scroll="-1" aria-label="<%= t('order.zonesPrev') %>" title="<%= t('order.zonesPrev') %>" hidden>‹</button>
+              <div id="zoneTrack" class="zone-track">
+                <div id="zoneButtons" class="zone-buttons" role="group" aria-label="<%= t('order.zonesAria') %>"></div>
+                <%# Zones assises : dessinés par generic-view.js (renderSeatZoneButtons) ;
+                    un clic montre la zone sur le plan, sans rien ajouter. %>
+                <div id="seatZoneButtons" class="zone-buttons hidden" role="group" aria-label="<%= t('order.seatZonesAria') %>"></div>
+              </div>
+              <button type="button" class="zone-scroll" data-zone-scroll="1" aria-label="<%= t('order.zonesNext') %>" title="<%= t('order.zonesNext') %>" hidden>›</button>
             </div>
           <% } %>
           <div class="lines-head">
@@ -449,7 +462,7 @@
   <% const jsFiles = [staticBase + 'js/i18n.js', staticBase + 'js/generic-view.js', staticBase + 'js/order.js']; %>
   <% (Array.isArray(localCustomJs) ? localCustomJs : []).forEach((src) => jsFiles.push(src)); %>
   <% jsFiles.forEach((src) => { %>
-    <script defer src="<%= src %>"></script>
+    <script defer src="<%= staticUrl(src) %>"></script>
   <% }); %>
 </body>
 </html>

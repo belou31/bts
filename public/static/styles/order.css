@@ -99,10 +99,49 @@ body.order-view {
 
 .order-view .zone-toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 12px;
 }
+
+/* Une seule ligne pour toutes les zones (debout puis assises) : elle défile
+   horizontalement (doigt, pavé tactile, flèches) au lieu de s'étaler sur
+   plusieurs lignes. Flèches gérées par generic-view.js (setupZoneScroller),
+   visibles seulement si la ligne déborde. */
+.order-view .zone-track {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 0;              /* l'ombre de survol des boutons n'est pas rognée */
+}
+.order-view .zone-track::-webkit-scrollbar { display: none; }
+.order-view .zone-track .zone-buttons { flex: 0 0 auto; flex-wrap: nowrap; }
+.order-view .zone-track .zone-btn { flex: 0 0 auto; white-space: nowrap; }
+
+.order-view .zone-scroll {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #0d141c;
+  color: #e8eef5;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.order-view .zone-scroll[hidden] { display: none; }
+.order-view .zone-scroll:hover:not([disabled]) { border-color: #3ba0ff; }
+.order-view .zone-scroll[disabled] { opacity: 0.35; cursor: default; }
 
 .order-view .zone-label {
   margin: 0;
@@ -142,6 +181,18 @@ body.order-view {
 .order-view .zone-btn[disabled] {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Zones assises : le bouton mène au plan (il n'ajoute rien), d'où le contour
+   seul et la loupe, pour le distinguer des zones debout qui ajoutent une ligne. */
+.order-view .zone-btn-seated {
+  background: transparent;
+  border-style: dashed;
+}
+.order-view .zone-btn-seated::before {
+  content: "⌕";
+  margin-right: 6px;
+  opacity: 0.8;
 }
 
 @media (max-width: 1024px) {

@@ -16,8 +16,8 @@
 <head>
   <meta charset="utf-8">
   <title><%= title || 'Événements' %></title>
-  <link rel="stylesheet" href="<%= staticBase %>styles/generic-view.css">
-  <link rel="stylesheet" href="<%= staticBase %>styles/order.css">
+  <link rel="stylesheet" href="<%= versioned(staticBase + 'styles/generic-view.css') %>">
+  <link rel="stylesheet" href="<%= versioned(staticBase + 'styles/order.css') %>">
   <style>
     .events-list {
       max-width: 1100px;

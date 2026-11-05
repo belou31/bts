@@ -12,8 +12,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><%= title || 'Votre invitation' %></title>
-  <link rel="stylesheet" href="<%= staticBase %>styles/generic-view.css">
-  <link rel="stylesheet" href="<%= staticBase %>styles/order.css">
+  <link rel="stylesheet" href="<%= versioned(staticBase + 'styles/generic-view.css') %>">
+  <link rel="stylesheet" href="<%= versioned(staticBase + 'styles/order.css') %>">
   <style>
     .vc-wrap { max-width: 1000px; margin: 0 auto; padding: 24px 20px 40px; }
     .vc-card {

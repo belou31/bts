@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0f17"/>
   <title><%= title %></title>
   <link rel="manifest" href="<%= scope %>manifest.webmanifest">
-  <link rel="stylesheet" href="<%= staticBase %>styles/scan.css">
+  <link rel="stylesheet" href="<%= versioned(staticBase + 'styles/scan.css') %>">
 </head>
 <body>
   <% const guestListPath = ((basePath || '') + '/control/guestlist').replace(/\/{2,}/g, '/');
@@ -130,6 +130,6 @@
       scope:    <%- JSON.stringify(scope) %>
     };
   </script>
-  <script src="<%= staticBase %>js/scan.js"></script>
+  <script src="<%= versioned(staticBase + 'js/scan.js') %>"></script>
 </body>
 </html>

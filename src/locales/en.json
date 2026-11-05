@@ -87,7 +87,11 @@
     "planClose": "Close the plan",
     "planOpen": "Tap to choose your seats",
     "planDone": "Done",
-    "planBarSummary": "{{n}} seat(s) · {{total}}"
+    "planBarSummary": "{{n}} seat(s) · {{total}}",
+    "seatZonesAria": "Seated zones: show on the plan",
+    "seatZoneTitle": "Show zone {{zone}} on the plan",
+    "zonesPrev": "Previous zones",
+    "zonesNext": "Next zones"
   },
   "event": {
     "genericMatchName": "BTS Match",
