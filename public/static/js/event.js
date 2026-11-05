@@ -359,7 +359,7 @@
       api.setSeatState(s.seatId, s.status);
     });
     seats.forEach(s => {
-      const el = api.findSeatElement?.(s.seatId) || svgDoc.getElementById(String(s.seatId));
+      const el = api.findSeatElement?.(s.seatId) || svgDoc.querySelector(`[id="${CSS.escape(String(s.seatId))}"]`);
       if (!el) return;
       if (s.allowed) el.classList.add('seat-allowed'); else el.classList.remove('seat-allowed');
     });
