@@ -90,6 +90,8 @@ window.BTS_VIEW = {
     getCTX: () => CTX,
     getData: () => CTX.raw || null,
     findSeatElement,
+    // Montre une zone sur le plan (zoom ; sur téléphone, plan plein écran).
+    focusZone: (zoneKey, opts) => focusPlanZone(zoneKey, opts),
     setSeatState,
     addSeatClass,
     removeSeatClass,
@@ -584,7 +586,43 @@ function setupPlanViewport(svg, host) {
     e.preventDefault();
   }, true);
 
+  // Boîte englobante d'éléments du plan, en coordonnées du contenu (celles du
+  // <g> zoomé, indépendantes du zoom courant).
+  const contentBoxOf = (elements) => {
+    const hostM = host.getScreenCTM();
+    if (!hostM) return null;
+    const toContent = hostM.inverse();
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const el of elements) {
+      let b, m;
+      try { b = el.getBBox(); m = el.getScreenCTM(); } catch { continue; }
+      if (!m || (!b.width && !b.height)) continue;
+      const k = toContent.multiply(m);
+      for (const [px, py] of [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]]) {
+        const p = new DOMPoint(px, py).matrixTransform(k);
+        x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+        x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
+      }
+    }
+    return Number.isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+  };
+  // Cadre la boîte au centre de la vue, avec une marge, dans les limites de zoom.
+  const zoomToBox = (b, pad = 0.12) => {
+    const view = visibleRect();
+    const w = Math.max(b.w, 1e-3) * (1 + 2 * pad);
+    const h = Math.max(b.h, 1e-3) * (1 + 2 * pad);
+    const ns = Math.min(PLAN_ZOOM_MAX, Math.max(PLAN_ZOOM_MIN, Math.min(view.w / w, view.h / h)));
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    animateTo(clamp({ s: ns, tx: view.x + view.w / 2 - ns * cx, ty: view.y + view.h / 2 - ns * cy }));
+  };
+
   return {
+    zoomToElements: (elements) => {
+      const b = contentBoxOf(elements);
+      if (!b) return false;
+      zoomToBox(b);
+      return true;
+    },
     zoomIn:  () => animateTo(zoomedAt(1.6, center)),
     zoomOut: () => animateTo(zoomedAt(1 / 1.6, center)),
     reset:   () => animateTo(clamp({ s: 1, tx: 0, ty: 0 })),
@@ -690,6 +728,7 @@ function setupPlanChrome() {
     if (e.key === 'Escape' && immersive) close();
   });
 
+  PLAN_VIEW.openImmersive = open;
   fsBtn?.addEventListener('click', () => (immersive ? close() : open()));
   $('#planOpen')?.addEventListener('click', open);
   $('#planClose')?.addEventListener('click', () => close());
@@ -714,6 +753,138 @@ function setupPlanChrome() {
 
   PLAN_PHONE_MQ.addEventListener('change', syncMode);
   syncMode();
+}
+
+/* ========= PLAN : zones (zoom sur une zone, boutons des zones assises) ========= */
+// Éléments d'une zone dans le plan : ses sièges (identifiant « ZONE-… », même
+// règle que zoneKeyFromSeatId et le serveur) et l'aire marquée à son nom
+// (data-zone-key / -id / -zone, ex. DEBOUT).
+function planZoneElements(zoneKey) {
+  const svg = CTX.svgDoc;
+  const key = String(zoneKey || '').trim();
+  if (!svg || !key) return [];
+  const k = CSS.escape(key);
+  return Array.from(svg.querySelectorAll(
+    `[data-seat-id^="${k}-" i],[data-zone-key="${k}" i],[data-zone-id="${k}" i],[data-zone="${k}" i]`
+  ));
+}
+
+// Montre une zone sur le plan. `reveal` : amener le plan à l'écran pour y
+// choisir (zone assise) — sur téléphone, ouvrir le plan plein écran. Sans
+// `reveal` (zone debout, la ligne est déjà ajoutée), on ne zoome que si le
+// plan est déjà interactif à l'écran : l'acheteur reste dans son panier.
+function focusPlanZone(zoneKey, { reveal = true } = {}) {
+  const ctl = PLAN_VIEW.ctl;
+  const elements = planZoneElements(zoneKey);
+  if (!ctl || !elements.length) return false;
+  const zoom = () => ctl.zoomToElements(elements);
+  if (PLAN_PHONE_MQ.matches) {
+    if (!reveal) return false;
+    PLAN_VIEW.openImmersive?.();
+    // Deux images plus tard : le plan a alors sa taille plein écran.
+    requestAnimationFrame(() => requestAnimationFrame(zoom));
+    return true;
+  }
+  if (reveal) {
+    const box = $('#venuePlan');
+    const r = box?.getBoundingClientRect();
+    if (r && (r.top < 0 || r.bottom > window.innerHeight)) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  return zoom();
+}
+
+// Boutons des zones assises (#seatZoneButtons), sous ceux des zones que les
+// vues gèrent elles-mêmes (#zoneButtons : debout, quotas). Un clic ne choisit
+// rien : il amène le plan sur la zone, où l'acheteur touche ses sièges. Le
+// compteur suit les classes des sièges (disponible, déjà dans le panier),
+// quelle que soit la vue qui les pose.
+function renderSeatZoneButtons() {
+  const box = $('#seatZoneButtons');
+  const svg = CTX.svgDoc;
+  if (!box || !svg) return;
+  // Zone déjà proposée par la vue (bouton qui ajoute une ligne) : pas de doublon.
+  const handled = new Set($$('#zoneButtons [data-zone-key]').map((b) => String(b.dataset.zoneKey).toUpperCase()));
+  const free = new Map();
+  for (const el of svg.querySelectorAll('[data-seat-id]')) {
+    const key = zoneKeyFromSeatId(el.dataset.seatId);
+    if (!key || handled.has(key.toUpperCase())) continue;
+    const selected = el.classList.contains(CLASSES.selected);
+    const available = el.classList.contains(CLASSES.available);
+    if (!selected && !available) continue;          // zone sans place à vendre ici
+    free.set(key, (free.get(key) || 0) + (available && !selected ? 1 : 0));
+  }
+  const keys = Array.from(free.keys()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const existing = new Map($$('button', box).map((b) => [b.dataset.zoneKey, b]));
+  box.replaceChildren(...keys.map((key) => {
+    let btn = existing.get(key);
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'zone-btn zone-btn-seated';
+      btn.dataset.zoneKey = key;
+      btn.title = translate('order.seatZoneTitle', { zone: key });
+      btn.addEventListener('click', () => focusPlanZone(key));
+    }
+    const n = free.get(key);
+    btn.textContent = `${key} (${n})`;
+    btn.disabled = n === 0;
+    return btn;
+  }));
+  box.classList.toggle('hidden', keys.length === 0);
+}
+
+let seatZoneRenderPending = false;
+function scheduleSeatZoneButtons() {
+  if (seatZoneRenderPending) return;
+  seatZoneRenderPending = true;
+  requestAnimationFrame(() => { seatZoneRenderPending = false; renderSeatZoneButtons(); });
+}
+
+// Appelé à chaque plan prêt : suit les changements d'état des sièges et les
+// boutons que la vue (re)dessine dans #zoneButtons.
+function watchPlanZones(svg) {
+  PLAN_VIEW.zoneObserver?.disconnect();
+  const observer = new MutationObserver(scheduleSeatZoneButtons);
+  observer.observe(svg, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  const viewButtons = $('#zoneButtons');
+  if (viewButtons) observer.observe(viewButtons, { childList: true });
+  PLAN_VIEW.zoneObserver = observer;
+  scheduleSeatZoneButtons();
+}
+
+// Ligne unique des zones (#zoneTrack) : flèches gauche/droite affichées
+// seulement si la ligne déborde, grisées à chaque bout. Suit le défilement,
+// la taille de la ligne et les boutons que les vues ajoutent ou retirent.
+function setupZoneScroller() {
+  const track = $('#zoneTrack');
+  if (!track) return;
+  const arrows = $$('[data-zone-scroll]', track.parentElement);
+  const update = () => {
+    const overflow = track.scrollWidth > track.clientWidth + 1;
+    for (const btn of arrows) {
+      btn.hidden = !overflow;
+      const dir = Number(btn.dataset.zoneScroll);
+      btn.disabled = dir < 0
+        ? track.scrollLeft <= 1
+        : track.scrollLeft + track.clientWidth >= track.scrollWidth - 1;
+    }
+  };
+  arrows.forEach((btn) => btn.addEventListener('click', () => {
+    track.scrollBy({ left: Number(btn.dataset.zoneScroll) * track.clientWidth * 0.8, behavior: 'smooth' });
+  }));
+  track.addEventListener('scroll', update, { passive: true });
+  new ResizeObserver(update).observe(track);
+  new MutationObserver(update).observe(track, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  update();
+}
+
+// Boutons des vues (#zoneButtons, ex. « Zone Debout ») : la vue ajoute la
+// ligne ; ici, on montre en plus la zone sur le plan s'il est à l'écran.
+function setupZoneButtonFocus() {
+  $('#zoneButtons')?.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('button[data-zone-key]');
+    if (btn && !btn.disabled) focusPlanZone(btn.dataset.zoneKey, { reveal: false });
+  });
 }
 
 // `svg` est l'élément <svg> racine, désormais dans la page. Il reste transmis
@@ -757,6 +928,7 @@ function onPlanReady(svg) {
 
   // sélection courante
   syncSelectedHighlights();
+  watchPlanZones(svg);
   emitHook('planReady', { ctx: CTX, svgDoc: CTX.svgDoc });
 }
 
@@ -1859,8 +2031,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       setLayoutIconForTarget(next);
     });
   }
-  // 2) Plan : mode immersif, zoom, aperçu sur téléphone
+  // 2) Plan : mode immersif, zoom, aperçu sur téléphone, zoom sur une zone
   setupPlanChrome();
+  setupZoneButtonFocus();
+  setupZoneScroller();
 
   // layout initial (icône = cible)
   applyLayout();

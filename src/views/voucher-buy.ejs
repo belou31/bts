@@ -13,8 +13,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><%= title || 'Offrir des places' %></title>
-  <link rel="stylesheet" href="<%= staticBase %>styles/generic-view.css">
-  <link rel="stylesheet" href="<%= staticBase %>styles/order.css">
+  <link rel="stylesheet" href="<%= versioned(staticBase + 'styles/generic-view.css') %>">
+  <link rel="stylesheet" href="<%= versioned(staticBase + 'styles/order.css') %>">
   <style>
     .buy-wrap { max-width: 720px; margin: 0 auto; padding: 24px 20px 48px; }
     .buy-card {
@@ -138,6 +138,6 @@
       locale: <%- JSON.stringify(lang || 'fr') %>
     };
   </script>
-  <script src="<%= staticBase %>js/voucher-buy.js"></script>
+  <script src="<%= versioned(staticBase + 'js/voucher-buy.js') %>"></script>
 </body>
 </html>
