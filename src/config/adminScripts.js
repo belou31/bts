@@ -2154,6 +2154,40 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'rebook-paid-season-seat',
+        label: 'Rebook Paid Season Seat',
+        order: 7.45,
+        path: 'scripts/03-season-management/rebook-paid-season-seat.js',
+        command: 'node scripts/03-season-management/rebook-paid-season-seat.js --order=<id> [--commit]',
+        run: { script: 'scripts/03-season-management/rebook-paid-season-seat.js', args: [] },
+        danger: true,
+        description: 'Répare une commande de saison "paid" dont la place n\'a jamais été effectivement réservée (Seat.status resté available/busy) — visible en admin/orders comme "paid ⚠ 0/N siège(s) réservé(s)".',
+        notes: [
+          'Une fois une commande "paid", finalizePaidIfNoConflict() (et donc check-order-payment.js, le webhook, /pay/return) ne la retouche plus jamais : c\'est le seul outil qui réécrit Seat.status après coup.',
+          'Refuse toute commande rattachée à un évènement (eventId) : une commande match ne touche jamais Seat.status, voir computeEventSeatStates — rien à réparer avec cet outil-là.',
+          'N\'écrase jamais une place déjà booked/busy détenue par quelqu\'un d\'autre : ce cas exige une décision humaine (réallocation ou remboursement), pas une réécriture forcée.',
+          'Sans « Appliquer », rien n\'est écrit : le script indique seulement si la place est dans un état réparable.',
+          'Idempotent : relancer sur une commande déjà réparée par cet outil (ou déjà booked par le flux normal) ne fait rien.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'order',
+              label: 'Identifiant de commande',
+              placeholder: '6aa953c34db42a4fd6c18e8a',
+              required: true,
+              arg: { type: 'option', template: '--order=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Appliquer (sinon simulation)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
+            }
+          ]
+        }
+      },
+      {
         id: 'export-season-seats',
         label: 'Export Season Seats (CSV)',
         order: 7.5,
