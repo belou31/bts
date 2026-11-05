@@ -627,11 +627,31 @@ function setupPlanChrome() {
     summary.textContent = translate('order.planBarSummary', { n, total });
   };
 
+  // Page zoomée (pincement, ou zoom automatique d'iOS sur un champ de
+  // saisie) : un élément « fixed » suit la page, pas l'écran, et le plan plein
+  // écran déborderait (boutons hors champ, à droite). On le cale alors sur la
+  // zone réellement visible, ramené à l'échelle de l'écran.
+  const vv = window.visualViewport;
+  const FIT_PROPS = ['left', 'top', 'right', 'bottom', 'width', 'height', 'transform', 'transform-origin'];
+  const fitToScreen = () => {
+    if (!immersive || !vv) return;
+    const zoomed = Math.abs(vv.scale - 1) > 0.01 || vv.offsetLeft > 0.5 || vv.offsetTop > 0.5;
+    if (!zoomed) { FIT_PROPS.forEach((p) => wrap.style.removeProperty(p)); return; }
+    Object.assign(wrap.style, {
+      left: `${vv.offsetLeft}px`, top: `${vv.offsetTop}px`, right: 'auto', bottom: 'auto',
+      width: `${vv.width * vv.scale}px`, height: `${vv.height * vv.scale}px`,
+      transform: `scale(${1 / vv.scale})`, transformOrigin: '0 0'
+    });
+  };
+  vv?.addEventListener('resize', fitToScreen);
+  vv?.addEventListener('scroll', fitToScreen);
+
   const open = () => {
     if (immersive) return;
     immersive = true;
     wrap.classList.add('is-immersive');
     document.body.classList.add('plan-immersive');
+    fitToScreen();
     updateBar();
     syncMode();
     history.pushState({ btsPlanImmersive: true }, '');
@@ -646,6 +666,7 @@ function setupPlanChrome() {
     immersive = false;
     wrap.classList.remove('is-immersive');
     document.body.classList.remove('plan-immersive');
+    FIT_PROPS.forEach((p) => wrap.style.removeProperty(p));
     syncMode();
     if (historyPushed && !fromHistory) {
       historyPushed = false;
