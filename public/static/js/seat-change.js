@@ -203,9 +203,9 @@
     state.svgDoc = svgDoc || null;
     if (!state.svgDoc) return;
     try {
-      const style = state.svgDoc.createElementNS('http://www.w3.org/2000/svg', 'style');
+      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
       style.textContent = '.seat-allowed { stroke: #1abc63; stroke-width: 2px; }';
-      state.svgDoc.documentElement.appendChild(style);
+      state.svgDoc.appendChild(style);   // svgDoc : élément <svg> racine, inséré dans la page
     } catch { /* purement cosmétique */ }
     state.svgDoc.addEventListener('click', onSeatClick);
     paintOverlay();

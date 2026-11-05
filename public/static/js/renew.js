@@ -249,12 +249,12 @@
 
     // Without this the cursor never signals that anything is clickable.
     try {
-      const style = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'style');
+      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
       style.textContent = `
         .${SEAT_CLASS.booked}, .${SEAT_CLASS.busy} { pointer-events: none; cursor: not-allowed; }
         .${SEAT_CLASS.available}, .${SEAT_CLASS.allowed} { cursor: pointer; }
       `;
-      svgDoc.documentElement.appendChild(style);
+      svgDoc.appendChild(style);   // svgDoc : élément <svg> racine, inséré dans la page
     } catch { /* styling is a nicety — picking still works without it */ }
 
     svgDoc.addEventListener('click', (e) => {

@@ -78,7 +78,16 @@
     "planAria": "Venue floor plan",
     "zonesAria": "Available zones",
     "toggleLayoutTitle": "Toggle layout",
-    "fullscreenTitle": "Fullscreen plan view"
+    "fullscreenTitle": "Fullscreen plan view",
+    "planStatusTouch": "Pinch to zoom, drag to move, double-tap to enlarge.",
+    "planZoomAria": "Plan zoom",
+    "planZoomIn": "Zoom in",
+    "planZoomOut": "Zoom out",
+    "planZoomReset": "Fit to view",
+    "planClose": "Close the plan",
+    "planOpen": "Tap to choose your seats",
+    "planDone": "Done",
+    "planBarSummary": "{{n}} seat(s) · {{total}}"
   },
   "event": {
     "genericMatchName": "BTS Match",
