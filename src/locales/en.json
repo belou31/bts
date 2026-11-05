@@ -16,6 +16,7 @@
     "event": "Event",
     "match": "Match",
     "zone": "Zone",
+    "row": "Row",
     "firstName": "First name",
     "lastName": "Last name",
     "venue": "Venue",
