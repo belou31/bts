@@ -131,6 +131,7 @@ body{ margin:0; font-family:var(--font); background:var(--bg); color:var(--fg); 
 .plan-wrap.is-preview .plan-zoom,
 .plan-wrap.is-preview .plan-status{ display:none; }
 .plan-wrap.is-preview .plan-open{
+  touch-action:pan-y;   /* défiler la page, oui ; la zoomer d'un pincement sur le plan, non */
   display:flex; align-items:flex-end; justify-content:center;
   position:absolute; inset:0; padding:0 0 12px; margin:0;
   border:0; background:transparent; cursor:pointer;
@@ -146,6 +147,7 @@ body{ margin:0; font-family:var(--font); background:var(--bg); color:var(--fg); 
 body.plan-immersive{ overflow:hidden; }
 .plan-wrap.is-immersive{
   position:fixed; inset:0; z-index:1000;
+  touch-action:none;    /* aucun geste n'y zoome la page, pas même sur la barre */
   display:flex; flex-direction:column;
   height:100vh; height:100dvh;
   border:0; border-radius:0; background:#0a1118;
@@ -174,7 +176,11 @@ body.plan-immersive{ overflow:hidden; }
    colonne, plan d'abord ; l'aperçu prend les proportions du plan. */
 @media (max-width: 768px), (pointer: coarse) and (max-height: 520px){
   .page, .page[data-layout]{ grid-template-columns:minmax(0, 1fr); padding:10px; gap:12px; }
-  #layoutToggle{ display:none; }
+  /* L'aperçu s'ouvre d'un toucher (#planOpen) : ni bascule d'affichage, ni
+     bouton plein écran. */
+  #layoutToggle, #fsToggle{ display:none; }
+  /* 16 px minimum : en dessous, iOS zoome la page à la saisie et l'y laisse. */
+  input, select, textarea{ font-size:16px; }
   .plan-object{ height:auto; aspect-ratio:var(--plan-ratio, 4 / 3); max-height:60vh; }
 }
 
