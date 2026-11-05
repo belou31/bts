@@ -946,8 +946,9 @@ router.get('/plan', async (req, res) => {
   const selectedSeason = seasonsRaw.find(s => s.code === selectedSeasonCodeRaw) || defaultSeason || null;
   const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
 
+  // Plus récent en tête : la liste s'ouvre sur le dernier match de la saison.
   const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
-    .sort({ startsAt: 1 })
+    .sort({ startsAt: -1 })
     .lean();
   // SEASON_SCOPE : « pas d'événement, montre-moi la saison ». Un `event=` vide
   // ne suffit pas — il retombe sur le premier match, si bien qu'on ne pouvait
@@ -1189,7 +1190,7 @@ router.get('/orders', async (req, res) => {
   const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
 
   const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
-    .sort({ startsAt: 1 })
+    .sort({ startsAt: -1 })
     .lean();
   // SEASON_SCOPE : « pas d'événement, montre-moi la saison ». Un `event=` vide
   // ne suffit pas — il retombe sur le premier match, si bien qu'on ne pouvait
@@ -1615,7 +1616,7 @@ router.get('/tickets', async (req, res) => {
   const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
 
   const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
-    .sort({ startsAt: 1 })
+    .sort({ startsAt: -1 })
     .lean();
   const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
     ? req.query.event
