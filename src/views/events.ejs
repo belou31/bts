@@ -99,12 +99,15 @@
       // Colonne « Public » sur la page partenaire, sauf si le partenaire vend
       // déjà les tarifs publics (allowPublicTariffs).
       const showPublic = isPartnerPage && (typeof showPublicColumn === 'undefined' || showPublicColumn !== false);
+      // Statuts : avant la vente « pas encore ouverte », après « fermée ».
       // Un lien n'est cliquable que si la vente est ouverte ET qu'on en a un
       // (jeton partenaire correct) ; sinon pastille grisée.
       const access = (status, link) => {
         const openLabel = { sale_opened: t('saleStatus.open'), presale_opened: t('saleStatus.presale') }[status];
         if (openLabel && link) return { link, label: openLabel };
         const label = {
+          sale_not_open: t('saleStatus.notOpen'),
+          no_quota: t('saleStatus.unavailable'),
           presale_quota_reached: t('saleStatus.presaleQuotaReached'),
           sold_out: t('saleStatus.soldOut')
         }[status] || t('saleStatus.closed');
@@ -118,8 +121,8 @@
             <th>Événement</th>
             <th>Date</th>
             <% if (isPartnerPage) { %>
-              <th>Privé</th>
-              <% if (showPublic) { %><th>Public</th><% } %>
+              <th>Lien privé</th>
+              <% if (showPublic) { %><th>Lien public</th><% } %>
             <% } else { %>
               <th>Accès</th>
             <% } %>

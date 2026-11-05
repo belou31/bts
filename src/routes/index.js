@@ -662,7 +662,12 @@ export default function routes(router) {
   // Accès public à un événement : listé tel quel sur /events, et en colonne
   // « Public » de la liste partenaire.
   function publicAccess(ev) {
-    const status = isEventOnSale(ev) ? 'sale_opened' : (ev.sale === 'soldout' ? 'sold_out' : 'sale_closed');
+    // Avant la vente (notopen, ou prévente réservée aux partenaires) : « pas
+    // encore ouverte » ; après (closed) : « fermée ».
+    const status = isEventOnSale(ev) ? 'sale_opened'
+      : ev.sale === 'soldout' ? 'sold_out'
+      : ev.sale === 'closed' ? 'sale_closed'
+      : 'sale_not_open';
     const link = status === 'sale_opened'
       ? path.posix.join(BASE_PATH || '/', 'event', ev.slug)
       : null;
@@ -744,7 +749,10 @@ export default function routes(router) {
         // (event-flow.factory.js, isPartnerPresaleAllowed).
         const status = (() => {
           if (ev.sale === 'soldout') return 'sold_out';
-          if (!inWindow) return 'sale_closed';
+          if (ev.sale === 'closed') return 'sale_closed';
+          if (!isPartnerSaleWindow(ev)) return 'sale_not_open';
+          // Vente en cours, mais pas de quota pour ce partenaire.
+          if (!inWindow) return 'no_quota';
           if (remaining <= 0) return 'presale_quota_reached';
           return isEventOnSale(ev) ? 'sale_opened' : 'presale_opened';
         })();
