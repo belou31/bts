@@ -273,14 +273,14 @@
     }
     function injectInteractivityStyles(svg, SEAT, ZONE, ALLOWED) {
       try {
-        const style = svg.createElementNS('http://www.w3.org/2000/svg', 'style');
+        const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
         style.textContent = `
           .${SEAT.booked}, .${SEAT.busy} { pointer-events: none; cursor: not-allowed; }
           .${SEAT.available}, .${ALLOWED} { cursor: pointer; }
           .${ZONE.booked}, .${ZONE.busy} { pointer-events: none; cursor: not-allowed; }
           .${ZONE.available}, .${ZONE.allowed} { cursor: pointer; }
         `;
-        svg.documentElement.appendChild(style);
+        svg.appendChild(style);   // svg : élément <svg> racine, inséré dans la page
       } catch {}
     }
 

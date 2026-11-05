@@ -11,6 +11,7 @@ import { requestMetricsMiddleware } from '../services/requestMetrics.js';
 import { localeMiddleware } from '../middlewares/locale.js';
 import { resolvePanelIconFiles } from '../services/customization.js';
 import { currentPaymentProviderLabel } from '../services/payments/index.js';
+import { computeAssetVersion, withAssetVersion } from '../utils/asset-version.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -30,6 +31,14 @@ export async function buildApp() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(localeMiddleware);
+  // Version des fichiers de /static (empreinte de contenu, voir
+  // utils/asset-version.js) : les vues l'ajoutent à leurs scripts et styles.
+  const ASSET_VERSION = computeAssetVersion(path.resolve(process.cwd(), 'public', 'static'));
+  app.use((_req, res, next) => {
+    res.locals.assetVersion = ASSET_VERSION;
+    res.locals.versioned = (url) => withAssetVersion(url, ASSET_VERSION);
+    next();
+  });
   // Icônes personnalisées des panneaux de commande (customize-app.js). Getter :
   // app.json n'est lu qu'au rendu d'une vue, et une icône déposée s'affiche
   // sans redémarrage.

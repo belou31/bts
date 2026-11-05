@@ -90,6 +90,8 @@ window.BTS_VIEW = {
     getCTX: () => CTX,
     getData: () => CTX.raw || null,
     findSeatElement,
+    // Montre une zone sur le plan (zoom ; sur téléphone, plan plein écran).
+    focusZone: (zoneKey, opts) => focusPlanZone(zoneKey, opts),
     setSeatState,
     addSeatClass,
     removeSeatClass,
@@ -137,7 +139,8 @@ const CTX = {
   seatSubscribers:{}, payer:{ firstName:'', lastName:'', email:'' },
   pricesIdx:null, tariffMap:new Map(),
   currentTotal:0,
-  svgDoc:null,
+  svgDoc:null,            // élément <svg> racine du plan (inséré dans la page)
+  planPath:null,          // adresse du plan chargé (rechargé seulement si elle change)
   seatSubById:new Map()   // <- NEW: index normalisé seatId -> {firstName,lastName,email}  
 };
 
@@ -357,61 +360,559 @@ function removeSeatClass(sid, cls) {
 }
 
 
-/* ========= PLAN (zoom/pan/highlight) ========= */
-function onPlanReady($obj) {
-  const doc = $obj.contentDocument;
-  const svg = doc?.querySelector('svg');
-  if (!svg) { console.warn('SVG not found'); return; }
-  CTX.svgDoc = doc;
+/* ========= PLAN (chargement inline, zoom/pan, mode immersif) ========= */
+// Le plan est inséré dans la page plutôt que via un <object> : un <object>
+// est un document à part, dont les gestes tactiles échappent à la page (le
+// pincement zoomait toute la page au lieu du plan). Le prix : ses styles et
+// ses id partagent ceux de la page ; les plans ne stylent que des éléments
+// SVG (rect.seat, text.legend_*) et leurs id ne croisent pas ceux de la vue.
+async function loadPlanInline(container, url) {
+  const res = await fetch(url, { credentials: 'same-origin' });
+  if (!res.ok) throw new Error(`plan HTTP ${res.status} (${url})`);
+  const parsed = new DOMParser().parseFromString(await res.text(), 'image/svg+xml');
+  // Premier <svg> du fichier, comme le faisait l'<object> : certains plans
+  // ont été réenregistrés dans une enveloppe <html><body> (stadium).
+  const root = parsed.documentElement?.localName === 'svg'
+    ? parsed.documentElement
+    : parsed.getElementsByTagNameNS('http://www.w3.org/2000/svg', 'svg')[0];
+  if (!root || parsed.getElementsByTagName('parsererror').length) {
+    throw new Error(`plan SVG illisible (${url})`);
+  }
+  // Un plan est un dessin : rien n'y s'exécute une fois dans la page.
+  root.querySelectorAll('script, foreignObject').forEach((n) => n.remove());
+  for (const el of [root, ...root.querySelectorAll('*')]) {
+    for (const a of Array.from(el.attributes)) {
+      if (/^on/i.test(a.name)) el.removeAttribute(a.name);
+      else if (a.localName === 'href' && /^\s*javascript:/i.test(a.value)) el.removeAttributeNode(a);
+    }
+  }
+  const svg = document.importNode(root, true);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+  svg.classList.add('plan-svg');
+  const vb = svg.viewBox?.baseVal;
+  if (vb && vb.width && vb.height) container.style.setProperty('--plan-ratio', `${vb.width} / ${vb.height}`);
+  container.replaceChildren(svg);
+  return svg;
+}
+
+// Une seule mécanique de zoom : une transformation sur un <g> englobant, en
+// coordonnées SVG (rendu vectoriel net, clics toujours sur le bon siège).
+// Pointer Events : souris, doigt et stylet passent par le même code.
+const PLAN_ZOOM_MIN = 1;
+const PLAN_ZOOM_MAX = 8;
+const PLAN_TAP_SLOP = 8;          // px : au-delà, le geste est un déplacement, pas un clic
+const PLAN_DOUBLE_TAP_MS = 320;
+const PLAN_SEAT_SELECTOR = '[data-seat-id],[data-seat],[data-zone-key],[data-zone-id]';
+
+// Contrôleur du plan courant (boutons de zoom, mode immersif).
+const PLAN_VIEW = { ctl: null, interactive: true };
+
+function setupPlanViewport(svg, host) {
+  // Les écouteurs posés sur window suivent le plan courant : un plan rechargé
+  // (autre vue de salle) ne doit pas empiler les gestionnaires.
+  PLAN_VIEW.listeners?.abort();
+  PLAN_VIEW.listeners = new AbortController();
+  const { signal } = PLAN_VIEW.listeners;
+  const vb = svg.viewBox?.baseVal;
+  const box = (vb && vb.width && vb.height)
+    ? { x: vb.x, y: vb.y, w: vb.width, h: vb.height }
+    : (() => { const b = svg.getBBox(); return { x: b.x, y: b.y, w: b.width, h: b.height }; })();
+  const center = { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+
+  let s = 1, tx = 0, ty = 0;
+  let anim = 0;
+
+  // Zone réellement visible, en coordonnées SVG : sur un téléphone en
+  // portrait, elle déborde largement le viewBox (plan paysage « letterboxé »).
+  const visibleRect = () => {
+    const m = svg.getScreenCTM();
+    const r = svg.getBoundingClientRect();
+    if (!m || !r.width || !r.height) return box;
+    const inv = m.inverse();
+    const a = new DOMPoint(r.left, r.top).matrixTransform(inv);
+    const c = new DOMPoint(r.right, r.bottom).matrixTransform(inv);
+    return { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
+  };
+  // Garde le plan à l'écran : plus grand que la vue, il la recouvre toujours ;
+  // plus petit, il reste entier dans la vue.
+  const clamp = (st) => {
+    const ns = Math.min(PLAN_ZOOM_MAX, Math.max(PLAN_ZOOM_MIN, st.s));
+    const view = visibleRect();
+    const lim = (v, x0, w, vx, vw) => {
+      const a = vx - ns * x0;                  // bord gauche du plan au bord gauche de la vue
+      const b = vx + vw - ns * (x0 + w);       // bord droit du plan au bord droit de la vue
+      return Math.min(Math.max(a, b), Math.max(Math.min(a, b), v));
+    };
+    return {
+      s: ns,
+      tx: lim(st.tx, box.x, box.w, view.x, view.w),
+      ty: lim(st.ty, box.y, box.h, view.y, view.h)
+    };
+  };
+  const apply = () => host.setAttribute('transform', `translate(${tx} ${ty}) scale(${s})`);
+  const set = (st) => { ({ s, tx, ty } = clamp(st)); apply(); };
+  // Zoom de facteur k en gardant le point p (coordonnées SVG) immobile.
+  const zoomedAt = (k, p, from = { s, tx, ty }) => {
+    const ns = Math.min(PLAN_ZOOM_MAX, Math.max(PLAN_ZOOM_MIN, from.s * k));
+    const r = ns / from.s;
+    return clamp({ s: ns, tx: p.x - (p.x - from.tx) * r, ty: p.y - (p.y - from.ty) * r });
+  };
+  const animateTo = (target) => {
+    cancelAnimationFrame(anim);
+    const from = { s, tx, ty };
+    const t0 = performance.now();
+    const D = 200;
+    const step = (now) => {
+      const u = Math.min(1, (now - t0) / D);
+      const e = 1 - Math.pow(1 - u, 3);
+      s = from.s + (target.s - from.s) * e;
+      tx = from.tx + (target.tx - from.tx) * e;
+      ty = from.ty + (target.ty - from.ty) * e;
+      apply();
+      if (u < 1) anim = requestAnimationFrame(step);
+    };
+    anim = requestAnimationFrame(step);
+  };
+  const toSvg = (cx, cy) => {
+    const m = svg.getScreenCTM();
+    if (!m) return { x: center.x, y: center.y };
+    const p = new DOMPoint(cx, cy).matrixTransform(m.inverse());
+    return { x: p.x, y: p.y };
+  };
+
+  // Molette (souris, pavé tactile)
+  svg.addEventListener('wheel', (evt) => {
+    if (!PLAN_VIEW.interactive) return;
+    evt.preventDefault();
+    cancelAnimationFrame(anim);
+    const delta = -(evt.deltaY || evt.wheelDelta || 0);
+    set(zoomedAt(Math.exp(delta * 0.0015), toSvg(evt.clientX, evt.clientY)));
+  }, { passive: false });
+
+  // Glisser (1 pointeur) et pincer (2 pointeurs)
+  const pts = new Map();          // pointerId -> {x, y} en coordonnées écran
+  let gesture = null;             // { sx, sy, moved, lastMid, lastDist }
+  let suppressClick = false;      // un déplacement ne doit pas aussi cliquer un siège
+  let lastTap = null;
+  const planBox = $('#venuePlan');
+
+  const midpoint = () => {
+    const a = Array.from(pts.values());
+    return a.length >= 2 ? { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 } : a[0];
+  };
+  const spread = () => {
+    const a = Array.from(pts.values());
+    return a.length >= 2 ? Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) : 0;
+  };
+
+  svg.addEventListener('pointerdown', (e) => {
+    if (!PLAN_VIEW.interactive) return;   // aperçu mobile : le geste reste à la page
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    cancelAnimationFrame(anim);
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) {
+      gesture = { sx: e.clientX, sy: e.clientY, moved: false };
+      suppressClick = false;
+    } else {
+      gesture.moved = true;               // un pincement n'est jamais un clic
+    }
+    gesture.lastMid = midpoint();
+    gesture.lastDist = spread();
+  });
+
+  window.addEventListener('pointermove', (e) => {
+    if (!pts.has(e.pointerId) || !gesture) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!gesture.moved) {
+      if (Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy) < PLAN_TAP_SLOP) return;
+      gesture.moved = true;
+      planBox?.classList.add('grabbing');
+    }
+    e.preventDefault();
+    const m = midpoint();
+    const p0 = toSvg(gesture.lastMid.x, gesture.lastMid.y);
+    const p1 = toSvg(m.x, m.y);
+    let next = { s, tx: tx + (p1.x - p0.x), ty: ty + (p1.y - p0.y) };
+    if (pts.size >= 2) {
+      const d = spread();
+      if (gesture.lastDist > 0 && d > 0) next = zoomedAt(d / gesture.lastDist, p1, next);
+      gesture.lastDist = d;
+    }
+    set(next);
+    gesture.lastMid = m;
+  }, { passive: false, signal });
+
+  const onDoubleTapCandidate = (e) => {
+    // Double-toucher / double-clic sur le fond (pas sur un siège, qu'il
+    // basculerait deux fois) : zoom ×2, ou retour à la vue d'ensemble au max.
+    if (e.target?.closest?.(PLAN_SEAT_SELECTOR)) { lastTap = null; return; }
+    const now = performance.now();
+    if (lastTap && now - lastTap.t < PLAN_DOUBLE_TAP_MS
+        && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+      lastTap = null;
+      animateTo(s >= PLAN_ZOOM_MAX - 0.01
+        ? clamp({ s: 1, tx: 0, ty: 0 })
+        : zoomedAt(2, toSvg(e.clientX, e.clientY)));
+      return;
+    }
+    lastTap = { t: now, x: e.clientX, y: e.clientY };
+  };
+
+  const endPointer = (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    if (gesture?.moved) suppressClick = true;
+    if (pts.size === 0) {
+      const g = gesture;
+      gesture = null;
+      planBox?.classList.remove('grabbing');
+      if (g && !g.moved && e.type === 'pointerup') onDoubleTapCandidate(e);
+    } else if (gesture) {
+      // Un doigt levé : on repart de ceux qui restent, sans saut.
+      gesture.lastMid = midpoint();
+      gesture.lastDist = spread();
+    }
+  };
+  window.addEventListener('pointerup', endPointer, { signal });
+  window.addEventListener('pointercancel', endPointer, { signal });
+
+  // En capture sur le <svg> : arrêté ici, le clic n'atteint ni les sièges ni
+  // les écouteurs posés par les vues (event.js, subscription.js…).
+  svg.addEventListener('click', (e) => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+
+  // Boîte englobante d'éléments du plan, en coordonnées du contenu (celles du
+  // <g> zoomé, indépendantes du zoom courant).
+  const contentBoxOf = (elements) => {
+    const hostM = host.getScreenCTM();
+    if (!hostM) return null;
+    const toContent = hostM.inverse();
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const el of elements) {
+      let b, m;
+      try { b = el.getBBox(); m = el.getScreenCTM(); } catch { continue; }
+      if (!m || (!b.width && !b.height)) continue;
+      const k = toContent.multiply(m);
+      for (const [px, py] of [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]]) {
+        const p = new DOMPoint(px, py).matrixTransform(k);
+        x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+        x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
+      }
+    }
+    return Number.isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+  };
+  // Cadre la boîte au centre de la vue, avec une marge, dans les limites de zoom.
+  const zoomToBox = (b, pad = 0.12) => {
+    const view = visibleRect();
+    const w = Math.max(b.w, 1e-3) * (1 + 2 * pad);
+    const h = Math.max(b.h, 1e-3) * (1 + 2 * pad);
+    const ns = Math.min(PLAN_ZOOM_MAX, Math.max(PLAN_ZOOM_MIN, Math.min(view.w / w, view.h / h)));
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    animateTo(clamp({ s: ns, tx: view.x + view.w / 2 - ns * cx, ty: view.y + view.h / 2 - ns * cy }));
+  };
+
+  return {
+    zoomToElements: (elements) => {
+      const b = contentBoxOf(elements);
+      if (!b) return false;
+      zoomToBox(b);
+      return true;
+    },
+    zoomIn:  () => animateTo(zoomedAt(1.6, center)),
+    zoomOut: () => animateTo(zoomedAt(1 / 1.6, center)),
+    reset:   () => animateTo(clamp({ s: 1, tx: 0, ty: 0 })),
+    resetNow: () => { cancelAnimationFrame(anim); set({ s: 1, tx: 0, ty: 0 }); },
+    get scale() { return s; }
+  };
+}
+
+// Téléphone : le plan dans la page n'est qu'un aperçu (le doigt y fait défiler
+// la page). Le toucher ouvre le mode immersif : plan plein écran qui prend
+// tous les gestes, boutons de zoom, bouton fermer, barre de sélection. Le
+// geste/bouton « retour » du téléphone le referme (entrée d'historique).
+// Même requête que le bloc « Téléphone » de generic-view.css.
+const PLAN_PHONE_MQ = window.matchMedia('(max-width: 768px), (pointer: coarse) and (max-height: 520px)');
+
+function setupPlanChrome() {
+  const wrap = $('.plan-wrap');
+  if (!wrap) return;
+  const fsBtn = $('#fsToggle');
+  let immersive = false;
+  let historyPushed = false;
+  let afterClose = null;
+
+  const syncMode = () => {
+    const preview = PLAN_PHONE_MQ.matches && !immersive;
+    wrap.classList.toggle('is-preview', preview);
+    PLAN_VIEW.interactive = !preview;
+    if (preview) PLAN_VIEW.ctl?.resetNow();
+    if (fsBtn) {
+      $('.icon-big',   fsBtn)?.toggleAttribute('hidden',  immersive);
+      $('.icon-small', fsBtn)?.toggleAttribute('hidden', !immersive);
+    }
+  };
+
+  const updateBar = () => {
+    const summary = $('#planBarSummary');
+    if (!summary) return;
+    const n = $$('#cartRows .cart-row').length;
+    const total = ($('#totalBox')?.textContent || '').trim();
+    summary.textContent = translate('order.planBarSummary', { n, total });
+  };
+
+  // Page zoomée (pincement, ou zoom automatique d'iOS sur un champ de
+  // saisie) : un élément « fixed » suit la page, pas l'écran, et le plan plein
+  // écran déborderait (boutons hors champ, à droite). On le cale alors sur la
+  // zone réellement visible, ramené à l'échelle de l'écran.
+  const vv = window.visualViewport;
+  const FIT_PROPS = ['left', 'top', 'right', 'bottom', 'width', 'height', 'transform', 'transform-origin'];
+  const fitToScreen = () => {
+    if (!immersive || !vv) return;
+    const zoomed = Math.abs(vv.scale - 1) > 0.01 || vv.offsetLeft > 0.5 || vv.offsetTop > 0.5;
+    if (!zoomed) { FIT_PROPS.forEach((p) => wrap.style.removeProperty(p)); return; }
+    Object.assign(wrap.style, {
+      left: `${vv.offsetLeft}px`, top: `${vv.offsetTop}px`, right: 'auto', bottom: 'auto',
+      width: `${vv.width * vv.scale}px`, height: `${vv.height * vv.scale}px`,
+      transform: `scale(${1 / vv.scale})`, transformOrigin: '0 0'
+    });
+  };
+  vv?.addEventListener('resize', fitToScreen);
+  vv?.addEventListener('scroll', fitToScreen);
+
+  const open = () => {
+    if (immersive) return;
+    immersive = true;
+    wrap.classList.add('is-immersive');
+    document.body.classList.add('plan-immersive');
+    fitToScreen();
+    updateBar();
+    syncMode();
+    history.pushState({ btsPlanImmersive: true }, '');
+    historyPushed = true;
+    $('#planClose')?.focus({ preventScroll: true });
+  };
+
+  // `then` s'exécute une fois l'historique revenu en place : lancé avant, un
+  // défilement serait écrasé par la restauration de position du navigateur.
+  const close = ({ fromHistory = false, then = null } = {}) => {
+    if (!immersive) return;
+    immersive = false;
+    wrap.classList.remove('is-immersive');
+    document.body.classList.remove('plan-immersive');
+    FIT_PROPS.forEach((p) => wrap.style.removeProperty(p));
+    syncMode();
+    if (historyPushed && !fromHistory) {
+      historyPushed = false;
+      afterClose = then;
+      history.back();
+      return;
+    }
+    historyPushed = false;
+    then?.();
+  };
+
+  window.addEventListener('popstate', () => {
+    if (immersive) close({ fromHistory: true });
+    const fn = afterClose;
+    afterClose = null;
+    // Deux images plus tard : la restauration de défilement qui suit popstate
+    // annulerait sinon un défilement doux lancé tout de suite.
+    if (fn) requestAnimationFrame(() => requestAnimationFrame(fn));
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && immersive) close();
+  });
+
+  PLAN_VIEW.openImmersive = open;
+  fsBtn?.addEventListener('click', () => (immersive ? close() : open()));
+  $('#planOpen')?.addEventListener('click', open);
+  $('#planClose')?.addEventListener('click', () => close());
+  $('#planDone')?.addEventListener('click', () => close({
+    then: () => ($('#linesPanel:not([hidden])') || $('#order'))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }));
+
+  $$('[data-plan-zoom]', wrap).forEach((btn) => btn.addEventListener('click', () => {
+    const ctl = PLAN_VIEW.ctl;
+    if (!ctl) return;
+    if (btn.dataset.planZoom === 'in') ctl.zoomIn();
+    else if (btn.dataset.planZoom === 'out') ctl.zoomOut();
+    else if (btn.dataset.planZoom === 'reset') ctl.reset();
+  }));
+
+  // La barre suit le panier quelle que soit la vue qui le modifie.
+  const observer = new MutationObserver(updateBar);
+  const rows = $('#cartRows');
+  const total = $('#totalBox');
+  if (rows) observer.observe(rows, { childList: true });
+  if (total) observer.observe(total, { childList: true, characterData: true, subtree: true });
+
+  PLAN_PHONE_MQ.addEventListener('change', syncMode);
+  syncMode();
+}
+
+/* ========= PLAN : zones (zoom sur une zone, boutons des zones assises) ========= */
+// Éléments d'une zone dans le plan : ses sièges (identifiant « ZONE-… », même
+// règle que zoneKeyFromSeatId et le serveur) et l'aire marquée à son nom
+// (data-zone-key / -id / -zone, ex. DEBOUT).
+function planZoneElements(zoneKey) {
+  const svg = CTX.svgDoc;
+  const key = String(zoneKey || '').trim();
+  if (!svg || !key) return [];
+  const k = CSS.escape(key);
+  return Array.from(svg.querySelectorAll(
+    `[data-seat-id^="${k}-" i],[data-zone-key="${k}" i],[data-zone-id="${k}" i],[data-zone="${k}" i]`
+  ));
+}
+
+// Montre une zone sur le plan. `reveal` : amener le plan à l'écran pour y
+// choisir (zone assise) — sur téléphone, ouvrir le plan plein écran. Sans
+// `reveal` (zone debout, la ligne est déjà ajoutée), on ne zoome que si le
+// plan est déjà interactif à l'écran : l'acheteur reste dans son panier.
+function focusPlanZone(zoneKey, { reveal = true } = {}) {
+  const ctl = PLAN_VIEW.ctl;
+  const elements = planZoneElements(zoneKey);
+  if (!ctl || !elements.length) return false;
+  const zoom = () => ctl.zoomToElements(elements);
+  if (PLAN_PHONE_MQ.matches) {
+    if (!reveal) return false;
+    PLAN_VIEW.openImmersive?.();
+    // Deux images plus tard : le plan a alors sa taille plein écran.
+    requestAnimationFrame(() => requestAnimationFrame(zoom));
+    return true;
+  }
+  if (reveal) {
+    const box = $('#venuePlan');
+    const r = box?.getBoundingClientRect();
+    if (r && (r.top < 0 || r.bottom > window.innerHeight)) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  return zoom();
+}
+
+// Boutons des zones assises (#seatZoneButtons), sous ceux des zones que les
+// vues gèrent elles-mêmes (#zoneButtons : debout, quotas). Un clic ne choisit
+// rien : il amène le plan sur la zone, où l'acheteur touche ses sièges. Le
+// compteur suit les classes des sièges (disponible, déjà dans le panier),
+// quelle que soit la vue qui les pose.
+function renderSeatZoneButtons() {
+  const box = $('#seatZoneButtons');
+  const svg = CTX.svgDoc;
+  if (!box || !svg) return;
+  // Zone déjà proposée par la vue (bouton qui ajoute une ligne) : pas de doublon.
+  const handled = new Set($$('#zoneButtons [data-zone-key]').map((b) => String(b.dataset.zoneKey).toUpperCase()));
+  const free = new Map();
+  for (const el of svg.querySelectorAll('[data-seat-id]')) {
+    const key = zoneKeyFromSeatId(el.dataset.seatId);
+    if (!key || handled.has(key.toUpperCase())) continue;
+    const selected = el.classList.contains(CLASSES.selected);
+    const available = el.classList.contains(CLASSES.available);
+    if (!selected && !available) continue;          // zone sans place à vendre ici
+    free.set(key, (free.get(key) || 0) + (available && !selected ? 1 : 0));
+  }
+  const keys = Array.from(free.keys()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const existing = new Map($$('button', box).map((b) => [b.dataset.zoneKey, b]));
+  box.replaceChildren(...keys.map((key) => {
+    let btn = existing.get(key);
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'zone-btn zone-btn-seated';
+      btn.dataset.zoneKey = key;
+      btn.title = translate('order.seatZoneTitle', { zone: key });
+      btn.addEventListener('click', () => focusPlanZone(key));
+    }
+    const n = free.get(key);
+    btn.textContent = `${key} (${n})`;
+    btn.disabled = n === 0;
+    return btn;
+  }));
+  box.classList.toggle('hidden', keys.length === 0);
+}
+
+let seatZoneRenderPending = false;
+function scheduleSeatZoneButtons() {
+  if (seatZoneRenderPending) return;
+  seatZoneRenderPending = true;
+  requestAnimationFrame(() => { seatZoneRenderPending = false; renderSeatZoneButtons(); });
+}
+
+// Appelé à chaque plan prêt : suit les changements d'état des sièges et les
+// boutons que la vue (re)dessine dans #zoneButtons.
+function watchPlanZones(svg) {
+  PLAN_VIEW.zoneObserver?.disconnect();
+  const observer = new MutationObserver(scheduleSeatZoneButtons);
+  observer.observe(svg, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  const viewButtons = $('#zoneButtons');
+  if (viewButtons) observer.observe(viewButtons, { childList: true });
+  PLAN_VIEW.zoneObserver = observer;
+  scheduleSeatZoneButtons();
+}
+
+// Ligne unique des zones (#zoneTrack) : flèches gauche/droite affichées
+// seulement si la ligne déborde, grisées à chaque bout. Suit le défilement,
+// la taille de la ligne et les boutons que les vues ajoutent ou retirent.
+function setupZoneScroller() {
+  const track = $('#zoneTrack');
+  if (!track) return;
+  const arrows = $$('[data-zone-scroll]', track.parentElement);
+  const update = () => {
+    const overflow = track.scrollWidth > track.clientWidth + 1;
+    for (const btn of arrows) {
+      btn.hidden = !overflow;
+      const dir = Number(btn.dataset.zoneScroll);
+      btn.disabled = dir < 0
+        ? track.scrollLeft <= 1
+        : track.scrollLeft + track.clientWidth >= track.scrollWidth - 1;
+    }
+  };
+  arrows.forEach((btn) => btn.addEventListener('click', () => {
+    track.scrollBy({ left: Number(btn.dataset.zoneScroll) * track.clientWidth * 0.8, behavior: 'smooth' });
+  }));
+  track.addEventListener('scroll', update, { passive: true });
+  new ResizeObserver(update).observe(track);
+  new MutationObserver(update).observe(track, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  update();
+}
+
+// Boutons des vues (#zoneButtons, ex. « Zone Debout ») : la vue ajoute la
+// ligne ; ici, on montre en plus la zone sur le plan s'il est à l'écran.
+function setupZoneButtonFocus() {
+  $('#zoneButtons')?.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('button[data-zone-key]');
+    if (btn && !btn.disabled) focusPlanZone(btn.dataset.zoneKey, { reveal: false });
+  });
+}
+
+// `svg` est l'élément <svg> racine, désormais dans la page. Il reste transmis
+// aux vues sous le nom historique `svgDoc` (hook planReady) : querySelector,
+// addEventListener… s'y appliquent comme sur l'ancien document.
+function onPlanReady(svg) {
+  CTX.svgDoc = svg;
 
   // wrapper pan/zoom
   let host = svg.querySelector('#zoomHost');
   if (!host) {
-    host = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+    host = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     host.setAttribute('id','zoomHost');
     while (svg.firstChild) host.appendChild(svg.firstChild);
     svg.appendChild(host);
   }
 
-  // ⬅️ NEW: empêcher les <text> / labels SVG de capter les clics (laisser passer vers les zones)
+  // Les textes / libellés du plan ne captent pas les clics (ils passent aux
+  // zones). Limité au plan : la page a aussi des .seat-label / .zone-label.
   try {
-    const style = doc.createElementNS('http://www.w3.org/2000/svg', 'style');
+    const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
     style.textContent = `
-      text, .zone-label, .seat-label, [data-label] { pointer-events: none; }
+      #venuePlan text, #venuePlan .zone-label, #venuePlan .seat-label, #venuePlan [data-label] { pointer-events: none; }
     `;
     svg.insertBefore(style, svg.firstChild);
   } catch (e) { /* no-op */ }
 
-  let scale = 1, tx = 0, ty = 0;
-  let dragging = false, last = {x:0, y:0};
-  const apply = () => host.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
-  const svgPoint = (evt) => {
-    const pt = svg.createSVGPoint();
-    pt.x = evt.clientX; pt.y = evt.clientY;
-    const m = svg.getScreenCTM().inverse();
-    return pt.matrixTransform(m);
-  };
-
-  svg.addEventListener('wheel', (evt) => {
-    evt.preventDefault();
-    const delta = -(evt.deltaY || evt.wheelDelta || 0);
-    const factor = Math.exp(delta * 0.0015);
-    const p = svgPoint(evt);
-    const newScale = Math.min(10, Math.max(0.25, scale * factor));
-    const k = newScale / scale;
-    tx = p.x - (p.x - tx) * k;
-    ty = p.y - (p.y - ty) * k;
-    scale = newScale; apply();
-  }, { passive:false });
-
-  const onDown = (evt) => { dragging = true; $('#venuePlan').classList.add('grabbing'); last = svgPoint(evt); };
-  const onMove = (evt) => { if (!dragging) return; const p = svgPoint(evt); tx += (p.x-last.x); ty += (p.y-last.y); last = p; apply(); };
-  const onUp   = () => { dragging = false; $('#venuePlan').classList.remove('grabbing'); };
-
-  svg.addEventListener('mousedown', onDown);
-  svg.addEventListener('mousemove', onMove);
-  svg.addEventListener('mouseup', onUp);
-  svg.addEventListener('mouseleave', onUp);
+  PLAN_VIEW.ctl = setupPlanViewport(svg, host);
 
   // États initiaux
   if (Array.isArray(CTX.seats) && CTX.seats.length) {
@@ -427,6 +928,7 @@ function onPlanReady($obj) {
 
   // sélection courante
   syncSelectedHighlights();
+  watchPlanZones(svg);
   emitHook('planReady', { ctx: CTX, svgDoc: CTX.svgDoc });
 }
 
@@ -1405,7 +1907,7 @@ if (Array.isArray(CTX.seatSubscribers)) {
   for (const t of CTX.tariffs) CTX.tariffMap.set(String(t.code||'').toUpperCase(), t);
 
   // Plan
-  const $planObj = $('#venuePlan');
+  const $planBox = $('#venuePlan');
   let planPath = null;
   if (typeof CONFIG.venuePlanPath === 'string' && CONFIG.venuePlanPath) {
     planPath = CONFIG.venuePlanPath;
@@ -1430,10 +1932,15 @@ if (Array.isArray(CTX.seatSubscribers)) {
       }
     }
   }
-  if (planPath) {
-    $planObj.setAttribute('data', planPath);
+  // Chargé une fois par adresse : un rafraîchissement des données (refresh)
+  // ne recharge pas le plan, comme l'ancien <object> dont `data` ne changeait
+  // pas. Non attendu : les lignes du panier se construisent pendant ce temps.
+  if (planPath && $planBox && planPath !== CTX.planPath) {
+    CTX.planPath = planPath;
+    loadPlanInline($planBox, planPath)
+      .then((svg) => onPlanReady(svg))
+      .catch((e) => console.warn('plan init failed:', e));
   }
-  $planObj.addEventListener('load', () => { try { onPlanReady($planObj); } catch(e){ console.warn('plan init failed:', e); } }, { once:true });
 
 // Lignes (renew = sièges connus) — activable/désactivable par config
 const $rows = $('#cartRows');
@@ -1524,132 +2031,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       setLayoutIconForTarget(next);
     });
   }
-  // 2) Plein écran du plan
-  const fsBtn = $('#fsToggle');
-  const planWrap = $('.plan-wrap');
-  if (fsBtn && planWrap) {
-    const isMobileUA = /Android|iP(ad|hone|od)/i.test(navigator.userAgent || '');
-    // Sur mobile/tablette, on force le mode simulé pour conserver le pinch-zoom.
-    const supportsNativeFs = !isMobileUA && !!(planWrap.requestFullscreen || planWrap.webkitRequestFullscreen);
-    const host = planWrap || $('#plan'); // cible sûre : le conteneur du plan
-    let simFullscreen = false;
-
-    const updateIcons = (isFull) => {
-      $('.icon-big',   fsBtn)?.toggleAttribute('hidden',  isFull);
-      $('.icon-small', fsBtn)?.toggleAttribute('hidden', !isFull);
-    };
-
-    // plein écran sur le panneau plan (native si possible, sinon fallback)
-    fsBtn.addEventListener('click', async () => {
-      const entering = !(document.fullscreenElement || simFullscreen);
-      try {
-        if (entering) {
-          if (supportsNativeFs) {
-            await (host.requestFullscreen?.() || host.webkitRequestFullscreen?.());
-            updateIcons(true);
-          } else {
-            simFullscreen = true;
-            host.classList.add('fs-simulated');
-            document.body.classList.add('fs-lock');
-            updateIcons(true);
-          }
-        } else {
-          if (document.fullscreenElement && (document.exitFullscreen || document.webkitExitFullscreen)) {
-            await (document.exitFullscreen?.() || document.webkitExitFullscreen?.());
-          }
-          if (simFullscreen) {
-            simFullscreen = false;
-            host.classList.remove('fs-simulated');
-            document.body.classList.remove('fs-lock');
-          }
-          updateIcons(false);
-        }
-      } catch {
-        const isFS = !!(document.fullscreenElement || simFullscreen);
-        updateIcons(isFS);
-      }
-    });
-
-    // garde-fou : synchro icônes même si l’API native change l’état
-    const onFsChange = () => {
-      const isFS = !!(document.fullscreenElement || simFullscreen);
-      updateIcons(isFS);
-      if (!document.fullscreenElement && simFullscreen) {
-        simFullscreen = false;
-        host.classList.remove('fs-simulated');
-        document.body.classList.remove('fs-lock');
-      }
-    };
-    document.addEventListener('fullscreenchange', onFsChange);
-    document.addEventListener('webkitfullscreenchange', onFsChange);
-    
-  }
-
-  // Pinch-zoom custom sur le plan (évite le zoom global de la page)
-  const planObj = $('#venuePlan');
-  if (planWrap && planObj) {
-    let baseScale = 1;
-    let startDistance = null;
-    const active = new Map();
-    const minScale = 1;
-    const maxScale = 3;
-
-    const distance = () => {
-      if (active.size < 2) return null;
-      const pts = Array.from(active.values());
-      const dx = pts[0].x - pts[1].x;
-      const dy = pts[0].y - pts[1].y;
-      return Math.hypot(dx, dy);
-    };
-
-    const applyScale = (scale) => {
-      const clamped = Math.max(minScale, Math.min(maxScale, scale));
-      planObj.style.transformOrigin = 'center center';
-      planObj.style.transform = `scale(${clamped})`;
-      planObj.dataset.zoom = String(clamped);
-      return clamped;
-    };
-
-    const resetPointers = () => {
-      startDistance = null;
-      active.clear();
-    };
-
-    const onPointerDown = (ev) => {
-      if (ev.pointerType === 'touch') {
-        active.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-        if (active.size === 2) startDistance = distance();
-      }
-    };
-
-    const onPointerMove = (ev) => {
-      if (!active.has(ev.pointerId)) return;
-      active.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-      if (active.size >= 2 && startDistance) {
-        const dist = distance();
-        if (dist) {
-          const newScale = applyScale(baseScale * (dist / startDistance));
-          planWrap.classList.toggle('zoomed', newScale > 1.02);
-          ev.preventDefault();
-        }
-      }
-    };
-
-    const endPointer = (ev) => {
-      if (active.has(ev.pointerId)) active.delete(ev.pointerId);
-      if (active.size < 2 && startDistance) {
-        const current = Number(planObj.dataset.zoom || baseScale || 1);
-        baseScale = current;
-        startDistance = null;
-      }
-    };
-    planWrap.addEventListener('pointerdown', onPointerDown, { passive: false, capture: true });
-    planWrap.addEventListener('pointermove', onPointerMove, { passive: false, capture: true });
-    planWrap.addEventListener('pointerup', endPointer, { capture: true });
-    planWrap.addEventListener('pointercancel', endPointer, { capture: true });
-    planWrap.addEventListener('pointerout', endPointer, { capture: true });
-    planWrap.addEventListener('pointerleave', endPointer, { capture: true });
-  }
+  // 2) Plan : mode immersif, zoom, aperçu sur téléphone, zoom sur une zone
+  setupPlanChrome();
+  setupZoneButtonFocus();
+  setupZoneScroller();
 
   // layout initial (icône = cible)
   applyLayout();

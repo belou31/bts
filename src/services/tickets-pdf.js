@@ -6,6 +6,9 @@ import SVGtoPDF from 'svg-to-pdfkit';
 import { Event } from '../models/Event.js';
 import { Season } from '../models/Season.js';
 import { Venue } from '../models/Venue.js';
+import { Zone } from '../models/Zone.js';
+import { SeatCatalog } from '../models/SeatCatalog.js';
+import { resolveUnitType, isRealSeatId, zoneKeyFromSeatId } from '../utils/seat-id.js';
 import { hexToQrSvg, renderQrSvg, signCode } from './qr.js';
 import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { Tariff } from '../models/Tariff.js';
@@ -240,6 +243,50 @@ function seatOrZone(t) {
   return String(t?.seatId || t?.zoneKey || '').trim();
 }
 
+// Zone et rang du billet, pour {{ZONE}} / {{ZONE_KEY}} / {{ROW}}.
+// Billet en zone (placement libre, debout, fallback) : zone renseignée, rang vide.
+function zoneAndRowForTicket(t, zoneNames, seatRows) {
+  const seatId = String(t?.seatId || '').trim();
+  const zoneKey = String(t?.zoneKey || zoneKeyFromSeatId(seatId) || '').trim().toUpperCase();
+  const zone = zoneNames.get(zoneKey) || zoneKey;
+  let row = '';
+  if (!t?.fallback && seatId && resolveUnitType(t) === 'seat') {
+    // Le catalogue fait foi ; sinon on lit le rang dans l'id « ZONE-RANG-NUMÉRO ».
+    row = seatRows.get(seatId) || (isRealSeatId(seatId) ? seatId.split('-')[1] : '');
+  }
+  return { zoneKey, zone, row };
+}
+
+// Libellés de zone et rangs du catalogue, chargés une fois par commande
+// (même principe que loadTariffLabelMap).
+async function loadZoneAndRowMaps(ev, order, tickets) {
+  const zoneNames = new Map();
+  const seatRows = new Map();
+  const venueSlug = ev?.venueSlug || order?.venueSlug || order?.meta?.venueSlug || '';
+  if (!venueSlug) return { zoneNames, seatRows };
+  const seasonCode = ev?.seasonCode || order?.seasonCode || '';
+  const seatIds = [...new Set(tickets.map(t => String(t?.seatId || '').trim()).filter(Boolean))];
+  try {
+    const [zones, seats] = await Promise.all([
+      Zone.find(seasonCode ? { venueSlug, seasonCode } : { venueSlug })
+        .select({ key: 1, name: 1, updatedAt: 1 }).sort({ updatedAt: 1 }).lean(),
+      seatIds.length
+        ? SeatCatalog.find({ venueSlug, seatId: { $in: seatIds } }).select({ seatId: 1, row: 1 }).lean()
+        : Promise.resolve([])
+    ]);
+    // Tri croissant : sans saison connue, la zone la plus récente l'emporte.
+    for (const z of zones || []) {
+      const key = String(z.key || '').toUpperCase();
+      if (key && z.name) zoneNames.set(key, String(z.name));
+    }
+    for (const s of seats || []) {
+      if (s.row) seatRows.set(String(s.seatId), String(s.row).trim());
+    }
+  } catch (e) {
+    console.warn(`[tickets-pdf] zone/row lookup failed: ${e.message || e}`);
+  }
+  return { zoneNames, seatRows };
+}
 
 // ───────── Template utils (slots + placeholders) ─────────
 function escapeXml(s) {
@@ -441,6 +488,7 @@ export async function buildTicketsPdfBuffer(order) {
   const ev = evId ? await Event.findById(evId).lean().catch(()=>null) : null;
 
   const tariffLabels = await loadTariffLabelMap(ev);
+  const { zoneNames, seatRows } = await loadZoneAndRowMaps(ev, order, tickets);
   const adPlacements = await loadActivePlacements(ev, order);
   const campaignMasters = await loadCampaignMasters(adPlacements);
   const appBase = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
@@ -537,6 +585,15 @@ export async function buildTicketsPdfBuffer(order) {
         if (placement.contentType === 'text') campaignTextVars[slot.toUpperCase()] = placement.text || '';
       }
 
+      const { zoneKey: tZoneKey, zone: tZone, row: tRow } = zoneAndRowForTicket(t, zoneNames, seatRows);
+      const labelZone = translate('common.zone', order?.locale);
+      const labelRow = translate('common.row', order?.locale);
+      // Ligne prête à l'emploi, sans libellé orphelin quand le rang est vide.
+      const seatLocation = [
+        tZone ? `${labelZone} ${tZone}` : '',
+        tRow ? `${labelRow} ${tRow}` : ''
+      ].filter(Boolean).join(' · ');
+
       // 1) Remplacement des placeholders texte
       const textSvg = applyVars(rawSvg, {
         CLUB_NAME: clubName,
@@ -545,6 +602,10 @@ export async function buildTicketsPdfBuffer(order) {
         VENUE_NAME: resolvedVenueName,
         ORDER_ID: String(order?._id || ''),
         SEAT: seatOrZone(t),
+        ZONE: tZone,
+        ZONE_KEY: tZoneKey,
+        ROW: tRow,
+        SEAT_LOCATION: seatLocation,
         BENEFICIARY: beneficiary,
         TARIFF_LABEL: resolvedTariffLabel,
         TARIFF_TITLE: tariffTitle,
@@ -559,6 +620,8 @@ export async function buildTicketsPdfBuffer(order) {
           ? translate('common.invitation', order?.locale).toUpperCase() : '',
         LABEL_VENUE: translate('common.venue', order?.locale),
         LABEL_SEAT: translate('common.seat', order?.locale),
+        LABEL_ZONE: labelZone,
+        LABEL_ROW: labelRow,
         LABEL_BENEFICIARY: translate('common.beneficiary', order?.locale),
         FOOTER_NOTE: translate('ticket.footerNote', order?.locale, { orderId: String(order?._id || '') }),
         ...campaignTextVars
