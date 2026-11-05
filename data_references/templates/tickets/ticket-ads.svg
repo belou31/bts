@@ -72,6 +72,7 @@
 
   <text x="44" y="230" class="h4 text">Place</text>
   <text x="44" y="260" class="h1 text">{{SEAT}}</text>
+  <text x="44" y="282" class="p muted">{{SEAT_LOCATION}}</text>
 
   <text x="44" y="310" class="h4 text">Bénéficiaire</text>
   <text x="44" y="340" class="h1 text">{{BENEFICIARY}}</text>
