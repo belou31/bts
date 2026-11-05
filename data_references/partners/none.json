@@ -1,0 +1,14 @@
+{
+  "_notes": [
+    "Modèle « none » : pas de connexion. Pages ouvertes, ou protégées par un jeton statique (Generate Partner Token).",
+    "Copié une fois à la création (Create / Update Partner, --template=none) dans data/customization/partners/<slug>/partner.json ; les clés « _notes » ne sont pas recopiées."
+  ],
+  "connection": "none",
+  "paymentMode": "psp",
+  "allowPublicTariffs": false,
+  "reserve": null,
+  "allowedOrigins": [],
+  "frameAncestors": [],
+  "tokens": { "events": {}, "seasons": {} },
+  "presale": { "events": {}, "seasons": {} }
+}

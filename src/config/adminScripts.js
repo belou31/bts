@@ -1397,7 +1397,7 @@ export const adminScriptGroups = [
           'Refusé si le code est utilisé ; le détail des usages est affiché.',
           'Les copies du tarif dans les tables d\'événement ne sont jamais touchées.',
           'Monitor → Tarifs signale les tarifs globaux inutilisés.',
-          'Un code cité dans data/customization (partners.json, cart-rules.json) est signalé, à retirer à la main.'
+          'Un code cité dans data/customization (partners/<slug>/partner.json, cart-rules.json) est signalé, à retirer à la main.'
         ],
         form: {
           fields: [
@@ -2149,6 +2149,40 @@ export const adminScriptGroups = [
               label: 'Libérer les places pour toute la saison',
               type: 'checkbox',
               arg: { type: 'flag', flag: '--release-seats' }
+            }
+          ]
+        }
+      },
+      {
+        id: 'rebook-paid-season-seat',
+        label: 'Rebook Paid Season Seat',
+        order: 7.45,
+        path: 'scripts/03-season-management/rebook-paid-season-seat.js',
+        command: 'node scripts/03-season-management/rebook-paid-season-seat.js --order=<id> [--commit]',
+        run: { script: 'scripts/03-season-management/rebook-paid-season-seat.js', args: [] },
+        danger: true,
+        description: 'Répare une commande de saison "paid" dont la place n\'a jamais été effectivement réservée (Seat.status resté available/busy) — visible en admin/orders comme "paid ⚠ 0/N siège(s) réservé(s)".',
+        notes: [
+          'Une fois une commande "paid", finalizePaidIfNoConflict() (et donc check-order-payment.js, le webhook, /pay/return) ne la retouche plus jamais : c\'est le seul outil qui réécrit Seat.status après coup.',
+          'Refuse toute commande rattachée à un évènement (eventId) : une commande match ne touche jamais Seat.status, voir computeEventSeatStates — rien à réparer avec cet outil-là.',
+          'N\'écrase jamais une place déjà booked/busy détenue par quelqu\'un d\'autre : ce cas exige une décision humaine (réallocation ou remboursement), pas une réécriture forcée.',
+          'Sans « Appliquer », rien n\'est écrit : le script indique seulement si la place est dans un état réparable.',
+          'Idempotent : relancer sur une commande déjà réparée par cet outil (ou déjà booked par le flux normal) ne fait rien.'
+        ],
+        form: {
+          fields: [
+            {
+              name: 'order',
+              label: 'Identifiant de commande',
+              placeholder: '6aa953c34db42a4fd6c18e8a',
+              required: true,
+              arg: { type: 'option', template: '--order=${value}' }
+            },
+            {
+              name: 'commit',
+              label: 'Appliquer (sinon simulation)',
+              type: 'checkbox',
+              arg: { type: 'flag', flag: '--commit' }
             }
           ]
         }
@@ -3340,11 +3374,11 @@ export const adminScriptGroups = [
     id: '05-partner-management',
     label: '05 — Partner',
     order: 5,
-    description: 'Manage partner-specific access, iframe restrictions, and payment modes backed by data/customization/partners.json.',
+    description: 'Manage partner-specific access, iframe restrictions, and payment modes. One file per partner: data/customization/partners/<slug>/partner.json (templates per connection kind: openid, directory, none).',
     scripts: [
       {
         id: 'partners-init-template',
-        label: 'Init Partner Template',
+        label: 'Init Partner Templates',
         order: 10,
         path: 'scripts/05-partner-management/init-partners.js',
         command: 'node scripts/05-partner-management/init-partners.js [--force]',
@@ -3352,10 +3386,15 @@ export const adminScriptGroups = [
           script: 'scripts/05-partner-management/init-partners.js',
           args: []
         },
-        description: 'Creates data/customization/partners.json with starter entries (cseairbus, aisc).',
+        description: 'Copie les modèles de partenaire (openid, directory, none) dans data/customization/partners/_templates/, pour les adapter (libellés, droits, paiement…).',
         notes: [
-          'Use --force to overwrite an existing file; otherwise the script exits without modifying it.',
-          'Edit the JSON afterwards for copy, iframe origins, payment behavior.'
+          'Un modèle existant est conservé ; --force pour le remplacer par celui livré (data_references/partners/<kind>.json).',
+          'Un modèle n\'est copié dans le fichier d\'un partenaire qu\'à sa création (Create / Update Partner, modèle) : le modifier ensuite ne change pas les partenaires existants.'
+        ],
+        templates: [
+          'data_references/partners/openid.json',
+          'data_references/partners/directory.json',
+          'data_references/partners/none.json'
         ],
         form: { fields: [] }
       },
@@ -3425,19 +3464,31 @@ export const adminScriptGroups = [
         label: 'Create / Update Partner',
         order: 0,
         path: 'scripts/05-partner-management/upsert-partner.js',
-        command: 'node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [--payment-mode=psp|invoice_auto] [--allow-public-tariffs=yes|no] [--payment-provider=...]',
+        command: 'node scripts/05-partner-management/upsert-partner.js --slug=<slug> --name="<Display Name>" [--template=openid|directory|none] [--payment-mode=psp|invoice_auto] [--allow-public-tariffs=yes|no] [--payment-provider=...]',
         run: {
           script: 'scripts/05-partner-management/upsert-partner.js',
           args: []
         },
-        description: 'Adds or updates a partner entry in data/customization/partners.json (consumed at runtime via config/partners.js).',
+        description: 'Crée ou met à jour un partenaire : data/customization/partners/<slug>/partner.json. À la création, « Modèle » copie le modèle du mode de connexion choisi (openid, directory, none), à compléter ensuite dans le fichier.',
         notes: [
+          'Modèle : à la création seulement (refusé si le partenaire existe) ; seules les options saisies remplacent les valeurs du modèle. Modèles : data/customization/partners/_templates/ (Init Partner Templates), sinon data_references/partners/.',
           'For invoice_auto mode you can set payment-provider, pay-button, success-message, error-message, auto-finalize, send-tickets.'
         ],
         form: {
           fields: [
             { name: 'partner', label: 'Slug', placeholder: 'cseairbus', required: true, arg: { type: 'option', template: '--slug=${value}' } },
             { name: 'name', label: 'Nom affiché', placeholder: 'CSE Airbus', required: true, arg: { type: 'option', template: '--name=${value}' } },
+            {
+              name: 'template',
+              label: 'Modèle (création seulement)',
+              arg: { type: 'option', template: '--template=${value}' },
+              options: [
+                { label: '— aucun (mise à jour) —', value: '' },
+                { label: 'OpenID (fournisseur du partenaire)', value: 'openid' },
+                { label: 'Annuaire BTS (identifiant + e-mail + code)', value: 'directory' },
+                { label: 'Aucune connexion', value: 'none' }
+              ]
+            },
             { name: 'paymentMode', label: 'Mode de paiement', placeholder: 'psp | invoice_auto', arg: { type: 'option', template: '--payment-mode=${value}' } },
             { name: 'allowPublicTariffs', label: 'Autoriser les tarifs publics', hint: 'yes|no (par défaut: no). Si yes, les tarifs publics seront accessibles en fallback.', arg: { type: 'option', template: '--allow-public-tariffs=${value}' } },
             { name: 'paymentProvider', label: 'ID prestataire (invoice_auto)', placeholder: 'cseairbus_invoice', arg: { type: 'option', template: '--payment-provider=${value}' } },
@@ -3461,9 +3512,9 @@ export const adminScriptGroups = [
         },
         description: 'Choisit comment les ayants droit d\'un partenaire se connectent : openid (fournisseur d\'identité du partenaire), directory (annuaire BTS : identifiant + e-mail + code), none (pas de connexion).',
         notes: [
-          'Écrit `connection` dans l\'entrée du partenaire (partners.json) et retire les anciens interrupteurs (oidc.required, directory.enabled) : un seul réglage fait foi.',
+          'Écrit `connection` dans le fichier du partenaire (partners/<slug>/partner.json) et retire les anciens interrupteurs (oidc.required, directory.enabled) : un seul réglage fait foi.',
           'Les blocs oidc et directory sont conservés : changer de mode ne perd ni les secrets du fournisseur d\'identité ni les réglages de l\'annuaire.',
-          'openid exige un bloc oidc complet (issuer, clientId), à saisir dans partners.json.',
+          'openid exige un bloc oidc complet (issuer, clientId), à saisir dans partners/<slug>/partner.json.',
           'directory : l\'annuaire s\'importe sur /partner/<slug>/admin/directory (identifiants de Set Partner Admin Credentials).',
           'openid / directory : la connexion devient obligatoire, le jeton statique n\'ouvre plus les pages.'
         ],
@@ -3560,6 +3611,29 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'partner-migrate-files',
+        label: 'Migrate partners.json to One File per Partner',
+        order: 11,
+        path: 'scripts/05-partner-management/migrate-partners-to-files.js',
+        command: 'node scripts/05-partner-management/migrate-partners-to-files.js [--dry-run]',
+        run: {
+          script: 'scripts/05-partner-management/migrate-partners-to-files.js',
+          args: []
+        },
+        description: 'Répartit l\'ancien data/customization/partners.json (un tableau pour tous) en un fichier par partenaire : data/customization/partners/<slug>/partner.json.',
+        notes: [
+          'Chaque entrée est recopiée telle quelle. Un partenaire qui a déjà son fichier n\'est pas écrasé (signalé).',
+          'Avant toute écriture, l\'original est copié en partners.json.migrated-<date> ; une fois tout migré, partners.json est retiré.',
+          'Un partners.json illisible (JSON invalide) arrête le script avant toute écriture.',
+          'Sans migration, partners.json reste lu pour les partenaires sans fichier ; chaque script Set Partner … déplace le partenaire qu\'il modifie dans son fichier.'
+        ],
+        form: {
+          fields: [
+            { name: 'dryRun', label: 'Simulation', type: 'checkbox', arg: { type: 'flag', flag: '--dry-run' } }
+          ]
+        }
+      },
+      {
         id: 'partner-import-csv',
         label: 'Import Partners (CSV)',
         order: 8,
@@ -3569,7 +3643,7 @@ export const adminScriptGroups = [
           script: 'scripts/05-partner-management/import-partners.js',
           args: []
         },
-        description: 'Import partners from CSV into data/customization/partners.json; merges by default, or replaces when --replace is provided.',
+        description: 'Import partners from CSV, one file per partner (partners/<slug>/partner.json): merged into the existing config by default; --replace replaces each listed partner entirely. Partners absent from the CSV are never touched.',
         templates: ['data_references/csv/partners.template.csv'],
         notes: [
           'Columns: slug,name,paymentMode,allowedOrigins,frameAncestors,paymentProvider,payButtonLabel,successMessage,errorMessage,autoFinalize,sendTickets,uiHeading,uiLead,uiPaymentHelp.'
@@ -3596,7 +3670,7 @@ export const adminScriptGroups = [
           script: 'scripts/05-partner-management/export-partners.js',
           args: []
         },
-        description: 'Export partners.json to CSV (stdout or --out=<file>).',
+        description: 'Export all partners (partners/<slug>/partner.json) to CSV (stdout or --out=<file>).',
         templates: ['data_references/csv/partners.template.csv'],
         form: {
           fields: [

@@ -100,7 +100,7 @@ function isPartnerPresaleAllowed(ev, channelCtx) {
   return quota > 0;
 }
 
-// Droits du bénéficiaire connecté (partners.json → entitlements) ; null hors
+// Droits du bénéficiaire connecté (partner.json → entitlements) ; null hors
 // canal partenaire ou sans règles. Lève code=partner_login_required sans session.
 async function getPartnerEntitlements(ev, channelCtx) {
   if (!channelCtx || channelCtx.kind !== 'partner') return null;

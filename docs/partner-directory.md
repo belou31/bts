@@ -15,8 +15,8 @@ mode `directory`, ou :
 node scripts/05-partner-management/set-partner-connection.js --partner=<slug> --mode=directory [--dry-run]
 ```
 
-Écrit `"connection": "directory"` dans l'entrée du partenaire
-(`partners.json`) et retire les anciens interrupteurs (`directory.enabled`,
+Écrit `"connection": "directory"` dans le fichier du partenaire
+(`partners/<slug>/partner.json`) et retire les anciens interrupteurs (`directory.enabled`,
 `oidc.required`) ; le reste de l'entrée, bloc `oidc` compris, est conservé.
 Activé, **la connexion est obligatoire** sur les pages du partenaire ; le
 jeton statique n'ouvre plus l'accès. `--mode=none` la désactive, `--mode=openid`

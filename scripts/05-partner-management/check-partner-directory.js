@@ -7,7 +7,7 @@
 //
 // Utilise la base de MONGO_URI (.env) avec un partenaire jetable, dont les
 // données sont effacées à la fin. Configuration partenaire et courriels
-// (EMAIL_STUB) dans un répertoire temporaire : partners.json réel intact.
+// (EMAIL_STUB) dans un répertoire temporaire : configuration partenaire réelle intacte.
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -22,15 +22,31 @@ process.env.APP_ENV = 'development';
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'bts-directory-'));
 fs.mkdirSync(path.join(SANDBOX, 'data', 'customization'), { recursive: true });
-const REAL_CFG = path.join(ROOT, 'data', 'customization', 'partners.json');
-const REAL_BEFORE = fs.existsSync(REAL_CFG) ? fs.readFileSync(REAL_CFG, 'utf8') : null;
+// Configuration partenaire réelle (ancien tableau et fichiers par partenaire) :
+// le harnais ne doit jamais y toucher.
+const realPartnerSnapshot = () => {
+  const base = path.join(ROOT, 'data', 'customization');
+  const files = [path.join(base, 'partners.json')];
+  const dir = path.join(base, 'partners');
+  if (fs.existsSync(dir)) {
+    for (const d of fs.readdirSync(dir).sort()) files.push(path.join(dir, d, 'partner.json'));
+  }
+  return files.filter(f => fs.existsSync(f)).map(f => `${f}\n${fs.readFileSync(f, 'utf8')}`).join('\n');
+};
+const REAL_BEFORE = realPartnerSnapshot();
+// Un fichier par partenaire, comme data/customization/partners/<slug>/partner.json.
+const writePartners = (list) => list.forEach((p) => {
+  const f = path.join(SANDBOX, 'data', 'customization', 'partners', p.slug, 'partner.json');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(p, null, 2));
+});
 process.chdir(SANDBOX);
 
 const SLUG = `zz-directory-${Date.now().toString(36)}`;
-fs.writeFileSync(path.join(SANDBOX, 'data', 'customization', 'partners.json'), JSON.stringify([
+writePartners([
   { slug: SLUG, name: 'Annuaire test', paymentMode: 'psp', directory: { enabled: true }, admin: { user: 'adm', pass: 'pw' } },
   { slug: `${SLUG}-off`, name: 'Sans annuaire' }
-], null, 2));
+]);
 
 const ok = (b) => (b ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗ ÉCHEC\x1b[0m');
 let failures = 0;
@@ -271,8 +287,7 @@ try {
   check('données de test effacées', (await PartnerMember.countDocuments({ partnerSlug: SLUG })) === 0, `${m.deletedCount} fiche(s), ${c.deletedCount} code(s)`);
   srv.close();
   await mongoose.disconnect();
-  const after = fs.existsSync(REAL_CFG) ? fs.readFileSync(REAL_CFG, 'utf8') : null;
-  check('configuration partenaire réelle intacte', after === REAL_BEFORE);
+  check('configuration partenaire réelle intacte', realPartnerSnapshot() === REAL_BEFORE);
   process.chdir(ROOT);
   fs.rmSync(SANDBOX, { recursive: true, force: true });
   console.log(failures === 0 ? '\n\x1b[32mTous les contrôles passent.\x1b[0m' : `\n\x1b[31m${failures} contrôle(s) en échec.\x1b[0m`);

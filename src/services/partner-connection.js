@@ -1,7 +1,7 @@
 // src/services/partner-connection.js
 //
 // Mode de connexion des ayants droit d'un partenaire : UN interrupteur,
-// `connection` dans partners.json (script set-partner-connection.js).
+// `connection` dans partners/<slug>/partner.json (script set-partner-connection.js).
 //
 //   "openid"     connexion obligatoire via le fournisseur d'identité du
 //                partenaire (bloc `oidc`, services/partner-oidc.js) ;

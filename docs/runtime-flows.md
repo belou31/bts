@@ -298,7 +298,7 @@ donc rigoureusement celui de l'abonnement public ; seul le canal change.
 
 ### Quota
 
-Déclaré dans `data/customization/partners.json` :
+Déclaré dans `data/customization/partners/<slug>/partner.json` :
 
 ```json
 { "slug": "partner01", "presale": { "seasons": { "2026-2027": { "quota": 50 } } } }
@@ -366,6 +366,8 @@ clés réellement différentes : recopier tout le fichier fige une version de
 chaque texte, et une correction ultérieure dans `default.json` n'atteindrait
 plus ce partenaire.
 
-> À ne pas confondre : `data/customization/partners.json` (au singulier, un seul
-> fichier) est la **configuration métier** des partenaires — jeton d'accès, mode
-> de paiement, quotas de prévente, vues de salle. Rien à voir avec l'habillage.
+> À ne pas confondre : `partners/<slug>/partner.json` (un fichier par
+> partenaire, dans son dossier) est la **configuration métier** du partenaire —
+> connexion, jeton d'accès, mode de paiement, droits, quotas de prévente, vues
+> de salle. Rien à voir avec l'habillage (`partners/<slug>.json`). Détail :
+> `docs/partner-config.md`.

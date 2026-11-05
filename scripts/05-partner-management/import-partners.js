@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Import partners from CSV into data/customization/partners.json.
+ * Import partners from CSV, one file per partner: data/customization/partners/<slug>/partner.json.
  *
  * Usage:
  *   node scripts/05-partner-management/import-partners.js partners.csv [--replace]
@@ -10,13 +10,15 @@
  * - allowedOrigins / frameAncestors: comma or space separated list.
  * - paymentMode: psp | invoice_auto.
  * - autoFinalize / sendTickets: yes/no/true/false (invoice_auto only).
- * - When --replace is passed, the file is overwritten with the CSV content.
- *   Otherwise, entries are merged by slug with existing partners.json.
+ * - Default: each CSV row is merged into the partner's existing config (fields
+ *   not in the CSV — oidc, entitlements, admin… — are kept).
+ * - --replace: each CSV row replaces its partner's config entirely. Partners
+ *   absent from the CSV are left untouched (never deleted).
  */
 
 import fs from 'fs';
-import path from 'path';
 import process from 'process';
+import { readPartnerConfig, writePartnerConfig } from '../../src/config/partners.js';
 
 const args = process.argv.slice(2);
 const file = args.find(a => !a.startsWith('--'));
@@ -27,9 +29,6 @@ if (!file) {
   process.exit(1);
 }
 
-const targetDir = path.resolve(process.cwd(), 'data', 'customization');
-const targetFile = path.join(targetDir, 'partners.json');
-fs.mkdirSync(targetDir, { recursive: true });
 
 const parseList = (val = '') =>
   String(val || '')
@@ -58,18 +57,6 @@ function readCsv(filepath) {
     });
     return row;
   });
-}
-
-function loadExisting() {
-  if (!fs.existsSync(targetFile)) return [];
-  try {
-    const raw = fs.readFileSync(targetFile, 'utf8');
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (err) {
-    console.warn(`[partners:import] Unable to read existing file, ignoring: ${err.message}`);
-    return [];
-  }
 }
 
 const rows = readCsv(file);
@@ -121,19 +108,18 @@ const imported = rows
   })
   .filter(Boolean);
 
-let finalEntries = imported;
-if (!REPLACE) {
-  const existing = loadExisting();
-  const map = new Map();
-  [...existing, ...imported].forEach(p => {
-    if (!p?.slug) return;
-    map.set(p.slug, { ...(map.get(p.slug) || {}), ...p });
-  });
-  finalEntries = Array.from(map.values());
+for (const p of imported) {
+  let existing = null;
+  if (!REPLACE) {
+    try {
+      existing = readPartnerConfig(p.slug).cfg;
+    } catch (err) {
+      console.error(`[partners:import] Unable to read the config of "${p.slug}", not touched: ${err.message}`);
+      process.exitCode = 1;
+      continue;
+    }
+  }
+  const written = writePartnerConfig(p.slug, existing ? { ...existing, ...p } : p);
+  console.log(`[partners:import] ${existing ? 'merged' : REPLACE ? 'replaced' : 'created'} "${p.slug}" → ${written}`);
 }
-
-fs.writeFileSync(targetFile, JSON.stringify(finalEntries, null, 2), 'utf8');
-console.log(`[partners:import] ${finalEntries.length} partner(s) written to ${targetFile}`);
-if (!REPLACE) {
-  console.log(`[partners:import] merged ${imported.length} row(s) from CSV`);
-}
+console.log(`[partners:import] ${imported.length} row(s) from CSV`);

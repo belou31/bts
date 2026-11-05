@@ -2,7 +2,7 @@
 //
 // Droits d'achat d'un bénéficiaire connecté par OpenID, par partenaire.
 //
-// Déclarés dans data/customization/partners.json, au niveau du partenaire :
+// Déclarés dans data/customization/partners/<slug>/partner.json :
 //
 //   "entitlements": [
 //     { "key": "ayants-droit", "label": "Places ayants droit", "per": "event",
