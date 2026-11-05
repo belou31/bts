@@ -43,6 +43,8 @@
     "openSub": "Billets en vente",
     "closed": "Ventes fermées",
     "closedSub": "Ventes closes pour cet événement",
+    "notOpen": "Ventes non ouvertes",
+    "unavailable": "Non disponible",
     "presale": "Prévente ouverte",
     "presaleSub": "Prévente partenaire",
     "presaleRemaining": "Places restantes : {{n}}",
