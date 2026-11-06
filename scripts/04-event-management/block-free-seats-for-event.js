@@ -9,10 +9,18 @@ import { Seat } from '../../src/models/Seat.js';
 import { ADMIN_RELEASE_REASON } from '../../src/services/event-seat-states.js';
 
 // Même repli que seat-state.routes.js (admin/plan) quand la ligne CSV ne
-// donne pas d'expiresAt pour un release : tenir jusqu'au coup d'envoi (+12h
-// de marge) plutôt qu'une durée arbitraire ; sans date de match connue,
-// 30 jours.
-function defaultReleaseUntil(eventDoc) {
+// donne pas d'expiresAt, pour un block comme pour un release : tenir
+// jusqu'au coup d'envoi (+12h de marge) plutôt qu'une durée arbitraire ;
+// sans date de match connue, 30 jours.
+//
+// Indispensable pour "block" : un SeatHold avec expiresAt=null est invisible
+// à la fois à computeEventSeatStates (requête `expiresAt: {$gt: now}` — null
+// ne matche ni $gt ni $lte un Date, aucun des deux côtés du bracket de type
+// BSON) ET à la vérification de conflit de /hold (même requête). Le siège
+// s'affichait donc "available" partout (plan, export), mais sa sélection
+// échouait tout de même — par un index unique qui refusait la création d'un
+// second SeatHold {eventId, seatId}, pas par la détection de conflit prévue.
+function defaultEventHoldUntil(eventDoc) {
   if (eventDoc?.startsAt) {
     return new Date(Math.max(new Date(eventDoc.startsAt).getTime(), Date.now()) + 12 * 60 * 60 * 1000);
   }
@@ -107,7 +115,7 @@ function parseDate(value) {
         seasonCode,
         venueSlug,
         reason,
-        expiresAt,
+        expiresAt: expiresAt || defaultEventHoldUntil(eventDoc),
         forced: !!argv.force,
         ...(zoneKey ? { zoneKey } : {})
       };
@@ -185,7 +193,7 @@ function parseDate(value) {
             {
               eventId, seatId: s.seatId, seasonCode, venueSlug,
               reason: ADMIN_RELEASE_REASON, sessionToken: '', orderId: null,
-              expiresAt: expiresAt || defaultReleaseUntil(eventDoc),
+              expiresAt: expiresAt || defaultEventHoldUntil(eventDoc),
               forced: !!argv.force
             },
             { upsert: true, new: true, setDefaultsOnInsert: true }
