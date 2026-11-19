@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "pricePerPlaceCents": 1500,
+  "minPlaces": 1,
+  "maxPlaces": 10,
+  "validityDays": 365,
+  "maxPerEvent": 0,
+  "allowedZones": [],
+  "tags": [],
+  "seasonCodes": [],
+  "tariffCode": "INVITATION"
+}

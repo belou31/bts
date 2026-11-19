@@ -19,6 +19,7 @@ function validateTaskDefinition(definition = {}) {
     version: definition.version ? String(definition.version) : undefined,
     summary: definition.summary || '',
     description: definition.description || '',
+    chapter: definition.chapter || null,
     handler: definition.handler,
     validateParams: typeof definition.validateParams === 'function' ? definition.validateParams : null,
     schema: definition.schema || null,

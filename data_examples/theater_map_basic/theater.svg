@@ -1,0 +1,1098 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="100%"
+   viewBox="0 0 297 210"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="theater.svg"
+   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="false"
+     inkscape:zoom="5.6428571"
+     inkscape:cx="148.50633"
+     inkscape:cy="105"
+     inkscape:window-width="3398"
+     inkscape:window-height="1371"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="map" />
+  <metadata
+     id="metadata1">
+	License: MIT
+	Copyright (c) 2025 Les bélougas
+	</metadata>
+  <style
+     id="style1">
+
+	rect.legend_zone { fill:lightyellow;fill-opacity:1;stroke:yellow;stroke-width:0.1;stroke-linejoin:round; }
+
+	text.legend_zone { font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:8px;font-family:Sans;font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:0.0989055;stroke-linejoin:round;stroke-opacity:1; }
+
+	text.legend_text { font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5px;font-family:Sans;font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#5f6ce1;fill-opacity:1;stroke:#000000;stroke-width:0.0989055;stroke-linejoin:round;stroke-opacity:1 }
+
+	rect.seat { fill:lightgrey;stroke:darkgrey;stroke-width:0.8;stroke-linejoin:round }
+
+	rect.seat.seat-available	{ fill: lightgreen; }
+	rect.seat.seat-booked		{ fill: red; }
+	rect.seat.seat-busy			{ fill: orange; }
+	rect.seat.seat-selected		{ fill: blue; }
+
+</style>
+  <defs
+     id="defs1" />
+  <g
+     id="map">
+    <g
+       id="background"
+       transform="matrix(0.99366738,0,0,1.0000016,9.5074953,-1.5257014e-4)">
+      <rect
+         id="colorbg"
+         width="298.87817"
+         height="188.59622"
+         x="-9.7923393"
+         y="3.4400098"
+         style="fill:#ffffff;fill-opacity:1;stroke:#6477ff;stroke-width:0.0959689;stroke-linejoin:round" />
+      <rect
+         id="stage"
+         width="130"
+         height="22"
+         x="55"
+         y="12"
+         style="fill:#8b3a3a;fill-opacity:1;stroke:#6477ff;stroke-width:0.100807;stroke-linejoin:round" />
+      <text
+         id="text_stage"
+         x="120"
+         y="25"
+         style="font-style:normal;font-weight:normal;font-size:7px;font-family:Sans;text-anchor:middle;fill:#ffffff;stroke:none"><tspan
+           id="tspan_stage">STAGE</tspan></text>
+    </g>
+    <g
+       id="legends"
+       transform="translate(9.4488189)">
+      <g
+         id="legends_zones">
+        <rect
+           class="legend_zone"
+           id="zone_ORCH"
+           width="190"
+           height="60"
+           x="25"
+           y="36" />
+        <rect
+           class="legend_zone"
+           id="zone_MEZZ"
+           width="166"
+           height="36"
+           x="37"
+           y="98" />
+        <rect
+           class="legend_zone"
+           id="zone_BALC"
+           width="142"
+           height="36"
+           x="49"
+           y="136" />
+        <rect
+           class="legend_zone"
+           id="zone_LOGE_L"
+           width="18"
+           height="76"
+           x="5.5511808"
+           y="38" />
+        <rect
+           class="legend_zone"
+           id="zone_LOGE_R"
+           width="18"
+           height="76"
+           x="216"
+           y="38" />
+        <text
+           class="legend_zone"
+           id="text_ORCH"
+           x="120"
+           y="44"><tspan
+             id="tspan_orch">Orchestra</tspan></text>
+        <text
+           class="legend_zone"
+           id="text_MEZZ"
+           x="120"
+           y="106"><tspan
+             id="tspan_mezz">Mezzanine</tspan></text>
+        <text
+           class="legend_zone"
+           id="text_BALC"
+           x="120"
+           y="144"><tspan
+             id="tspan_balc">Balcony</tspan></text>
+        <text
+           class="legend_zone"
+           id="text_LOGE_L"
+           x="-76"
+           y="1.6850395"
+           transform="rotate(-90)"><tspan
+             id="tspan_loge_l">Box Left</tspan></text>
+        <text
+           class="legend_zone"
+           id="text_LOGE_R"
+           x="76"
+           y="-237"
+           transform="rotate(90)"><tspan
+             id="tspan_loge_r">Box Right</tspan></text>
+      </g>
+      <g
+         id="legends_texts">
+        <text
+           class="legend_text"
+           id="text_Available"
+           x="250"
+           y="16"><tspan
+             id="tspan_available">Available</tspan></text>
+        <text
+           class="legend_text"
+           id="text_Booked"
+           x="250"
+           y="25"><tspan
+             id="tspan_booked">Booked</tspan></text>
+        <text
+           class="legend_text"
+           id="text_Busy"
+           x="250"
+           y="33.5"><tspan
+             id="tspan_busy">Busy/Held</tspan></text>
+        <text
+           class="legend_text"
+           id="text_Selected"
+           x="250"
+           y="43"><tspan
+             id="tspan_selected">Selected</tspan></text>
+      </g>
+      <g
+         id="legends_colors">
+        <rect
+           class="seat seat-available"
+           id="legend_Available"
+           width="7"
+           height="7"
+           x="240"
+           y="10" />
+        <rect
+           class="seat seat-booked"
+           id="legend_Booked"
+           width="7"
+           height="7"
+           x="240"
+           y="19" />
+        <rect
+           class="seat seat-busy"
+           id="legend_Busy"
+           width="7"
+           height="7"
+           x="240"
+           y="28" />
+        <rect
+           class="seat seat-selected"
+           id="legend_Selected"
+           width="7"
+           height="7"
+           x="240"
+           y="37"
+           style="fill:#0000ff" />
+      </g>
+      <text
+         id="text_Theater"
+         x="8.4409456"
+         y="18"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:12px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#180ea5;fill-opacity:1;stroke:#000000;stroke-width:0.0989055;stroke-linejoin:round;stroke-opacity:1"><tspan
+           id="tspan_title">OPERA</tspan></text>
+    </g>
+    <g
+       id="stands"
+       transform="translate(9.4488189)">
+      <g
+         id="stand_orchestra">
+        <g
+           id="row_ORCH-A">
+          <rect
+             class="seat"
+             id="seat_ORCH-A-01"
+             width="10"
+             height="10"
+             x="61"
+             y="48" />
+          <rect
+             class="seat"
+             id="seat_ORCH-A-02"
+             width="10"
+             height="10"
+             x="73"
+             y="48" />
+          <rect
+             class="seat"
+             id="seat_ORCH-A-03"
+             width="10"
+             height="10"
+             x="85"
+             y="48" />
+          <rect
+             class="seat"
+             id="seat_ORCH-A-04"
+             width="10"
+             height="10"
+             x="97"
+             y="48" />
+          <rect
+             class="seat"
+             id="seat_ORCH-A-05"
+             width="10"
+             height="10"
+             x="109"
+             y="48" />
+          <rect
+             class="seat"
+             id="seat_ORCH-A-06"
+             width="10"
+             height="10"
+             x="121"
+             y="48" />
+          <rect
+             class="seat"
+             id="seat_ORCH-A-07"
+             width="10"
+             height="10"
+             x="133"
+             y="48" />
+          <rect
+             class="seat"
+             id="seat_ORCH-A-08"
+             width="10"
+             height="10"
+             x="145"
+             y="48" />
+          <rect
+             class="seat"
+             id="seat_ORCH-A-09"
+             width="10"
+             height="10"
+             x="157"
+             y="48" />
+          <rect
+             class="seat"
+             id="seat_ORCH-A-10"
+             width="10"
+             height="10"
+             x="169"
+             y="48" />
+        </g>
+        <g
+           id="row_ORCH-B">
+          <rect
+             class="seat"
+             id="seat_ORCH-B-01"
+             width="10"
+             height="10"
+             x="49"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-02"
+             width="10"
+             height="10"
+             x="61"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-03"
+             width="10"
+             height="10"
+             x="73"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-04"
+             width="10"
+             height="10"
+             x="85"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-05"
+             width="10"
+             height="10"
+             x="97"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-06"
+             width="10"
+             height="10"
+             x="109"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-07"
+             width="10"
+             height="10"
+             x="121"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-08"
+             width="10"
+             height="10"
+             x="133"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-09"
+             width="10"
+             height="10"
+             x="145"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-10"
+             width="10"
+             height="10"
+             x="157"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-11"
+             width="10"
+             height="10"
+             x="169"
+             y="60" />
+          <rect
+             class="seat"
+             id="seat_ORCH-B-12"
+             width="10"
+             height="10"
+             x="181"
+             y="60" />
+        </g>
+        <g
+           id="row_ORCH-C">
+          <rect
+             class="seat"
+             id="seat_ORCH-C-01"
+             width="10"
+             height="10"
+             x="37"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-02"
+             width="10"
+             height="10"
+             x="49"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-03"
+             width="10"
+             height="10"
+             x="61"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-04"
+             width="10"
+             height="10"
+             x="73"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-05"
+             width="10"
+             height="10"
+             x="85"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-06"
+             width="10"
+             height="10"
+             x="97"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-07"
+             width="10"
+             height="10"
+             x="109"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-08"
+             width="10"
+             height="10"
+             x="121"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-09"
+             width="10"
+             height="10"
+             x="133"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-10"
+             width="10"
+             height="10"
+             x="145"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-11"
+             width="10"
+             height="10"
+             x="157"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-12"
+             width="10"
+             height="10"
+             x="169"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-13"
+             width="10"
+             height="10"
+             x="181"
+             y="72" />
+          <rect
+             class="seat"
+             id="seat_ORCH-C-14"
+             width="10"
+             height="10"
+             x="193"
+             y="72" />
+        </g>
+        <g
+           id="row_ORCH-D">
+          <rect
+             class="seat"
+             id="seat_ORCH-D-01"
+             width="10"
+             height="10"
+             x="25"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-02"
+             width="10"
+             height="10"
+             x="37"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-03"
+             width="10"
+             height="10"
+             x="49"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-04"
+             width="10"
+             height="10"
+             x="61"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-05"
+             width="10"
+             height="10"
+             x="73"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-06"
+             width="10"
+             height="10"
+             x="85"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-07"
+             width="10"
+             height="10"
+             x="97"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-08"
+             width="10"
+             height="10"
+             x="109"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-09"
+             width="10"
+             height="10"
+             x="121"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-10"
+             width="10"
+             height="10"
+             x="133"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-11"
+             width="10"
+             height="10"
+             x="145"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-12"
+             width="10"
+             height="10"
+             x="157"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-13"
+             width="10"
+             height="10"
+             x="169"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-14"
+             width="10"
+             height="10"
+             x="181"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-15"
+             width="10"
+             height="10"
+             x="193"
+             y="84" />
+          <rect
+             class="seat"
+             id="seat_ORCH-D-16"
+             width="10"
+             height="10"
+             x="205"
+             y="84" />
+        </g>
+      </g>
+      <g
+         id="stand_mezzanine">
+        <g
+           id="row_MEZZ-A">
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-01"
+             width="10"
+             height="10"
+             x="37"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-02"
+             width="10"
+             height="10"
+             x="49"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-03"
+             width="10"
+             height="10"
+             x="61"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-04"
+             width="10"
+             height="10"
+             x="73"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-05"
+             width="10"
+             height="10"
+             x="85"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-06"
+             width="10"
+             height="10"
+             x="97"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-07"
+             width="10"
+             height="10"
+             x="109"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-08"
+             width="10"
+             height="10"
+             x="121"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-09"
+             width="10"
+             height="10"
+             x="133"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-10"
+             width="10"
+             height="10"
+             x="145"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-11"
+             width="10"
+             height="10"
+             x="157"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-12"
+             width="10"
+             height="10"
+             x="169"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-13"
+             width="10"
+             height="10"
+             x="181"
+             y="110" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-A-14"
+             width="10"
+             height="10"
+             x="193"
+             y="110" />
+        </g>
+        <g
+           id="row_MEZZ-B">
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-01"
+             width="10"
+             height="10"
+             x="37"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-02"
+             width="10"
+             height="10"
+             x="49"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-03"
+             width="10"
+             height="10"
+             x="61"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-04"
+             width="10"
+             height="10"
+             x="73"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-05"
+             width="10"
+             height="10"
+             x="85"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-06"
+             width="10"
+             height="10"
+             x="97"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-07"
+             width="10"
+             height="10"
+             x="109"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-08"
+             width="10"
+             height="10"
+             x="121"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-09"
+             width="10"
+             height="10"
+             x="133"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-10"
+             width="10"
+             height="10"
+             x="145"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-11"
+             width="10"
+             height="10"
+             x="157"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-12"
+             width="10"
+             height="10"
+             x="169"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-13"
+             width="10"
+             height="10"
+             x="181"
+             y="122" />
+          <rect
+             class="seat"
+             id="seat_MEZZ-B-14"
+             width="10"
+             height="10"
+             x="193"
+             y="122" />
+        </g>
+      </g>
+      <g
+         id="stand_balcony">
+        <g
+           id="row_BALC-A">
+          <rect
+             class="seat"
+             id="seat_BALC-A-01"
+             width="10"
+             height="10"
+             x="49"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-02"
+             width="10"
+             height="10"
+             x="61"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-03"
+             width="10"
+             height="10"
+             x="73"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-04"
+             width="10"
+             height="10"
+             x="85"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-05"
+             width="10"
+             height="10"
+             x="97"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-06"
+             width="10"
+             height="10"
+             x="109"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-07"
+             width="10"
+             height="10"
+             x="121"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-08"
+             width="10"
+             height="10"
+             x="133"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-09"
+             width="10"
+             height="10"
+             x="145"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-10"
+             width="10"
+             height="10"
+             x="157"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-11"
+             width="10"
+             height="10"
+             x="169"
+             y="148" />
+          <rect
+             class="seat"
+             id="seat_BALC-A-12"
+             width="10"
+             height="10"
+             x="181"
+             y="148" />
+        </g>
+        <g
+           id="row_BALC-B">
+          <rect
+             class="seat"
+             id="seat_BALC-B-01"
+             width="10"
+             height="10"
+             x="61"
+             y="160" />
+          <rect
+             class="seat"
+             id="seat_BALC-B-02"
+             width="10"
+             height="10"
+             x="73"
+             y="160" />
+          <rect
+             class="seat"
+             id="seat_BALC-B-03"
+             width="10"
+             height="10"
+             x="85"
+             y="160" />
+          <rect
+             class="seat"
+             id="seat_BALC-B-04"
+             width="10"
+             height="10"
+             x="97"
+             y="160" />
+          <rect
+             class="seat"
+             id="seat_BALC-B-05"
+             width="10"
+             height="10"
+             x="109"
+             y="160" />
+          <rect
+             class="seat"
+             id="seat_BALC-B-06"
+             width="10"
+             height="10"
+             x="121"
+             y="160" />
+          <rect
+             class="seat"
+             id="seat_BALC-B-07"
+             width="10"
+             height="10"
+             x="133"
+             y="160" />
+          <rect
+             class="seat"
+             id="seat_BALC-B-08"
+             width="10"
+             height="10"
+             x="145"
+             y="160" />
+          <rect
+             class="seat"
+             id="seat_BALC-B-09"
+             width="10"
+             height="10"
+             x="157"
+             y="160" />
+          <rect
+             class="seat"
+             id="seat_BALC-B-10"
+             width="10"
+             height="10"
+             x="169"
+             y="160" />
+        </g>
+      </g>
+      <g
+         id="stand_loge_left"
+         transform="translate(-9.4488189)">
+        <g
+           id="row_LOGE_L-A">
+          <rect
+             class="seat"
+             id="seat_LOGE_L-A-01"
+             width="7"
+             height="7"
+             x="16.5"
+             y="45" />
+          <rect
+             class="seat"
+             id="seat_LOGE_L-A-02"
+             width="7"
+             height="7"
+             x="24.5"
+             y="45" />
+        </g>
+        <g
+           id="row_LOGE_L-B">
+          <rect
+             class="seat"
+             id="seat_LOGE_L-B-01"
+             width="7"
+             height="7"
+             x="16.5"
+             y="75" />
+          <rect
+             class="seat"
+             id="seat_LOGE_L-B-02"
+             width="7"
+             height="7"
+             x="24.5"
+             y="75" />
+        </g>
+        <g
+           id="row_LOGE_L-C">
+          <rect
+             class="seat"
+             id="seat_LOGE_L-C-01"
+             width="7"
+             height="7"
+             x="16.5"
+             y="105" />
+          <rect
+             class="seat"
+             id="seat_LOGE_L-C-02"
+             width="7"
+             height="7"
+             x="24.5"
+             y="105" />
+        </g>
+      </g>
+      <g
+         id="stand_loge_right">
+        <g
+           id="row_LOGE_R-A">
+          <rect
+             class="seat"
+             id="seat_LOGE_R-A-01"
+             width="7"
+             height="7"
+             x="217.5"
+             y="45" />
+          <rect
+             class="seat"
+             id="seat_LOGE_R-A-02"
+             width="7"
+             height="7"
+             x="225.5"
+             y="45" />
+        </g>
+        <g
+           id="row_LOGE_R-B">
+          <rect
+             class="seat"
+             id="seat_LOGE_R-B-01"
+             width="7"
+             height="7"
+             x="217.5"
+             y="75" />
+          <rect
+             class="seat"
+             id="seat_LOGE_R-B-02"
+             width="7"
+             height="7"
+             x="225.5"
+             y="75" />
+        </g>
+        <g
+           id="row_LOGE_R-C">
+          <rect
+             class="seat"
+             id="seat_LOGE_R-C-01"
+             width="7"
+             height="7"
+             x="217.5"
+             y="105" />
+          <rect
+             class="seat"
+             id="seat_LOGE_R-C-02"
+             width="7"
+             height="7"
+             x="225.5"
+             y="105" />
+        </g>
+      </g>
+      <g
+         id="stand_standing">
+        <rect
+           id="standing-zone"
+           width="118"
+           height="12"
+           x="61"
+           y="176"
+           style="fill:#ff00ff;fill-opacity:1;stroke:#8b008b;stroke-width:0.8;stroke-linejoin:round" />
+        <text
+           id="text_standing_label"
+           x="120"
+           y="184"
+           style="font-size:6px;font-family:Sans;text-anchor:middle;fill:#ffffff;stroke:none"><tspan
+             id="tspan1">STANDING ROOM</tspan></text>
+      </g>
+    </g>
+  </g>
+</svg>

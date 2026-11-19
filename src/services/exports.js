@@ -4,6 +4,7 @@ import { Seat }   from '../models/Seat.js';
 import { Ticket } from '../models/Ticket.js';
 import { Event }  from '../models/Event.js';
 import { Tariff } from '../models/Tariff.js';
+import { isZoneUnit, resolveUnitType } from '../utils/seat-id.js';
 
 const csvEscape = (v) => {
   if (v == null) return '';
@@ -11,7 +12,6 @@ const csvEscape = (v) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 };
 
-const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
 const normalizeTariffCode = (value) => String(value || '').trim().toUpperCase();
 
 function chooseTariffForEvent(tariffDocs = [], eventDoc = null) {
@@ -122,7 +122,10 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
     'payerFirstName','payerLastName','payerEmail',
     'seasonCode','venueSlug','paymentSplit','totalCents',
     'providerName','haOrderId','checkoutIntentId','lastReturnCode','lastWebhookEvent','attestationSentAt',
-    'lineIndex','seatId','zoneKey','tariffCode','priceCents','holderFirstName','holderLastName'
+      'checkoutReference','providerOrderId','transactionCode','transactionId',
+      'providerStatusApi','providerStatusWebhook','providerStatusReturn','providerStatusCheckedAt','paidConfirmedAt','forcedFinalize',
+    'lineIndex','seatId','zoneKey','tariffCode','priceCents','holderFirstName','holderLastName',
+    'justif','justificationField','info'
   ].join(',');
   if (includeHeader) out.write(header + '\n');
 
@@ -134,7 +137,9 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
     const baseFields = [
       o._id,
       o.createdAt?.toISOString?.() || '',
-      o.phase || '',
+      // The Order model has no top-level `phase` field (strict:true, only
+      // `origin.flow` exists) — `o.phase` was always undefined here.
+      o.origin?.flow || '',
       o.status || '',
       o.payerFirstName || '',
       o.payerLastName  || '',
@@ -148,13 +153,29 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
       o.paymentProviderMeta?.checkoutIntentId || '',
       o.paymentProviderMeta?.lastReturnCode || '',
       o.paymentProviderMeta?.lastWebhookEvent || '',
-      o.paymentProviderMeta?.attestationSentAt ? new Date(o.paymentProviderMeta.attestationSentAt).toISOString() : ''
+      o.paymentProviderMeta?.attestationSentAt ? new Date(o.paymentProviderMeta.attestationSentAt).toISOString() : '',
+      // Clés de rapprochement avec le relevé du prestataire. checkoutReference
+      // (`bts-<orderId>`) est la seule qui porte l'identifiant BTS ; les autres
+      // sont les identifiants côté prestataire.
+      o.paymentProviderMeta?.checkoutReference || '',
+      o.paymentProviderMeta?.providerOrderId || o.paymentProviderMeta?.haOrderId || '',
+      o.paymentProviderMeta?.transactionCode || '',
+      o.paymentProviderMeta?.transactionId || '',
+      // Statut renvoyé par le prestataire, par canal : API (polling /pay/status
+      // ou check-order-payment), webhook, page de retour. C'est cette valeur —
+      // et non `status` — qui dit ce que SumUp/HelloAsso a réellement répondu.
+      o.paymentProviderMeta?.lastStatusFromApi || '',
+      o.paymentProviderMeta?.lastWebhookStatus || '',
+      o.paymentProviderMeta?.lastStatusFromReturn || o.paymentProviderMeta?.lastReturnProviderStatus || '',
+      o.paymentProviderMeta?.lastStatusCheckedAt ? new Date(o.paymentProviderMeta.lastStatusCheckedAt).toISOString() : '',
+      o.paymentProviderMeta?.lastSuccessfulFinalizeAt ? new Date(o.paymentProviderMeta.lastSuccessfulFinalizeAt).toISOString() : '',
+      o.paymentProviderMeta?.forcedFinalize ? 'yes' : ''
     ];
 
     const lines = Array.isArray(o.lines) ? o.lines : [];
     if (!lines.length) {
-      // 7 colonnes ligne: lineIndex..holderLastName → valeurs vides
-      const rowFields = [...baseFields, 0, '', '', '', 0, '', ''];
+      // 10 colonnes ligne: lineIndex..info → valeurs vides
+      const rowFields = [...baseFields, 0, '', '', '', 0, '', '', '', '', ''];
       out.write(rowFields.map(csvEscape).join(',') + '\n');
 
       continue;
@@ -169,7 +190,10 @@ export async function exportOrdersCsv({ out, filter = {}, includeHeader = true }
         l.tariffCode || '',
         l.priceCents || 0,
         l.holderFirstName || '',
-        l.holderLastName  || ''
+        l.holderLastName  || '',
+        l.justif || '',
+        l.justificationField || '',
+        l.info || ''
       ];
       out.write(rowFields.map(csvEscape).join(',') + '\n');
 
@@ -206,7 +230,9 @@ export async function exportSeatsCsv({ out, filterSeat = {}, filterOrder = {}, i
       _id: '$lines.seatId',
       orderId: { $first: '$_id' },
       createdAt: { $first: '$createdAt' },
-      phase: { $first: '$phase' },
+      // Order n'a pas de champ `phase` de premier niveau (strict:true, seul
+      // `origin.flow` existe) : `$phase` rendait une colonne toujours vide.
+      phase: { $first: '$origin.flow' },
       payerFirstName: { $first: '$payerFirstName' },
       payerLastName:  { $first: '$payerLastName'  },
       payerEmail:     { $first: '$payerEmail'     },
@@ -438,7 +464,7 @@ export async function exportEventTicketsCsv({
       csvEscape(ticket.venueSlug || ''),
       csvEscape(ticket.seatId || ''),
       csvEscape(zoneFromSeatId(ticket.seatId || '')),
-      csvEscape(isVirtualZoneSeatId(ticket.seatId || '') ? '1' : '0'),
+      csvEscape(isZoneUnit({ unitType: ticket.unitType, seatId: ticket.seatId }) ? '1' : '0'),
       csvEscape(tariffCode),
       csvEscape(requiresOut),
       csvEscape(holder.firstName || ''),
@@ -507,6 +533,7 @@ export async function exportEventTicketsCsv({
         return `${zone}-GA-${suffix}-${index}`;
       })();
       const seatId = seatCandidate || fallbackSeat;
+      const unitType = resolveUnitType({ unitType: line.unitType, seatId: seatCandidate });
       const tariffCode = normalizeTariffCode(line.tariffCode || metaTicket.tariff || metaTicket.tariffCode);
       const createdAtOut = metaTicket.createdAt ? new Date(metaTicket.createdAt).toISOString()
         : (orderDoc.createdAt ? new Date(orderDoc.createdAt).toISOString() : '');
@@ -536,7 +563,7 @@ export async function exportEventTicketsCsv({
         csvEscape(orderDoc.venueSlug || ''),
         csvEscape(seatId),
         csvEscape(zoneFromSeatId(seatId)),
-        csvEscape(isVirtualZoneSeatId(seatId) ? '1' : '0'),
+        csvEscape(unitType === 'zone' ? '1' : '0'),
         csvEscape(tariffCode),
         csvEscape(requiresOut),
         csvEscape(holderFirst),

@@ -1017,7 +1017,10 @@ router.get(['/control/scan/events.json', '/scan/events.json'], async (req, res) 
     const season = String(req.query.season || '').trim();
     const limitRaw = Number(req.query.limit || 200);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 500) : 200;
-    const filter = {};
+    // Un brouillon n'a pas de billets à contrôler et un archivé n'en a plus :
+    // les proposer au portier allonge la liste de choix inutiles au moment où
+    // il en a le moins le temps. Même critère de publication que /events.
+    const filter = { activity: 'active' };
     if (season) filter.seasonCode = season;
 
     const docs = await Event.find(filter, {
@@ -1027,7 +1030,7 @@ router.get(['/control/scan/events.json', '/scan/events.json'], async (req, res) 
       startsAt: 1,
       seasonCode: 1,
       venueSlug: 1,
-      isOnSale: 1
+      sale: 1
     })
       .sort({ startsAt: 1 })
       .limit(limit)
@@ -1040,7 +1043,7 @@ router.get(['/control/scan/events.json', '/scan/events.json'], async (req, res) 
       startsAt: doc.startsAt || null,
       seasonCode: doc.seasonCode || null,
       venueSlug: doc.venueSlug || null,
-      isOnSale: doc.isOnSale === true
+      sale: doc.sale || 'notopen'
     }));
 
     res.json({ ok: true, events });

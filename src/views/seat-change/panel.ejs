@@ -1,0 +1,40 @@
+<%# Colonne de droite du plan pour /seat-change — remplace panier + paiement.
+    Le markup reste dans les classes de order/index.ejs (block / help / …) pour
+    suivre le thème sans styles parallèles. %>
+<div id="seatChangePanel" class="block">
+  <h2>Vos places</h2>
+  <p class="help" id="scLead"></p>
+
+  <div id="scLines" class="sc-lines"></div>
+
+  <div class="total-actions">
+    <div class="pay-action">
+      <button type="button" id="scConfirm" class="pay-btn" disabled>Confirmer</button>
+    </div>
+    <button type="button" id="scReset" class="tool-btn sc-reset">Annuler</button>
+  </div>
+
+  <p id="scMsg" class="feedback"></p>
+
+  <p><small class="help">
+    Le changement est possible <strong>dans la même zone</strong>,
+    <strong>une seule fois par place</strong>, et jusqu'au coup d'envoi.
+    Votre place d'abonnement pour les autres matchs n'est pas modifiée.
+  </small></p>
+</div>
+
+<style>
+  .sc-lines { display: grid; gap: 8px; margin: 10px 0 14px; }
+  .sc-line {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line, rgba(255,255,255,0.14));
+    border-radius: 10px; cursor: pointer;
+  }
+  .sc-line[aria-selected="true"] { border-color: #3ba0ff; background: rgba(59,160,255,0.12); }
+  .sc-line.locked { opacity: .55; cursor: not-allowed; }
+  .sc-seat { font-weight: 800; letter-spacing: .04em; }
+  .sc-holder { opacity: .7; font-size: .85rem; }
+  .sc-badge { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; opacity: .7; }
+  .sc-new { color: #1abc63; font-weight: 800; }
+  .sc-reset { margin-left: 10px; }
+</style>

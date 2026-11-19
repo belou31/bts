@@ -7,20 +7,27 @@ import childProcess from 'node:child_process';
 import mongoose from 'mongoose';
 import { Order } from '../../models/Order.js';
 import { Seat }  from '../../models/Seat.js';
+import { SeatHold } from '../../models/SeatHold.js';
 import { Zone }  from '../../models/Zone.js';
 import { Venue } from '../../models/Venue.js';
 import { Season } from '../../models/Season.js';
+import { Voucher } from '../../models/Voucher.js';
 import { Event } from '../../models/Event.js';
-import { listPartnerConfigs } from '../../config/partners.js';
+import { listPartnerConfigs, partnerPaymentMode } from '../../config/partners.js';
+import { partnerConnection } from '../../services/partner-connection.js';
 import { Tariff } from '../../models/Tariff.js';
 import { TariffPrice } from '../../models/TariffPrice.js';
 import { TariffPriceCatalog } from '../../models/TariffPriceCatalog.js';
+import { AdCampaignCatalog } from '../../models/AdCampaignCatalog.js';
 import { Subscriber } from '../../models/Subscriber.js';
 import { Ticket } from '../../models/Ticket.js';
 import { ScanLog } from '../../models/ScanLog.js';
 import { ZoneCatalog } from '../../models/ZoneCatalog.js';
 import { SeatCatalog } from '../../models/SeatCatalog.js';
 import { resolveLinePlacement, applyAttendancePatch, summarizeAttendance } from '../../utils/event-attendance.js';
+import { ADMIN_RELEASE_REASON } from '../../services/event-seat-states.js';
+import { isVirtualZoneSeatId } from '../../utils/seat-id.js';
+import { matchesChannel } from '../../utils/channel-scopes.js';
 import { exportOrdersCsv, exportSeatsCsv } from '../../services/exports.js';
 import {
   registerDefaultAutomationTasks,
@@ -33,13 +40,28 @@ import {
 } from '../../services/automation/index.js';
 import { serializeJob as serializeAutomationJob } from '../../services/automation/serializers.js';
 import { adminScriptGroups, getAdminScript } from '../../config/adminScripts.js';
+import { AutomationJob } from '../../models/AutomationJob.js';
+import { getRequestMetrics } from '../../services/requestMetrics.js';
+import { marked } from 'marked';
+import archiver from 'archiver';
+import { readRegistry as readGoogleLibraryRegistry } from '../../../scripts_online/google/install/lib/registry.js';
+import { readVenueViewNames } from '../../../scripts/lib/venue-view-names.js';
+import { readTemplatesConfig } from '../../../scripts/lib/template-write.js';
 
 const router = express.Router();
 
 const ROOT_DIR = process.cwd();
 const TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data_references');
+// docs/ is the app's documented single source of truth (see docs/index.md's own
+// "Cette arborescence docs/ est désormais la source de vérité"): the guides panel
+// reads its table of contents rather than duplicating content elsewhere.
+const GUIDES_ROOT = path.resolve(ROOT_DIR, 'docs');
+const DATA_EXAMPLES_ROOT = path.resolve(ROOT_DIR, 'data_examples');
+const SCRIPTS_DESKTOP_ROOT = path.resolve(ROOT_DIR, 'scripts_desktop');
+const AUTOMATION_CLIENT_ROOT = path.resolve(ROOT_DIR, 'automation_client');
 const CUSTOM_ROOT = path.resolve(ROOT_DIR, 'data/customization');
 const DATA_TEMPLATES_ROOT = path.resolve(ROOT_DIR, 'data/templates');
+const DATA_ASSETS_ROOT = path.resolve(ROOT_DIR, 'data/assets');
 const DYNAMIC_ROOT = path.resolve(ROOT_DIR, 'public/dynamic');
 const DYNAMIC_ASSETS_ROOT = path.resolve(DYNAMIC_ROOT, 'assets');
 const DYNAMIC_VENUES_ROOT = path.resolve(DYNAMIC_ROOT, 'venues');
@@ -216,6 +238,46 @@ function listTemplatesRecursive(root, prefix = '') {
   return out.sort((a, b) => b.mtime - a.mtime);
 }
 
+function parseFrontmatter(raw) {
+  const m = raw.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return { body: raw, title: null, navExclude: false };
+  const title = m[1].match(/^title:\s*(.+)$/m);
+  const navExclude = /^nav_exclude:\s*true\s*$/m.test(m[1]);
+  return { body: raw.slice(m[0].length), title: title ? title[1].trim() : null, navExclude };
+}
+
+// Guide list mirrors docs/index.md's own curated "Table des matières" (order and
+// labels), so the admin panel stays in sync with whatever the doc maintainers
+// list there without needing a parallel config. Falls back to a directory scan
+// (skipping index.md and nav_exclude:true pages, e.g. the legacy 0x-*.md files)
+// if that section can't be found.
+function listGuides() {
+  try {
+    const indexRaw = fs.readFileSync(path.join(GUIDES_ROOT, 'index.md'), 'utf8');
+    const tocSection = (indexRaw.split(/^##\s+Table des matières\s*$/m)[1] || '').split(/^##\s+/m)[0];
+    const entries = [...tocSection.matchAll(/\[([^\]]+)\]\(([\w-]+\.md)\)/g)]
+      .map(m => ({ title: m[1].trim(), rel: m[2] }));
+    if (entries.length) return entries;
+  } catch { /* fall through to directory scan */ }
+
+  try {
+    return fs.readdirSync(GUIDES_ROOT)
+      .filter(name => name.endsWith('.md') && name !== 'index.md')
+      .map(name => {
+        let raw = '';
+        try { raw = fs.readFileSync(path.join(GUIDES_ROOT, name), 'utf8'); } catch { return null; }
+        const { title, navExclude } = parseFrontmatter(raw);
+        if (navExclude) return null;
+        const heading = raw.match(/^#\s+(.+)$/m);
+        return { rel: name, title: title || (heading ? heading[1].trim() : name.replace(/\.md$/, '')) };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.rel.localeCompare(b.rel));
+  } catch {
+    return [];
+  }
+}
+
 function listCustomizationRecursive(root, prefix = '') {
   return listTemplatesRecursive(root, prefix)
     .filter(entry => entry.name.toLowerCase().endsWith('.json'));
@@ -261,6 +323,7 @@ function listVenueViews(rootDir = DYNAMIC_VENUES_ROOT) {
 
 function listVenueResources(rootDir = DYNAMIC_VENUES_ROOT) {
   const venues = [];
+  const viewNames = readVenueViewNames();
   try {
     const entries = fs.readdirSync(rootDir, { withFileTypes: true }).filter(e => e.isDirectory());
     for (const entry of entries) {
@@ -290,6 +353,7 @@ function listVenueResources(rootDir = DYNAMIC_VENUES_ROOT) {
           const stats = fs.statSync(path.join(viewsDir, viewEntry.name));
           views.push({
             slug,
+            name: viewNames?.[venueSlug]?.[slug] || null,
             rel: `dynamic/venues/${venueSlug}/views/${viewEntry.name}`,
             size: stats.size,
             mtime: stats.mtime
@@ -387,7 +451,7 @@ function unauthorized(res) {
   return res.status(401).send('Unauthorized');
 }
 
-function adminAuth(req, res, next) {
+export function adminAuth(req, res, next) {
   // Bearer / query token
   const queryTok = (req.query.token || '').toString();
   const hdr      = (req.headers.authorization || '').toString();
@@ -415,13 +479,46 @@ const csvEscape = (v) => {
   const s = String(v);
   return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
 };
-const isVirtualZoneSeatId = sid => /^.+-Z\d{3,}$/i.test(String(sid||''));
+// Reshapes a Mongo aggregate result grouped by { zoneKey, status } (as produced
+// by both the season and event seat-status queries) into a table-friendly
+// shape: the distinct statuses seen (for column headers) and one row per zone
+// with a count per status plus a row total.
+function buildZoneBreakdown(zoneStatusRows = []) {
+  const zoneMap = new Map();
+  const statusSet = new Set();
+  for (const row of zoneStatusRows || []) {
+    const zoneKey = row?._id?.zoneKey || '—';
+    const status = row?._id?.status || 'unknown';
+    const count = row?.count || 0;
+    statusSet.add(status);
+    if (!zoneMap.has(zoneKey)) zoneMap.set(zoneKey, {});
+    zoneMap.get(zoneKey)[status] = (zoneMap.get(zoneKey)[status] || 0) + count;
+  }
+  const statuses = Array.from(statusSet).sort();
+  const zones = Array.from(zoneMap.entries())
+    .map(([zoneKey, statusCounts]) => ({
+      zoneKey,
+      statusCounts,
+      total: Object.values(statusCounts).reduce((a, b) => a + b, 0)
+    }))
+    .sort((a, b) => a.zoneKey.localeCompare(b.zoneKey, 'fr', { numeric: true, sensitivity: 'base' }));
+  const totalsByStatus = {};
+  let grandTotal = 0;
+  for (const zone of zones) {
+    for (const status of statuses) {
+      const n = zone.statusCounts[status] || 0;
+      totalsByStatus[status] = (totalsByStatus[status] || 0) + n;
+    }
+    grandTotal += zone.total;
+  }
+  return { statuses, zones, totalsByStatus, grandTotal };
+}
 
 async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
-  if (!eventDoc) return {};
+  if (!eventDoc) return { counts: {}, zoneBreakdown: { statuses: [], zones: [] } };
   const seasonCode = eventDoc.seasonCode || null;
   const venueSlug = eventDoc.venueSlug || null;
-  if (!seasonCode || !venueSlug) return {};
+  if (!seasonCode || !venueSlug) return { counts: {}, zoneBreakdown: { statuses: [], zones: [] } };
 
   const paidOrderMatch = orderMatch
     ? { ...orderMatch, status: 'paid' }
@@ -433,32 +530,55 @@ async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
         ]
       };
 
-  const [seatsRaw, paidOrders] = await Promise.all([
+  const [seatsRaw, paidOrders, allZonesRaw] = await Promise.all([
     Seat.find(
       { seasonCode, venueSlug },
       { seatId: 1, zoneKey: 1, status: 1, _id: 0 }
     ).lean(),
-    Order.find(paidOrderMatch, { lines: 1, _id: 0 }).lean()
+    Order.find(paidOrderMatch, { lines: 1, _id: 0 }).lean(),
+    Zone.find(
+      { seasonCode, venueSlug, isActive: true },
+      { key: 1, capacity: 1, quota: 1, _id: 0 }
+    ).lean()
   ]);
 
   const seatMap = new Map();
+  const seatZoneKeys = new Set();
   for (const seat of seatsRaw || []) {
     const seatId = String(seat?.seatId || '').trim();
     if (!seatId) continue;
+    const zoneKey = seat?.zoneKey || '—';
     seatMap.set(seatId, {
       seatId,
+      zoneKey,
       status: String(seat?.status || 'available').toLowerCase()
     });
+    seatZoneKeys.add(String(zoneKey).toUpperCase());
   }
 
-  if (!seatMap.size) return {};
+  // A zone with no discrete Seat rows is quota-tracked instead — this covers
+  // standing/GA zones, but also a zone like VIP that has real chairs
+  // (Zone.type === 'seated') yet is still allocated at the zone level (see
+  // src/utils/seat-id.js). Detected by "no Seat rows for this zoneKey", not
+  // by Zone.type, so any such zone is picked up regardless of how it reads
+  // physically. A quota-tracked line is counted against the zone's physical
+  // capacity, matching the event's actual on-the-day headcount rather than
+  // the season subscription quota.
+  const quotaZones = (allZonesRaw || [])
+    .map(z => ({ key: String(z?.key || '').trim().toUpperCase(), capacity: Number(z?.capacity || z?.quota || 0) }))
+    .filter(z => z.key && !seatZoneKeys.has(z.key));
+  const quotaBooked = new Map();
 
   for (const order of paidOrders || []) {
     for (const line of order?.lines || []) {
       const placement = resolveLinePlacement(line);
       if (!placement || placement.released) continue;
       const seatId = String(placement?.seatId || '').trim();
-      if (!seatId || isVirtualZoneSeatId(seatId)) continue;
+      if (!seatId || isVirtualZoneSeatId(seatId)) {
+        const zoneKey = String(placement?.zoneKey || '').trim().toUpperCase();
+        if (zoneKey) quotaBooked.set(zoneKey, (quotaBooked.get(zoneKey) || 0) + 1);
+        continue;
+      }
       if (!seatMap.has(seatId)) continue;
       const previous = seatMap.get(seatId);
       if (previous.status === 'booked') continue;
@@ -467,11 +587,23 @@ async function computeEventSeatCounts(eventDoc = null, orderMatch = null) {
   }
 
   const counts = {};
-  for (const { status } of seatMap.values()) {
+  const zoneStatusRows = [];
+  for (const { zoneKey, status } of seatMap.values()) {
     const key = status || 'unknown';
     counts[key] = (counts[key] || 0) + 1;
+    zoneStatusRows.push({ _id: { zoneKey, status: key }, count: 1 });
   }
-  return counts;
+  for (const zone of quotaZones) {
+    const booked = quotaBooked.get(zone.key) || 0;
+    if (booked > 0) zoneStatusRows.push({ _id: { zoneKey: zone.key, status: 'booked' }, count: booked });
+    if (zone.capacity > 0) {
+      const available = Math.max(0, zone.capacity - booked);
+      zoneStatusRows.push({ _id: { zoneKey: zone.key, status: 'available' }, count: available });
+    }
+  }
+
+  if (!zoneStatusRows.length) return { counts, zoneBreakdown: { statuses: [], zones: [] } };
+  return { counts, zoneBreakdown: buildZoneBreakdown(zoneStatusRows) };
 }
 
 function mapSeatStateForPlan(statusRaw = '') {
@@ -503,6 +635,32 @@ function buildEventOrderMatch(eventDoc = null) {
       { eventId },
       { 'meta.eventId': eventId },
       ...(eventSlug ? [{ 'meta.eventSlug': eventSlug }] : [])
+    ]
+  };
+}
+
+// Ce qui vaut réservation de SAISON, par opposition à un match.
+//
+// Même définition que services/event-season-sync.js : un renouvellement est
+// une façon de reprendre son abonnement, pas un flux à part. Les trois champs
+// sont testés parce que les commandes anciennes n'ont pas toutes `origin.flow`.
+const SEASON_ORDER_FLOWS = ['subscription', 'renew'];
+
+// Valeur de l'option « Saison » du sélecteur d'événement.
+const SEASON_SCOPE = '__season__';
+
+function buildSeasonOrderMatch(seasonCode, venueSlug) {
+  if (!seasonCode) return null;
+  return {
+    seasonCode,
+    ...(venueSlug ? { venueSlug } : {}),
+    // Une commande de match dérivée d'un abonnement porte le seasonCode : on
+    // l'exclut, sans quoi le plan « saison » afficherait les places d'un match.
+    eventId: null,
+    $or: [
+      { 'origin.flow': { $in: SEASON_ORDER_FLOWS } },
+      { phase: { $in: SEASON_ORDER_FLOWS } },
+      { mailTemplateKind: { $in: SEASON_ORDER_FLOWS } }
     ]
   };
 }
@@ -541,20 +699,104 @@ function prepareScriptCatalog() {
   return { scriptGroups, scriptForms, automationScripts };
 }
 
+// Static (config-derived, no I/O) — safe to compute once and reuse on every
+// route so the topbar's "Operation" chapter dropdown always lists all
+// chapters, not just on /operate (which builds its own copy for the page body).
+const NAV_SCRIPT_GROUPS = prepareScriptCatalog().scriptGroups;
+
 /* ===================== Page HTML ===================== */
 router.get('/', (req, res) => {
-  const qs = new URLSearchParams(req.query);
   const view = (req.query.view || '').toString();
+
+  // No ?view= → render the admin home page (intro + the three sections)
+  // instead of redirecting into Operation. An explicit ?view= keeps the
+  // old direct-redirect behavior for any bookmarked/typed links.
+  if (!view) {
+    const token = (req.query.token || '').toString();
+    const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+    const tokenSuffix = token ? `?${tokenQuery}` : '';
+    return res.render('admin/index', {
+      basePath: BASE_PATH || '',
+      token,
+      tokenQuery,
+      tokenSuffix,
+      urlFor,
+      scriptGroups: NAV_SCRIPT_GROUPS,
+      scriptForms: {},
+      automationScripts: [],
+      automationJobs: {},
+      activeGroupId: null,
+      outputsList: [],
+      inputsList: [],
+      operateOptions: {
+        venues: [], seasons: [], events: [], partners: [], tariffCatalogs: [], adCampaignCatalogs: [],
+        inputFiles: [], assetFiles: [], customizationFiles: [], venueViews: []
+      },
+      viewMode: 'home',
+      monitorTab: null,
+      docTab: null,
+      monitoring: null,
+      planView: null,
+      ordersView: null,
+      renewersView: null,
+      vouchersView: null,
+      ticketsView: null
+    });
+  }
+
+  const qs = new URLSearchParams(req.query);
   qs.delete('view');
   const suffix = qs.toString();
   let target = urlFor('/admin/operate');
   if (view === 'monitor') target = urlFor('/admin/monitor');
   if (view === 'io') target = urlFor('/admin/io');
-  if (view === 'templates') target = urlFor('/admin/templates');
+  if (view === 'templates') target = urlFor('/admin/doc');
   if (view === 'plan') target = urlFor('/admin/plan');
   if (view === 'orders') target = urlFor('/admin/orders');
   if (view === 'tickets') target = urlFor('/admin/tickets');
   return res.redirect(302, `${target}${suffix ? `?${suffix}` : ''}`);
+});
+
+// Landing/summary page for the "Advanced" category (Plan/Orders/Tickets) —
+// same role as /operate and /monitor's own overview pages.
+router.get('/advanced', (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: NAV_SCRIPT_GROUPS,
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    operateOptions: {
+      venues: [], seasons: [], events: [], partners: [], tariffCatalogs: [], adCampaignCatalogs: [],
+      inputFiles: [], assetFiles: [], customizationFiles: [], venueViews: []
+    },
+    viewMode: 'advanced',
+    monitorTab: null,
+    docTab: null,
+    monitoring: null,
+    planView: null,
+    ordersView: null,
+    renewersView: null,
+    vouchersView: null,
+    ticketsView: null
+  });
+});
+
+// Kept for old bookmarks/links — Data I/O moved to its own top-level category.
+router.get('/operate/io', (req, res) => {
+  const qs = new URLSearchParams(req.query);
+  const suffix = qs.toString();
+  return res.redirect(302, `${urlFor('/admin/io')}${suffix ? `?${suffix}` : ''}`);
 });
 
 router.get('/io', (req, res) => {
@@ -564,10 +806,6 @@ router.get('/io', (req, res) => {
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
-  const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
-  const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
-  const dataTemplatesList = listTemplatesRecursive(DATA_TEMPLATES_ROOT);
-  const venueResources = listVenueResources();
   const venueViews = listVenueViews();
 
   return res.render('admin/index', {
@@ -576,20 +814,20 @@ router.get('/io', (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts: [],
     automationJobs: {},
     activeGroupId: null,
     outputsList,
     inputsList,
-    customizationList,
     operateOptions: {
       venues: [],
       seasons: [],
       events: [],
       partners: [],
       tariffCatalogs: [],
+      adCampaignCatalogs: [],
       inputFiles: inputsList.map(file => file.name),
       assetFiles: inputsList.map(file => file.name),
       customizationFiles: inputsList.map(file => file.name),
@@ -597,27 +835,57 @@ router.get('/io', (req, res) => {
     },
     viewMode: 'io',
     monitorTab: 'tariffs',
+    docTab: 'references',
     monitoring: null,
     planView: null,
     ordersView: null,
-    ticketsView: null,
-    dynamicAssetsList,
-    venueResources,
-    dataTemplatesList
+    renewersView: null,
+    vouchersView: null,
+    ticketsView: null
   });
 });
 
-router.get('/templates', (req, res) => {
+const DOC_TAB_OPTIONS = new Set(['references', 'examples', 'guides']);
+
+router.get('/doc', (req, res) => {
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
+  // No ?docTab= → show the Documentation overview page instead of
+  // defaulting to "guides" (see the "!docTab" intro block in the view).
+  const docTab = DOC_TAB_OPTIONS.has((req.query.docTab || '').toString())
+    ? req.query.docTab.toString()
+    : null;
 
   const emailTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'email'));
-  const ticketTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'tickets'));
+  const ticketTemplates = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'templates', 'tickets'));
+  const assetTemplates  = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'assets'));
   const csvTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'csv'));
   const envTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'env'));
   const svgTemplates   = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'svg'));
   const customization  = listTemplatesRecursive(path.join(TEMPLATES_ROOT, 'customization'));
+  const dataExamplesList = listTemplatesRecursive(DATA_EXAMPLES_ROOT);
+
+  const guidesList = docTab === 'guides' ? listGuides() : [];
+  let activeGuide = null;
+  if (docTab === 'guides') {
+    const requested = (req.query.guide || '').toString();
+    const match = guidesList.find(g => g.rel === requested) || guidesList[0] || null;
+    if (match) {
+      try {
+        const abs = resolveInside(GUIDES_ROOT, match.rel);
+        const raw = fs.readFileSync(abs, 'utf8');
+        const { body } = parseFrontmatter(raw);
+        // Rewrite relative links to sibling guides (e.g. "installation.md") into
+        // in-app guide links so cross-references stay inside the panel instead
+        // of 404ing (docs/*.md isn't served as static content).
+        const guideQuery = tokenQuery ? `&${tokenQuery}` : '';
+        const linked = body.replace(/\]\(([\w-]+\.md)(#[^)]*)?\)/g, (m, file, anchor) =>
+          `](${urlFor('/admin/doc')}?docTab=guides&guide=${encodeURIComponent(file)}${guideQuery}${anchor || ''})`);
+        activeGuide = { rel: match.rel, title: match.title, html: marked.parse(linked) };
+      } catch { /* guide unreadable — leave activeGuide null */ }
+    }
+  }
 
   return res.render('admin/index', {
     basePath: BASE_PATH || '',
@@ -625,7 +893,7 @@ router.get('/templates', (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts: [],
     automationJobs: {},
@@ -634,25 +902,33 @@ router.get('/templates', (req, res) => {
     inputsList: [],
     templatesEmail: emailTemplates,
     templatesTickets: ticketTemplates,
+    templatesAssets: assetTemplates,
     templatesCsv: csvTemplates,
     templatesEnv: envTemplates,
     templatesSvg: svgTemplates,
     customizationList: customization,
+    dataExamplesList,
+    guidesList,
+    activeGuide,
     operateOptions: {
       venues: [],
       seasons: [],
       events: [],
       partners: [],
       tariffCatalogs: [],
+      adCampaignCatalogs: [],
       inputFiles: [],
       assetFiles: [],
       venueViews: []
     },
     viewMode: 'templates',
+    docTab,
     monitorTab: 'tariffs',
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
+    vouchersView: null,
     ticketsView: null
   });
 });
@@ -670,13 +946,26 @@ router.get('/plan', async (req, res) => {
   const selectedSeason = seasonsRaw.find(s => s.code === selectedSeasonCodeRaw) || defaultSeason || null;
   const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
 
+  // Plus récent en tête : la liste s'ouvre sur le dernier match de la saison.
   const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
-    .sort({ startsAt: 1 })
+    .sort({ startsAt: -1 })
     .lean();
+  // SEASON_SCOPE : « pas d'événement, montre-moi la saison ». Un `event=` vide
+  // ne suffit pas — il retombe sur le premier match, si bien qu'on ne pouvait
+  // jamais demander la vue saison. Une valeur explicite ne peut pas non plus
+  // être confondue avec un slug réel.
   const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
     ? req.query.event
     : (eventsRaw[0]?.slug || null);
-  const selectedEvent = eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null;
+  // Repli sur la saison quand le lieu n'a AUCUN match : pendant une campagne de
+  // renouvellement, les rencontres ne sont pas encore créées, donc
+  // selectedEventSlug est null — ni un match, ni le sentinelle. La vue ne
+  // montrait alors rien du tout, alors que ce sont précisément les seules
+  // commandes existantes.
+  const seasonScope = selectedEventSlug === SEASON_SCOPE || !eventsRaw.length;
+  const selectedEvent = seasonScope
+    ? null
+    : (eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null);
 
   const effectiveSeasonCode = selectedEvent?.seasonCode || selectedSeasonCode || null;
   const effectiveVenueSlug = selectedEvent?.venueSlug || selectedSeason?.venueSlug || null;
@@ -707,18 +996,19 @@ router.get('/plan', async (req, res) => {
       seatStatusById.set(seatId, mapSeatStateForPlan(seat?.status));
     }
 
-    if (selectedEvent?._id) {
-      const eventId = String(selectedEvent._id);
-      const eventSlug = String(selectedEvent.slug || '').trim();
+    // Détail des réservations : par match si un match est choisi, sinon par
+    // SAISON. Auparavant ce bloc ne s'exécutait que pour un match, si bien
+    // qu'un plan de saison n'affichait que « booked », sans jamais dire par qui.
+    const detailMatch = selectedEvent?._id
+      ? { ...buildEventOrderMatch(selectedEvent), status: { $in: ['paid', 'tobepaid'] } }
+      : (() => {
+          const m = buildSeasonOrderMatch(effectiveSeasonCode, effectiveVenueSlug);
+          return m ? { ...m, status: { $in: ['paid', 'tobepaid'] } } : null;
+        })();
+
+    if (detailMatch) {
       const eventOrders = await Order.find(
-        {
-          status: { $in: ['paid', 'tobepaid'] },
-          $or: [
-            { eventId },
-            { 'meta.eventId': eventId },
-            ...(eventSlug ? [{ 'meta.eventSlug': eventSlug }] : [])
-          ]
-        },
+        detailMatch,
         {
           _id: 1,
           status: 1,
@@ -755,8 +1045,52 @@ router.get('/plan', async (req, res) => {
       }
     }
 
+    // Blocages propres à CE match : ils vivent dans SeatHold, pas dans
+    // Seat.status, et la billetterie de l'événement les lit déjà
+    // (computeEventSeatStates). Sans cette surcouche, un siège retiré de la
+    // vente pour un match apparaissait libre sur le plan de ce même match —
+    // l'opérateur ne pouvait pas voir son propre blocage.
+    const eventHoldsById = new Map();
+    if (selectedEvent?._id) {
+      const holds = await SeatHold.find(
+        { eventId: selectedEvent._id, expiresAt: { $gt: new Date() } },
+        { seatId: 1, reason: 1, note: 1, orderId: 1, _id: 0 }
+      ).lean();
+      for (const h of holds) {
+        const sid = String(h.seatId || '').trim();
+        if (!sid || !seatStatusById.has(sid)) continue;
+        eventHoldsById.set(sid, h);
+      }
+      // Même règle à deux passes que applyHoldOverlay dans
+      // event-seat-states.js (computeEventSeatStates) — à garder synchronisées :
+      // une troisième réimplémentation indépendante de cette même logique est
+      // précisément ce qui a fait qu'un release (ADMIN_RELEASE_REASON) posé
+      // par le bouton "Remettre pour ce match" se voyait ici re-fermé en
+      // 'busy' par la passe générique, sans jamais regarder `reason`.
+      for (const [sid, h] of eventHoldsById) {
+        if (h.reason !== ADMIN_RELEASE_REASON) continue;
+        if (seatStatusById.get(sid) === 'busy') seatStatusById.set(sid, 'available');
+      }
+      for (const [sid, h] of eventHoldsById) {
+        if (h.reason === ADMIN_RELEASE_REASON) continue;
+        // On ne masque pas une place vendue : seule une place libre devient
+        // occupée par un blocage.
+        if (seatStatusById.get(sid) === 'available') seatStatusById.set(sid, 'busy');
+      }
+    }
+
     seats = Array.from(seatStatusById.entries())
-      .map(([seatId, status]) => ({ seatId, status }))
+      .map(([seatId, status]) => ({
+        seatId,
+        status,
+        ...(eventHoldsById.has(seatId)
+          ? { eventHold: {
+              reason: eventHoldsById.get(seatId).reason || '',
+              note: eventHoldsById.get(seatId).note || '',
+              orderId: eventHoldsById.get(seatId).orderId ? String(eventHoldsById.get(seatId).orderId) : null
+            } }
+          : {})
+      }))
       .sort((a, b) => a.seatId.localeCompare(b.seatId, 'fr', { numeric: true, sensitivity: 'base' }));
 
     seatCounts = seats.reduce((acc, seat) => {
@@ -772,7 +1106,7 @@ router.get('/plan', async (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts: [],
     automationJobs: {},
@@ -785,14 +1119,18 @@ router.get('/plan', async (req, res) => {
       events: [],
       partners: [],
       tariffCatalogs: [],
+      adCampaignCatalogs: [],
       inputFiles: [],
       assetFiles: [],
       venueViews: []
     },
     viewMode: 'plan',
     monitorTab: 'tariffs',
+    docTab: 'references',
     monitoring: null,
     ordersView: null,
+    renewersView: null,
+    vouchersView: null,
     ticketsView: null,
     planView: {
       seasons: (seasonsRaw || []).map(s => ({
@@ -806,10 +1144,17 @@ router.get('/plan', async (req, res) => {
         name: ev.name || '',
         startsAt: ev.startsAt || null,
         venueSlug: ev.venueSlug || null,
-        isOnSale: Boolean(ev.isOnSale)
+        sale: ev.sale || 'notopen',
+        activity: ev.activity || 'draft'
       })),
       selectedSeasonCode,
-      selectedEventSlug: selectedEvent ? selectedEvent.slug : null,
+      // Renvoie le sentinelle quand la vue saison est demandée, pour que
+      // le <select> reste sur « Saison » après rechargement.
+      selectedEventSlug: seasonScope ? SEASON_SCOPE : (selectedEvent ? selectedEvent.slug : null),
+      // Le sentinelle est truthy : une vue qui teste `selectedEventSlug` pour
+      // savoir si elle est sur un match se trompe en périmètre saison. C'est ce
+      // drapeau qui fait foi.
+      seasonScope,
       selectedEvent: selectedEvent
         ? {
             id: String(selectedEvent._id),
@@ -817,7 +1162,8 @@ router.get('/plan', async (req, res) => {
             name: selectedEvent.name || '',
             startsAt: selectedEvent.startsAt || null,
             venueSlug: selectedEvent.venueSlug || null,
-            isOnSale: Boolean(selectedEvent.isOnSale)
+            sale: selectedEvent.sale || 'notopen',
+            activity: selectedEvent.activity || 'draft'
           }
         : null,
       venueSlug: effectiveVenueSlug,
@@ -844,17 +1190,35 @@ router.get('/orders', async (req, res) => {
   const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
 
   const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
-    .sort({ startsAt: 1 })
+    .sort({ startsAt: -1 })
     .lean();
+  // SEASON_SCOPE : « pas d'événement, montre-moi la saison ». Un `event=` vide
+  // ne suffit pas — il retombe sur le premier match, si bien qu'on ne pouvait
+  // jamais demander la vue saison. Une valeur explicite ne peut pas non plus
+  // être confondue avec un slug réel.
   const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
     ? req.query.event
     : (eventsRaw[0]?.slug || null);
-  const selectedEvent = eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null;
+  // Repli sur la saison quand le lieu n'a AUCUN match : pendant une campagne de
+  // renouvellement, les rencontres ne sont pas encore créées, donc
+  // selectedEventSlug est null — ni un match, ni le sentinelle. La vue ne
+  // montrait alors rien du tout, alors que ce sont précisément les seules
+  // commandes existantes.
+  const seasonScope = selectedEventSlug === SEASON_SCOPE || !eventsRaw.length;
+  const selectedEvent = seasonScope
+    ? null
+    : (eventsRaw.find(e => e.slug === selectedEventSlug) || eventsRaw[0] || null);
 
   let rows = [];
-  if (selectedEvent) {
-    const eventMatch = buildEventOrderMatch(selectedEvent);
-    const orderMatch = eventMatch || {};
+  let seatStateBySeatId = new Map();
+  // Périmètre : un match, ou la SAISON (abonnements + renouvellements). Sans le
+  // second, sélectionner une saison sans match n'affichait aucune commande —
+  // alors que ce sont précisément celles-là qui remplissent le plan de saison.
+  const orderScopeMatch = seasonScope
+    ? buildSeasonOrderMatch(selectedSeasonCode, selectedSeason?.venueSlug || null)
+    : (selectedEvent ? buildEventOrderMatch(selectedEvent) : null);
+  if (orderScopeMatch) {
+    const orderMatch = orderScopeMatch;
     const ordersRaw = await Order.find(
       orderMatch,
       {
@@ -871,6 +1235,30 @@ router.get('/orders', async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(2500)
       .lean();
+
+    // État RÉEL des sièges, pour le confronter au statut de la commande.
+    //
+    // Une commande « paid » dont les sièges ne sont pas 'booked' est le
+    // symptôme d'une finalisation à moitié faite ; une « pending » dont les
+    // sièges sont déjà 'booked' l'est tout autant. Le statut de commande seul
+    // ne dit rien de la réservation effective.
+    //
+    // Seulement en portée SAISON : pour un match, l'occupation ne se lit pas
+    // dans Seat (qui décrit la saison) mais dans la surcouche des commandes.
+    if (seasonScope && selectedSeasonCode) {
+      const wantedSeatIds = [...new Set(
+        ordersRaw.flatMap(o => (o.lines || [])
+          .map(l => String(l?.seatId || '').trim())
+          .filter(sid => sid && !isVirtualZoneSeatId(sid)))
+      )];
+      if (wantedSeatIds.length) {
+        const seatRows = await Seat.find(
+          { seasonCode: selectedSeasonCode, seatId: { $in: wantedSeatIds } },
+          { seatId: 1, status: 1, _id: 0 }
+        ).lean();
+        seatStateBySeatId = new Map(seatRows.map(r => [String(r.seatId), String(r.status || '')]));
+      }
+    }
 
     rows = ordersRaw.map((order) => {
       const beneficiaries = [];
@@ -900,10 +1288,36 @@ router.get('/orders', async (req, res) => {
       ]
         .join(' ')
         .toLowerCase();
+      // Résumé de la réservation : « 3/3 réservés », « 0/2 réservés »…
+      let booking = null;
+      if (seasonScope) {
+        const seatIds = (order?.lines || [])
+          .map(l => String(l?.seatId || '').trim())
+          .filter(sid => sid && !isVirtualZoneSeatId(sid));
+        if (seatIds.length) {
+          const booked = seatIds.filter(sid => seatStateBySeatId.get(sid) === 'booked').length;
+          const orderStatus = String(order?.status || '');
+          booking = {
+            booked,
+            total: seatIds.length,
+            // On n'alerte que sur le cas réellement anormal : une commande
+            // PAYÉE dont les sièges ne sont pas réservés — la finalisation
+            // n'est pas allée au bout, le client a payé sans avoir sa place.
+            //
+            // L'inverse (commande non payée, sièges 'booked') n'est PAS une
+            // anomalie : c'est l'état normal d'un conflit, où la place
+            // appartient à une autre commande. Alerter dessus ferait clignoter
+            // chaque refus légitime.
+            mismatch: orderStatus === 'paid' && booked < seatIds.length
+          };
+        }
+      }
+
       return {
         id: String(order?._id || ''),
         createdAt: order?.createdAt || null,
         status: String(order?.status || ''),
+        booking,
         lineCount: Array.isArray(order?.lines) ? order.lines.length : 0,
         totalCents: Number(order?.totalCents || 0),
         beneficiaries,
@@ -921,7 +1335,7 @@ router.get('/orders', async (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts: [],
     automationJobs: {},
@@ -934,15 +1348,19 @@ router.get('/orders', async (req, res) => {
       events: [],
       partners: [],
       tariffCatalogs: [],
+      adCampaignCatalogs: [],
       inputFiles: [],
       assetFiles: [],
       venueViews: []
     },
     viewMode: 'orders',
     monitorTab: 'tariffs',
+    docTab: 'references',
     monitoring: null,
     planView: null,
     ticketsView: null,
+    renewersView: null,
+    vouchersView: null,
     ordersView: {
       seasons: (seasonsRaw || []).map(s => ({
         code: s.code,
@@ -957,7 +1375,13 @@ router.get('/orders', async (req, res) => {
         venueSlug: ev.venueSlug || null
       })),
       selectedSeasonCode,
-      selectedEventSlug: selectedEvent ? selectedEvent.slug : null,
+      // Renvoie le sentinelle quand la vue saison est demandée, pour que
+      // le <select> reste sur « Saison » après rechargement.
+      selectedEventSlug: seasonScope ? SEASON_SCOPE : (selectedEvent ? selectedEvent.slug : null),
+      // Le sentinelle est truthy : une vue qui teste `selectedEventSlug` pour
+      // savoir si elle est sur un match se trompe en périmètre saison. C'est ce
+      // drapeau qui fait foi.
+      seasonScope,
       selectedEvent: selectedEvent
         ? {
             id: String(selectedEvent._id),
@@ -969,6 +1393,212 @@ router.get('/orders', async (req, res) => {
         : null,
       rows
     }
+  });
+});
+
+const RENEWER_STATUSES = ['none', 'invited', 'pending', 'active', 'partial', 'canceled'];
+
+router.get('/renewers', async (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const seasonsRaw = await Season.find({}).sort({ code: -1 }).lean();
+  const defaultSeason = seasonsRaw.find(s => s.active) || seasonsRaw[0] || null;
+  const selectedSeasonCodeRaw = typeof req.query.season === 'string' && req.query.season
+    ? req.query.season
+    : (defaultSeason?.code || null);
+  const selectedSeason = seasonsRaw.find(s => s.code === selectedSeasonCodeRaw) || defaultSeason || null;
+  const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
+  // Subscriber is season+venue scoped (no event) — venue comes straight off
+  // the season document, same derivation the Plan panel uses for its own
+  // effectiveVenueSlug.
+  const selectedVenueSlug = selectedSeason?.venueSlug || null;
+
+  const statusFilter = RENEWER_STATUSES.includes(req.query.status) ? req.query.status : '';
+
+  let rows = [];
+  if (selectedSeasonCode && selectedVenueSlug) {
+    const query = { seasonCode: selectedSeasonCode, venueSlug: selectedVenueSlug };
+    if (statusFilter) query.status = statusFilter;
+
+    const subsRaw = await Subscriber.find(query)
+      .sort({ groupKey: 1, lastName: 1, firstName: 1 })
+      .lean();
+
+    const seatIds = [...new Set(subsRaw.map(s => s.prefSeatId).filter(Boolean))];
+    const realSeatIds = seatIds.filter(sid => !isVirtualZoneSeatId(sid));
+    const virtualSeatIds = seatIds.filter(sid => isVirtualZoneSeatId(sid));
+
+    const seatByPrefId = new Map();
+    if (realSeatIds.length) {
+      const seatsRaw = await Seat.find(
+        { seasonCode: selectedSeasonCode, venueSlug: selectedVenueSlug, seatId: { $in: realSeatIds } },
+        { seatId: 1, status: 1 }
+      ).lean();
+      for (const seat of seatsRaw) seatByPrefId.set(seat.seatId, seat.status);
+    }
+
+    // Standing-zone renewal lines have no Seat document to check — look at
+    // whether a paid/tobepaid order already covers the virtual seat id instead.
+    const paidVirtualSeatIds = new Set();
+    if (virtualSeatIds.length) {
+      const zoneOrders = await Order.find(
+        {
+          seasonCode: selectedSeasonCode, venueSlug: selectedVenueSlug,
+          // 'partner' compris : ces identifiants sont ceux de places en zone
+          // d'abonnement, qu'elles aient été prises par le canal public ou
+          // partenaire.
+          'origin.flow': { $in: ['subscription', 'renew', 'partner'] },
+          status: { $in: ['paid', 'tobepaid'] },
+          'lines.seatId': { $in: virtualSeatIds }
+        },
+        { 'lines.seatId': 1 }
+      ).lean();
+      for (const ord of zoneOrders) {
+        for (const line of (ord.lines || [])) {
+          if (line?.seatId && virtualSeatIds.includes(line.seatId)) paidVirtualSeatIds.add(line.seatId);
+        }
+      }
+    }
+
+    const seatStatusFor = (prefSeatId) => {
+      if (!prefSeatId) return null;
+      if (isVirtualZoneSeatId(prefSeatId)) return paidVirtualSeatIds.has(prefSeatId) ? 'booked' : 'not booked yet';
+      return seatByPrefId.get(prefSeatId) || 'unknown';
+    };
+
+    rows = subsRaw.map((s) => {
+      const fullName = [s.firstName, s.lastName].filter(Boolean).join(' ').trim();
+      return {
+        id: String(s._id),
+        subscriberNo: s.subscriberNo || '',
+        firstName: s.firstName || '',
+        lastName: s.lastName || '',
+        email: s.email || '',
+        phone: s.phone || '',
+        groupKey: s.groupKey || '',
+        prefSeatId: s.prefSeatId || '',
+        previousSeasonSeats: s.previousSeasonSeats || [],
+        status: s.status || 'none',
+        notes: s.notes || '',
+        lastInviteSentAt: s.lastInviteSentAt || null,
+        seatStatus: seatStatusFor(s.prefSeatId),
+        searchIndex: [fullName, s.email, s.groupKey, s.prefSeatId].filter(Boolean).join(' ').toLowerCase()
+      };
+    });
+  }
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token,
+    tokenQuery,
+    tokenSuffix,
+    urlFor,
+    scriptGroups: NAV_SCRIPT_GROUPS,
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    operateOptions: {
+      venues: [],
+      seasons: [],
+      events: [],
+      partners: [],
+      tariffCatalogs: [],
+      adCampaignCatalogs: [],
+      inputFiles: [],
+      assetFiles: [],
+      venueViews: []
+    },
+    viewMode: 'renewers',
+    monitorTab: 'tariffs',
+    docTab: 'references',
+    monitoring: null,
+    planView: null,
+    ordersView: null,
+    ticketsView: null,
+    renewersView: {
+      statuses: RENEWER_STATUSES,
+      seasons: (seasonsRaw || []).map(s => ({
+        code: s.code,
+        name: s.name || '',
+        active: Boolean(s.active),
+        venueSlug: s.venueSlug || null
+      })),
+      selectedSeasonCode,
+      selectedVenueSlug,
+      statusFilter,
+      rows
+    }
+  });
+});
+
+
+// ——— Bons cadeaux : liste, consultation, suspension, prolongation ———
+router.get('/vouchers', async (req, res) => {
+  const token = (req.query.token || '').toString();
+  const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
+  const tokenSuffix = token ? `?${tokenQuery}` : '';
+
+  const statusFilter = ['active', 'suspended', 'spent', 'canceled'].includes(req.query.status)
+    ? req.query.status : '';
+  const q = statusFilter ? { status: statusFilter } : {};
+  const vouchers = await Voucher.find(q).sort({ createdAt: -1 }).limit(300).lean();
+
+  const rows = vouchers.map(v => {
+    const total = Number(v.balance?.total || 0);
+    const used = Number(v.balance?.used || 0);
+    return {
+      id: String(v._id),
+      code: v.code,
+      label: v.label || '',
+      status: v.status,
+      total, used, remaining: Math.max(0, total - used),
+      maxPerEvent: Number(v.maxPerEvent || 0),
+      expiresAt: v.expiresAt || null,
+      expired: Boolean(v.expiresAt && new Date(v.expiresAt) <= new Date()),
+      allowedZones: v.allowedZones || [],
+      eligibility: {
+        events: v.eligibility?.events || [],
+        seasonCodes: v.eligibility?.rules?.seasonCodes || [],
+        tags: v.eligibility?.rules?.tags || []
+      },
+      originKind: v.origin?.kind || 'donation',
+      createdAt: v.createdAt,
+      // Le journal des retraits : c'est la réponse à « ce bon a-t-il servi ? »
+      redemptions: (v.redemptions || []).map(r => ({
+        eventSlug: r.eventSlug, qty: r.qty, at: r.at, by: r.by || '',
+        seatIds: r.seatIds || []
+      }))
+    };
+  });
+
+  return res.render('admin/index', {
+    basePath: BASE_PATH || '',
+    token, tokenQuery, tokenSuffix, urlFor,
+    scriptGroups: NAV_SCRIPT_GROUPS,
+    scriptForms: {},
+    automationScripts: [],
+    automationJobs: {},
+    activeGroupId: null,
+    outputsList: [],
+    inputsList: [],
+    operateOptions: {
+      venues: [], seasons: [], events: [], partners: [], tariffCatalogs: [],
+      adCampaignCatalogs: [], inputFiles: [], assetFiles: [], venueViews: []
+    },
+    viewMode: 'vouchers',
+    monitorTab: 'tariffs',
+    docTab: 'references',
+    monitoring: null,
+    planView: null,
+    ordersView: null,
+    ticketsView: null,
+    renewersView: null,
+    vouchersView: { statuses: ['active', 'suspended', 'spent', 'canceled'], statusFilter, rows }
   });
 });
 
@@ -986,7 +1616,7 @@ router.get('/tickets', async (req, res) => {
   const selectedSeasonCode = selectedSeason?.code || selectedSeasonCodeRaw || null;
 
   const eventsRaw = await Event.find(selectedSeasonCode ? { seasonCode: selectedSeasonCode } : {})
-    .sort({ startsAt: 1 })
+    .sort({ startsAt: -1 })
     .lean();
   const selectedEventSlug = typeof req.query.event === 'string' && req.query.event
     ? req.query.event
@@ -1079,7 +1709,7 @@ router.get('/tickets', async (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts: [],
     automationJobs: {},
@@ -1092,15 +1722,19 @@ router.get('/tickets', async (req, res) => {
       events: [],
       partners: [],
       tariffCatalogs: [],
+      adCampaignCatalogs: [],
       inputFiles: [],
       assetFiles: [],
       venueViews: []
     },
     viewMode: 'tickets',
     monitorTab: 'tariffs',
+    docTab: 'references',
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
+    vouchersView: null,
     ticketsView: {
       seasons: (seasonsRaw || []).map(s => ({
         code: s.code,
@@ -1145,25 +1779,30 @@ router.get('/operate', async (req, res) => {
 
   const { scriptGroups, scriptForms, automationScripts } = prepareScriptCatalog();
 
+  // No ?group= → show the Operation overview page instead of defaulting to
+  // the first chapter (see the "!activeGroupId" intro block in the view).
   const activeGroupId = typeof req.query.group === 'string' && req.query.group
     ? req.query.group
-    : (scriptGroups[0]?.id || null);
+    : null;
 
   const outputsList = listFiles(OUTPUTS_ROOT);
   const inputsList = listFiles(INPUTS_ROOT);
   const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
   const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
   const venueViews = listVenueViews();
+  const googleLibraries = readGoogleLibraryRegistry();
   let operateOptions = {
     venues: [],
     seasons: [],
     events: [],
     partners: [],
     tariffCatalogs: [],
+    adCampaignCatalogs: [],
     inputFiles: inputsList.map(file => file.name),
     assetFiles: inputsList.map(file => file.name),
     customizationFiles: inputsList.map(file => file.name),
-    venueViews
+    venueViews,
+    googleLibraries
   };
 
   try {
@@ -1172,12 +1811,17 @@ router.get('/operate', async (req, res) => {
       seasonsRaw,
       eventsRaw,
       tariffCatalogsAgg,
+      adCampaignCatalogsAgg,
       partnersRaw
     ] = await Promise.all([
       Venue.find({}).sort({ slug: 1 }).lean(),
       Season.find({}).sort({ code: -1 }).lean(),
       Event.find({}).sort({ startsAt: -1 }).lean(),
       TariffPriceCatalog.aggregate([
+        { $group: { _id: '$catalogSlug', count: { $sum: 1 } } },
+        { $sort: { _id: 1 } }
+      ]),
+      AdCampaignCatalog.aggregate([
         { $group: { _id: '$catalogSlug', count: { $sum: 1 } } },
         { $sort: { _id: 1 } }
       ]),
@@ -1196,10 +1840,14 @@ router.get('/operate', async (req, res) => {
       tariffCatalogs: tariffCatalogsAgg
         .map(entry => entry?._id)
         .filter(Boolean),
+      adCampaignCatalogs: adCampaignCatalogsAgg
+        .map(entry => entry?._id)
+        .filter(Boolean),
       inputFiles: inputsList.map(file => file.name),
       assetFiles: inputsList.map(file => file.name),
       customizationFiles: inputsList.map(file => file.name),
-      venueViews
+      venueViews,
+      googleLibraries
     };
   } catch (error) {
     console.error('[admin] operate options fetch error:', error?.message || error);
@@ -1245,9 +1893,12 @@ router.get('/operate', async (req, res) => {
     operateOptions,
     viewMode: 'operate',
     monitorTab: 'tariffs',
+    docTab: 'references',
     monitoring: null,
     planView: null,
     ordersView: null,
+    renewersView: null,
+    vouchersView: null,
     ticketsView: null
   });
 });
@@ -1273,9 +1924,11 @@ router.get('/monitor', async (req, res) => {
   const mongoStateLabel = ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoState || 0];
 
   let pm2 = null;
+  let recentLogs = [];
   try {
     const out = childProcess.execSync('pm2 jlist', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    pm2 = JSON.parse(out).map(p => ({
+    const rawList = JSON.parse(out);
+    pm2 = rawList.map(p => ({
       name: p.name,
       pid: p.pid,
       status: p.pm2_env?.status,
@@ -1284,6 +1937,19 @@ router.get('/monitor', async (req, res) => {
       mem: p.monit?.memory ?? 0,
       cpu: p.monit?.cpu ?? 0
     }));
+
+    const target = rawList.find(p => p.name === 'bts') || rawList[0];
+    const tailFile = (filePath, stream) => {
+      if (!filePath || !fs.existsSync(filePath)) return [];
+      const content = fs.readFileSync(filePath, 'utf8');
+      return content.trim().split(/\n+/).filter(Boolean).slice(-15).map(line => ({ stream, line }));
+    };
+    if (target) {
+      recentLogs = [
+        ...tailFile(target.pm2_env?.pm_out_log_path, 'out'),
+        ...tailFile(target.pm2_env?.pm_err_log_path, 'error')
+      ];
+    }
   } catch { /* ignore */ }
 
   let diskUsage = null;
@@ -1304,88 +1970,205 @@ router.get('/monitor', async (req, res) => {
     }
   } catch { /* ignore */ }
 
-  const seatStatusAgg = await Seat.aggregate([
-    { $group: { _id: '$status', c: { $sum: 1 } } }
-  ]);
-  const seatCounts = Object.fromEntries(seatStatusAgg.map(x => [x._id || 'unknown', x.c]));
+  let mongoConnections = null;
+  let mongoOpCounters = null;
+  try {
+    const admin = mongoose.connection.db?.admin();
+    if (admin) {
+      const status = await admin.serverStatus();
+      mongoConnections = status.connections || null;
+      mongoOpCounters = status.opcounters || null;
+    }
+  } catch { /* ignore */ }
 
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const recentOrders = await Order.aggregate([
-    { $match: { createdAt: { $gte: since } } },
-    { $group: { _id: '$status', c: { $sum: 1 } } }
-  ]);
+  let activeAutomationJobs = null;
+  try {
+    activeAutomationJobs = await AutomationJob.countDocuments({ status: { $in: ['queued', 'running'] } });
+  } catch { /* ignore */ }
+
+  const requestActivity = getRequestMetrics();
+
+  let dbCollections = [];
+  try {
+    const db = mongoose.connection.db;
+    if (db) {
+      const collInfos = await db.listCollections().toArray();
+      for (const info of collInfos) {
+        try {
+          const statsAgg = await db.collection(info.name).aggregate([{ $collStats: { storageStats: {} } }]).toArray();
+          const stats = statsAgg[0]?.storageStats || {};
+          dbCollections.push({
+            name: info.name,
+            count: stats.count ?? 0,
+            sizeBytes: stats.size ?? 0,
+            storageSizeBytes: stats.storageSize ?? 0
+          });
+        } catch {
+          dbCollections.push({ name: info.name, count: null, sizeBytes: null, storageSizeBytes: null });
+        }
+      }
+      dbCollections.sort((a, b) => (b.sizeBytes || 0) - (a.sizeBytes || 0));
+    }
+  } catch { /* ignore */ }
 
   const token = (req.query.token || '').toString();
   const tokenQuery = token ? `token=${encodeURIComponent(token)}` : '';
   const tokenSuffix = token ? `?${tokenQuery}` : '';
 
-  const monitorTabOptions = new Set(['system', 'tariffs', 'seasons', 'events', 'partners']);
-  const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : 'system';
+  const monitorTabOptions = new Set(['custo', 'system', 'venue', 'tariffs', 'seasons', 'events', 'partners', 'ticket']);
+  // No ?monitorTab= → show the Monitoring overview page instead of
+  // defaulting to "system" (see the "!monitorTab" intro block in the view).
+  const monitorTab = monitorTabOptions.has(req.query.monitorTab) ? req.query.monitorTab : null;
+
+  const dynamicAssetsList = listFiles(DYNAMIC_ASSETS_ROOT);
+  const customizationList = listCustomizationRecursive(CUSTOM_ROOT);
+  const dataTemplatesList = listTemplatesRecursive(DATA_TEMPLATES_ROOT);
+  const dataAssetsList = listTemplatesRecursive(DATA_ASSETS_ROOT);
+  const venueResources = listVenueResources();
+
+  // "Ticket" monitor tab: ticket templates (data/templates/templates.json,
+  // cross-referenced against what's actually on disk) + the ad campaign
+  // asset tree (data/assets/ads — scoped subset of dataAssetsList above).
+  const ticketTemplatesList = (() => {
+    const config = readTemplatesConfig();
+    const entries = Object.entries(config?.tickets?.templates || {});
+    return entries.map(([kind, entry]) => {
+      const file = entry?.file || '';
+      const filePath = file ? path.resolve(DATA_TEMPLATES_ROOT, file) : '';
+      return {
+        kind,
+        file,
+        logo: entry?.logo || '',
+        exists: Boolean(file) && fs.existsSync(filePath)
+      };
+    }).sort((a, b) => a.kind.localeCompare(b.kind));
+  })();
+  const adAssetsList = dataAssetsList.filter(f => f.rel.startsWith('ads/'));
 
   const [
     venuesRaw,
     seasonsRaw,
     eventsRaw,
     tariffsRaw,
-    tariffPriceCountsAgg,
     venueZoneCountsAgg,
     seatCatalogCountsAgg,
-    partnersRaw
+    partnersRaw,
+    tariffPriceCatalogGroupsAgg,
+    adCampaignCatalogRaw
   ] = await Promise.all([
     Venue.find({}).sort({ slug: 1 }).lean(),
     Season.find({}).sort({ code: -1 }).lean(),
     Event.find({}).sort({ startsAt: -1 }).lean(),
     Tariff.find({}).sort({ priceTableKey: 1, sortOrder: 1, code: 1 }).lean(),
-    TariffPrice.aggregate([
-      { $group: { _id: '$priceTableKey', count: { $sum: 1 } } }
-    ]),
     ZoneCatalog.aggregate([
       { $group: { _id: '$venueSlug', count: { $sum: 1 } } }
     ]),
     SeatCatalog.aggregate([
       { $group: { _id: '$venueSlug', count: { $sum: 1 } } }
     ]),
-    Promise.resolve(listPartnerConfigs())
+    Promise.resolve(listPartnerConfigs()),
+    TariffPriceCatalog.aggregate([
+      {
+        $group: {
+          _id: { catalogSlug: '$catalogSlug', venueSlug: '$venueSlug' },
+          count: { $sum: 1 },
+          zoneKeys: { $addToSet: '$zoneKey' },
+          tariffCodes: { $addToSet: '$tariffCode' },
+          currency: { $first: '$currency' },
+          channelLists: { $addToSet: '$channels' }
+        }
+      },
+      { $sort: { '_id.catalogSlug': 1, '_id.venueSlug': 1 } }
+    ]),
+    AdCampaignCatalog.find({}).sort({ catalogSlug: 1, campaignSlug: 1, slot: 1 }).lean()
   ]);
 
-  const priceEntriesMap = new Map(tariffPriceCountsAgg.map(item => [(item._id ?? 'global'), item.count]));
+  const adCampaignCatalogList = adCampaignCatalogRaw.map(row => ({
+    catalogSlug: row.catalogSlug,
+    venueSlug: row.venueSlug || '',
+    campaignSlug: row.campaignSlug,
+    contentType: row.contentType,
+    slot: row.slot,
+    qrValue: row.qrValue || '',
+    text: row.text || '',
+    tariffCode: row.tariffCode || '',
+    zoneKey: row.zoneKey || '',
+    zoneType: row.zoneType || '',
+    priority: Number.isFinite(row.priority) ? row.priority : 100,
+    active: row.active !== false
+  }));
+
   const venueZoneCounts = new Map(venueZoneCountsAgg.map(entry => [entry._id || '', entry.count]));
   const seatCatalogCounts = new Map(seatCatalogCountsAgg.map(entry => [entry._id || '', entry.count]));
-
-  const tariffSummaryMap = new Map();
-  for (const tariff of tariffsRaw) {
-    const key = tariff.priceTableKey || 'global';
-    const entry = tariffSummaryMap.get(key) || { priceTableKey: key, total: 0, active: 0 };
-    entry.total += 1;
-    if (tariff.active) entry.active += 1;
-    tariffSummaryMap.set(key, entry);
-  }
-
-  const tariffSummary = Array.from(tariffSummaryMap.values())
-    .map(item => ({
-      ...item,
-      priceEntries: priceEntriesMap.get(item.priceTableKey) || 0
-    }))
-    .sort((a, b) => {
-      if (a.priceTableKey === 'global') return -1;
-      if (b.priceTableKey === 'global') return 1;
-      return (a.priceTableKey || '').localeCompare(b.priceTableKey || '');
-    });
+  const venueViewCounts = new Map((venueResources || []).map(v => [v.venueSlug, (v.views || []).length]));
+  const venueHasPlan = new Map((venueResources || []).map(v => [v.venueSlug, Boolean(v.plan)]));
 
   const venuesList = venuesRaw.map(v => ({
     slug: v.slug,
     name: v.name,
     zoneCount: venueZoneCounts.get(v.slug) || 0,
     seatCount: seatCatalogCounts.get(v.slug) || 0,
+    viewCount: venueViewCounts.get(v.slug) || 0,
+    hasPlan: venueHasPlan.get(v.slug) || false,
     svgPath: v.svgPath
   }));
+
+  const requestedMonitorVenueSlug = (req.query.monitorVenue || '').toString();
+  const selectedMonitorVenue = venuesList.find(v => v.slug === requestedMonitorVenueSlug) || venuesList[0] || null;
+  const selectedMonitorVenueSlug = selectedMonitorVenue ? selectedMonitorVenue.slug : '';
+
+  let venueZoneDetails = [];
+  let venueMetaZones = [];
+  if (selectedMonitorVenueSlug) {
+    const [zonesRaw, zoneSeatCountsAgg] = await Promise.all([
+      ZoneCatalog.find({ venueSlug: selectedMonitorVenueSlug }).sort({ key: 1 }).lean(),
+      SeatCatalog.aggregate([
+        { $match: { venueSlug: selectedMonitorVenueSlug } },
+        { $group: { _id: '$zoneKey', count: { $sum: 1 } } }
+      ])
+    ]);
+    const zoneSeatCounts = new Map(zoneSeatCountsAgg.map(entry => [entry._id || '', entry.count]));
+    venueZoneDetails = zonesRaw.map(z => ({
+      key: z.key,
+      name: z.name || '',
+      type: z.type,
+      access: z.access,
+      metaZone: z.metaZone || null,
+      capacity: z.capacity || 0,
+      quota: z.quota || 0,
+      isActive: z.isActive,
+      seatCount: zoneSeatCounts.get(z.key) || 0
+    }));
+
+    // Regroupement par méta-zone. Vu du lieu, une méta-zone n'est rien d'autre
+    // que l'ensemble des zones qui la portent : c'est la seule chose à
+    // vérifier d'un coup d'œil avant d'écrire une grille tarifaire pour elle.
+    const byMetaZone = new Map();
+    for (const z of venueZoneDetails) {
+      if (!z.metaZone) continue;
+      if (!byMetaZone.has(z.metaZone)) byMetaZone.set(z.metaZone, []);
+      byMetaZone.get(z.metaZone).push(z);
+    }
+    venueMetaZones = [...byMetaZone.entries()]
+      .map(([key, zonesInMeta]) => ({
+        key,
+        zones: zonesInMeta.map(z => z.key),
+        zoneCount: zonesInMeta.length,
+        capacity: zonesInMeta.reduce((a, z) => a + (z.capacity || 0), 0),
+        seatCount: zonesInMeta.reduce((a, z) => a + (z.seatCount || 0), 0),
+        inactive: zonesInMeta.filter(z => !z.isActive).map(z => z.key)
+      }))
+      .sort((a, b) => a.key.localeCompare(b.key));
+  }
 
   const seasonsList = seasonsRaw.map(s => ({
     code: s.code,
     name: s.name,
     active: s.active,
     venueSlug: s.venueSlug || null,
-    phaseCount: Array.isArray(s.phases) ? s.phases.length : 0
+    activity: s.activity || 'draft',
+    renew: s.renew || 'notopen',
+    subscribe: s.subscribe || 'notopen'
   }));
 
   const eventsList = eventsRaw.map(e => ({
@@ -1395,25 +2178,149 @@ router.get('/monitor', async (req, res) => {
     startsAt: e.startsAt,
     seasonCode: e.seasonCode,
     venueSlug: e.venueSlug,
-    isOnSale: e.isOnSale
+    sale: e.sale,
+    activity: e.activity
   }));
+
+  // Adresse absolue d'une page partenaire : APP_URL (BASE_PATH compris), sinon
+  // l'hôte de la requête.
+  const appBase = String(process.env.APP_URL || '').trim().replace(/\/+$/, '')
+    || `${req.protocol}://${req.get('host')}${urlFor('')}`.replace(/\/+$/, '');
+  const partnerUrl = (slug, p) => `${appBase}/partner/${encodeURIComponent(slug)}${p}`;
+  // Jetons : mesure complémentaire, indépendante du mode de connexion ; portée
+  // globale, par saison ou par événement.
+  const tokenScopes = (p) => [
+    p.accessToken ? 'global' : null,
+    Object.keys(p.tokens?.seasons || {}).length ? `saison ×${Object.keys(p.tokens.seasons).length}` : null,
+    Object.keys(p.tokens?.events || {}).length ? `événement ×${Object.keys(p.tokens.events).length}` : null
+  ].filter(Boolean);
+  const CONNECTION_LABELS = { openid: 'OpenID', directory: 'Annuaire', none: 'Aucune' };
 
   const partnersList = (partnersRaw || []).map(p => ({
     slug: p.slug,
     name: p.name || '',
-    paymentMode: p.paymentMode || '',
+    paymentMode: partnerPaymentMode(p),
+    login: CONNECTION_LABELS[partnerConnection(p)],
+    tokens: tokenScopes(p),
+    adminUrl: (p.admin?.user && p.admin?.pass) ? partnerUrl(p.slug, '/admin/orders') : null,
     allowPublicTariffs: Boolean(p.allowPublicTariffs),
     venueView: p.venueView || null
   }));
 
-  const tariffsSample = tariffsRaw.slice(0, 50).map(t => ({
+  const tariffsFull = tariffsRaw.map(t => ({
     code: t.code,
     label: t.label,
     active: t.active,
     priceTableKey: t.priceTableKey || null,
     requiresField: t.requiresField,
-    fieldLabel: t.fieldLabel
+    fieldLabel: t.fieldLabel,
+    channels: Array.isArray(t.channels) ? t.channels : []
   }));
+
+  // Tarifs globaux (priceTableKey null : le catalogue) et tarifs instanciés
+  // (copies dans la table de prix d'un événement), en deux tableaux. Pour les
+  // globaux, leur utilisation — calculée sur l'onglet Tarifs seulement : le
+  // décompte des lignes de commande parcourt toutes les commandes.
+  let tariffUsage = null;
+  if (monitorTab === 'tariffs') {
+    const byCode = (rows) => new Map(rows.map(r => [String(r._id || '').toUpperCase(), r.n]));
+    const [catRows, evRows, seasonRows, orderRows] = await Promise.all([
+      TariffPriceCatalog.aggregate([{ $group: { _id: '$tariffCode', n: { $sum: 1 } } }]),
+      Tariff.aggregate([{ $match: { priceTableKey: { $type: 'string' } } }, { $group: { _id: '$code', n: { $sum: 1 } } }]),
+      TariffPrice.aggregate([{ $match: { priceTableKey: null } }, { $group: { _id: '$tariffCode', n: { $sum: 1 } } }]),
+      Order.aggregate([{ $unwind: '$lines' }, { $group: { _id: '$lines.tariffCode', n: { $sum: 1 } } }])
+    ]);
+    tariffUsage = { catalogs: byCode(catRows), events: byCode(evRows), season: byCode(seasonRows), orders: byCode(orderRows) };
+  }
+  const globalTariffs = tariffsFull.filter(t => !t.priceTableKey).map(t => {
+    if (!tariffUsage) return t;
+    const code = String(t.code || '').toUpperCase();
+    const usage = {
+      catalogs: tariffUsage.catalogs.get(code) || 0,
+      events: tariffUsage.events.get(code) || 0,
+      season: tariffUsage.season.get(code) || 0,
+      orders: tariffUsage.orders.get(code) || 0
+    };
+    return { ...t, usage, unused: Object.values(usage).every(n => n === 0) };
+  });
+  const instantiatedTariffs = tariffsFull.filter(t => t.priceTableKey);
+
+  const requestedPartnerSlug = (req.query.partner || '').toString().trim().toLowerCase();
+  const selectedPartnerRaw = (partnersRaw || []).find(p => String(p?.slug || '').toLowerCase() === requestedPartnerSlug)
+    || (partnersRaw || [])[0]
+    || null;
+  const selectedPartnerSlug = selectedPartnerRaw ? String(selectedPartnerRaw.slug).toLowerCase() : '';
+
+  let partnerDetail = null;
+  if (selectedPartnerRaw) {
+    const cfg = selectedPartnerRaw;
+    const globalToken = cfg.accessToken || null;
+    const connection = partnerConnection(cfg);
+    // En mode connexion le jeton est ignoré (services/partner-access.js).
+    const eventsUrl = partnerUrl(selectedPartnerSlug, '/events')
+      + (globalToken && connection === 'none' ? `?token=${encodeURIComponent(globalToken)}` : '');
+    // Specific tariffs: Tariff codes scoped to this partner via the channels
+    // mechanism (channels: ["partner:<slug>"], or the broader "partner"/"all") —
+    // see src/utils/channel-scopes.js, the same scoping shown as "Canaux" in
+    // the Tarifs tab's own tables.
+    const specificTariffs = tariffsFull
+      .filter(t => matchesChannel(t.channels, { kind: 'partner', partnerSlug: selectedPartnerSlug }))
+      .map(t => ({ code: t.code, label: t.label, channels: t.channels }));
+    partnerDetail = {
+      slug: selectedPartnerSlug,
+      name: cfg.name || selectedPartnerSlug,
+      eventsUrl,
+      connection: CONNECTION_LABELS[connection],
+      tokensIgnored: connection !== 'none',
+      adminOrdersUrl: partnerUrl(selectedPartnerSlug, '/admin/orders'),
+      adminDirectoryUrl: connection === 'directory' ? partnerUrl(selectedPartnerSlug, '/admin/directory') : null,
+      accessToken: globalToken,
+      eventTokens: Object.entries(cfg.tokens?.events || {}).map(([eventSlug, token]) => ({ eventSlug, token })),
+      seasonTokens: Object.entries(cfg.tokens?.seasons || {}).map(([seasonCode, token]) => ({ seasonCode, token })),
+      admin: (cfg.admin?.user && cfg.admin?.pass) ? { user: cfg.admin.user, pass: cfg.admin.pass } : null,
+      presaleEvents: Object.entries(cfg.presale?.events || {}).map(([eventSlug, v]) => ({ eventSlug, quota: Number(v?.quota || 0) })),
+      presaleSeasons: Object.entries(cfg.presale?.seasons || {}).map(([seasonCode, v]) => ({ seasonCode, quota: Number(v?.quota || 0) })),
+      specificTariffs
+    };
+  }
+
+  const tariffPriceCatalogGroups = tariffPriceCatalogGroupsAgg.map(g => ({
+    catalogSlug: g._id.catalogSlug,
+    venueSlug: g._id.venueSlug || null,
+    entryCount: g.count,
+    zoneCount: (g.zoneKeys || []).length,
+    tariffCount: (g.tariffCodes || []).length,
+    currency: g.currency || 'EUR',
+    // channelLists is one array per distinct value seen (via $addToSet on the
+    // array field itself, so it's an array-of-arrays) — flatten + dedupe into
+    // the union of channels used anywhere in this catalog, since a single
+    // grouped row can't show a per-entry value.
+    channels: Array.from(new Set((g.channelLists || []).flat().filter(Boolean))),
+    key: `${g._id.catalogSlug}|${g._id.venueSlug || ''}`
+  }));
+
+  const requestedCatalogKey = (req.query.catalogKey || '').toString();
+  const selectedCatalogGroup = tariffPriceCatalogGroups.find(g => g.key === requestedCatalogKey)
+    || tariffPriceCatalogGroups[0]
+    || null;
+  const selectedCatalogKey = selectedCatalogGroup ? selectedCatalogGroup.key : '';
+
+  let tariffPriceCatalogEntries = [];
+  if (selectedCatalogGroup) {
+    const entriesRaw = await TariffPriceCatalog.find({
+      catalogSlug: selectedCatalogGroup.catalogSlug,
+      venueSlug: selectedCatalogGroup.venueSlug
+    }).sort({ zoneKey: 1, tariffCode: 1 }).lean();
+    tariffPriceCatalogEntries = entriesRaw.map(e => ({
+      zoneKey: e.zoneKey,
+      metaZone: e.metaZone || null,
+      tariffCode: e.tariffCode,
+      priceCents: e.priceCents,
+      partnerPriceCents: e.partnerPriceCents,
+      currency: e.currency || 'EUR',
+      channels: Array.isArray(e.channels) ? e.channels : []
+    }));
+  }
 
   const defaultSeason = seasonsRaw.find(s => s.active) || seasonsRaw[0] || null;
   const selectedSeasonCode = typeof req.query.season === 'string' && req.query.season
@@ -1443,9 +2350,10 @@ router.get('/monitor', async (req, res) => {
   let subscriptionSeatCounts = {};
   let subscriptionTickets = [];
   let subscriptionSeatsSample = [];
+  let subscriptionZoneBreakdown = { statuses: [], zones: [] };
 
   if (selectedSeasonCode) {
-    const [ordersRaw, orderStatsAgg, seatStatsAgg, ticketsRaw, seatsRaw] = await Promise.all([
+    const [ordersRaw, orderStatsAgg, seatStatsAgg, ticketsRaw, seatsRaw, zoneSeatStatsAgg, quotaZonesRaw, quotaZoneUsageAgg] = await Promise.all([
       Order.find(subscriptionMatch)
         .sort({ createdAt: -1 })
         .limit(20)
@@ -1465,7 +2373,30 @@ router.get('/monitor', async (req, res) => {
       Seat.find({ seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}) })
         .sort({ updatedAt: -1 })
         .limit(20)
-        .lean()
+        .lean(),
+      Seat.aggregate([
+        { $match: { seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}) } },
+        { $group: { _id: { zoneKey: '$zoneKey', status: '$status' }, count: { $sum: 1 } } }
+      ]),
+      // A zone with no Seat rows is quota-tracked instead of seat-tracked —
+      // covers standing/GA zones, but also a seated-but-zone-allocated zone
+      // like an invitation-only VIP section (see the matching comment in
+      // computeEventSeatCounts). Fetch every active zone here and filter out
+      // the seat-tracked ones below (once zoneSeatStatsAgg is known), rather
+      // than filtering by Zone.type — detecting by "has Seat rows" is what
+      // actually distinguishes the two, not the physical seating character.
+      Zone.find(
+        { seasonCode: selectedSeasonCode, ...(selectedVenueSlug ? { venueSlug: selectedVenueSlug } : {}), isActive: true },
+        { key: 1, capacity: 1, quota: 1, _id: 0 }
+      ).lean(),
+      Order.aggregate([
+        // Dans une agrégation, $match ne passe PAS par strictQuery : le
+        // critère `phase` était pris au mot et, ce champ n'existant pas au
+        // schéma donc jamais enregistré, l'agrégat ne renvoyait rien du tout.
+        { $match: { ...subscriptionMatch, status: 'paid', 'origin.flow': { $in: ['subscription', 'renew'] } } },
+        { $unwind: '$lines' },
+        { $group: { _id: '$lines.zoneKey', count: { $sum: 1 } } }
+      ])
     ]);
 
     subscriptionOrders = ordersRaw.map(o => ({
@@ -1501,6 +2432,20 @@ router.get('/monitor', async (req, res) => {
       status: s.status,
       updatedAt: s.updatedAt
     }));
+
+    const seatZoneKeySet = new Set(zoneSeatStatsAgg.map(r => String(r?._id?.zoneKey || '').trim().toUpperCase()).filter(Boolean));
+    const quotaZoneUsage = new Map((quotaZoneUsageAgg || []).map(r => [String(r._id || '').trim().toUpperCase(), Number(r.count || 0)]));
+    const quotaZoneRows = (quotaZonesRaw || []).flatMap(z => {
+      const key = String(z?.key || '').trim().toUpperCase();
+      if (!key || seatZoneKeySet.has(key)) return [];
+      const cap = Number(z?.quota || 0) > 0 ? Number(z.quota) : Number(z?.capacity || 0);
+      const booked = quotaZoneUsage.get(key) || 0;
+      const rows = [];
+      if (booked > 0) rows.push({ _id: { zoneKey: key, status: 'booked' }, count: booked });
+      if (cap > 0) rows.push({ _id: { zoneKey: key, status: 'available' }, count: Math.max(0, cap - booked) });
+      return rows;
+    });
+    subscriptionZoneBreakdown = buildZoneBreakdown([...zoneSeatStatsAgg, ...quotaZoneRows]);
   }
 
   const eventOrderMatch = selectedEventId
@@ -1515,6 +2460,7 @@ router.get('/monitor', async (req, res) => {
   let eventOrderStats = {};
   let eventTickets = [];
   let eventSeatCounts = {};
+  let eventZoneBreakdown = { statuses: [], zones: [] };
   let eventSubscribers = [];
   let eventScans = [];
   let eventAttendance = { kept: 0, released: 0, moved: 0 };
@@ -1548,7 +2494,7 @@ router.get('/monitor', async (req, res) => {
         .lean(),
       selectedEvent
         ? computeEventSeatCounts(selectedEvent, eventOrderMatch)
-        : Promise.resolve({}),
+        : Promise.resolve({ counts: {}, zoneBreakdown: { statuses: [], zones: [] } }),
       selectedEvent
         ? Subscriber.find({ seasonCode: selectedEvent.seasonCode, venueSlug: selectedEvent.venueSlug })
             .sort({ updatedAt: -1 })
@@ -1620,9 +2566,12 @@ router.get('/monitor', async (req, res) => {
       createdAt: t.createdAt
     }));
 
-    eventSeatCounts = (eventSeatCountsRaw && typeof eventSeatCountsRaw === 'object')
-      ? eventSeatCountsRaw
+    eventSeatCounts = (eventSeatCountsRaw && typeof eventSeatCountsRaw.counts === 'object')
+      ? eventSeatCountsRaw.counts
       : {};
+    eventZoneBreakdown = (eventSeatCountsRaw && eventSeatCountsRaw.zoneBreakdown)
+      ? eventSeatCountsRaw.zoneBreakdown
+      : { statuses: [], zones: [] };
 
     eventSubscribers = eventSubscribersRaw.map(s => ({
       id: String(s._id),
@@ -1655,18 +2604,32 @@ router.get('/monitor', async (req, res) => {
     summary: {
       serverInfo,
       mongoState: mongoStateLabel,
-      seatCounts,
-      recentOrders,
+      mongoConnections,
+      mongoOpCounters,
+      dbCollections,
+      recentLogs,
       pm2,
-      diskUsage
+      diskUsage,
+      requestActivity,
+      activeAutomationJobs
     },
     lists: {
       venues: venuesList,
+      selectedMonitorVenueSlug,
+      venueZoneDetails,
+      venueMetaZones,
       seasons: seasonsList,
       events: eventsList,
-      tariffs: tariffsSample,
-      tariffSummary,
-      partners: partnersList
+      tariffs: tariffsFull,
+      globalTariffs,
+      instantiatedTariffs,
+      tariffPriceCatalogGroups,
+      selectedCatalogKey,
+      tariffPriceCatalogEntries,
+      partners: partnersList,
+      selectedPartnerSlug,
+      partnerDetail,
+      adCampaignCatalog: adCampaignCatalogList
     },
     subscription: {
       selectedSeasonCode,
@@ -1675,6 +2638,7 @@ router.get('/monitor', async (req, res) => {
       orders: subscriptionOrders,
       orderStats: subscriptionOrderStats,
       seatCounts: subscriptionSeatCounts,
+      zoneBreakdown: subscriptionZoneBreakdown,
       tickets: subscriptionTickets,
       seats: subscriptionSeatsSample
     },
@@ -1687,13 +2651,15 @@ router.get('/monitor', async (req, res) => {
             startsAt: selectedEvent.startsAt,
             seasonCode: selectedEvent.seasonCode,
             venueSlug: selectedEvent.venueSlug,
-            isOnSale: selectedEvent.isOnSale
+            sale: selectedEvent.sale,
+            activity: selectedEvent.activity
           }
         : null,
       orders: eventOrders,
       orderStats: eventOrderStats,
       tickets: eventTickets,
       seatCounts: eventSeatCounts,
+      zoneBreakdown: eventZoneBreakdown,
       attendance: eventAttendance,
       subscribers: eventSubscribers,
       scans: eventScans
@@ -1726,7 +2692,7 @@ router.get('/monitor', async (req, res) => {
     tokenQuery,
     tokenSuffix,
     urlFor,
-    scriptGroups: [],
+    scriptGroups: NAV_SCRIPT_GROUPS,
     scriptForms: {},
     automationScripts,
     automationJobs,
@@ -1735,10 +2701,20 @@ router.get('/monitor', async (req, res) => {
     inputsList: [],
     viewMode: 'monitor',
     monitorTab,
+    docTab: 'references',
     monitoring,
     planView: null,
     ordersView: null,
-    ticketsView: null
+    renewersView: null,
+    vouchersView: null,
+    ticketsView: null,
+    dynamicAssetsList,
+    venueResources,
+    dataTemplatesList,
+    dataAssetsList,
+    customizationList,
+    ticketTemplatesList,
+    adAssetsList
   });
 });
 
@@ -2062,18 +3038,59 @@ router.get('/automation/jobs/:jobId', async (req, res) => {
 router.get('/templates/download', (req, res) => {
   const rawPath = (req.query.path || '').toString();
   if (!rawPath) return res.status(400).send('Missing template path');
+
+  // Special case: not a file on disk — a live-generated zip of scripts_desktop/
+  // + automation_client/ (the latter is a runtime dependency of the former, per
+  // scripts_desktop/README.md), for the "Download BTS Desktop" admin entry.
+  if (rawPath === 'scripts_desktop.zip') {
+    if (!fs.existsSync(SCRIPTS_DESKTOP_ROOT)) {
+      return res.status(404).send('scripts_desktop not found');
+    }
+    res.attachment('BTS-Desktop.zip');
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => {
+      console.error('[admin] desktop bundle zip error:', err?.message || err);
+      if (!res.headersSent) res.status(500);
+      res.end();
+    });
+    archive.pipe(res);
+    archive.directory(SCRIPTS_DESKTOP_ROOT, 'scripts_desktop', (entry) => {
+      // Skip Python bytecode caches — not needed to run, just repo clutter.
+      if (entry.name.includes('__pycache__') || entry.name.endsWith('.pyc')) return false;
+      return entry;
+    });
+    if (fs.existsSync(AUTOMATION_CLIENT_ROOT)) {
+      archive.directory(AUTOMATION_CLIENT_ROOT, 'automation_client', (entry) => {
+        if (entry.name.includes('__pycache__') || entry.name.endsWith('.pyc')) return false;
+        return entry;
+      });
+    }
+    archive.finalize();
+    return;
+  }
+
   try {
     const isCustomization = rawPath.startsWith('data/customization');
     const isDataTemplates = rawPath.startsWith('data/templates');
+    const isDataAssets = rawPath.startsWith('data/assets');
+    const isDataExamples = rawPath.startsWith('data_examples');
     const baseRoot = isCustomization
       ? CUSTOM_ROOT
       : isDataTemplates
         ? DATA_TEMPLATES_ROOT
-        : TEMPLATES_ROOT;
+        : isDataAssets
+          ? DATA_ASSETS_ROOT
+          : isDataExamples
+            ? DATA_EXAMPLES_ROOT
+            : TEMPLATES_ROOT;
     const relative = isCustomization
       ? rawPath.replace(/^data\/customization\/?/, '')
       : isDataTemplates
         ? rawPath.replace(/^data\/templates\/?/, '')
+      : isDataAssets
+        ? rawPath.replace(/^data\/assets\/?/, '')
+      : isDataExamples
+        ? rawPath.replace(/^data_examples\/?/, '')
       : rawPath
           .replace(/^data_references\/?/, '')
           .replace(/^data_templates\/?/, '')
@@ -2142,6 +3159,47 @@ router.post('/inputs/delete', (req, res) => {
     }
     fs.unlinkSync(abs);
     return res.json({ ok: true });
+  } catch {
+    return res.status(400).json({ ok: false, error: 'Invalid input file' });
+  }
+});
+
+const INPUT_EDIT_MAX_BYTES = 2 * 1024 * 1024; // 2 MB — plenty for CSV/SVG/JSON, avoids loading huge/binary files into a textarea
+
+router.get('/inputs/read', (req, res) => {
+  const raw = (req.query.file || '').toString();
+  if (!raw) return res.status(400).json({ ok: false, error: 'Missing file' });
+  try {
+    const abs = resolveInside(INPUTS_ROOT, raw);
+    const stats = fs.statSync(abs);
+    if (!stats.isFile()) return res.status(404).json({ ok: false, error: 'File not found' });
+    if (stats.size > INPUT_EDIT_MAX_BYTES) {
+      return res.status(413).json({ ok: false, error: `File too large to edit here (${(stats.size / 1024 / 1024).toFixed(1)} MB > 2 MB) — download it instead` });
+    }
+    const content = fs.readFileSync(abs, 'utf8');
+    return res.json({ ok: true, file: raw, content, size: stats.size });
+  } catch (err) {
+    if (err?.code === 'ENOENT') return res.status(404).json({ ok: false, error: 'File not found' });
+    return res.status(400).json({ ok: false, error: 'Invalid input file' });
+  }
+});
+
+router.post('/inputs/write', (req, res) => {
+  const raw = (req.body?.file || '').toString();
+  const content = req.body?.content;
+  if (!raw) return res.status(400).json({ ok: false, error: 'Missing file' });
+  if (typeof content !== 'string') return res.status(400).json({ ok: false, error: 'Missing content' });
+  if (Buffer.byteLength(content, 'utf8') > INPUT_EDIT_MAX_BYTES) {
+    return res.status(413).json({ ok: false, error: 'Content too large (> 2 MB)' });
+  }
+  try {
+    const abs = resolveInside(INPUTS_ROOT, raw);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
+    fs.writeFileSync(abs, content, 'utf8');
+    const stats = fs.statSync(abs);
+    return res.json({ ok: true, file: raw, size: stats.size, mtime: stats.mtime });
   } catch {
     return res.status(400).json({ ok: false, error: 'Invalid input file' });
   }
@@ -2248,8 +3306,8 @@ async function computeZoneUsageAllOrders({ seasonCode, venueSlug, zoneKeys, stat
 
 async function zonesSnapshot() {
   const activeSeason = await Order.findOne({}).sort({ createdAt: -1 }).lean();
-  const seasonCode = activeSeason?.seasonCode || process.env.SEASON_CODE || null;
-  const venueSlug  = activeSeason?.venueSlug  || process.env.VENUE_SLUG  || null;
+  const seasonCode = activeSeason?.seasonCode || null;
+  const venueSlug  = activeSeason?.venueSlug  || null;
 
   // usagePaid = seulement "paid" (référence pour quota subscription)
   // usageAll  = tout sauf canceled/failed (diagnostic)

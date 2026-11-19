@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Export partners from data/customization/partners.json to CSV.
+ * Export partners (data/customization/partners/<slug>/partner.json) to CSV.
  *
  * Usage:
  *   node scripts/05-partner-management/export-partners.js [--out=partners.csv]
@@ -11,25 +11,15 @@
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
+import { listPartnerConfigs } from '../../src/config/partners.js';
 
 const args = process.argv.slice(2);
 const outOpt = args.find(a => a.startsWith('--out='));
 const out = outOpt ? outOpt.split('=')[1] : null;
 
-const targetFile = path.resolve(process.cwd(), 'data', 'customization', 'partners.json');
-
-if (!fs.existsSync(targetFile)) {
-  console.error(`[partners:export] ${targetFile} not found. Initialize with init-partners or upsert first.`);
-  process.exit(1);
-}
-
-let partners = [];
-try {
-  const raw = fs.readFileSync(targetFile, 'utf8');
-  const parsed = JSON.parse(raw);
-  partners = Array.isArray(parsed) ? parsed : [];
-} catch (err) {
-  console.error(`[partners:export] Unable to read ${targetFile}: ${err.message}`);
+const partners = listPartnerConfigs();
+if (!partners.length) {
+  console.error('[partners:export] No partner configured.');
   process.exit(1);
 }
 

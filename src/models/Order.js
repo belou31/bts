@@ -18,6 +18,17 @@ const AttendanceSchema = new mongoose.Schema({
 const LineSchema = new mongoose.Schema({
   seatId:          { type: String, default: '' },
   zoneKey:         { type: String, default: '' },   // ← needed for TBH7 / standing zones
+  // Allocation mechanism: 'seat' = individually locked against the Seat
+  // collection; 'zone' = zone-quota-tracked (standing AND seated-but-
+  // zone-allocated zones like VIP both use this — see src/utils/seat-id.js).
+  // Deliberately no default: lines created before this field existed must
+  // read back as unset (not silently 'seat') so resolveUnitType() falls
+  // back to its seatId-shape heuristic instead of trusting a fabricated value.
+  unitType:        { type: String, enum: ['seat', 'zone'] },
+  // The zone's own physical seating character at booking time (mirrors
+  // Zone.type). This is what display/i18n code should key off for labeling
+  // — never `unitType`, which only reflects the allocation mechanism.
+  zoneType:        { type: String, enum: ['seated', 'standing'] },
   tariffCode:      { type: String, index: true },
   priceCents:      { type: Number, default: 0 },
   // Partner billing override (what the partner pays/subsidizes)
@@ -42,7 +53,7 @@ const LineSchema = new mongoose.Schema({
 
 /* ----- Optional sub-schema for origin ----- */
 const OriginSchema = new mongoose.Schema({
-  flow:   { type: String, enum: ['renew','fanclub','vip','subscription','vip','partner','public','event'], default: null },
+  flow:   { type: String, enum: ['renew','vip','subscription','partner','public','event','voucher','voucher-purchase'], default: null },
   uiPath: { type: String, default: null },
   apiPath:{ type: String, default: null }
 }, { _id:false });
@@ -63,17 +74,46 @@ const OrderSchema = new mongoose.Schema({
   payerLastName:  { type: String, default: '' },
   payerEmail:     { type: String, index: true, default: '' },
 
+  // Fin de la fenêtre pendant laquelle les places sont tenues pour cette
+  // commande. Les trois flux d'achat écrivaient déjà `hold: { until }` à la
+  // création — sans ce champ, `strict: true` le jetait en silence et la
+  // durée n'existait nulle part sur la commande.
+  hold: {
+    until: { type: Date, default: null }
+  },
+
+  // Corrections faites à la main depuis admin/orders. L'adresse d'origine est
+  // conservée : c'est elle qui figure sur l'attestation déjà envoyée et dans
+  // le relevé du prestataire, et la corriger l'effacerait sans trace.
+  // (Le schéma est `strict: true` : sans ce champ, l'historique serait
+  // silencieusement jeté à l'enregistrement.)
+  adminEdits: {
+    type: [new mongoose.Schema({
+      at:            { type: Date },
+      by:            { type: String, default: '' },
+      kind:          { type: String, default: '' },
+      previousEmail: { type: String, default: '' },
+      changes:       { type: [String], default: [] }
+    }, { _id: false, strict: true })],
+    default: []
+  },
+
   // number of installments (aka schedule in UI)
   paymentSplit:   { type: Number, default: 1 },
 
   lines:      { type: [LineSchema], default: [] },
   totalCents: { type: Number, default: 0 },
 
-  status: { type: String, enum: ['pending','tobepaid','paid','failed','canceled','refunded'], default: 'pending', index: true },
+  // 'torelocate' : l'abonnement est payé mais la place de ce match n'a pas pu
+  // être attribuée (siège déjà pris). La commande existe pour que l'abonné
+  // soit joignable et puisse choisir une autre place ; elle n'occupe aucun
+  // siège tant qu'elle n'est pas passée 'paid' (voir event-seat-states.js, qui
+  // ne compte que paid/tobepaid).
+  status: { type: String, enum: ['pending','tobepaid','paid','failed','canceled','refunded','torelocate'], default: 'pending', index: true },
 
   paymentProvider:     { type: String, default: process.env.PAYMENT_PROVIDER || 'helloasso' },
 
-  // ✅ New canonical provider meta bag (used by renew/fanclub routes & pay.js)
+  // ✅ New canonical provider meta bag (used by renew/subscription routes & pay.js)
   paymentProviderMeta: { type: mongoose.Schema.Types.Mixed, default: {} },
 
   // ⬅ Legacy (keep for compatibility with older data/logic if any)
@@ -83,7 +123,7 @@ const OrderSchema = new mongoose.Schema({
   // Email/template routing
    origin: {
     // ajout de "event" pour distinguer le flux billetterie évènement
-    flow:   { type:String, enum:['renew','subscription','public','event','partner','vip','fanclub'], default:'subscription', index:true },
+    flow:   { type:String, enum:['renew','subscription','public','event','partner','vip','voucher','voucher-purchase'], default:'subscription', index:true },
      uiPath: { type:String },
      apiPath:{ type:String }
    },
@@ -91,20 +131,44 @@ const OrderSchema = new mongoose.Schema({
   // ajout de "event" pour les emails de match
   mailTemplateKind: { type:String, enum:['renew','subscription','public','event'], default:'subscription', index:true },
 
+  // Locale captured at checkout time (see src/middlewares/locale.js) so
+  // confirmation emails/tickets render in the language the buyer actually
+  // used, even on a later resend/regeneration. Defaults to 'fr': every
+  // order predating this field genuinely was placed in French, so — unlike
+  // unitType/zoneType — a schema default here reflects real history rather
+  // than fabricating an unknown value.
+  locale: { type: String, enum: ['fr', 'en'], default: 'fr' },
+
 }, { timestamps: true, strict: true });
 
 /* ----- Indexes ----- */
 
-// (1) Unique: only one PAID per (season, venue, groupKey)
 // Index non-unique pour filtrer/rapporter par groupe+statut
 OrderSchema.index(
   { seasonCode:1, venueSlug:1, groupKey:1, status:1 },
   { name:'idx_group_status' }
 );
-OrderSchema.index(
-  { seasonCode:1, venueSlug:1, groupKey:1, payerEmail:1, status:1 },
-  { name:'uniq_paid_per_payer', unique:true, partialFilterExpression:{ status:'paid' } }
-);
+
+// `uniq_paid_per_payer` — unique sur (saison, lieu, groupKey, payeur) parmi les
+// commandes payées — a été retiré (scripts/06-misc/drop-uniq-paid-per-payer.js).
+//
+// Il visait le double paiement mais ne l'exprimait pas : combiné au groupKey
+// constant par saison de l'époque, il signifiait « un seul paiement abouti par
+// personne et par saison » et refusait la deuxième commande légitime d'un même
+// acheteur — après réservation des sièges. Depuis que subscription.js et
+// renew.js émettent un groupKey unique par commande, il ne pouvait plus
+// déclencher que sur des faux positifs hérités.
+//
+// Ce qu'il prétendait protéger l'est déjà, et au bon niveau : `Seat` porte
+// l'index unique `uniq_seat_per_season_venue` (un document par siège), et
+// finalizePaidIfNoConflict fait passer les sièges à `booked` par un updateMany
+// conditionnel — un siège déjà `booked` ne satisfait plus le filtre, la
+// commande est rejetée. C'est atomique, et cela porte sur la place plutôt que
+// sur le payeur.
+//
+// Pas de remplaçant côté commande : un index unique sur `lines.seatId` n'est
+// pas praticable, les lignes ZONE ayant un seatId virtuel vide ou partagé —
+// vérifié, la création échoue en E11000 sur ces lignes-là.
 
 OrderSchema.index(
   { eventId:1, parentOrderId:1, status:1 },
@@ -118,6 +182,22 @@ OrderSchema.index({ 'paymentProviderMeta.tokenHash': 1 },        { sparse: true,
 // (3) Legacy lookups (if older orders used meta.*)
 OrderSchema.index({ 'meta.checkoutIntentId': 1 }, { sparse: true, name: 'idx_legacy_intent' });
 OrderSchema.index({ 'meta.tokenHash': 1 },        { sparse: true, name: 'idx_legacy_tokenhash' });
+
+// `meta.eventId` — l'identifiant d'évènement des commandes antérieures au champ
+// `eventId` de premier niveau.
+//
+// Toutes les vues d'occupation d'un match interrogent les deux formes :
+//   $or: [ { eventId: ev._id }, { 'meta.eventId': String(ev._id) } ]
+// Sans index sur la seconde branche, MongoDB ne peut pas faire d'union
+// d'index : il PARCOURT TOUTE la collection `orders`, et remonte les `lines`
+// de chaque commande. Or cette requête est sur le chemin du sondage du plan de
+// salle — tous les navigateurs ouverts, toutes les 5 secondes. C'est le coût
+// serveur dominant pendant une ouverture de vente.
+//
+// `sparse` : seules les commandes héritées portent ce champ, l'index reste
+// donc petit. On ne supprime pas la branche héritée pour autant — des
+// commandes sans `eventId` de premier niveau existent toujours en base.
+OrderSchema.index({ 'meta.eventId': 1 }, { sparse: true, name: 'idx_legacy_event' });
 
  // (optionnel) garde-fou: normaliser en minuscules
 OrderSchema.pre('validate', function(next){

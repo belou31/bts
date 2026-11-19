@@ -1,0 +1,37 @@
+{
+  "_notes": [
+    "Modèle « openid » : connexion obligatoire via le fournisseur d'identité (OpenID Connect) du partenaire.",
+    "Après création : compléter le bloc oidc (issuer, clientId, clientSecret…) ; tant qu'il est incomplet, la connexion répond une erreur de configuration. Puis Set Partner Admin Credentials.",
+    "Fournisseur sans découverte (AISC / SFI) : endpoints, tokenRequest, clientAuth, idTokenPublicKey — voir docs/partner-oidc.md.",
+    "identity.attributes : nombres lus dans les informations de l'utilisateur, par exemple beneficiaries = { \"sum\": [1, \"conjoint\", \"autres_ad\"] } ; absent, le « default » des entitlements s'applique."
+  ],
+  "connection": "openid",
+  "paymentMode": "psp",
+  "allowPublicTariffs": true,
+  "reserve": null,
+  "admin": { "user": "", "pass": "" },
+  "oidc": {
+    "issuer": "",
+    "clientId": "",
+    "clientSecret": "",
+    "scopes": ["openid", "profile", "email"],
+    "identity": {
+      "identifier": "sub",
+      "firstName": "given_name",
+      "lastName": "family_name",
+      "email": "email",
+      "attributes": {}
+    }
+  },
+  "entitlements": [
+    {
+      "key": "ayants-droit",
+      "label": "ayants droit",
+      "icon": "❤️",
+      "per": "event",
+      "tariffChannel": "partner",
+      "max": { "attribute": "beneficiaries", "default": 1 }
+    }
+  ],
+  "presale": { "events": {}, "seasons": {} }
+}

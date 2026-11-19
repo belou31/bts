@@ -1,9 +1,10 @@
 /**
- * Create an event document.
+ * Create an event document. Starts in the default lifecycle state
+ * (sale=notopen, activity=draft) — use publish-event.js to open sales.
  *
  * Usage:
  *   node scripts/03-event-management/events/create.js --slug=match-2025-09-21-bts-vs-xxx --name="BTS vs XXX" \
- *     --date=2025-09-21T16:00:00+02:00 --season=2025-2026 [--price-table=season-game] [--desc="..."] [--onsale]
+ *     --date=2025-09-21T16:00:00+02:00 --season=2025-2026 [--price-table=season-game] [--desc="..."]
  *
  * Environment:
  *   - MONGO_URI or MONGODB_URI (required)
@@ -27,7 +28,6 @@ async function main() {
     .option('season', { type:'string', demandOption:true, desc:'Code saison (ex: 2025-2026)' })
     .option('price-table', { alias: 'priceTable', type:'string', desc:'Clé de table de prix existante (ex: season-game)' })
     .option('desc', { type:'string', default:'', desc:'Description courte' })
-    .option('onsale', { type:'boolean', default:false, desc:'Ouvrir la vente directement ?' })
     .help().argv;
   const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
   const dbName = process.env.MONGODB_DB;
@@ -52,7 +52,6 @@ async function main() {
     venueSlug,
     venueView: null,
     priceTableKey,
-    isOnSale: argv.onsale,
     description: argv.desc,
     qrBank: { provider: 'bank', codes: [] }
   });

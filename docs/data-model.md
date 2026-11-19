@@ -13,23 +13,195 @@ nav_order: 120
 
 | Model | Family | Top-level fields | Indexes |
 | --- | --- | --- | --- |
+| `AdCampaign` | Autres | 8 | 1 |
+| `AdCampaignCatalog` | Autres | 16 | 2 |
+| `AdCampaignPlacement` | Autres | 17 | 7 |
+| `AdClick` | Autres | 8 | 3 |
 | `AutomationJob` | Audience / opérations | 14 | 3 |
 | `Campaign` | Audience / opérations | 8 | 1 |
 | `Counter` | Audience / opérations | 4 | 1 |
-| `Event` | Événements et contrôle | 11 | 3 |
-| `Order` | Runtime saison / vente | 20 | 18 |
-| `PaymentIntent` | Runtime saison / vente | 12 | 3 |
-| `Season` | Runtime saison / vente | 7 | 1 |
+| `Event` | Événements et contrôle | 14 | 6 |
+| `Order` | Runtime saison / vente | 22 | 18 |
+| `PartnerLoginCode` | Autres | 9 | 2 |
+| `PartnerMember` | Autres | 11 | 1 |
+| `Season` | Runtime saison / vente | 10 | 4 |
 | `Seat` | Runtime saison / vente | 8 | 11 |
 | `SeatCatalog` | Catalogue | 9 | 2 |
-| `SeatHold` | Événements et contrôle | 11 | 8 |
-| `Subscriber` | Audience / opérations | 14 | 6 |
-| `Tariff` | Autres | 11 | 5 |
-| `TariffPrice` | Autres | 11 | 6 |
-| `TariffPriceCatalog` | Catalogue | 10 | 2 |
+| `SeatHold` | Événements et contrôle | 13 | 9 |
+| `Subscriber` | Audience / opérations | 19 | 7 |
+| `Tariff` | Autres | 11 | 4 |
+| `TariffPrice` | Autres | 12 | 7 |
+| `TariffPriceCatalog` | Catalogue | 11 | 3 |
 | `Venue` | Catalogue | 6 | 1 |
-| `Zone` | Runtime saison / vente | 13 | 5 |
+| `Zone` | Runtime saison / vente | 14 | 6 |
+| `ZoneCatalog` | Catalogue | 13 | 3 |
 | `ZoneHold` | Runtime saison / vente | 8 | 4 |
+
+## Autres
+
+### AdCampaign
+
+#### Top-level fields
+
+- `active`: `Boolean`
+- `assetKind`: `String`
+- `assetPaths`: `Array<String>`
+- `createdAt`: `Date`
+- `label`: `String`
+- `slug`: `String`
+- `targetUrl`: `String`
+- `updatedAt`: `Date`
+
+#### Indexes
+
+`slug:1` (unique)
+
+### AdCampaignCatalog
+
+#### Top-level fields
+
+- `active`: `Boolean`
+- `campaignSlug`: `String`
+- `catalogSlug`: `String`
+- `contentType`: `String`
+- `createdAt`: `Date`
+- `endsAt`: `Date`
+- `priority`: `Number`
+- `qrValue`: `String`
+- `slot`: `String`
+- `startsAt`: `Date`
+- `tariffCode`: `String`
+- `text`: `String`
+- `updatedAt`: `Date`
+- `venueSlug`: `String`
+- `zoneKey`: `String`
+- `zoneType`: `String`
+
+#### Indexes
+
+`venueSlug:1`<br>`catalogSlug:1, venueSlug:1, campaignSlug:1, slot:1, tariffCode:1, zoneKey:1, zoneType:1` (name=uniq_ad_campaign_catalog_entry, unique)
+
+### AdCampaignPlacement
+
+#### Top-level fields
+
+- `active`: `Boolean`
+- `campaignSlug`: `String`
+- `contentType`: `String`
+- `createdAt`: `Date`
+- `endsAt`: `Date`
+- `priceTableKey`: `String`
+- `priority`: `Number`
+- `qrValue`: `String`
+- `seasonCode`: `String`
+- `slot`: `String`
+- `startsAt`: `Date`
+- `tariffCode`: `String`
+- `text`: `String`
+- `updatedAt`: `Date`
+- `venueSlug`: `String`
+- `zoneKey`: `String`
+- `zoneType`: `String`
+
+#### Indexes
+
+`seasonCode:1`<br>`venueSlug:1`<br>`priceTableKey:1`<br>`priceTableKey:1, campaignSlug:1, slot:1, tariffCode:1, zoneKey:1, zoneType:1` (name=uniq_ad_campaign_placement_per_priceTableKey, unique)<br>`seasonCode:1, venueSlug:1, campaignSlug:1, slot:1, tariffCode:1, zoneKey:1, zoneType:1` (name=uniq_ad_campaign_placement_per_season, unique)<br>`priceTableKey:1, slot:1, active:1`<br>`seasonCode:1, venueSlug:1, slot:1, active:1`
+
+### AdClick
+
+#### Top-level fields
+
+- `campaignSlug`: `String`
+- `clickedAt`: `Date`
+- `ip`: `String`
+- `orderId`: `ObjectId`
+- `targetUrl`: `String`
+- `ticketId`: `ObjectId`
+- `token`: `String`
+- `userAgent`: `String`
+
+#### Indexes
+
+`campaignSlug:1`<br>`ticketId:1`<br>`orderId:1`
+
+### PartnerLoginCode
+
+#### Top-level fields
+
+- `attempts`: `Number`
+- `codeHash`: `String`
+- `createdAt`: `Date`
+- `email`: `String`
+- `expiresAt`: `Date`
+- `identifier`: `String`
+- `partnerSlug`: `String`
+- `updatedAt`: `Date`
+- `usedAt`: `Date`
+
+#### Indexes
+
+`partnerSlug:1, identifier:1, createdAt:-1` (name=idx_partner_identifier_recent)<br>`expiresAt:1` (name=ttl_expiresAt, ttl=0)
+
+### PartnerMember
+
+#### Top-level fields
+
+- `beneficiaries`: `Number`
+- `createdAt`: `Date`
+- `emails`: `Array<String>`
+- `extraPublic`: `Number`
+- `firstName`: `String`
+- `identifier`: `String`
+- `importedAt`: `Date`
+- `lastName`: `String`
+- `partnerSlug`: `String`
+- `redirect`: `String`
+- `updatedAt`: `Date`
+
+#### Indexes
+
+`partnerSlug:1, identifier:1` (name=uniq_partner_identifier, unique)
+
+### Tariff
+
+#### Top-level fields
+
+- `active`: `Boolean`
+- `channels`: `Array<String>`
+- `code`: `String`
+- `createdAt`: `Date`
+- `fieldLabel`: `String`
+- `label`: `String`
+- `priceTableKey`: `String`
+- `requiresField`: `String`
+- `requiresInfo`: `String`
+- `sortOrder`: `Number`
+- `updatedAt`: `Date`
+
+#### Indexes
+
+`priceTableKey:1`<br>`active:1, sortOrder:1`<br>`code:1` (name=uniq_code_global_when_priceTableKey_null, unique)<br>`priceTableKey:1, code:1` (name=uniq_code_per_priceTableKey, unique)
+
+### TariffPrice
+
+#### Top-level fields
+
+- `channels`: `Array<String>`
+- `createdAt`: `Date`
+- `currency`: `String`
+- `metaZone`: `String`
+- `partnerPriceCents`: `Number`
+- `priceCents`: `Number`
+- `priceTableKey`: `String`
+- `seasonCode`: `String`
+- `tariffCode`: `String`
+- `updatedAt`: `Date`
+- `venueSlug`: `String`
+- `zoneKey`: `String`
+
+#### Indexes
+
+`seasonCode:1`<br>`venueSlug:1`<br>`zoneKey:1`<br>`metaZone:1`<br>`priceTableKey:1`<br>`seasonCode:1, venueSlug:1, zoneKey:1, metaZone:1, tariffCode:1` (name=uniq_season_venue_zone_tariff, unique)<br>`priceTableKey:1, zoneKey:1, metaZone:1, tariffCode:1` (name=uniq_priceTable_zone_tariff, unique)
 
 ## Audience / opérations
 
@@ -92,11 +264,16 @@ nav_order: 120
 
 - `createdAt`: `Date`
 - `email`: `String`
+- `extra`: `Number`
 - `firstName`: `String`
 - `group`: `String`
 - `groupKey`: `String`
+- `lastInviteSentAt`: `Date`
 - `lastName`: `String`
+- `notes`: `String`
+- `partnerSlug`: `String`
 - `phone`: `String`
+- `places`: `Number`
 - `prefSeatId`: `String`
 - `previousSeasonSeats`: `Array<String>`
 - `seasonCode`: `String`
@@ -107,7 +284,7 @@ nav_order: 120
 
 #### Indexes
 
-`email:1`<br>`groupKey:1`<br>`prefSeatId:1`<br>`seasonCode:1`<br>`venueSlug:1`<br>`subscriberNo:1` (unique)
+`email:1`<br>`groupKey:1`<br>`prefSeatId:1`<br>`partnerSlug:1`<br>`seasonCode:1`<br>`venueSlug:1`<br>`subscriberNo:1` (unique)
 
 ## Événements et contrôle
 
@@ -115,21 +292,24 @@ nav_order: 120
 
 #### Top-level fields
 
+- `activity`: `String`
 - `createdAt`: `Date`
 - `description`: `String`
-- `isOnSale`: `Boolean`
 - `name`: `String`
 - `priceTableKey`: `String`
+- `sale`: `String`
 - `seasonCode`: `String`
 - `slug`: `String`
 - `startsAt`: `Date`
+- `tags`: `Array<String>`
+- `templateTheme`: `String`
 - `updatedAt`: `Date`
 - `venueSlug`: `String`
 - `venueView`: `String`
 
 #### Indexes
 
-`slug:1` (unique)<br>`seasonCode:1`<br>`venueSlug:1`
+`slug:1` (unique)<br>`seasonCode:1`<br>`venueSlug:1`<br>`sale:1`<br>`activity:1`<br>`tags:1`
 
 ### SeatHold
 
@@ -139,17 +319,19 @@ nav_order: 120
 - `eventId`: `ObjectId`
 - `expiresAt`: `Date`
 - `forced`: `Boolean`
+- `note`: `String`
 - `orderId`: `ObjectId`
 - `reason`: `String`
 - `seasonCode`: `String`
 - `seatId`: `String`
+- `sessionToken`: `String`
 - `updatedAt`: `Date`
 - `venueSlug`: `String`
 - `zoneKey`: `String`
 
 #### Indexes
 
-`eventId:1`<br>`seasonCode:1`<br>`venueSlug:1`<br>`seatId:1`<br>`zoneKey:1`<br>`eventId:1, seatId:1` (name=idx_event_seat)<br>`eventId:1, zoneKey:1` (name=idx_event_zone)<br>`expiresAt:1` (name=ttl_expiresAt, ttl=0)
+`eventId:1`<br>`seasonCode:1`<br>`venueSlug:1`<br>`seatId:1`<br>`zoneKey:1`<br>`sessionToken:1`<br>`eventId:1, seatId:1` (name=idx_event_seat, unique)<br>`eventId:1, zoneKey:1` (name=idx_event_zone)<br>`expiresAt:1` (name=ttl_expiresAt, ttl=0)
 
 ## Runtime saison / vente
 
@@ -157,11 +339,13 @@ nav_order: 120
 
 #### Top-level fields
 
+- `adminEdits`: `Array`
 - `createdAt`: `Date`
 - `eventId`: `ObjectId`
 - `groupKey`: `String`
 - `itemName`: `String`
 - `lines`: `Array`
+- `locale`: `String`
 - `mailTemplateKind`: `String`
 - `meta`: `Mixed`
 - `parentOrderId`: `ObjectId`
@@ -180,44 +364,26 @@ nav_order: 120
 
 #### Indexes
 
-`seasonCode:1`<br>`venueSlug:1`<br>`eventId:1`<br>`parentOrderId:1`<br>`groupKey:1`<br>`itemName:1`<br>`payerEmail:1`<br>`lines.tariffCode:1`<br>`status:1`<br>`origin.flow:1`<br>`mailTemplateKind:1`<br>`seasonCode:1, venueSlug:1, groupKey:1, status:1` (name=idx_group_status)<br>`seasonCode:1, venueSlug:1, groupKey:1, payerEmail:1, status:1` (name=uniq_paid_per_payer, unique)<br>`eventId:1, parentOrderId:1, status:1` (name=idx_event_parent_status)<br>`paymentProviderMeta.checkoutIntentId:1` (name=idx_provider_intent, sparse)<br>`paymentProviderMeta.tokenHash:1` (name=idx_provider_tokenhash, sparse)<br>`meta.checkoutIntentId:1` (name=idx_legacy_intent, sparse)<br>`meta.tokenHash:1` (name=idx_legacy_tokenhash, sparse)
-
-### PaymentIntent
-
-#### Top-level fields
-
-- `createdAt`: `Date`
-- `groupKey`: `String`
-- `installments`: `Number`
-- `lines`: `Array<Mixed>`
-- `payerEmail`: `String`
-- `provider`: `String`
-- `providerRef`: `String`
-- `seasonCode`: `String`
-- `status`: `String`
-- `totalCents`: `Number`
-- `updatedAt`: `Date`
-- `venueSlug`: `String`
-
-#### Indexes
-
-`seasonCode:1`<br>`venueSlug:1`<br>`groupKey:1`
+`seasonCode:1`<br>`venueSlug:1`<br>`eventId:1`<br>`parentOrderId:1`<br>`groupKey:1`<br>`itemName:1`<br>`payerEmail:1`<br>`lines.tariffCode:1`<br>`status:1`<br>`origin.flow:1`<br>`mailTemplateKind:1`<br>`seasonCode:1, venueSlug:1, groupKey:1, status:1` (name=idx_group_status)<br>`eventId:1, parentOrderId:1, status:1` (name=idx_event_parent_status)<br>`paymentProviderMeta.checkoutIntentId:1` (name=idx_provider_intent, sparse)<br>`paymentProviderMeta.tokenHash:1` (name=idx_provider_tokenhash, sparse)<br>`meta.checkoutIntentId:1` (name=idx_legacy_intent, sparse)<br>`meta.tokenHash:1` (name=idx_legacy_tokenhash, sparse)<br>`meta.eventId:1` (name=idx_legacy_event, sparse)
 
 ### Season
 
 #### Top-level fields
 
 - `active`: `Boolean`
+- `activity`: `String`
 - `code`: `String`
 - `createdAt`: `Date`
 - `name`: `String`
-- `phases`: `Array`
+- `renew`: `String`
+- `subscribe`: `String`
+- `templateTheme`: `String`
 - `updatedAt`: `Date`
 - `venueSlug`: `String`
 
 #### Indexes
 
-`code:1` (unique)
+`code:1` (unique)<br>`activity:1`<br>`renew:1`<br>`subscribe:1`
 
 ### Seat
 
@@ -246,6 +412,7 @@ nav_order: 120
 - `createdAt`: `Date`
 - `isActive`: `Boolean`
 - `key`: `String`
+- `metaZone`: `String`
 - `name`: `String`
 - `quota`: `Number`
 - `seasonCode`: `String`
@@ -256,7 +423,7 @@ nav_order: 120
 
 #### Indexes
 
-`key:1`<br>`seasonCode:1`<br>`venueSlug:1`<br>`access:1`<br>`seasonCode:1, venueSlug:1, key:1` (name=uniq_zone_season_venue_key, unique)
+`key:1`<br>`metaZone:1`<br>`seasonCode:1`<br>`venueSlug:1`<br>`access:1`<br>`seasonCode:1, venueSlug:1, key:1` (name=uniq_zone_season_venue_key, unique)
 
 ### ZoneHold
 
@@ -303,6 +470,7 @@ nav_order: 120
 - `channels`: `Array<String>`
 - `createdAt`: `Date`
 - `currency`: `String`
+- `metaZone`: `String`
 - `partnerPriceCents`: `Number`
 - `priceCents`: `Number`
 - `tariffCode`: `String`
@@ -312,7 +480,7 @@ nav_order: 120
 
 #### Indexes
 
-`venueSlug:1`<br>`catalogSlug:1, venueSlug:1, zoneKey:1, tariffCode:1` (name=uniq_tariff_price_catalog_entry, unique)
+`venueSlug:1`<br>`metaZone:1`<br>`catalogSlug:1, venueSlug:1, zoneKey:1, metaZone:1, tariffCode:1` (name=uniq_tariff_price_catalog_entry, unique)
 
 ### Venue
 
@@ -329,45 +497,25 @@ nav_order: 120
 
 `slug:1` (unique)
 
-## Autres
-
-### Tariff
+### ZoneCatalog
 
 #### Top-level fields
 
-- `active`: `Boolean`
-- `channels`: `Array<String>`
-- `code`: `String`
+- `access`: `String`
+- `capacity`: `Number`
 - `createdAt`: `Date`
-- `fieldLabel`: `String`
-- `label`: `String`
-- `priceTableKey`: `String`
-- `requiresField`: `String`
-- `requiresInfo`: `String`
-- `sortOrder`: `Number`
-- `updatedAt`: `Date`
-
-#### Indexes
-
-`priceTableKey:1`<br>`active:1, sortOrder:1`<br>`code:1` (name=uniq_code_global_when_no_priceTableKey, unique)<br>`code:1` (name=uniq_code_global_when_priceTableKey_null, unique)<br>`priceTableKey:1, code:1` (name=uniq_code_per_priceTableKey, unique)
-
-### TariffPrice
-
-#### Top-level fields
-
-- `channels`: `Array<String>`
-- `createdAt`: `Date`
-- `currency`: `String`
-- `partnerPriceCents`: `Number`
-- `priceCents`: `Number`
-- `priceTableKey`: `String`
-- `seasonCode`: `String`
-- `tariffCode`: `String`
+- `isActive`: `Boolean`
+- `key`: `String`
+- `meta`: `Mixed`
+- `metaZone`: `String`
+- `name`: `String`
+- `quota`: `Number`
+- `svgSelector`: `String`
+- `type`: `String`
 - `updatedAt`: `Date`
 - `venueSlug`: `String`
-- `zoneKey`: `String`
 
 #### Indexes
 
-`seasonCode:1`<br>`venueSlug:1`<br>`zoneKey:1`<br>`priceTableKey:1`<br>`seasonCode:1, venueSlug:1, zoneKey:1, tariffCode:1` (name=uniq_season_venue_zone_tariff, unique)<br>`priceTableKey:1, zoneKey:1, tariffCode:1` (name=uniq_priceTable_zone_tariff, unique)
+`venueSlug:1`<br>`metaZone:1`<br>`venueSlug:1, key:1` (unique)
 

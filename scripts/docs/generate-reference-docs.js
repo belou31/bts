@@ -252,7 +252,7 @@ function formatIndexes(model) {
 function modelGroup(name) {
   const groups = {
     catalog: ['Venue', 'SeatCatalog', 'ZoneCatalog', 'TariffPriceCatalog'],
-    runtime: ['Season', 'Zone', 'Seat', 'ZoneHold', 'Order', 'PaymentIntent'],
+    runtime: ['Season', 'Zone', 'Seat', 'ZoneHold', 'Order'],
     events: ['Event', 'Ticket', 'QrBankCode', 'ScanLog', 'SeatHold'],
     audience: ['Subscriber', 'Campaign', 'AutomationJob', 'Counter']
   };

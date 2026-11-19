@@ -7,6 +7,13 @@
 			"problemMatcher": [],
 			"label": "npm: start",
 			"detail": "node src/server.js"
+		},
+		{
+			"type": "npm",
+			"script": "db:verify-models",
+			"problemMatcher": [],
+			"label": "npm: db:verify-models",
+			"detail": "node scripts/verify-models.mjs"
 		}
 	]
 }

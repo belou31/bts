@@ -1,0 +1,7 @@
+orderId,createdAt,phase,status,payerFirstName,payerLastName,payerEmail,seasonCode,venueSlug,paymentSplit,totalCents,providerName,haOrderId,checkoutIntentId,lastReturnCode,lastWebhookEvent,attestationSentAt,lineIndex,seatId,zoneKey,tariffCode,priceCents,holderFirstName,holderLastName,eventId,eventSlug,eventName,eventStartsAt
+ORD-AD-0001,2026-10-01T09:00:00.000Z,event,paid,Julien,Petit,julien.petit@example.org,2026-2027,stadium,1,1000,import-demo,,,,,,0,S1-A-01,S1,NORMAL,1000,Julien,Petit,,,,
+ORD-AD-0002,2026-10-01T09:05:00.000Z,event,paid,Chloe,Bernard,chloe.bernard@example.org,2026-2027,stadium,1,2000,import-demo,,,,,,0,N-A-01,N,NORMAL,2000,Chloe,Bernard,,,,
+ORD-AD-0003,2026-10-01T09:10:00.000Z,event,paid,Emma,Rousseau,emma.rousseau@example.org,2026-2027,stadium,1,200,import-demo,,,,,,0,N-A-02,N,CHILD,200,Emma,Rousseau,,,,
+ORD-AD-0004,2026-10-01T09:15:00.000Z,event,paid,Lucas,Girard,lucas.girard@example.org,2026-2027,stadium,1,300,import-demo,,,,,,0,S2-A-01,S2,CHILD,150,Lucas,Girard,,,,
+ORD-AD-0004,2026-10-01T09:15:00.000Z,event,paid,Lucas,Girard,lucas.girard@example.org,2026-2027,stadium,1,300,import-demo,,,,,,1,S2-A-02,S2,CHILD,150,Mia,Girard,,,,
+ORD-AD-0005,2026-10-01T09:20:00.000Z,event,paid,Manon,Faure,manon.faure@example.org,2026-2027,stadium,1,500,import-demo,,,,,,0,,FAN_ZONE,NORMAL,500,Manon,Faure,,,,

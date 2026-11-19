@@ -3,14 +3,60 @@ import fs from 'fs/promises';
 import path from 'path';
 import nodemailer from 'nodemailer';
 
-const EMAIL_STUB = String(process.env.EMAIL_STUB || 'false').toLowerCase() === 'true';
-const FROM = process.env.FROM_EMAIL || 'Billetterie <noreply@localhost>';
-const OUTBOX = path.resolve(process.cwd(), 'data/outputs/outbox');
+// Ces trois valeurs sont lues À L'APPEL, pas au chargement du module.
+//
+// Les imports ESM sont évalués avant le corps du script, donc avant son
+// `dotenv.config()` : lues ici au chargement, EMAIL_STUB valait `undefined`
+// pour tout script CLI, qui basculait alors sur le SMTP réel. Autrement dit,
+// lancer un script d'envoi en DEV expédiait de vrais courriels.
+const isStub = () => String(process.env.EMAIL_STUB || 'false').toLowerCase() === 'true';
+const fromAddress = () => process.env.FROM_EMAIL || 'Billetterie <noreply@localhost>';
+const outboxDir = () => path.resolve(process.cwd(), 'data/outputs/outbox');
 
 let transporter = null;
 
+/**
+ * Délais de garde et réutilisation des connexions SMTP.
+ *
+ * CE QUI MANQUAIT. Aucune de ces valeurs n'était posée, donc on héritait des
+ * défauts de Nodemailer : 2 min pour établir la connexion, 10 min sur la
+ * socket. Or cet envoi était attendu À L'INTÉRIEUR de la confirmation de
+ * paiement — page de retour, sondage, webhook. Un SMTP lent ne ralentissait
+ * pas seulement le courriel : il retenait la réponse que l'acheteur attend, et
+ * la réponse que le prestataire attend de son webhook (qu'il réessaie s'il ne
+ * l'obtient pas). Les envois sont désormais différés (voir
+ * scheduleOrderAttestation), mais un envoi différé qui pend dix minutes
+ * occupe quand même une connexion et retarde la file.
+ *
+ * `pool` : sans lui, chaque message ouvrait une connexion neuve — TLS plus
+ * AUTH à chaque billet. Pour un match, ce sont plus de 1500 courriels : la
+ * poignée de main répétée coûtait davantage que l'envoi lui-même.
+ *
+ * `rateDelta`/`rateLimit` : les fournisseurs grand public (Gmail) limitent le
+ * débit ET le volume journalier. Mieux vaut lisser ici que se faire refuser
+ * une rafale au pire moment.
+ */
+function transportTuning() {
+  const num = (name, fallback) => {
+    const raw = Number(process.env[name]);
+    return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+  };
+  return {
+    connectionTimeout: num('SMTP_CONNECTION_TIMEOUT_MS', 10_000),
+    greetingTimeout:   num('SMTP_GREETING_TIMEOUT_MS', 10_000),
+    socketTimeout:     num('SMTP_SOCKET_TIMEOUT_MS', 30_000),
+    pool:              String(process.env.SMTP_POOL || 'true').toLowerCase() === 'true',
+    maxConnections:    num('SMTP_MAX_CONNECTIONS', 3),
+    maxMessages:       num('SMTP_MAX_MESSAGES', 100),
+    rateDelta:         num('SMTP_RATE_DELTA_MS', 1000),
+    rateLimit:         num('SMTP_RATE_LIMIT', 5)
+  };
+}
+
 export async function sendMail({ to, subject, html, attachments = [] }) {
-  if (EMAIL_STUB) {
+  const FROM = fromAddress();
+  const OUTBOX = outboxDir();
+  if (isStub()) {
     await fs.mkdir(OUTBOX, { recursive: true });
     const boundary = '=_BTS_' + Math.random().toString(36).slice(2);
     const dateStr  = new Date().toISOString().replace(/[:.]/g,'-');
@@ -60,14 +106,15 @@ export async function sendMail({ to, subject, html, attachments = [] }) {
 
   // PROD/INT SMTP (Nodemailer)
   if (!transporter) {
-    if (process.env.SMTP_URL) {
-      transporter = nodemailer.createTransport(process.env.SMTP_URL);
-    } else {
-      transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
-      });
-    }
+    transporter = nodemailer.createTransport(
+      process.env.SMTP_URL
+        ? { url: process.env.SMTP_URL, ...transportTuning() }
+        : {
+            service: 'gmail',
+            auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+            ...transportTuning()
+          }
+    );
   }
 
   return transporter.sendMail({

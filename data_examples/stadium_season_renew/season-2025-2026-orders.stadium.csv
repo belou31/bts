@@ -1,0 +1,10 @@
+orderId,createdAt,phase,status,payerFirstName,payerLastName,payerEmail,seasonCode,venueSlug,paymentSplit,totalCents,providerName,haOrderId,checkoutIntentId,lastReturnCode,lastWebhookEvent,attestationSentAt,lineIndex,seatId,zoneKey,tariffCode,priceCents,holderFirstName,holderLastName
+ORD-2025-0001,2025-06-10T09:00:00.000Z,subscription,paid,Nadia,Morel,nadia.morel@example.org,2025-2026,stadium,1,12000,import-demo,,,,,,0,S2-A-01,S2,NORMAL,12000,Nadia,Morel
+ORD-2025-0002,2025-06-11T09:00:00.000Z,subscription,paid,Karim,Haddad,karim.haddad@example.org,2025-2026,stadium,1,20000,import-demo,,,,,,0,S1-A-01,S1,NORMAL,10000,Karim,Haddad
+ORD-2025-0002,2025-06-11T09:00:00.000Z,subscription,paid,Karim,Haddad,karim.haddad@example.org,2025-2026,stadium,1,20000,import-demo,,,,,,1,S1-A-02,S1,NORMAL,10000,Amel,Haddad
+ORD-2025-0003,2025-06-12T09:00:00.000Z,subscription,paid,Sophie,Lefevre,sophie.lefevre@example.org,2025-2026,stadium,1,25500,import-demo,,,,,,0,S2-B-01,S2,NORMAL,12000,Sophie,Lefevre
+ORD-2025-0003,2025-06-12T09:00:00.000Z,subscription,paid,Sophie,Lefevre,sophie.lefevre@example.org,2025-2026,stadium,1,25500,import-demo,,,,,,1,S2-B-02,S2,NORMAL,12000,Marc,Lefevre
+ORD-2025-0003,2025-06-12T09:00:00.000Z,subscription,paid,Sophie,Lefevre,sophie.lefevre@example.org,2025-2026,stadium,1,25500,import-demo,,,,,,2,S2-B-03,S2,CHILD,1500,Lucas,Lefevre
+ORD-2025-0004,2025-06-13T09:00:00.000Z,subscription,paid,Yannick,Petit,yannick.petit@example.org,2025-2026,stadium,1,20000,import-demo,,,,,,0,N-A-01,N,NORMAL,20000,Yannick,Petit
+ORD-2025-0005,2025-06-14T09:00:00.000Z,subscription,paid,Claire,Dubosc,claire.dubosc@example.org,2025-2026,stadium,1,9000,import-demo,,,,,,0,E-A-01,E,NORMAL,9000,Claire,Dubosc
+ORD-2025-0006,2025-06-15T09:00:00.000Z,subscription,paid,Yasmine,Roy,yasmine.roy@example.org,2025-2026,stadium,1,5000,import-demo,,,,,,0,,FAN_ZONE,NORMAL,5000,Yasmine,Roy

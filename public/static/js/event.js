@@ -4,6 +4,148 @@
   const VIEW_CONFIG = window.BTS_VIEW_CONFIG || {};
   const IS_PARTNER_VIEW = !!VIEW_CONFIG.partner;
 
+  // ── Gestion des holds pre-checkout ─────────────────────────────────────────
+
+  function getOrCreateSessionToken() {
+    const key = 'bts_session_token';
+    let token = sessionStorage.getItem(key);
+    if (!token) {
+      token = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2) + Date.now().toString(36);
+      sessionStorage.setItem(key, token);
+    }
+    return token;
+  }
+
+  const SESSION_TOKEN = getOrCreateSessionToken();
+
+  // Dérive l'URL hold à partir de l'URL status (remplace /status par /hold)
+  const holdBase = (VIEW_CONFIG.api?.status || '').replace(/\/status(\?.*)?$/, '/hold');
+
+  // Injecte sessionToken dans les appels status et checkout
+  if (VIEW_CONFIG.api?.status) {
+    const sep = VIEW_CONFIG.api.status.includes('?') ? '&' : '?';
+    VIEW_CONFIG.api.status += `${sep}sessionToken=${encodeURIComponent(SESSION_TOKEN)}`;
+  }
+  if (VIEW_CONFIG.api?.checkout) {
+    const sep = VIEW_CONFIG.api.checkout.includes('?') ? '&' : '?';
+    VIEW_CONFIG.api.checkout += `${sep}sessionToken=${encodeURIComponent(SESSION_TOKEN)}`;
+  }
+
+  const heldSeats = new Set();
+  let holdTtlSec = 3 * 60;
+  let holdExpiryTime = null;
+  let holdTimerInterval = null;
+  let paymentStarted = false;
+  const WARN_THRESHOLD_SEC = 60;
+
+  // Dérive l'URL seats à partir de l'URL status (remplace /status par /seats)
+  const seatsUrl = (VIEW_CONFIG.api?.status || '').replace(/\/status(\?|$)/, '/seats$1');
+
+  async function holdSeats(seatIds) {
+    const ids = seatIds.filter(Boolean);
+    if (!ids.length || !holdBase) return { held: [], conflicts: [] };
+    try {
+      const res = await fetch(holdBase, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        // lineCount : le serveur en tire la durée du hold (base + temps par
+        // ligne). Un siège cliqué n'est pas encore dans le panier : au moins
+        // autant de lignes que de sièges demandés.
+        body: JSON.stringify({
+          seatIds: ids,
+          sessionToken: SESSION_TOKEN,
+          lineCount: Math.max(document.querySelectorAll('#cartRows .cart-row').length, ids.length)
+        })
+      });
+      const data = await res.json();
+      if (data.held) data.held.forEach(id => heldSeats.add(id));
+      if (data.holdTtlSec) holdTtlSec = data.holdTtlSec;
+      if (data.held?.length) resetHoldTimer();
+      return data;
+    } catch (e) {
+      console.warn('[BTS hold] POST failed:', e?.message);
+      return { held: [], conflicts: [] };
+    }
+  }
+
+  async function releaseSeats(seatIds) {
+    const ids = seatIds.filter(Boolean);
+    if (!ids.length || !holdBase) return;
+    try {
+      await fetch(holdBase, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ seatIds: ids, sessionToken: SESSION_TOKEN })
+      });
+      ids.forEach(id => heldSeats.delete(id));
+    } catch (e) {
+      console.warn('[BTS hold] DELETE failed:', e?.message);
+    }
+  }
+
+  // ── Timer de réservation ────────────────────────────────────────────────
+
+  function resetHoldTimer() {
+    if (paymentStarted) return;
+    if (!heldSeats.size) { stopHoldTimer(); return; }
+    holdExpiryTime = Date.now() + holdTtlSec * 1000;
+    if (!holdTimerInterval) holdTimerInterval = setInterval(updateTimerDisplay, 1000);
+    updateTimerDisplay();
+  }
+
+  function stopHoldTimer() {
+    if (holdTimerInterval) clearInterval(holdTimerInterval);
+    holdTimerInterval = null;
+    holdExpiryTime = null;
+    const el = document.querySelector('#holdTimer');
+    if (el) el.hidden = true;
+  }
+
+  function updateTimerDisplay() {
+    const el = document.querySelector('#holdTimer');
+    if (!el) return;
+    if (!holdExpiryTime || !heldSeats.size) { el.hidden = true; return; }
+
+    const remainSec = Math.max(0, Math.ceil((holdExpiryTime - Date.now()) / 1000));
+    const min = Math.floor(remainSec / 60);
+    const sec = remainSec % 60;
+    const display = `${min}:${String(sec).padStart(2, '0')}`;
+
+    el.hidden = false;
+    const bookingPanel = document.getElementById('bookingStatus');
+    if (bookingPanel) bookingPanel.hidden = false;
+    const txt = el.querySelector('.timer-text');
+    if (txt) txt.textContent = display;
+
+    const warning = remainSec <= WARN_THRESHOLD_SEC && remainSec > 0;
+    el.classList.toggle('timer-warning', warning);
+    const btn = el.querySelector('#holdExtendBtn');
+    if (btn) btn.hidden = !warning;
+
+    if (remainSec <= 0) handleHoldExpiry();
+  }
+
+  async function handleHoldExpiry() {
+    stopHoldTimer();
+    const allSeats = Array.from(heldSeats);
+    if (allSeats.length) await releaseSeats(allSeats);
+    document.querySelectorAll('#cartRows .cart-row').forEach(row => row.remove());
+    api.recomputeTotals?.();
+    const t = window.t || ((key) => key);
+    showFeedback(false, t('event.holdExpired'));
+  }
+
+  function extendHold() {
+    const allSeats = Array.from(heldSeats);
+    if (allSeats.length) holdSeats(allSeats);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+
   const cssEscape = (s) => (window.CSS?.escape ? CSS.escape(String(s)) : String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&'));
   const normZoneKey = (key) => String(key || '').trim().toUpperCase(); // trim to avoid duplicates like "DEBOUT "
 
@@ -33,17 +175,19 @@
   // Ajoute label lorsqu’un siège n’a pas de libellé explicite
   function applyFallbackLabels() {
     document.querySelectorAll('#cartRows .cart-row').forEach(row => {
-      const placeCell =
-        row.querySelector('.cell-place') ||
-        row.querySelector('[data-cell="place"]') ||
-        row.querySelector('div:nth-child(2)');
+      // Par classe, jamais par position : les colonnes ont été réordonnées
+      // (Nom, Prénom, Place, Tarif) et « 2e enfant » visait alors le Nom.
+      const placeCell = row.querySelector('.col.seat .seat-label');
       if (!placeCell) return;
       const current = String(placeCell.textContent || '').trim();
       const zoneKey = normZoneKey(row.dataset.zoneKey);
       const seatId = String(row.dataset.seatId || '').trim();
       const pretty = seatId.replace(/-Z\d{3,}$/i, '');
       const label = (pretty || zoneLabels.get(zoneKey) || zoneKey || '').toUpperCase();
-      if (label && current !== label) placeCell.textContent = label;
+      if (label && current !== label) {
+        placeCell.textContent = label;
+        placeCell.title = label;
+      }
     });
   }
 
@@ -205,16 +349,24 @@
     const svgDoc = state.svgDoc;
     const seats = Array.isArray(state.lastData?.seats) ? state.lastData.seats : [];
 
-    seats.forEach(s => api.setSeatState(s.seatId, s.status));
+    // Ne pas écraser l'état visuel des sièges déjà dans le panier (sélectionnés par cet utilisateur)
+    const cartSeatIds = new Set(
+      Array.from(document.querySelectorAll('#cartRows .cart-row[data-seat-id]'))
+        .map(row => String(row.dataset.seatId || '').trim()).filter(Boolean)
+    );
     seats.forEach(s => {
-      const el = api.findSeatElement?.(s.seatId) || svgDoc.getElementById(String(s.seatId));
+      if (cartSeatIds.has(String(s.seatId))) return;
+      api.setSeatState(s.seatId, s.status);
+    });
+    seats.forEach(s => {
+      const el = api.findSeatElement?.(s.seatId) || svgDoc.querySelector(`[id="${CSS.escape(String(s.seatId))}"]`);
       if (!el) return;
       if (s.allowed) el.classList.add('seat-allowed'); else el.classList.remove('seat-allowed');
     });
 
     if (!svgDoc.__btsClickBound) {
       svgDoc.__btsClickBound = true;
-      svgDoc.addEventListener('click', (e) => {
+      svgDoc.addEventListener('click', async (e) => {
         const el = e.target?.closest?.('[data-zone-key],[data-zone-id],[data-seat-id]');
         if (!el) return;
 
@@ -236,11 +388,30 @@
         if (el.classList?.contains?.('seat-booked') || el.classList?.contains?.('seat-busy')) return;
 
         const existing = document.querySelector(`#cartRows [data-seat-id="${cssEscape(sid)}"]`);
-        if (existing) existing.remove();
-        else api.addRowForSeat({ seatId: sid, zoneKey: rec.zoneKey });
-        api.recomputeTotals();
-        recomputeRemainingFromCart();
-        applyFallbackLabels();
+        if (existing) {
+          existing.remove();
+          api.recomputeTotals();
+          recomputeRemainingFromCart();
+          applyFallbackLabels();
+        } else {
+          // Avant le hold : un siège réservé puis refusé resterait verrouillé
+          // pour les autres jusqu'à expiration, sans rien apporter à personne.
+          if (api.canAddRow && !api.canAddRow()) {
+            if (api.capFeedback) api.capFeedback();
+            else showFeedback(false, `Maximum ${api.maxItems()} places par commande. Pour un groupe plus important, contactez-nous.`);
+            return;
+          }
+          const result = await holdSeats([sid]);
+          if (result.conflicts?.includes(sid)) {
+            api.setSeatState(sid, 'busy');
+            showFeedback(false, `Place ${sid} déjà sélectionnée par un autre utilisateur.`);
+            return;
+          }
+          api.addRowForSeat({ seatId: sid, zoneKey: rec.zoneKey });
+          api.recomputeTotals();
+          recomputeRemainingFromCart();
+          applyFallbackLabels();
+        }
       });
     }
   }
@@ -250,13 +421,11 @@
     const dt = ev?.startsAt ? new Date(ev.startsAt) : null;
     let suffix = '';
     if (dt && !isNaN(dt.getTime())) {
-      try {
-        suffix = ` — ${dt.toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })}`;
-      } catch {
-        // ignore Intl failures
-      }
+      const formatted = (window.formatDate || (() => ''))(dt, { dateStyle: 'long', timeStyle: 'short' });
+      if (formatted) suffix = ` — ${formatted}`;
     }
-    return `Billetterie match — ${ev.name}${suffix}`;
+    const t = window.t || ((key, vars) => vars?.eventName || key);
+    return `${t('event.pageTitle', { eventName: ev.name })}${suffix}`;
   }
 
   function updateSaleStatusBadge(raw) {
@@ -265,52 +434,38 @@
     const ev = (raw && typeof raw === 'object') ? (raw.event || raw) : null;
     const presale = raw?.presale && typeof raw.presale === 'object' ? raw.presale : null;
     const saleStatus = String(raw?.saleStatus || ev?.saleStatus || '').toLowerCase();
-    const onSale  = saleStatus === 'sale_opened' || ev?.isOnSale === true || ev?.onSale === true || String(ev?.status || '').toLowerCase() === 'on_sale';
-    const offSale = saleStatus === 'sale_closed' || ev?.isOnSale === false || ev?.onSale === false || String(ev?.status || '').toLowerCase() === 'off_sale';
-    const presaleAllowed = presale?.allowed === true;
     const presaleRemaining = typeof presale?.remaining === 'number' ? presale.remaining : null;
     const presaleQuota = typeof presale?.quota === 'number' ? presale.quota : null;
-    const presaleDepleted = presaleAllowed && presaleRemaining !== null && presaleRemaining <= 0;
 
-    let main = 'STATUT EN COURS';
-    let sub  = 'Chargement du statut…';
+    const t = window.t || ((key) => key);
+    let main = t('saleStatus.pending');
+    let sub  = t('saleStatus.pendingSub');
     let stateClass = 'pending';
 
-    if (saleStatus === 'presale_quota_reached' || (presaleAllowed && !onSale && presaleDepleted)) {
-      main = 'PRESALE QUOTA REACHED';
-      sub  = `Quota utilisé (${presaleQuota ?? 0})`;
+    if (saleStatus === 'presale_quota_reached') {
+      main = t('saleStatus.presaleQuotaReached');
+      sub  = t('saleStatus.presaleQuotaUsed', { n: presaleQuota ?? 0 });
       stateClass = 'quota';
     }
-    else if (saleStatus === 'presale_opened' || (presaleAllowed && !onSale)) {
-      main = 'PRESALE OPENED';
-      sub  = presaleRemaining !== null ? `Places restantes : ${presaleRemaining}` : 'Prévente partenaire';
+    else if (saleStatus === 'presale_opened') {
+      main = t('saleStatus.presale');
+      sub  = presaleRemaining !== null ? t('saleStatus.presaleRemaining', { n: presaleRemaining }) : t('saleStatus.presaleSub');
       stateClass = 'presale';
     }
-    else if (saleStatus === 'sale_opened' || onSale) {
-      main = 'SALE OPENED';
-      sub  = 'Tickets on sale';
+    else if (saleStatus === 'sale_opened') {
+      main = t('saleStatus.open');
+      sub  = t('saleStatus.openSub');
       stateClass = 'open';
     }
-    else if (saleStatus === 'sale_closed' || offSale) {
-      main = 'SALE CLOSED';
-      sub  = 'Ventes fermées';
-      stateClass = 'closed';
+    else if (saleStatus === 'sold_out') {
+      main = t('saleStatus.soldOut');
+      sub  = t('saleStatus.soldOutSub');
+      stateClass = 'soldout';
     }
-    else if (presaleAllowed && !onSale) {
-      if (presaleDepleted) {
-        main = 'PRESALE QUOTA REACHED';
-        sub  = `Quota utilisé (${presaleQuota ?? 0})`;
-        stateClass = 'quota';
-      } else {
-        main = 'PRESALE OPENED';
-        sub  = presaleRemaining !== null ? `Places restantes : ${presaleRemaining}` : 'Prévente partenaire';
-        stateClass = 'presale';
-      }
-    } else if (onSale || offSale) {
-      const open = onSale && !offSale;
-      main = open ? 'SALE OPENED' : 'SALE CLOSED';
-      sub  = open ? 'Tickets on sale' : 'Ventes fermées';
-      stateClass = open ? 'open' : 'closed';
+    else if (saleStatus === 'sale_closed') {
+      main = t('saleStatus.closed');
+      sub  = t('saleStatus.closedSub');
+      stateClass = 'closed';
     }
 
     badge.hidden = false;
@@ -346,6 +501,8 @@
       if (!IS_PARTNER_VIEW) document.title = `${evtTitle} — BTS`;
     }
 
+    if (data.holdTtlSec) holdTtlSec = data.holdTtlSec;
+
     updateSaleStatusBadge(data?.event || data);
   });
 
@@ -361,6 +518,19 @@
     const items = document.querySelectorAll('#cartRows .cart-row');
     const payBtn = document.querySelector('#payBtn');
     if (payBtn) payBtn.disabled = items.length === 0;
+
+    // Sync holds: re-hold ALL cart seats (renew TTL), release removed
+    if (holdBase) {
+      const cartSeatIds = new Set(
+        Array.from(document.querySelectorAll('#cartRows .cart-row[data-seat-id]'))
+          .map(row => String(row.dataset.seatId || '').trim()).filter(Boolean)
+      );
+      const toRelease = [...heldSeats].filter(id => !cartSeatIds.has(id));
+      if (toRelease.length) releaseSeats(toRelease);
+      const allCart = [...cartSeatIds];
+      if (allCart.length) holdSeats(allCart);
+      if (!cartSeatIds.size) stopHoldTimer();
+    }
 
     items.forEach(row => {
       const zone = normZoneKey(row.dataset.zoneKey);
@@ -416,5 +586,53 @@
     // focus payer email par défaut
     if (payerEmail && !payerEmail.value) payerEmail.focus();
     if (payerLast && !payerLast.value && payerFirst && payerFirst.value) payerLast.focus();
+
+    // Polling léger : rafraîchit uniquement les seat states (pas tarifs/prix/zones)
+    const pollMs = Number(VIEW_CONFIG.seatPollIntervalMs) || 5000;
+    let pollActive = true;
+    const doPoll = async () => {
+      if (!pollActive || !seatsUrl) return;
+      try {
+        const res = await fetch(seatsUrl, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data.seats)) return;
+        const cartSeatIds = new Set(
+          Array.from(document.querySelectorAll('#cartRows .cart-row[data-seat-id]'))
+            .map(row => String(row.dataset.seatId || '').trim()).filter(Boolean)
+        );
+        data.seats.forEach(s => {
+          const sid = String(s.seatId || '').trim();
+          state.seatsById.set(sid, { ...state.seatsById.get(sid), ...s });
+          if (cartSeatIds.has(sid)) return;
+          api.setSeatState(sid, s.status);
+        });
+      } catch { /* silencieux */ }
+    };
+    const pollTimer = setInterval(doPoll, pollMs);
+    document.querySelector('#payBtn')?.addEventListener('click', () => {
+      paymentStarted = true;
+      pollActive = false;
+      clearInterval(pollTimer);
+      stopHoldTimer();
+    }, { once: true });
+
+    // Bouton "Prolonger"
+    document.querySelector('#holdExtendBtn')?.addEventListener('click', extendHold);
+
+    // Libère tous les holds à la fermeture de l'onglet
+    if (holdBase) {
+      window.addEventListener('beforeunload', () => {
+        if (!heldSeats.size) return;
+        const body = JSON.stringify({ seatIds: [], sessionToken: SESSION_TOKEN });
+        fetch(holdBase, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body,
+          keepalive: true
+        }).catch(() => {});
+      });
+    }
   });
 })();

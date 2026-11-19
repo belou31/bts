@@ -77,7 +77,7 @@ async function main() {
 
   const lines = [];
   // En-tête CSV
-  lines.push(['groupKey','email','seatIds','token','url'].join(';'));
+  lines.push(['groupKey','email','seatIds','extra','quota','partner','token','url'].join(';'));
 
   for (const [groupKey, arr] of groups.entries()) {
     // Email "contact" = premier ayant un email
@@ -92,18 +92,53 @@ async function main() {
 
     if (!seatIds.length) continue; // rien à renouveler
 
+    // Le quota se compte en PLACES, pas en identifiants distincts.
+    //
+    // Une place en zone n'a pas d'identifiant propre : deux places en « TBH7 »
+    // sont deux fois le même seatId, que uniq() ci-dessus réduit à un — ce qui
+    // est correct pour l'affichage du plan, mais amputerait le quota. Chaque
+    // ligne d'abonné porte donc son nombre de places (Subscriber.places).
+    const places = arr.reduce((sum, x) => sum + Math.max(1, Number(x.places) || 1), 0);
+
+    // Un groupe = un lien = un quota. Les lignes du CSV d'import sont par
+    // SIÈGE, donc sommer les extra d'une famille de 3 personnes marquées
+    // extra=1 accorderait 3 places au lieu d'1 : on prend le MAX, qui donne le
+    // même résultat que l'extra soit renseigné sur une seule ligne du groupe
+    // ou répété sur toutes.
+    const extra = Math.max(0, ...arr.map(x => Number(x.extra) || 0));
+    const quota = places + extra;
+
+    // Partenaire du groupe. Un lien = un groupe = un partenaire : si les lignes
+    // d'un même groupe en désignent plusieurs, on ne devine pas — on prend le
+    // premier et on le signale, car le tarif appliqué en dépend.
+    const partnerSlugs = [...new Set(arr.map(x => String(x.partnerSlug || '').trim().toLowerCase()).filter(Boolean))];
+    const partnerSlug = partnerSlugs[0] || null;
+    if (partnerSlugs.length > 1) {
+      console.warn(`⚠ groupe ${groupKey} : plusieurs partenaires (${partnerSlugs.join(', ')}) — « ${partnerSlug} » retenu.`);
+    }
+
     const payload = {
       seasonCode,
       venueSlug,
       email,
       groupKey,
       seatIds,
+      extra,
+      quota,
+      ...(partnerSlug ? { partnerSlug } : {}),
       iat: Math.floor(Date.now()/1000),
       exp: Math.floor(Date.now()/1000) + 60*60*24*30 // 30 jours
     };
     const token = jwt.sign(payload, secret);
-    const url = `${base.replace(/\/+$/,'')}/renew?id=${token}`;
-    lines.push([groupKey, email, seatIds.join(','), token, url].join(';'));
+    // Chemin explicite : /renew?id= reste servi (redirection) pour les liens
+    // déjà partis, mais tout nouveau lien porte la saison.
+    // Le lien partenaire n'est qu'un habillage : le serveur relit le partenaire
+    // dans le jeton et refuse toute URL qui en désignerait un autre.
+    const root = base.replace(/\/+$/, '');
+    const url = partnerSlug
+      ? `${root}/partner/${encodeURIComponent(partnerSlug)}/season/${encodeURIComponent(seasonCode)}/renew?id=${token}`
+      : `${root}/season/${encodeURIComponent(seasonCode)}/renew?id=${token}`;
+    lines.push([groupKey, email, seatIds.join(','), extra, quota, partnerSlug || '', token, url].join(';'));
   }
 
   const OUTPUT_DIR = path.resolve(process.cwd(), 'data/outputs');

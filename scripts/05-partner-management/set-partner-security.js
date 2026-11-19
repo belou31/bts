@@ -6,9 +6,8 @@
  *   node scripts/05-partner-management/set-partner-security.js --slug=<slug> [--allowed-origins=CSV] [--frame-ancestors=CSV]
  */
 
-import fs from 'fs';
-import path from 'path';
 import process from 'process';
+import { readPartnerConfig, writePartnerConfig } from '../../src/config/partners.js';
 
 const args = process.argv.slice(2);
 
@@ -41,30 +40,19 @@ if (allowedOriginsOpt === undefined && frameAncestorsOpt === undefined) {
   process.exit(1);
 }
 
-const targetDir = path.resolve(process.cwd(), 'data', 'customization');
-const targetFile = path.join(targetDir, 'partners.json');
-if (!fs.existsSync(targetFile)) {
-  console.error(`partners.json not found at ${targetFile} (run init-partners.js first).`);
-  process.exit(1);
-}
-
-let entries = [];
+let found;
 try {
-  const raw = fs.readFileSync(targetFile, 'utf8');
-  const parsed = JSON.parse(raw);
-  if (Array.isArray(parsed)) entries = parsed;
+  found = readPartnerConfig(slug);
 } catch (err) {
-  console.error(`[partner-security] Unable to read ${targetFile}: ${err.message}`);
+  console.error(`[partner-security] Unable to read the partner config: ${err.message}`);
+  process.exit(1);
+}
+if (!found.cfg) {
+  console.error(`[partner-security] Partner "${slug}" not found (${found.file}).`);
   process.exit(1);
 }
 
-const idx = entries.findIndex(e => (e?.slug || '').toLowerCase() === slug.toLowerCase());
-if (idx === -1) {
-  console.error(`[partner-security] Partner "${slug}" not found.`);
-  process.exit(1);
-}
-
-const updated = { ...entries[idx] };
+const updated = { ...found.cfg };
 if (allowedOriginsOpt !== undefined) {
   updated.allowedOrigins = parseList(allowedOriginsOpt);
 }
@@ -72,6 +60,5 @@ if (frameAncestorsOpt !== undefined) {
   updated.frameAncestors = parseList(frameAncestorsOpt);
 }
 
-entries[idx] = updated;
-fs.writeFileSync(targetFile, JSON.stringify(entries, null, 2), 'utf8');
+writePartnerConfig(slug, updated);
 console.log(`[partner-security] Updated security for "${slug}"`);

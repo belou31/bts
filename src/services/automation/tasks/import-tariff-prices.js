@@ -5,6 +5,7 @@ export const importTariffPricesTask = {
   id: 'tariff.import-prices',
   version: '1.0.0',
   summary: 'Importe un catalogue de prix (zone / tarif / prix).',
+  chapter: '02 — Tariff Management',
   tags: ['tariff', 'catalog'],
   scopes: ['automation:jobs:write', 'automation:jobs:run', 'automation:events:write'],
   allowDryRun: true,

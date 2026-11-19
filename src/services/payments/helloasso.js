@@ -1,4 +1,8 @@
 // src/services/payments/helloasso.js
+import { isZoneUnit } from '../../utils/seat-id.js';
+import { providerFetch, createTokenCache } from './http.js';
+import { providerError } from './provider-error.js';
+import { buildOrderDescription } from './order-description.js';
 
 const API_DEFAULT = 'https://api.helloasso.com';
 
@@ -23,21 +27,45 @@ function apiV5() {
   return `${apiBase()}/v5`;
 }
 
+// Un jeton par processus, gardé jusqu'à son échéance. Cet appel était fait
+// DEUX fois par paiement (création d'intent, puis relecture de statut), plus
+// une fois par sondage du navigateur et par passage de la sentinelle.
+const tokenCache = createTokenCache({ label: 'helloasso oauth' });
+
 async function getAccessToken() {
   assertEnv();
-  const body = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: process.env.HELLOASSO_CLIENT_ID,
-    client_secret: process.env.HELLOASSO_CLIENT_SECRET
+  return tokenCache.get(async () => {
+    const body = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: process.env.HELLOASSO_CLIENT_ID,
+      client_secret: process.env.HELLOASSO_CLIENT_SECRET
+    });
+    // `retry` : frapper un jeton est sans effet de bord, et c'est l'appel le
+    // plus exposé à un refus passager.
+    const { res, json } = await providerFetch(oauthUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    }, { label: 'helloasso oauth', retry: true });
+    if (!res.ok) throw new Error(`HelloAsso oauth ${res.status} ${JSON.stringify(json)}`);
+    return { token: json.access_token, expiresInSec: json.expires_in };
   });
-  const r = await fetch(oauthUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`HelloAsso oauth ${r.status} ${JSON.stringify(j)}`);
-  return j.access_token;
+}
+
+/**
+ * Rejoue un appel une fois sur 401, avec un jeton neuf.
+ *
+ * Le cache rend ce cas possible : un jeton encore réputé valide peut avoir été
+ * révoqué côté prestataire. Sans cet oubli, le processus resterait en 401
+ * jusqu'au redémarrage.
+ */
+async function withFreshTokenOn401(call) {
+  let out = await call(await getAccessToken());
+  if (out.res.status === 401) {
+    tokenCache.invalidate();
+    out = await call(await getAccessToken());
+  }
+  return out;
 }
 
 function getOffsetDate(inDate, inMthShift) {
@@ -115,7 +143,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const total = Number(order.totalCents || 0);
   if (!total || total < 0) throw new Error('totalAmount invalid');
 
-  const itemName = order.itemName || 'MyOrder';
+  const itemName = buildOrderDescription(order, { fallback: 'MyOrder', maxLength: 250 });
 
   const base = Math.floor(total / n);
   const remainder = total - base * n;
@@ -142,7 +170,7 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
       email: order.payerEmail || ''
     },
     items: Array.isArray(order.lines) ? order.lines.map(l => {
-      const isVirtual = /-Z\d{3,}$/i.test(String(l.seatId || ''));
+      const isVirtual = isZoneUnit({ unitType: l.unitType, seatId: l.seatId });
       const place = isVirtual ? (l.zoneKey || '') : (l.seatId || l.zoneKey || '');
       return {
         name: `${place} • ${l.tariffCode}`,
@@ -166,15 +194,19 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
 
   const orgSlug = process.env.HELLOASSO_ORG_SLUG;
   const url = `${apiV5()}/organizations/${encodeURIComponent(orgSlug)}/checkout-intents`;
-  const r = await fetch(url, {
+  // Pas de `retry` ici : une seconde tentative ouvrirait peut-être un second
+  // paiement chez le prestataire pour la même commande. L'appelant défait la
+  // commande et invite l'acheteur à relancer, ce qui est le seul réessai sûr.
+  const { res: r, json: j } = await providerFetch(url, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
-  });
-  const j = await r.json().catch(() => ({}));
+  }, { label: 'helloasso checkout' });
   if (!r.ok) {
+    if (r.status === 401) tokenCache.invalidate();
     console.error('[helloasso] payload sent:', JSON.stringify(payload));
-    throw new Error(`HelloAsso checkout ${r.status} ${JSON.stringify(j)}`);
+    throw providerError('HelloAsso checkout', r.status, j,
+      (Array.isArray(j?.errors) ? j.errors : []).map(e => e?.message));
   }
   return {
     redirectUrl: j.redirectUrl || j.redirectUri || j.url || '',
@@ -182,6 +214,41 @@ async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
     id: j.id || j.checkoutIntentId || j.intentId || null,
     providerOrderId: extractProviderOrderIdFromIntent(j)
   };
+}
+
+/**
+ * État de paiement d'un checkout-intent HelloAsso.
+ *
+ * L'API ne renvoie AUCUN champ de statut à la racine de l'intent : ni `status`,
+ * ni `state`, ni `paymentStatus`. Ce qui atteste du paiement, c'est l'apparition
+ * d'un `order` porteur de ses `payments`. Lire un statut inexistant renvoyait
+ * donc la chaîne vide pour TOUT intent HelloAsso, payé ou non — le contrôle de
+ * statut ne pouvait jamais confirmer un paiement, et une commande annulée à
+ * tort restait irrécupérable.
+ *
+ * Échéancier (paiement en 3x) : seule la première échéance est encaissée
+ * ('Authorized'), les suivantes sont planifiées ('Registered'). La commande est
+ * bien prise dès la première — c'est ainsi que HelloAsso la présente au club.
+ */
+function intentStatus(j) {
+  const direct = j?.status || j?.state || j?.paymentStatus || '';
+  if (direct) return direct;
+
+  const payments = Array.isArray(j?.order?.payments) ? j.order.payments
+    : Array.isArray(j?.payments) ? j.payments
+      : [];
+  if (payments.length) {
+    const states = payments.map(p => String(p?.state || p?.status || '').toLowerCase());
+    if (states.some(st => st.startsWith('authoriz') || st === 'registered')) return 'authorized';
+    if (states.every(st => st === 'refunded')) return 'refunded';
+    if (states.some(st => st === 'refused')) return 'failed';
+    return states[0] || '';
+  }
+
+  // Un `order` sans détail de paiement suffit : HelloAsso ne le crée qu'une
+  // fois le paiement passé.
+  if (j?.order?.id || j?.orderId) return 'authorized';
+  return '';
 }
 
 function extractProviderOrderIdFromIntent(j) {
@@ -195,22 +262,34 @@ function extractProviderOrderIdFromIntent(j) {
 }
 
 async function getCheckoutIntent(intentId) {
-  const token = await getAccessToken();
-  const headers = { 'Authorization': `Bearer ${token}` };
   const orgSlug = process.env.HELLOASSO_ORG_SLUG;
 
-  let r = await fetch(`${apiV5()}/checkout-intents/${encodeURIComponent(intentId)}`, { headers });
-  if (r.status === 404 || r.status === 403) {
-    r = await fetch(`${apiV5()}/organizations/${encodeURIComponent(orgSlug)}/checkout-intents/${encodeURIComponent(intentId)}`, { headers });
-  }
-  const j = await r.json().catch(() => ({}));
+  // Relecture pure : le réessai est sans conséquence, et ce chemin est le plus
+  // sollicité (sondage du navigateur, page de retour, sentinelle).
+  const { res: r, json: j } = await withFreshTokenOn401(async (token) => {
+    const headers = { 'Authorization': `Bearer ${token}` };
+    const first = await providerFetch(
+      `${apiV5()}/checkout-intents/${encodeURIComponent(intentId)}`,
+      { headers },
+      { label: 'helloasso get intent', retry: true }
+    );
+    if (first.res.status !== 404 && first.res.status !== 403) return first;
+    return providerFetch(
+      `${apiV5()}/organizations/${encodeURIComponent(orgSlug)}/checkout-intents/${encodeURIComponent(intentId)}`,
+      { headers },
+      { label: 'helloasso get intent (org)', retry: true }
+    );
+  });
   if (!r.ok) throw new Error(`HelloAsso get intent ${r.status} ${JSON.stringify(j)}`);
 
   return {
-    status: j.status || j.state || j.paymentStatus || '',
+    status: intentStatus(j),
     metadata: j.metadata || {},
     payer: j.payer || {},
     providerOrderId: extractProviderOrderIdFromIntent(j),
+    // Identifiants du relevé HelloAsso : le numéro de commande et, pour un
+    // paiement fractionné, l'échéance effectivement encaissée.
+    transactionId: String(j?.order?.payments?.[0]?.id || j?.payments?.[0]?.id || ''),
     raw: j
   };
 }
@@ -223,6 +302,10 @@ async function getCheckoutStatus(intentId) {
 const provider = {
   id: 'helloasso',
   label: 'HelloAsso',
+  uxCapabilities: ['redirect'],
+  // HelloAsso accepte un échéancier natif : createCheckoutIntent construit
+  // terms[] avec les dates et les montants.
+  supportsInstallments: true,
   docs: {
     env: [
       'PAYMENT_PROVIDER',

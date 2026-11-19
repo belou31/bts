@@ -1,68 +1,41 @@
 #!/usr/bin/env node
 /**
- * Initialize partner customization file with base entries for cseairbus / aisc.
+ * Copy the partner templates (one per connection kind) to
+ * data/customization/partners/_templates/<kind>.json, where they can be
+ * adapted to this installation (labels, entitlements, payment mode…).
  *
  * Usage:
  *   node scripts/05-partner-management/init-partners.js [--force]
  *
- * The script writes data/customization/partners.json if it doesn't exist
- * (or when --force is passed). You can edit the JSON afterwards to
- * tweak headings, payment modes, messages, etc.
+ * Kinds: openid, directory, none. Source: data_references/partners/<kind>.json.
+ * An existing local template is kept unless --force is passed.
+ *
+ * Templates are copied into a partner's file once, at creation
+ * (upsert-partner.js --template=<kind>); editing a template later does not
+ * change existing partners.
  */
 
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
+import { PARTNER_TEMPLATES, builtinTemplatePath, localTemplatePath } from '../../src/config/partners.js';
 
-const args = process.argv.slice(2);
-const FORCE = args.includes('--force');
+const FORCE = process.argv.slice(2).includes('--force');
 
-const targetDir = path.resolve(process.cwd(), 'data', 'customization');
-const targetFile = path.join(targetDir, 'partners.json');
-
-const template = [
-  {
-    slug: 'cseairbus',
-    name: 'CSE Airbus',
-    paymentMode: 'invoice_auto',
-    frameAncestors: [],
-    allowedOrigins: [],
-    reserve: {
-      status: 'paid',
-      paymentProvider: 'cseairbus_invoice',
-      autoFinalize: true,
-      sendTickets: true,
-      payButtonLabel: 'Envoyer ma demande',
-      successMessage: 'Votre demande a été enregistrée. Vos billets suivront sous peu.',
-      errorMessage: 'Impossible d’enregistrer la demande pour le moment.'
-    },
-    ui: {
-      heading: 'Billetterie CSE Airbus',
-      lead: 'Choisissez vos places et recevez vos billets automatiquement.',
-      paymentHelp: 'La facturation est gérée par le CSE. Aucun paiement en ligne.'
-    }
-  },
-  {
-    slug: 'aisc',
-    name: 'AISC',
-    paymentMode: 'psp',
-    frameAncestors: [],
-    allowedOrigins: [],
-    ui: {
-      heading: 'Billetterie AISC',
-      lead: 'Offre négociée pour les collaborateurs AISC.',
-      paymentHelp: 'Paiement sécurisé via BTS.'
-    }
+for (const kind of PARTNER_TEMPLATES) {
+  const from = builtinTemplatePath(kind);
+  const to = localTemplatePath(kind);
+  if (!fs.existsSync(from)) {
+    console.error(`[partners:init] missing built-in template ${from}`);
+    process.exitCode = 1;
+    continue;
   }
-];
-
-fs.mkdirSync(targetDir, { recursive: true });
-
-if (fs.existsSync(targetFile) && !FORCE) {
-  console.log(`[partners:init] ${targetFile} already exists. Use --force to overwrite.`);
-  process.exit(0);
+  if (fs.existsSync(to) && !FORCE) {
+    console.log(`[partners:init] kept    ${to} (exists; --force to overwrite)`);
+    continue;
+  }
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.copyFileSync(from, to);
+  console.log(`[partners:init] written ${to}`);
 }
-
-fs.writeFileSync(targetFile, JSON.stringify(template, null, 2), 'utf8');
-console.log(`[partners:init] Template written to ${targetFile}`);
-console.log('You can edit this file to refine URLs, iframe origins, copy, etc.');
+console.log('Create a partner from one of them: upsert-partner.js --slug=<slug> --name="…" --template=openid|directory|none');

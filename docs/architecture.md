@@ -89,7 +89,7 @@ Le tout peut être exposé à la racine en DEV ou derrière `BASE_PATH=/bts` en 
 Le modèle de données est organisé en quatre ensembles :
 
 - catalogue : `Venue`, `SeatCatalog`, `ZoneCatalog`, `TariffPriceCatalog`
-- runtime saison/vente : `Season`, `Zone`, `Seat`, `ZoneHold`, `Order`, `PaymentIntent`
+- runtime saison/vente : `Season`, `Zone`, `Seat`, `ZoneHold`, `Order`
 - événements et contrôle : `Event`, `Ticket`, `QrBankCode`, `ScanLog`, `SeatHold`
 - opérateur / audience : `Subscriber`, `Campaign`, `AutomationJob`, `Counter`
 

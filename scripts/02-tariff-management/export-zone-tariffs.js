@@ -44,14 +44,21 @@ function euro(cents) {
   await mongoose.connect(mongoUri, connectOpts);
 
   const docs = await TariffPrice.find({ seasonCode, venueSlug }).lean();
-  docs.sort((a,b) => (a.zoneKey||'').localeCompare(b.zoneKey||'') || (a.tariffCode||'').localeCompare(b.tariffCode||''));
+  // Tri sur la cible effective : une ligne par méta-zone n'a pas de zoneKey,
+  // elle se retrouvait donc en tête, toutes mélangées.
+  const target = (d) => d.zoneKey || d.metaZone || '';
+  docs.sort((a,b) => target(a).localeCompare(target(b)) || (a.tariffCode||'').localeCompare(b.tariffCode||''));
 
-  const header = 'zoneKey,tariffCode,priceCents,priceEuro,partnerPriceCents,partnerPriceEuro,currency\n';
+  // Même en-tête que l'import (zoneKey ET metaZone) : sans la colonne
+  // metaZone, une grille par méta-zone s'exportait avec une cible vide, et le
+  // fichier réimporté était refusé ligne par ligne.
+  const header = 'zoneKey,metaZone,tariffCode,priceCents,priceEuro,partnerPriceCents,partnerPriceEuro,currency\n';
   const body = docs.map(d => {
     const ppc = Number(d.partnerPriceCents);
     const currency = d.currency || 'EUR';
     return [
-      d.zoneKey,
+      d.zoneKey || '',
+      d.metaZone || '',
       d.tariffCode,
       d.priceCents,
       euro(d.priceCents),

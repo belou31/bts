@@ -1,0 +1,2 @@
+orderId,createdAt,phase,status,payerFirstName,payerLastName,payerEmail,seasonCode,venueSlug,paymentSplit,totalCents,providerName,haOrderId,checkoutIntentId,lastReturnCode,lastWebhookEvent,attestationSentAt,lineIndex,seatId,zoneKey,tariffCode,priceCents,holderFirstName,holderLastName
+ORD-2026-P001,2026-07-01T09:00:00.000Z,subscription,paid,Comite,Entreprise,partenaire@example.org,2026-2027,stadium,1,20000,import-demo,,,,,,0,N-A-01,N,NORMAL,20000,Comite,Entreprise

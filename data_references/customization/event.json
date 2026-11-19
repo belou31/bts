@@ -1,8 +1,9 @@
 {
-  "event.title": "Billetterie — {{eventName}}",
-  "event.lead": "Date : {{eventStartsAtFormatted}} · Lieu : {{venueName}}",
-  "event.help": "Sélectionnez votre siège ou votre zone pour cet événement.",
-  "event.payButton": "Valider et payer",
-  "event.emailConfirmation": "Un email de confirmation sera envoyé après paiement.",
-  "event.ticket": "Billets disponibles immédiatement après confirmation."
+  "_comment": "Menu of keys available at the event level. Copy ONLY the ones you actually want to override for this event into data/customization/events/<slug>.json — do not paste the whole file. See data_references/README.md > Customization files.",
+  "event.title": { "fr": "Billetterie — {{eventName}}", "en": "Tickets — {{eventName}}" },
+  "event.lead": { "fr": "Date : {{eventStartsAtFormatted}} · Lieu : {{venueName}}", "en": "Date: {{eventStartsAtFormatted}} · Venue: {{venueName}}" },
+  "event.help": { "fr": "Sélectionnez votre siège ou votre zone pour cet événement.", "en": "Select your seat or zone for this event." },
+  "event.payButton": { "fr": "Valider et payer", "en": "Confirm and pay" },
+  "event.emailConfirmation": { "fr": "Un email de confirmation sera envoyé après paiement.", "en": "A confirmation email will be sent after payment." },
+  "event.ticket": { "fr": "Billets disponibles immédiatement après confirmation.", "en": "Tickets available immediately after confirmation." }
 }

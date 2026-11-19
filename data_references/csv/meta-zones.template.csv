@@ -1,0 +1,17 @@
+# zoneKey,metaZone
+# Rattache des zones à une META-ZONE : un regroupement logique de zones, qui
+# n'existe PAS sur le plan (aucun selecteur SVG, aucun siege).
+#
+# Premier usage : la grille tarifaire s'ecrit UNE fois pour la meta-zone
+# (tariff-prices.template.csv, colonne metaZone) au lieu d'etre recopiee zone
+# par zone — et une zone rattachee plus tard herite du prix sans retoucher la
+# grille. Un bon cadeau peut aussi etre limite a une meta-zone.
+#
+# Se pose sur le CATALOGUE DE ZONES DU LIEU (--venue), sans code saison : une
+# meta-zone decrit la salle, et les saisons instanciees ensuite en heritent.
+#
+# metaZone vide = detache la zone de sa meta-zone.
+S1,S_LOW
+S3,S_LOW
+S2,S_HIGH
+N,

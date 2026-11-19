@@ -16,3 +16,10 @@ tests/
 .eslint*
 grep_*
 *.log
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# OIDC stub: signing key generated on first run (dev only)
+stub_oidc/.keys/

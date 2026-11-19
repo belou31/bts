@@ -5,12 +5,17 @@
  * Each CSV line represents a single seat/subscriber entry to upsert.
  *
  * Usage:
- *   node scripts/03-season-management/import-renewers-flat.js <csvPath> <seasonCode> --venue=<slug>
+ *   node scripts/03-season-management/import-renewers-flat.js <csvPath> <seasonCode> --venue=<slug> [--extra=<n>]
  *
  * Accepted columns (case-insensitive):
- *   firstName,lastName,email,phone,seasonCode,venueSlug,seatId|prefSeatId|seat,group
+ *   firstName,lastName,email,phone,seasonCode,venueSlug,seatId|prefSeatId|seat,group,extra,partner
  * - If group is empty → groupKey falls back to a normalized email.
  * - Upsert key: (email, seasonCode, venueSlug, prefSeatId)
+ * - extra = places supplémentaires que ce renouveleur peut prendre en plus de
+ *   ses sièges précédents. Colonne CSV prioritaire ; --extra=<n> sert de valeur
+ *   par défaut pour les lignes sans colonne/valeur. Défaut final : 0.
+ *   ⚠ Le quota d'un lien de renouvellement est calculé par groupKey en prenant
+ *   le MAX des extra du groupe (jamais la somme) — voir export-renew-groups.js.
  *
  * Environment:
  *   - MONGO_URI or MONGODB_URI: Mongo database connection (required)
@@ -44,12 +49,20 @@ function resolveInputFile(p) {
 
 function parseArgs(argv) {
   const [,, csvPath, seasonCode, ...rest] = argv;
-  const args = { csvPath, seasonCode, venueSlug: null };
+  const args = { csvPath, seasonCode, venueSlug: null, extra: 0 };
   for (const t of rest) {
-    const m = /^--venue=(.+)$/.exec(t);
-    if (m) args.venueSlug = m[1];
+    const venue = /^--venue=(.+)$/.exec(t);
+    if (venue) { args.venueSlug = venue[1]; continue; }
+    const extra = /^--extra=(.+)$/.exec(t);
+    if (extra) args.extra = normExtra(extra[1]);
   }
   return args;
+}
+
+// Non-numeric / negative / absent → 0 rather than NaN reaching the schema.
+function normExtra(v) {
+  const n = Number(String(v ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
 // ----- CSV helpers (delimiter auto + guillemets + BOM) -----
@@ -111,9 +124,11 @@ function headersIndex(headerLine, delim) {
   const email     = pick('email','mail');
   const phone     = pick('phone','tel','telephone');
   const seatId    = pick('seatid','prefseatid','seat');
+  const partnerCol = pick('partner','partnerslug');
   const group     = pick('group','groupkey','groupe');
   const seasonCol = pick('seasoncode','season','saison');
   const venueCol  = pick('venueslug','venue','lieu');
+  const extraCol  = pick('extra','extras','supplement','supplementaire');
 
   const missing = [];
   if (email  < 0) missing.push('email');
@@ -121,7 +136,7 @@ function headersIndex(headerLine, delim) {
   if (missing.length) {
     throw new Error(`Colonnes manquantes: ${missing.join(', ')}. Vues: ${h.join(', ')}`);
   }
-  return { header: h, lc, firstName, lastName, email, phone, seatId, group, seasonCol, venueCol, delim };
+  return { header: h, lc, firstName, lastName, email, phone, seatId, group, seasonCol, venueCol, extraCol, partnerCol, delim };
 }
 
 function normGroupKey(v) {
@@ -130,9 +145,9 @@ function normGroupKey(v) {
 }
 
 (async () => {
-  const { csvPath, seasonCode, venueSlug } = parseArgs(process.argv);
+  const { csvPath, seasonCode, venueSlug, extra: extraDefault } = parseArgs(process.argv);
   if (!csvPath || !seasonCode) {
-    die('Usage: node scripts/03-season-management/import-renewers-flat.js <csvPath> <seasonCode> --venue=<slug>');
+    die('Usage: node scripts/03-season-management/import-renewers-flat.js <csvPath> <seasonCode> --venue=<slug> [--extra=<n>]');
   }
 
   const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
@@ -144,16 +159,25 @@ function normGroupKey(v) {
   if (!fs.existsSync(full)) die(`CSV not found: ${csvPath} (cherché dans ${full} et data/inputs)`);
 
   // Lire la 1ère ligne pour trouver le délimiteur
-  const firstLine = stripBOM(fs.readFileSync(full, 'utf8').split(/\r?\n/).find(l => l.trim().length));
+  // Le délimiteur se déduit de l'EN-TÊTE, donc de la première ligne utile :
+  // une ligne de commentaire fausserait la détection.
+  const firstLine = stripBOM(
+    fs.readFileSync(full, 'utf8').split(/\r?\n/)
+      .find(l => l.trim().length && !l.trimStart().startsWith('#'))
+  );
   if (!firstLine) die('CSV vide');
   const delim = detectDelimiter(firstLine);
 
   const rl = readline.createInterface({ input: fs.createReadStream(full, 'utf8'), crlfDelay: Infinity });
 
   let header = null, cols = null, scanned = 0, upserts = 0, modified = 0, skipped = 0;
+  const rows = new Map();   // clé (email, saison, lieu, seatId) -> ligne agrégée
   for await (const raw of rl) {
     const line = raw.replace(/\r$/, '');
     if (!line.trim()) continue;
+    // Lignes de commentaire du gabarit. Sans cela, la première ligne « # … »
+    // serait prise pour l'en-tête et aucune colonne ne serait reconnue.
+    if (line.trimStart().startsWith('#')) continue;
 
     if (!header) {
       header = line;
@@ -173,6 +197,9 @@ function normGroupKey(v) {
     const groupRaw  = take(cols.group);
     const seasonCSV = take(cols.seasonCol);
     const venueCSV  = take(cols.venueCol);
+    const extraCSV  = take(cols.extraCol);
+    const partner   = take(cols.partnerCol).toLowerCase() || null;
+    const extra     = extraCSV !== '' ? normExtra(extraCSV) : extraDefault;
 
     const season = seasonCSV || seasonCode;
     const venue  = venueCSV  || venueSlug;
@@ -188,18 +215,40 @@ function normGroupKey(v) {
 
     const groupKey = normGroupKey(groupRaw || email);
 
-    const where = { email, seasonCode: season, venueSlug: venue, prefSeatId: seatId };
+    // On agrège AVANT d'écrire, au lieu d'upserter ligne à ligne.
+    //
+    // La clé d'upsert contient prefSeatId : deux places dans la même zone
+    // donnent deux lignes CSV identiques, donc la seconde écrasait la première
+    // et la place disparaissait. Compter d'abord, écrire ensuite, garde aussi
+    // l'import idempotent — relancer le même fichier REMET le compte, il ne
+    // l'incrémente pas.
+    const key = [email, season, venue, seatId].join('\u0000');
+    const found = rows.get(key);
+    if (found) {
+      found.places += 1;
+      // Dernière ligne gagnante sur les champs d'identité, comme avant.
+      Object.assign(found, { firstName, lastName, phone, groupKey, extra, partner });
+    } else {
+      rows.set(key, { email, season, venue, seatId, firstName, lastName, phone, groupKey, extra, partner, places: 1 });
+    }
+  }
+
+  for (const r of rows.values()) {
+    const where = { email: r.email, seasonCode: r.season, venueSlug: r.venue, prefSeatId: r.seatId };
     const update = {
-      firstName,
-      lastName,
-      email,
-      phone,
-      prefSeatId: seatId,
-      seasonCode: season,
-      venueSlug: venue,
-      groupKey,
+      firstName: r.firstName,
+      lastName: r.lastName,
+      email: r.email,
+      phone: r.phone,
+      prefSeatId: r.seatId,
+      seasonCode: r.season,
+      venueSlug: r.venue,
+      groupKey: r.groupKey,
+      extra: r.extra,
+      partnerSlug: r.partner,
+      places: r.places,
       status: 'invited',
-      $addToSet: { previousSeasonSeats: seatId }
+      $addToSet: { previousSeasonSeats: r.seatId }
     };
 
     const res = await Subscriber.updateOne(where, update, { upsert: true });
@@ -207,7 +256,12 @@ function normGroupKey(v) {
     else if (res.modifiedCount > 0) modified++;
   }
 
-  console.log(`Done. scanned=${scanned} upserts=${upserts} modified=${modified} skipped=${skipped}`);
+  const grouped = [...rows.values()].filter(r => r.places > 1);
+  if (grouped.length) {
+    console.log('Places multiples sur une même cible (zones) :');
+    for (const r of grouped) console.log(`  ${r.email} — ${r.seatId} : ${r.places} places`);
+  }
+  console.log(`Done. scanned=${scanned} lignes=${rows.size} upserts=${upserts} modified=${modified} skipped=${skipped}`);
   await mongoose.disconnect();
 })().catch(async (e) => {
   console.error('ERROR', e);

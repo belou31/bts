@@ -1,25 +1,78 @@
 // src/routes/event-flow.factory.js
 import { Router } from 'express';
 import assert from 'node:assert/strict';
+import { assertOrderItemCount, countPlaces, orderMaxItems } from '../config/order-limits.js';
 import mongoose, { isValidObjectId } from 'mongoose';
 
 import { Event } from '../models/Event.js';
 import { Seat } from '../models/Seat.js';
+import { SeatHold } from '../models/SeatHold.js';
 import { Order } from '../models/Order.js';
 import { Tariff } from '../models/Tariff.js';
 import { TariffPrice } from '../models/TariffPrice.js';
 import { Zone } from '../models/Zone.js';
-import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId } from '../services/payments/index.js';
+import { createCheckoutIntent, buildReturnUrls, currentPaymentProviderId, currentPaymentUxMode } from '../services/payments/index.js';
 import { resolveLinePlacement } from '../utils/event-attendance.js';
 import { finalizePaidIfNoConflict, sendOrderAttestationIfNeeded } from '../services/order-finalization.js';
+import { markOrderFailed, FAILURE_REASONS } from '../utils/order-failure.js';
+import { evaluateFreeze, resumePayload, blockedPayload } from '../services/checkout-freeze.js';
 import { matchesChannel } from '../utils/channel-scopes.js';
 import { filterTariffsAndPricesByChannel } from '../utils/tariff-filter.js';
+import { computeEventSeatStates as computeSeatStates } from '../services/event-seat-states.js';
+import { claimEventSeatHolds, releaseOrderSeatHolds } from '../services/event-seat-holds.js';
+import { withMetaZonePrices } from '../utils/meta-zones.js';
+import { isZoneUnit } from '../utils/seat-id.js';
+import { isEventOnSale, isPartnerSaleWindow } from '../utils/event-sale.js';
+import { entitlementsForEvent, cartRefusal, ruleForTariff } from '../services/partner-entitlements.js';
+import { loadCartRules, rulesForChannel, cartRuleViolation } from '../services/cart-rules.js';
+import { isProviderRejection } from '../services/payments/provider-error.js';
 
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
+// Durée d'un hold de sélection : une base, plus un temps par ligne du panier
+// — saisir dix porteurs ne se fait pas dans le délai d'un seul. Défaut :
+// 1 min + 30 s par ligne (1 ligne → 1:30, 10 lignes → 6:00).
+const SEAT_HOLD_BASE_SEC = Number(process.env.SEAT_HOLD_BASE_SEC || '60');
+const SEAT_HOLD_PER_LINE_SEC = Number(process.env.SEAT_HOLD_PER_LINE_SEC || '30');
 
-// Helper: reconnaît un ID virtuel de zone (ex: DEBOUT-Z001)
-const isVirtualZoneSeatId = (sid) => /^.+-Z\d{3,}$/i.test(String(sid || ''));
+/**
+ * Durée du hold pour un panier de `lineCount` lignes (places en siège ET en
+ * zone : c'est le nombre de porteurs à saisir). Le nombre vient du client :
+ * borné par le nombre de sièges demandés en bas, et par le plafond de places
+ * par commande en haut, pour qu'un client ne puisse pas s'octroyer un hold
+ * sans fin.
+ */
+function seatHoldTtlSec(lineCount, seatCount = 1) {
+  const cap = Math.max(orderMaxItems() || 30, seatCount);
+  const n = Number.isInteger(lineCount) ? lineCount : seatCount;
+  const lines = Math.min(Math.max(n, seatCount, 1), cap);
+  return SEAT_HOLD_BASE_SEC + SEAT_HOLD_PER_LINE_SEC * lines;
+}
+// Durée de réutilisation de la base du plan de salle, pour l'AFFICHAGE seul.
+// Le sondage des navigateurs est à 5 s : 3 s garantissent que deux sondages
+// consécutifs ne retombent jamais sur la même base, tout en absorbant la
+// rafale de visiteurs simultanés qui, elle, provoquait un parcours complet de
+// la collection `orders` par requête.
+const SEAT_STATES_CACHE_MS = Number(process.env.SEAT_STATES_CACHE_MS ?? 3000);
+
+function buildPayStartUrl(orderId) {
+  // APP_URL already contains BASE_PATH in deployed envs (same as SUMUP_RETURN_URL convention)
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  return `${app}/pay/start?orderId=${encodeURIComponent(String(orderId))}`;
+}
+
+function buildPayStatusUrl(orderId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  return `${app}/pay/status?orderId=${encodeURIComponent(String(orderId))}`;
+}
+
+function buildPayReturnUrl(orderId, checkoutId) {
+  const app = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  const oid = encodeURIComponent(String(orderId));
+  const ci  = checkoutId ? `&ci=${encodeURIComponent(String(checkoutId))}` : '';
+  return `${app}/pay/return?oid=${oid}${ci}`;
+}
+
 async function loadEvent(eventIdOrSlug) {
   const q = isValidObjectId(eventIdOrSlug)
     ? { $or: [{ _id: new mongoose.Types.ObjectId(eventIdOrSlug) }, { slug: String(eventIdOrSlug) }] }
@@ -41,9 +94,71 @@ function shouldFallbackToPublic(channelCtx) {
 
 function isPartnerPresaleAllowed(ev, channelCtx) {
   if (!channelCtx || channelCtx.kind !== 'partner') return false;
+  if (!isPartnerSaleWindow(ev)) return false;
   const cfg = channelCtx.partnerConfig || {};
   const quota = Number(cfg?.presale?.events?.[ev?.slug]?.quota || 0);
   return quota > 0;
+}
+
+// Droits du bénéficiaire connecté (partner.json → entitlements) ; null hors
+// canal partenaire ou sans règles. Lève code=partner_login_required sans session.
+async function getPartnerEntitlements(ev, channelCtx) {
+  if (!channelCtx || channelCtx.kind !== 'partner') return null;
+  if (!Array.isArray(channelCtx.partnerConfig?.entitlements) || !channelCtx.partnerConfig.entitlements.length) return null;
+  return entitlementsForEvent({
+    cfg: channelCtx.partnerConfig || {},
+    partnerSlug: channelCtx.partnerSlug,
+    session: channelCtx.session,
+    event: ev,
+    tariffChannels: await partnerTariffChannels(ev, channelCtx)
+  });
+}
+
+// Origine de chaque tarif proposé au partenaire : « partner » s'il lui est
+// propre (canaux partner:<slug>, partner, all), « public » s'il vient de la
+// grille publique (allowPublicTariffs). Base de `tariffChannel` des droits.
+async function partnerTariffChannels(ev, channelCtx) {
+  const { tariffs } = await loadTariffsAndPrices(ev, channelCtx);
+  return new Map((tariffs || []).map(t => [
+    String(t.code || '').toUpperCase(),
+    matchesChannel(t.channels, channelCtx) ? 'partner' : 'public'
+  ]));
+}
+
+// Refus 400/401 à renvoyer si le panier dépasse les droits ; null sinon.
+async function entitlementRefusal(ev, channelCtx, lines) {
+  let ent;
+  try {
+    ent = await getPartnerEntitlements(ev, channelCtx);
+  } catch (e) {
+    if (e?.code === 'partner_login_required') {
+      return { status: 401, body: { ok: false, error: 'partner_login_required', message: e.message } };
+    }
+    throw e;
+  }
+  if (!ent) return null;
+  const refusal = cartRefusal(ent.rules, ent.state, lines, ent.ctx);
+  return refusal ? { status: 400, body: { ok: false, ...refusal } } : null;
+}
+
+// Contrôles de panier (data/customization/cart-rules.json) applicables au
+// canal. Fichier mal formé : signalé au journal, et aucun contrôle plutôt
+// qu'aucune vente — ce sont des règles de cohérence, pas de sécurité.
+function cartRulesFor(channelCtx) {
+  const channel = channelCtx?.kind === 'partner' ? `partner:${channelCtx.partnerSlug || ''}` : 'public';
+  try {
+    return rulesForChannel(loadCartRules(), channel);
+  } catch (e) {
+    console.error('[cart-rules] fichier ignoré :', e.message);
+    return [];
+  }
+}
+
+// Identité de l'acheteur à reporter sur la commande : c'est elle qui permet
+// de décompter les droits par bénéficiaire.
+function partnerHolderMeta(channelCtx) {
+  const s = channelCtx?.session;
+  return s?.sub ? { identifier: String(s.sub), holderName: s.name || '' } : {};
 }
 
 async function getPartnerPresaleRemaining(ev, channelCtx) {
@@ -100,7 +215,12 @@ function resolveVenueViewForEvent(ev, channelCtx) {
 async function loadTariffsAndPrices(ev, channelCtx) {
   const evTariffs = await Tariff.find({ priceTableKey: ev.priceTableKey, active: true }).lean();
   if (evTariffs.length > 0) {
-    const evPrices = await TariffPrice.find({ priceTableKey: ev.priceTableKey }).lean();
+    // Les zones restent celles de la saison/lieu, même pour une grille
+    // dédiée à l'évènement : c'est là que vivent les méta-zones.
+    const evPrices = await withMetaZonePrices(
+      await TariffPrice.find({ priceTableKey: ev.priceTableKey }).lean(),
+      { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }
+    );
     if (shouldFallbackToPublic(channelCtx)) {
       const partnerFiltered = filterTariffsAndPricesByChannel(evTariffs, evPrices, channelCtx, { fallbackToPublic: false });
       const publicFiltered = filterTariffsAndPricesByChannel(evTariffs, evPrices, { kind: 'public' }, { fallbackToPublic: false });
@@ -129,8 +249,15 @@ async function loadTariffsAndPrices(ev, channelCtx) {
     const filtered = filterTariffsAndPricesByChannel(evTariffs, evPrices, channelCtx, { fallbackToPublic: false });
     return { ...filtered, scope: 'event' };
   }
-  const fbTariffs = await Tariff.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, active: true }).lean();
-  const fbPrices = await TariffPrice.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }).lean();
+  // Repli sur les tarifs de SAISON quand le match n'a pas de table dédiée.
+  // `Tariff` est global : seasonCode/venueSlug n'existent pas au schéma et
+  // étaient supprimés par strictQuery. Le bon critère est `priceTableKey: null`,
+  // qui isole précisément les tarifs hors table événementielle.
+  const fbTariffs = await Tariff.find({ priceTableKey: null, active: true }).lean();
+  const fbPrices = await withMetaZonePrices(
+    await TariffPrice.find({ seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }).lean(),
+    { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug }
+  );
   if (shouldFallbackToPublic(channelCtx)) {
     const partnerFiltered = filterTariffsAndPricesByChannel(fbTariffs, fbPrices, channelCtx, { fallbackToPublic: false });
     const publicFiltered = filterTariffsAndPricesByChannel(fbTariffs, fbPrices, { kind: 'public' }, { fallbackToPublic: false });
@@ -176,43 +303,8 @@ function buildAllowedFromPrices(prices) {
   };
 }
 
-async function computeSeatStates(ev) {
-  // Base: états des sièges pour la saison/lieu (provisions/holds abonnements, VIP, etc.)
-  const base = await Seat.find(
-    { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug },
-    { seatId: 1, zoneKey: 1, status: 1, _id: 0 }
-  ).lean();
-
-  const byId = new Map(base.map(s => [String(s.seatId), { seatId: s.seatId, zoneKey: s.zoneKey, status: String(s.status || 'available').toLowerCase() }]));
-
-  // Surcouche: ordres paid/tobepaid pour CET évènement -> booked
-  const paid = await Order.find(
-    {
-      status: { $in: ['paid', 'tobepaid'] },
-      $or: [
-        { eventId: ev._id },
-        { 'meta.eventId': String(ev._id) }
-      ]
-    },
-    { lines: 1, _id: 0 }
-  ).lean();
-
-  for (const ord of (paid || [])) {
-    for (const ln of (ord.lines || [])) {
-      const placement = resolveLinePlacement(ln);
-      if (placement.released) continue;
-      const sid = String(placement.seatId || '').trim();
-      if (!sid) continue;                 // lignes de zone → pas de seatId
-      if (isVirtualZoneSeatId(sid)) continue; // IDs virtuels (zones) → ignorer
-      if (!byId.has(sid)) continue;       // ⛔ ne crée PAS de siège fantôme
-      const rec = byId.get(sid);
-      rec.status = 'booked';
-      byId.set(sid, rec);
-    }
-  }
-
-  return Array.from(byId.values());
-}
+// computeSeatStates lives in src/services/event-seat-states.js — the
+// seat-change flow must score availability with exactly the same rules.
 
 function buildOrigin(flowKey, uiPath, extraOrigin) {
   return (req) => ({
@@ -249,8 +341,11 @@ export function createEventFlowRouter({
   async function prepareOrderContext(req, ev, channelCtx) {
     const { payer, items, schedule } = req.body || {};
     assert(Array.isArray(items) && items.length > 0, 'Panier vide');
+    // Avant tout travail : inutile de vérifier cent sièges pour refuser ensuite.
+    assertOrderItemCount(countPlaces(items));
 
-    const seats = await computeSeatStates(ev);
+    const sessionToken = String(req.query?.sessionToken || req.body?.sessionToken || '').trim().slice(0, 64);
+    const seats = await computeSeatStates(ev, sessionToken);
     const statusIdx = new Map(seats.map(s => [String(s.seatId), s.status]));
     for (const it of items) {
       const sidRaw = String(it.seatId || '').trim();
@@ -273,6 +368,19 @@ export function createEventFlowRouter({
       return [key, { display, partner }];
     }));
 
+    // zoneType (the zone's physical seating character) is independent of
+    // unitType (the allocation mechanism) — see src/utils/seat-id.js. A VIP
+    // zone can be Zone.type === 'seated' while still being zone-allocated.
+    const requestedZoneKeys = Array.from(new Set(items.map(it => String(it.zoneKey || '').trim().toUpperCase()).filter(Boolean)));
+    const zoneTypeByKey = new Map();
+    if (requestedZoneKeys.length) {
+      const zoneDocs = await Zone.find(
+        { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, key: { $in: requestedZoneKeys } },
+        { key: 1, type: 1, _id: 0 }
+      ).lean();
+      for (const z of zoneDocs) zoneTypeByKey.set(String(z.key || '').toUpperCase(), z.type || 'seated');
+    }
+
     const lines = items.map(it => {
       const z = String(it.zoneKey || '').toUpperCase();
       const t = String(it.tariffCode || '').toUpperCase();
@@ -290,6 +398,8 @@ export function createEventFlowRouter({
       return {
         seatId: sid,
         zoneKey: z,
+        unitType: sid ? 'seat' : 'zone',
+        zoneType: zoneTypeByKey.get(z) || null,
         tariffCode: t,
         priceCents: displayPrice,
         partnerPriceCents: partnerPrice,
@@ -338,6 +448,7 @@ export function createEventFlowRouter({
   // GET /:eventId/status
   router.get('/:eventId/status', async (req, res) => {
     try {
+      const sessionToken = String(req.query.sessionToken || '').trim().slice(0, 64);
       const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
       const presaleRemaining = await getPartnerPresaleRemaining(ev, channelCtx);
@@ -345,16 +456,31 @@ export function createEventFlowRouter({
         ? Number(channelCtx?.partnerConfig?.presale?.events?.[ev?.slug]?.quota || 0)
         : 0;
       const saleStatus = (() => {
-        if (ev.isOnSale === true) return 'sale_opened';
-        if (isPartnerPresaleAllowed(ev, channelCtx)) {
-          if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
-          return 'presale_opened';
-        }
-        return 'sale_closed';
+        if (ev.sale === 'soldout') return 'sold_out';
+        if (channelCtx.kind !== 'partner') return isEventOnSale(ev) ? 'sale_opened' : 'sale_closed';
+        // Partenaire : le quota plafonne aussi pendant la vente publique.
+        if (!isPartnerPresaleAllowed(ev, channelCtx)) return 'sale_closed';
+        if (presaleRemaining !== null && presaleRemaining <= 0) return 'presale_quota_reached';
+        return isEventOnSale(ev) ? 'sale_opened' : 'presale_opened';
       })();
+      let ent = null;
+      try {
+        ent = await getPartnerEntitlements(ev, channelCtx);
+      } catch (e) {
+        if (e?.code !== 'partner_login_required') throw e;
+      }
+      const entitlements = ent?.state || null;
+      // Plafond côté panier : somme des restes. Un panier sans limite dans cet
+      // état de vente (places en plus à l'ouverture publique) lève le plafond
+      // global ; le serveur contrôle toujours chaque panier au paiement.
+      const entitlementMax = entitlements && !entitlements.some(r => r.unlimited)
+        ? entitlements.reduce((sum, r) => sum + r.remaining, 0)
+        : null;
+      const session = channelCtx?.kind === 'partner' ? channelCtx.session : null;
       const resolvedVenueView = resolveVenueViewForEvent(ev, channelCtx);
       const [seatsBase, { tariffs, prices, scope }] = await Promise.all([
-        computeSeatStates(ev),
+        // Affichage : cache autorisé (voir SEAT_STATES_CACHE_MS).
+        computeSeatStates(ev, sessionToken, { cacheMs: SEAT_STATES_CACHE_MS }),
         loadTariffsAndPrices(ev, channelCtx)
       ]);
 
@@ -368,7 +494,7 @@ export function createEventFlowRouter({
 
       // 2) Récupère meta zones
       let zonesMeta = {};
-      let zonesKind = {}; // { KEY: 'seated'|'standing'|'fanclub' }
+      let zonesKind = {}; // { KEY: 'seated'|'standing' }
       let publics = [];
       try {
         const zoneMatch = (flowKey === 'partner')
@@ -435,7 +561,7 @@ export function createEventFlowRouter({
         const zoneSold = new Map();
         const eventOrders = await Order.find(
           {
-            status: { $nin: ['canceled', 'failed'] },
+            status: { $in: ['paid', 'tobepaid'] },
             $or: [
               { eventId: ev._id },
               { 'meta.eventId': String(ev._id) }
@@ -447,12 +573,28 @@ export function createEventFlowRouter({
         let subscriptionOrders = [];
         const hasImportedSeason = eventOrders.some(o => o.parentOrderId);
         if (!hasImportedSeason) {
+          // `phase` n'existe pas au schéma Order (strict: true) : strictQuery
+          // le supprimait de la requête, qui ramenait alors TOUTES les
+          // commandes de la saison — y compris celles des matchs précédents.
+          // Une zone debout de 299 places s'affichait à 149 sur un match tout
+          // neuf, amputée des ventes des rencontres passées.
+          //
+          // Le critère qui distingue réellement un abonnement est `origin.flow`
+          // — et il inclut `renew` : un renouveleur ayant une place debout
+          // l'occupe autant qu'un nouvel abonné. `eventId: null` écarte les
+          // commandes rattachées à un match (même définition que
+          // buildSeasonOrderMatch côté admin).
           subscriptionOrders = await Order.find(
             {
-              phase: 'subscription',
               seasonCode: ev.seasonCode,
               venueSlug: ev.venueSlug,
-              status: { $nin: ['canceled', 'failed'] }
+              // 'partner' compris : un abonnement souscrit par le canal
+              // partenaire est un abonnement (subscription.js lui donne ce
+              // flux). `eventId: null` écarte les commandes de MATCH
+              // partenaire, qui portent le même flux.
+              'origin.flow': { $in: ['subscription', 'renew', 'partner'] },
+              eventId: null,
+              status: { $in: ['paid', 'tobepaid'] }
             },
             { lines: 1 }
           ).lean();
@@ -464,8 +606,12 @@ export function createEventFlowRouter({
             if (placement.released) continue;
             const key = String(placement.zoneKey || '').trim().toUpperCase();
             if (!zoneCapacity.has(key)) continue;
-            const seatId = typeof placement?.seatId === 'string' ? placement.seatId.trim() : '';
-            if (seatId) continue;
+            // Une place debout ne se reconnaît PAS à un seatId vide : les flux
+            // d'abonnement lui donnent un identifiant virtuel (« DEBOUT-Z001 »).
+            // Écarter toute ligne pourvue d'un seatId laissait donc les places
+            // debout des abonnés hors du compte. isZoneUnit lit `unitType`
+            // quand il est là, et retombe sur la forme de l'identifiant sinon.
+            if (!isZoneUnit({ unitType: line?.unitType, seatId: placement?.seatId })) continue;
             const qtyRaw = Number(line?.qty ?? line?.quantity ?? 1);
             const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
             zoneSold.set(key, (zoneSold.get(key) || 0) + qty);
@@ -476,8 +622,7 @@ export function createEventFlowRouter({
           for (const line of ord?.lines || []) {
             const key = String(line?.zoneKey || '').trim().toUpperCase();
             if (!zoneCapacity.has(key)) continue;
-            const seatId = typeof line?.seatId === 'string' ? line.seatId.trim() : '';
-            if (seatId) continue;
+            if (!isZoneUnit(line)) continue;
             const qtyRaw = Number(line?.qty ?? line?.quantity ?? 1);
             const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
             zoneSold.set(key, (zoneSold.get(key) || 0) + qty);
@@ -504,11 +649,42 @@ export function createEventFlowRouter({
           slug: ev.slug,
           name: ev.name,
           startsAt: ev.startsAt,
-          isOnSale: ev.isOnSale,
+          sale: ev.sale,
           venueView: resolvedVenueView,
           saleStatus
         },
-        tariffs, prices, scope,
+        // Le front en a besoin pour refuser la place de trop AVANT le
+        // paiement : un panier bâti puis rejeté au checkout fait perdre la
+        // saisie des porteurs.
+        // entitlementMax : places restantes au titre des droits du
+        // bénéficiaire connecté. Champ distinct car 0 y veut dire « plus rien »,
+        // alors que maxItems = 0 veut dire « pas de plafond ».
+        limits: {
+          maxItems: orderMaxItems(),
+          ...(entitlementMax !== null ? { entitlementMax } : {})
+        },
+        entitlements,
+        // Contrôles de panier du canal : le panier les vérifie avant paiement
+        // (generic-view.js), le paiement les revérifie.
+        cartRules: cartRulesFor(channelCtx),
+        // Pré-remplit l'acheteur avec l'identité reçue à la connexion, et
+        // l'affiche (identifiant) dans le panneau Contact.
+        ...(session?.sub ? {
+          payer: { firstName: session.firstName || '', lastName: session.lastName || '', email: session.email || '' },
+          beneficiary: { identifier: String(session.sub), name: session.name || '' }
+        } : {}),
+        // `partner` : tarif propre au partenaire (le panier les présente en
+        // tête et choisit le premier par défaut). Absent hors canal partenaire.
+        // `icon` : celui du panier de droits qui couvre le tarif — préfixe
+        // d'affichage (ex. ❤️), jamais écrit dans le libellé en base.
+        tariffs: channelCtx?.kind === 'partner'
+          ? tariffs.map(t => ({
+              ...t,
+              partner: matchesChannel(t.channels, channelCtx),
+              icon: (ent && ruleForTariff(ent.rules, t.code, ent.ctx)?.icon) || null
+            }))
+          : tariffs,
+        prices, scope,
         allowedZones: Array.from(allowedSet),
         allowedTariffsByZone,
         zonesMeta,
@@ -519,6 +695,7 @@ export function createEventFlowRouter({
           ? { allowed: true, remaining: presaleRemaining ?? null, quota: presaleQuota }
           : { allowed: false },
         saleStatus,
+        holdTtlSec: seatHoldTtlSec(1),
         channel: channelCtx?.kind === 'partner'
           ? `partner:${channelCtx.partnerSlug || ''}`
           : (channelCtx?.kind || 'public')
@@ -528,17 +705,124 @@ export function createEventFlowRouter({
     }
   });
 
+  // GET /:eventId/seats — seat states only (lightweight polling)
+  router.get('/:eventId/seats', async (req, res) => {
+    try {
+      const sessionToken = String(req.query.sessionToken || '').trim().slice(0, 64);
+      const ev = await loadEvent(req.params.eventId);
+      // Affichage : cache autorisé (voir SEAT_STATES_CACHE_MS).
+      const seats = await computeSeatStates(ev, sessionToken, { cacheMs: SEAT_STATES_CACHE_MS });
+      res.json({ ok: true, seats, ts: Date.now() });
+    } catch (e) {
+      res.status(404).json({ ok: false, error: e.message || 'Not found' });
+    }
+  });
+
+  // POST /:eventId/hold — réserve temporaire de sièges (atomic hold-or-conflict)
+  router.post('/:eventId/hold', async (req, res) => {
+    try {
+      const ev = await loadEvent(req.params.eventId);
+      const sessionToken = String(req.body?.sessionToken || '').trim().slice(0, 64);
+      if (!sessionToken) return res.status(400).json({ ok: false, error: 'sessionToken required' });
+
+      const seatIds = (Array.isArray(req.body?.seatIds) ? req.body.seatIds : [])
+        .map(s => String(s || '').trim()).filter(Boolean).slice(0, 30);
+      if (!seatIds.length) return res.json({ ok: true, held: [], conflicts: [], holdTtlSec: seatHoldTtlSec(1) });
+
+      // Le client renvoie TOUS les sièges du panier à chaque changement : ils
+      // reçoivent donc tous la même échéance, calculée sur le panier entier.
+      const ttlSec = seatHoldTtlSec(Number(req.body?.lineCount), seatIds.length);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + ttlSec * 1000);
+      const held = [];
+      const conflicts = [];
+
+      const results = await Promise.allSettled(seatIds.map(async (seatId) => {
+        // 1) Renouvelle si c'est notre hold ou un hold expiré
+        const updated = await SeatHold.findOneAndUpdate(
+          {
+            eventId: ev._id,
+            seatId,
+            $or: [
+              { sessionToken },
+              { expiresAt: { $lte: now } }
+            ]
+          },
+          { $set: { sessionToken, expiresAt, seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, reason: 'selection' } },
+          { new: true }
+        );
+        if (updated) return { seatId, status: 'held' };
+
+        // 2) Vérifie si un hold actif d'une autre session existe
+        const activeHold = await SeatHold.findOne(
+          { eventId: ev._id, seatId, expiresAt: { $gt: now } },
+          { _id: 1 }
+        ).lean();
+        if (activeHold) return { seatId, status: 'conflict' };
+
+        // 3) Aucun hold → crée (catch 11000 si index unique actif)
+        try {
+          await SeatHold.create({
+            eventId: ev._id, seatId, sessionToken, expiresAt,
+            seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, reason: 'selection'
+          });
+          return { seatId, status: 'held' };
+        } catch (err) {
+          if (err.code === 11000) return { seatId, status: 'conflict' };
+          throw err;
+        }
+      }));
+
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          if (r.value.status === 'held') held.push(r.value.seatId);
+          else conflicts.push(r.value.seatId);
+        }
+      }
+
+      const ok = conflicts.length === 0 && held.length > 0;
+      res.json({ ok, held, conflicts, heldUntil: expiresAt.toISOString(), holdTtlSec: ttlSec });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // DELETE /:eventId/hold — libère les holds d'une session (seatIds précis ou tous)
+  router.delete('/:eventId/hold', async (req, res) => {
+    try {
+      const ev = await loadEvent(req.params.eventId);
+      const sessionToken = String(req.body?.sessionToken || '').trim().slice(0, 64);
+      if (!sessionToken) return res.status(400).json({ ok: false, error: 'sessionToken required' });
+
+      const seatIds = (Array.isArray(req.body?.seatIds) ? req.body.seatIds : [])
+        .map(s => String(s || '').trim()).filter(Boolean);
+
+      const filter = seatIds.length
+        ? { eventId: ev._id, sessionToken, seatId: { $in: seatIds } }
+        : { eventId: ev._id, sessionToken };
+
+      await SeatHold.deleteMany(filter);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // POST /:eventId/checkout
   router.post('/:eventId/checkout', async (req, res) => {
     try {
       const channelCtx = channelResolver(req) || { kind: flowKey === 'partner' ? 'partner' : 'public' };
       const ev = await loadEvent(req.params.eventId);
-      const presale = isPartnerPresaleAllowed(ev, channelCtx);
+      const isPartner = channelCtx.kind === 'partner';
       const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
-      assert(ev.isOnSale === true || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
+      assert(isPartner ? (remaining ?? 0) > 0 : isEventOnSale(ev), 'Vente fermée pour cet événement.');
 
       const ctxData = await prepareOrderContext(req, ev, channelCtx);
-      if (ev.isOnSale !== true && presale) {
+      const ruleBreak = cartRuleViolation(cartRulesFor(channelCtx), ctxData.lines);
+      if (ruleBreak) return res.status(400).json({ ok: false, ...ruleBreak });
+      const entRefusal = await entitlementRefusal(ev, channelCtx, ctxData.lines);
+      if (entRefusal) return res.status(entRefusal.status).json(entRefusal.body);
+      if (isPartner) {
         const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
         if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
           return res.status(400).json({
@@ -551,14 +835,37 @@ export function createEventFlowRouter({
       }
       const payerInfo = ctxData.payer;
       const scheduleValue = ctxData.schedule;
-      const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
+      // slug is stamped for every partner-channel order (not just split-payment
+      // ones) so meta.partner.slug is reliable wherever it's queried: presale
+      // quota tracking (getPartnerPresaleRemaining above), the admin partner
+      // orders listing, and theme resolution (resolveThemeForOrder).
+      const partnerMeta = (channelCtx?.kind === 'partner')
         ? {
             slug: channelCtx.partnerSlug || null,
-            displayTotalCents: ctxData.partnerTotals.displayTotal,
-            partnerContributionCents: ctxData.partnerTotals.partnerContribution,
-            partnerTotalCents: ctxData.partnerTotals.partnerTotal
+            ...partnerHolderMeta(channelCtx),
+            ...(ctxData.partnerTotals ? {
+              displayTotalCents: ctxData.partnerTotals.displayTotal,
+              partnerContributionCents: ctxData.partnerTotals.partnerContribution,
+              partnerTotalCents: ctxData.partnerTotals.partnerTotal
+            } : {})
           }
         : null;
+
+      // Gel : un seul paiement en vol par onglet. Revenir en arrière et
+      // relancer ne doit pas créer une seconde commande payable — c'est ce
+      // qui faisait échouer le paiement du premier lien après encaissement.
+      const freezeToken = String(req.query.sessionToken || req.body?.sessionToken || '').trim().slice(0, 64);
+      if (freezeToken) {
+        const freeze = await evaluateFreeze({
+          sessionToken: freezeToken, eventId: ev._id, lines: ctxData.lines
+        });
+        if (freeze?.action === 'resume') {
+          return res.json(resumePayload(freeze));
+        }
+        if (freeze?.action === 'blocked') {
+          return res.status(409).json(blockedPayload(freeze));
+        }
+      }
 
       // Crée order "pending" + hold
       const now = new Date();
@@ -575,7 +882,8 @@ export function createEventFlowRouter({
         itemName: `${itemNamePrefix}_${ev.slug}`,
         phase: 'event',
         paymentProvider: PAYMENT_PROVIDER_ID,
-        paymentProviderMeta: {},
+        // Le jeton d'onglet est conservé ici : c'est la clé du gel.
+        paymentProviderMeta: freezeToken ? { checkoutSessionToken: freezeToken } : {},
 
         createdAt: now,
         status: 'pending',
@@ -602,10 +910,40 @@ export function createEventFlowRouter({
 
         origin: resolvedOrigin,
         mailTemplateKind,
+        locale: req.locale,
         hold: { until }
       });
 
-      // Pose des holds uniquement pour les VRAIS sièges (présents dans statusIdx)
+      const checkoutSessionToken = String(req.query.sessionToken || req.body?.sessionToken || '').trim().slice(0, 64);
+      const holdSeatIds = ctxData.holdable.map(ln => String(ln.seatId));
+
+      // Libère les SeatHolds pre-checkout de cette session pour les places
+      // RETIRÉES du panier ; celles qui restent sont converties en hold de
+      // commande juste après (les supprimer d'abord rouvrirait une fenêtre où
+      // un autre acheteur pourrait les prendre).
+      if (checkoutSessionToken) {
+        SeatHold.deleteMany({
+          eventId: ev._id,
+          sessionToken: checkoutSessionToken,
+          seatId: { $nin: holdSeatIds }
+        }).catch(() => {});
+      }
+
+      // Verrou faisant autorité (voir claimEventSeatHolds).
+      if (holdSeatIds.length) {
+        const claim = await claimEventSeatHolds({
+          ev, order: ord, seatIds: holdSeatIds, sessionToken: checkoutSessionToken, until
+        });
+        if (!claim.ok) {
+          markOrderFailed(ord, FAILURE_REASONS.SEAT_HOLD_CONFLICT,
+            { reason: 'seat_hold_conflict', seats: claim.conflicts });
+          await ord.save();
+          return res.status(409).json({ ok: false, error: 'seat_unavailable', seatIds: claim.conflicts });
+        }
+      }
+
+      // Hold historique côté Seat, conservé pour les places dont l'état saison
+      // le permet (best-effort : il ne couvre pas les places rendues).
       if (ctxData.holdable.length) {
         await Promise.all(ctxData.holdable.map(ln =>
           Seat.updateOne(
@@ -616,6 +954,37 @@ export function createEventFlowRouter({
       }
 
       // Intent paiement
+      //
+      // La commande existe déjà et tient ses places : l'intent ne peut pas
+      // être créé avant elle, puisque son `returnUrl` et son `metadata`
+      // portent l'identifiant de commande — c'est par là que le webhook et la
+      // page de retour la retrouvent. L'ordre est donc imposé, et ce qui
+      // manquait n'était pas un autre ordre mais le DÉFAIRE.
+      //
+      // Sans lui, un appel au prestataire qui échoue laissait une commande
+      // « mort-née » : `pending`, sans intent, donc impayable, mais tenant ses
+      // sièges jusqu'à l'expiration du verrou, et balayée beaucoup plus tard
+      // par la sentinelle. C'est le cas dominant du match du 03/10/2026—
+      // 374 des 430 commandes annulées n'ont jamais obtenu d'intent, et les
+      // acheteurs ont recommencé jusqu'à 19 fois, trouvant à chaque tour les
+      // places bloquées par les cadavres du tour précédent.
+      const rollbackStillbornOrder = async (cause) => {
+        markOrderFailed(ord, FAILURE_REASONS.PROVIDER_UNAVAILABLE, {
+          providerError: String(cause || '').slice(0, 500),
+          stillbornAt: new Date()
+        });
+        // `failed` et non `canceled` : rien n'a été encaissé, et la nuance
+        // sépare la panne du prestataire de l'abandon d'un acheteur dans les
+        // relevés. Les deux sortent du calcul d'occupation et de la fenêtre
+        // de gel (findLiveCheckout ne regarde que pending/tobepaid), donc
+        // l'acheteur peut relancer immédiatement.
+        await ord.save().catch(() => { /* la libération des places primera */ });
+
+        // Rendre les places TOUT DE SUITE, sans attendre le TTL : c'est ce qui
+        // rendait les nouvelles tentatives stériles.
+        await releaseOrderSeatHolds(ord);
+      };
+
       let intent = null;
       try {
         const urls = buildReturnUrls(ord);
@@ -625,32 +994,88 @@ export function createEventFlowRouter({
           backUrl: urls.backUrl,
           errorUrl: urls.errorUrl
         });
-        if (intent?.id || intent?.checkoutReference || intent?.raw?.checkout_reference) {
-          const checkoutId = String(intent.id || intent.checkoutReference || intent.raw?.checkout_reference || '');
-          ord.paymentProvider = PAYMENT_PROVIDER_ID;
-          ord.paymentProviderMeta = {
-            ...(ord.paymentProviderMeta || {}),
-            name: PAYMENT_PROVIDER_ID,
-            checkoutIntentId: checkoutId,
-            checkoutReference: intent.checkoutReference || intent.raw?.checkout_reference || checkoutId,
-            providerOrderId:
-              intent.providerOrderId ||
-              intent.raw?.order?.id ||
-              intent.raw?.orderId ||
-              intent.raw?.transaction_code ||
-              intent.raw?.transaction_id ||
-              intent.raw?.id ||
-              null
-          };
-          await ord.save();
-        }
       } catch (err) {
-        throw new Error(`Payment provider unavailable: ${err.message || err}`);
+        console.error(`[${flowKey}/checkout] provider intent failed:`, err?.message || err);
+        await rollbackStillbornOrder(err?.message || err);
+        // Le prestataire a répondu mais refuse les données (ex. HelloAsso :
+        // « Le champ nom est invalide ») : l'acheteur peut corriger, ce n'est
+        // pas une panne.
+        if (isProviderRejection(err)) {
+          return res.status(400).json({
+            ok: false,
+            error: 'payment_rejected',
+            reasons: err.providerMessages || [],
+            retryable: false
+          });
+        }
+        return res.status(503).json({
+          ok: false,
+          error: 'provider_unavailable',
+          retryable: true
+        });
       }
 
-      const redirectUrl = intent?.redirectUrl || intent?.url || null;
-      res.json({ ok: true, orderId: String(ord._id), redirectUrl, checkout: intent });
+      const checkoutId = String(
+        intent?.id || intent?.checkoutReference || intent?.raw?.checkout_reference || ''
+      );
+      if (!checkoutId) {
+        // Une réponse sans identifiant n'est pas un succès : elle produisait
+        // exactement la même commande impayable, mais en répondant `ok` — le
+        // navigateur ouvrait alors une page de paiement vide.
+        console.error(`[${flowKey}/checkout] provider returned no checkout id`);
+        await rollbackStillbornOrder('provider returned no checkout id');
+        return res.status(502).json({
+          ok: false,
+          error: 'provider_unavailable',
+          retryable: true
+        });
+      }
+
+      ord.paymentProvider = PAYMENT_PROVIDER_ID;
+      ord.paymentProviderMeta = {
+        ...(ord.paymentProviderMeta || {}),
+        name: PAYMENT_PROVIDER_ID,
+        checkoutIntentId: checkoutId,
+        checkoutReference: intent.checkoutReference || intent.raw?.checkout_reference || checkoutId,
+        providerRedirectUrl: intent.redirectUrl || intent.url || null,
+        providerOrderId:
+          intent.providerOrderId ||
+          intent.raw?.order?.id ||
+          intent.raw?.orderId ||
+          intent.raw?.transaction_code ||
+          intent.raw?.transaction_id ||
+          intent.raw?.id ||
+          null
+      };
+      try {
+        await ord.save();
+      } catch (err) {
+        // L'intent existe chez le prestataire mais nous n'avons pas pu le
+        // retenir : la commande serait payable sans que nous sachions la
+        // retrouver. On la défait comme une panne.
+        console.error(`[${flowKey}/checkout] intent save failed:`, err?.message || err);
+        await rollbackStillbornOrder(`intent save failed: ${err?.message || err}`);
+        return res.status(503).json({
+          ok: false,
+          error: 'provider_unavailable',
+          retryable: true
+        });
+      }
+
+      const redirectUrl = buildPayStartUrl(ord._id);
+      res.json({
+        ok: true,
+        orderId:     String(ord._id),
+        redirectUrl,                                              // /pay/start (legacy fallback)
+        providerUrl: intent.redirectUrl || intent.url || null,   // direct provider URL (SumUp hosted checkout)
+        statusUrl:   buildPayStatusUrl(ord._id),                 // polling endpoint
+        returnUrl:   buildPayReturnUrl(ord._id, checkoutId),     // final confirmation page
+        checkout:    intent
+      });
     } catch (e) {
+      // Un refus de plafond porte un corps structuré : le front doit pouvoir le
+      // distinguer d'une erreur de panier quelconque.
+      if (e?.refusal) return res.status(400).json({ ok: false, ...e.refusal });
       console.error(`[${flowKey}/checkout] error:`, e?.message || e);
       res.status(400).json({ ok: false, error: e.message || 'Checkout error' });
     }
@@ -665,12 +1090,16 @@ export function createEventFlowRouter({
 
       try {
         const ev = await loadEvent(req.params.eventId);
-        const presale = isPartnerPresaleAllowed(ev, channelCtx);
+        const isPartner = channelCtx.kind === 'partner';
         const remaining = await getPartnerPresaleRemaining(ev, channelCtx);
-        assert(ev.isOnSale === true || (presale && (remaining ?? 0) > 0), 'Vente fermée pour cet événement.');
+        assert(isPartner ? (remaining ?? 0) > 0 : isEventOnSale(ev), 'Vente fermée pour cet événement.');
 
         const ctxData = await prepareOrderContext(req, ev, channelCtx);
-        if (ev.isOnSale !== true && presale) {
+        const ruleBreak = cartRuleViolation(cartRulesFor(channelCtx), ctxData.lines);
+        if (ruleBreak) return res.status(400).json({ ok: false, ...ruleBreak });
+        const entRefusal = await entitlementRefusal(ev, channelCtx, ctxData.lines);
+        if (entRefusal) return res.status(entRefusal.status).json(entRefusal.body);
+        if (isPartner) {
           const qty = ctxData.lines.reduce((sum, ln) => sum + Number(ln.qty ?? ln.quantity ?? 1), 0);
           if ((remaining ?? 0) <= 0 || qty > (remaining ?? 0)) {
             return res.status(400).json({
@@ -689,12 +1118,15 @@ export function createEventFlowRouter({
         const resolvedOrigin = typeof originResolver === 'function'
           ? originResolver(req, baseOrigin, channelCtx) || baseOrigin
           : baseOrigin;
-        const partnerMeta = (channelCtx?.kind === 'partner' && ctxData.partnerTotals)
+        const partnerMeta = (channelCtx?.kind === 'partner')
           ? {
               slug: channelCtx.partnerSlug || null,
-              displayTotalCents: ctxData.partnerTotals.displayTotal,
-              partnerContributionCents: ctxData.partnerTotals.partnerContribution,
-              partnerTotalCents: ctxData.partnerTotals.partnerTotal
+            ...partnerHolderMeta(channelCtx),
+              ...(ctxData.partnerTotals ? {
+                displayTotalCents: ctxData.partnerTotals.displayTotal,
+                partnerContributionCents: ctxData.partnerTotals.partnerContribution,
+                partnerTotalCents: ctxData.partnerTotals.partnerTotal
+              } : {})
             }
           : null;
 
@@ -735,10 +1167,25 @@ export function createEventFlowRouter({
           },
           origin: resolvedOrigin,
           mailTemplateKind: invoiceOpts.mailTemplateKind || mailTemplateKind,
+          locale: req.locale,
           hold: { until }
         });
 
         if (ctxData.holdable.length) {
+          const reserveSessionToken = String(req.query.sessionToken || req.body?.sessionToken || '').trim().slice(0, 64);
+          const claim = await claimEventSeatHolds({
+            ev, order: ord,
+            seatIds: ctxData.holdable.map(ln => String(ln.seatId)),
+            sessionToken: reserveSessionToken,
+            until
+          });
+          if (!claim.ok) {
+            markOrderFailed(ord, FAILURE_REASONS.SEAT_HOLD_CONFLICT,
+              { reason: 'seat_hold_conflict', seats: claim.conflicts });
+            await ord.save();
+            return res.status(409).json({ ok: false, error: 'seat_unavailable', seatIds: claim.conflicts });
+          }
+
           await Promise.all(ctxData.holdable.map(ln =>
             Seat.updateOne(
               { seasonCode: ev.seasonCode, venueSlug: ev.venueSlug, seatId: ln.seatId, status: { $ne: 'booked' } },
@@ -763,6 +1210,7 @@ export function createEventFlowRouter({
 
         res.json({ ok: true, orderId: String(ord._id), status: ord.status });
       } catch (e) {
+        if (e?.refusal) return res.status(400).json({ ok: false, ...e.refusal });
         console.error(`[${flowKey}/reserve] error:`, e?.message || e);
         res.status(400).json({ ok: false, error: e.message || 'Reservation error' });
       }

@@ -5,21 +5,46 @@ import http from 'node:http';
 import https from 'node:https';
 import { URL as NodeURL } from 'node:url';
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Order } from '../models/index.js';
-import { getCheckoutStatus, currentPaymentProviderId, currentPaymentProviderLabel } from '../services/payments/index.js';
+import { Event } from '../models/Event.js';
+// `mongoose` et `currentPaymentProvider` étaient UTILISÉS sans être importés :
+// /pay/abandon levait un ReferenceError avant même son try (donc la requête
+// restait sans réponse — l'échappatoire du gel n'a jamais fonctionné, ce qui
+// explique les ~12 min d'attente mesurées sur les relances bloquées), et le
+// rappel Mollie du webhook tombait de la même façon.
+import mongoose from 'mongoose';
+import { getCheckoutStatus, getCheckoutIntent, currentPaymentProvider, currentPaymentProviderId, currentPaymentProviderLabel, currentPaymentUxMode } from '../services/payments/index.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const VIEWS_DIR  = path.resolve(__dirname, '..', 'views');
 import { normalizePaymentStatus, isPaidLike, isRefundedLike,
          finalizePaidIfNoConflict,
-         sendOrderAttestationIfNeeded,
+         scheduleOrderAttestation,
          sendConflictEmail,
-         ensureTicketsForEventOrder } from '../services/order-finalization.js';
+         sendSeatPendingNotice,
+         ensureTicketsForEventOrder,
+         realSeatIdsFromOrder } from '../services/order-finalization.js';
+import { buildSeatChangeUrlForOrder } from '../services/seat-change-link.js';
+import { abandonCheckout } from '../services/checkout-freeze.js';
 import { buildTicketsPdfBuffer } from '../services/tickets-pdf.js';
+import { createPaymentLinkForOrder } from '../services/payment-links.js';
+import { decodePayResumeToken } from '../services/pay-resume-token.js';
+import { claimEventSeatHolds } from '../services/event-seat-holds.js';
+
+// Same env var and default every other checkout-entry point uses
+// (event-flow.factory.js, voucher.js, subscription.js, renew.js) — the
+// window a freshly (re-)claimed seat hold stays valid for.
+const RESUME_HOLD_MIN = Number(process.env.CHECKOUT_HOLD_MIN || '5');
 
 const router = express.Router();
 const PAYMENT_PROVIDER_ID = currentPaymentProviderId();
 const PAYMENT_PROVIDER_LABEL = currentPaymentProviderLabel();
 const ORG_SLUG = process.env.HELLOASSO_ORG_SLUG || '';
-const REPOST_URL = process.env.HELLOASSO_REPOST_URL || '';
-const REPOST_TIMEOUT_MS = Number(process.env.HELLOASSO_REPOST_TIMEOUT_MS || 1000);
+const REPOST_URL = process.env.PAYMENT_REPOST_URL || '';
+const REPOST_TIMEOUT_MS = Number(process.env.PAYMENT_REPOST_TIMEOUT_MS || 1000);
 const BASE_PATH = (process.env.BASE_PATH || '').trim().replace(/\/+$/, '');
 
 const urlFor = (p = '') => {
@@ -155,7 +180,15 @@ function renderPaymentReturn({
   payerEmail,
   contactEmail,
   homeUrl,
-  ticketsUrl
+  ticketsUrl,
+  isSeasonOrder = false
+  // `hasTickets` a disparu : il conditionnait le lien de téléchargement à la
+  // présence de `meta.tickets`, que l'envoi du courriel peuplait au passage
+  // quand il était encore attendu dans la requête. Maintenant qu'il est
+  // différé, ce drapeau était faux au premier affichage et masquait un lien
+  // qui FONCTIONNE — /pay/tickets/:id.pdf appelle lui-même
+  // ensureTicketsForEventOrder et construit le PDF à la demande. Il n'est posé
+  // que pour un paiement confirmé, et répond 404 s'il n'y a vraiment rien.
 }) {
   const safeOrderId = escapeHtml(orderId || '—');
   const safeProviderStatus = providerStatus ? escapeHtml(providerStatus) : '';
@@ -179,17 +212,24 @@ function renderPaymentReturn({
   const supportLine = `<p class="muted">En cas de problème, écrivez à <a href="${safeContactHref}">${safeContactEmail}</a>.</p>`;
   if (state === 'success') {
     title = 'Paiement confirmé ✅';
+    // Un abonnement ne donne aucun billet à ce stade : les billets sont émis
+    // match par match (event-season-sync puis l'envoi par match). Promettre
+    // ici des billets — et pire, un PDF à télécharger — annonçait un fichier
+    // vide et inquiétait l'abonné.
+    const deliveryLine = isSeasonOrder
+      ? `<p class="muted">Vous allez recevoir un email de confirmation de votre abonnement${safeEmail ? ` à l'adresse <strong>${safeEmail}</strong>` : ''}. Vos billets vous seront envoyés avant chaque match.</p>`
+      : `<p class="muted">Vous allez recevoir un email de confirmation accompagné de vos billets${safeEmail ? ` à l'adresse <strong>${safeEmail}</strong>` : ''}.</p>`;
     intro = `
       <p>Bravo&nbsp;! Le paiement a été validé et vos places sont désormais <strong>confirmées</strong>.</p>
-      <p class="muted">Vous allez recevoir un email de confirmation accompagné de vos billets${safeEmail ? ` à l’adresse <strong>${safeEmail}</strong>` : ''}.</p>
+      ${deliveryLine}
       ${safeTicketsUrl ? `<p>Vous pouvez télécharger vos billets directement ici&nbsp;: <a href="${safeTicketsUrl}">billets-${safeOrderId}.pdf</a></p>` : ''}
       ${supportLine}
     `;
   } else if (state === 'failure') {
     title = 'Paiement non confirmé ❌';
     intro = `
-      <p>Le prestataire de paiement signale un échec ou une annulation. Aucun siège n’a été réservé.</p>
-      <p class="muted">Si vous pensez qu’il s’agit d’une erreur, contactez notre équipe en précisant la référence ci-dessous.</p>
+      <p>Le prestataire de paiement signale un échec ou une annulation. Aucun siège n'a été réservé.</p>
+      <p class="muted">Si vous pensez qu'il s'agit d'une erreur, contactez notre équipe en précisant la référence ci-dessous.</p>
       ${supportLine}
     `;
   } else {
@@ -210,10 +250,11 @@ function renderPaymentReturn({
   if (safeProviderOrderId) detailItems.push(`<li>${safeProviderLabel} — Commande : <code>${safeProviderOrderId}</code></li>`);
   if (safeProviderPaymentId) detailItems.push(`<li>${safeProviderLabel} — Paiement : <code>${safeProviderPaymentId}</code></li>`);
   if (finalizeInfo && typeof finalizeInfo === 'object') {
+    const finalizeLabel = isSeasonOrder ? 'Attribution des places' : 'Finalisation billets';
     if (finalizeInfo.ok) {
-      detailItems.push(`<li>Finalisation billets : ${finalizeInfo.alreadyFinalized ? 'déjà effectuée' : 'succès'}</li>`);
+      detailItems.push(`<li>${finalizeLabel} : ${finalizeInfo.alreadyFinalized ? 'déjà effectuée' : 'succès'}</li>`);
     } else {
-      detailItems.push(`<li>Finalisation billets : en attente (vérification manuelle requise)</li>`);
+      detailItems.push(`<li>${finalizeLabel} : en attente (vérification manuelle requise)</li>`);
     }
   }
 
@@ -301,6 +342,21 @@ function renderPaymentReturn({
       });
     });
     ${state === 'pending' ? 'setTimeout(triggerRefresh, 8000);' : ''}
+    // Notify the ordering page (if still open) that payment is confirmed.
+    // Works whether this page is in a new tab or an iframe.
+    ${state === 'success' ? `
+    try {
+      var bc = new BroadcastChannel('bts_payment');
+      bc.postMessage({ type: 'paid', orderId: '${safeOrderId}' });
+      setTimeout(function() { try { bc.close(); } catch(e) {} }, 1000);
+    } catch(e) {}
+    // Also try postMessage to opener (covers popup / new tab opened with window.open)
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage({ type: 'bts_paid', orderId: '${safeOrderId}' }, '*');
+      }
+    } catch(e) {}
+    ` : ''}
   })();
   </script>`;
 }
@@ -308,10 +364,280 @@ function renderPaymentReturn({
 
 
 /**
+ * GET /pay/status?orderId=<id>
+ * Polls order status. If still pending and enough time has passed since the last
+ * provider check, actively queries the payment provider API and finalizes the order
+ * — so the frontend doesn't need the webhook or browser redirect to detect payment.
+ */
+router.get('/status', async (req, res) => {
+  const orderId = String(req.query.orderId || '').trim();
+  if (!orderId) return res.status(400).json({ error: 'missing_orderId' });
+
+  let order = null;
+  try {
+    order = await Order.findById(orderId).lean();
+  } catch {}
+  if (!order) return res.json({ status: 'not_found', paid: false });
+  if (order.status === 'paid') return res.json({ status: 'paid', paid: true });
+
+  // Order still pending — check with the provider (rate-limited: once every 15 s per order)
+  const checkoutIntentId = String(order.paymentProviderMeta?.checkoutIntentId || '').trim();
+  if (checkoutIntentId) {
+    const lastChecked = order.paymentProviderMeta?.lastStatusCheckedAt;
+    const msSince = lastChecked ? Date.now() - new Date(lastChecked).getTime() : Infinity;
+    if (msSince > 15_000) {
+      try {
+        const statusFromProvider = await getCheckoutStatus(checkoutIntentId);
+        const normalized = normalizePaymentStatus(statusFromProvider);
+        // Record the check time regardless of outcome
+        await Order.updateOne({ _id: order._id }, {
+          $set: { 'paymentProviderMeta.lastStatusCheckedAt': new Date() }
+        });
+        if (isPaidLike(normalized)) {
+          // Re-fetch with a full Mongoose doc so finalize can save
+          const liveOrder = await Order.findById(order._id);
+          if (!liveOrder) return res.json({ status: 'not_found', paid: false });
+
+          if (liveOrder.status !== 'paid') {
+            const finalizeInfo = await finalizePaidIfNoConflict(liveOrder);
+            if (!finalizeInfo.ok) {
+              // Provider confirmed payment but the seat(s) couldn't be booked
+              // (real conflict) — do NOT report paid:true, the booking itself
+              // failed. liveOrder.status is now 'failed'; surface that instead
+              // of a false success.
+              //
+              // `inFlight` est l'autre cas : un chemin concurrent finalise
+              // cette commande. Le front doit continuer à sonder, pas
+              // conclure — renvoyer 'failed' arrêterait l'attente sur un
+              // verdict qui n'est pas encore rendu.
+              if (finalizeInfo.inFlight) {
+                return res.json({ status: 'pending', paid: false });
+              }
+              return res.json({ status: liveOrder.status, paid: false });
+            }
+            if (!finalizeInfo.alreadyFinalized) {
+              // Différé : ce sondage sert à dire « c'est payé » au navigateur
+              // le plus vite possible, pas à attendre un SMTP.
+              scheduleOrderAttestation(liveOrder._id, { source: 'status-poll' });
+            }
+          }
+          return res.json({ status: 'paid', paid: true });
+        }
+      } catch (err) {
+        console.warn('[pay/status] provider check failed:', err?.message || err);
+      }
+    }
+  }
+
+  return res.json({ status: order.status, paid: false });
+});
+
+/**
+ * GET /pay/start?orderId=<id>
+ * Intermediate payment page: mounts widget (SumUp) or opens redirect in new tab with polling.
+ */
+router.get('/start', async (req, res) => {
+  const orderId = String(req.query.orderId || '').trim();
+  if (!orderId) return res.status(400).send('Missing orderId');
+
+  let order = null;
+  try { order = await Order.findById(orderId).lean(); } catch {}
+  if (!order) return res.status(404).send('Order not found');
+
+  const providerId = currentPaymentProviderId();
+  const providerLabel = currentPaymentProviderLabel();
+  const checkoutId = String(order.paymentProviderMeta?.checkoutIntentId || '');
+  const providerRedirectUrl = String(order.paymentProviderMeta?.providerRedirectUrl || '');
+  const uxMode = currentPaymentUxMode();
+
+  const returnUrl = urlFor(`/pay/return?oid=${encodeURIComponent(orderId)}&ci=${encodeURIComponent(checkoutId)}`);
+  const statusUrl = urlFor(`/pay/status?orderId=${encodeURIComponent(orderId)}`);
+  const backUrl = urlFor('/pay/back');
+
+  const totalCents = Number(order.totalCents) || 0;
+  const description = order.meta?.eventName || order.itemName || String(order._id);
+  const lines = Array.isArray(order.lines) ? order.lines : [];
+
+  res.render(path.resolve(VIEWS_DIR, 'pay', 'start'), {
+    uxMode,
+    providerId,
+    providerLabel,
+    checkoutId,
+    providerRedirectUrl,
+    returnUrl,
+    statusUrl,
+    backUrl,
+    orderId,
+    totalCents,
+    description,
+    lines,
+    assets: {
+      static: urlFor('/static/'),
+      media: urlFor('/dynamic/assets/')
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET/POST /pay/resume — stable landing page for a payment-link email.
+//
+// Unlike /pay/start (which assumes a checkout intent already exists on the
+// order), this creates it LIVE, right when the recipient actually clicks
+// "Payer maintenant" — not ahead of time in a batch script. A PSP checkout
+// session created hours or days before anyone opens it is exactly what was
+// producing provider-side timeouts; a session created at click time is only
+// ever as old as the click itself. Token sign/verify lives in its own
+// services/pay-resume-token.js (not here) so scripts/04-event-management/
+// send-payment-links.js and src/services/importers/eventOrdersImporter.js
+// can build this token without importing this whole route file — see that
+// module's header comment for why.
+// ---------------------------------------------------------------------------
+
+async function loadResumeContext(id) {
+  const tok = decodePayResumeToken(id);
+  if (!tok?.orderId) return { error: 'invalid_token', code: 400, order: null };
+
+  const order = await Order.findById(tok.orderId);
+  if (!order) return { error: 'order_not_found', code: 404, order: null };
+
+  const status = String(order.status || '').toLowerCase();
+  if (isPaidLike(status)) return { error: 'already_paid', code: 409, order };
+  if (status === 'canceled' || isRefundedLike(status)) {
+    return { error: 'order_not_payable', code: 409, order };
+  }
+
+  return { error: null, code: 200, order };
+}
+
+function renderResumePage(req, res, ctx) {
+  const id = String(req.query.id || req.body?.id || '');
+  const order = ctx.order;
+  const lines = order && Array.isArray(order.lines)
+    ? order.lines.map((ln) => ({
+        zoneKey: ln.zoneKey || '',
+        seatId: ln.seatId || '',
+        tariffCode: ln.tariffCode || '',
+        priceCents: Number(ln.priceCents || 0)
+      }))
+    : [];
+  const totalCents = order ? Number(order.totalCents || 0) : 0;
+  const description = order ? (order.meta?.eventName || order.itemName || String(order._id)) : '';
+
+  return res.status(ctx.error ? ctx.code : 200).render(path.resolve(VIEWS_DIR, 'pay', 'resume'), {
+    error: ctx.error,
+    id,
+    description,
+    lines,
+    totalCents,
+    assets: {
+      static: urlFor('/static/'),
+      media: urlFor('/dynamic/assets/')
+    }
+  });
+}
+
+router.get('/resume', async (req, res) => {
+  const ctx = await loadResumeContext(String(req.query.id || ''));
+  return renderResumePage(req, res, ctx);
+});
+
+router.post('/resume', async (req, res) => {
+  const id = String(req.body?.id || req.query.id || '');
+  const ctx = await loadResumeContext(id);
+  if (ctx.error) return renderResumePage(req, res, ctx);
+
+  const order = ctx.order;
+  const eventIdRaw = order?.eventId || order?.meta?.eventId;
+
+  // The seat hold behind this order was created at ORIGINAL checkout time —
+  // a short window (CHECKOUT_HOLD_MIN, 5-10 min) meant for a live,
+  // synchronous session. By the time someone opens this email and clicks
+  // through — minutes, hours, or days later, the whole point of this page —
+  // that hold has almost certainly expired, leaving the seat unprotected and
+  // lettable to someone else. That's what was producing the "votre paiement
+  // a dépassé le temps de blocage" conflict and the post-payment "nous
+  // devons vous en réaffecter une" notice: payment happened against a hold
+  // that was already gone. Re-claim it fresh, right here, before creating
+  // the checkout intent — same mechanism the live checkout flow uses to
+  // establish it the first time — so it's as good as new for the window
+  // ahead, and a genuine conflict (seat actually taken) surfaces BEFORE
+  // payment instead of after.
+  if (eventIdRaw) {
+    try {
+      const ev = await Event.findById(eventIdRaw).lean();
+      const seatIds = realSeatIdsFromOrder(order);
+      if (ev && seatIds.length) {
+        const until = new Date(Date.now() + RESUME_HOLD_MIN * 60 * 1000);
+        const claim = await claimEventSeatHolds({ ev, order, seatIds, sessionToken: '', until });
+        if (!claim.ok) {
+          return renderResumePage(req, res, { error: 'seat_conflict', code: 409, order });
+        }
+      }
+    } catch (err) {
+      console.error('[pay/resume] claimEventSeatHolds failed:', err?.message || err);
+      return renderResumePage(req, res, { error: 'create_failed', code: 502, order });
+    }
+  }
+
+  try {
+    const link = await createPaymentLinkForOrder(order, { source: 'pay-resume' });
+    // /pay/start's own button exists for the SumUp inline-widget case (it
+    // needs a live DOM to mount the card form into). For a plain redirect
+    // provider like HelloAsso, routing through it first only adds a second,
+    // redundant "Pay with X" button — the browser has no fresh user gesture
+    // left by the time that page loads (this is a new navigation, not the
+    // same click), so even that second button could silently fail to open a
+    // new tab. Redirecting straight to the PSP here is both simpler and more
+    // reliable: this click IS the live user gesture, right now.
+    if (currentPaymentUxMode() === 'widget') {
+      return res.redirect(302, urlFor(`/pay/start?orderId=${encodeURIComponent(String(order._id))}`));
+    }
+    return res.redirect(302, link.redirectUrl);
+  } catch (err) {
+    console.error('[pay/resume] createPaymentLinkForOrder failed:', err?.message || err);
+    return renderResumePage(req, res, { error: 'create_failed', code: 502, order });
+  }
+});
+
+/**
  * GET /pay/return
  * STUB:   ?oid=<OrderId>&ci=<intentId>&stub=1&result=success|failure
  * PSP:    ?checkoutIntentId=<id>&code=succeeded|canceled&orderId=<providerOrderId>
  */
+// Abandon explicite d'un paiement en vol.
+//
+// Le gel (services/checkout-freeze.js) empêche de lancer un second paiement
+// tant que le premier tient. L'acheteur doit donc pouvoir renoncer au premier
+// — carte refusée, changement d'avis — sans attendre l'expiration du blocage.
+//
+// L'abandon ANNULE la commande : la laisser « pending » la garderait payable,
+// et c'est exactement l'état qui produisait des commandes annulées alors
+// qu'elles avaient été payées. La sentinelle reste le filet pour qui ferme
+// simplement son onglet.
+//
+// Le jeton d'onglet fait autorité : sans lui, un identifiant deviné
+// annulerait la commande d'un autre acheteur.
+router.post('/abandon', async (req, res) => {
+  const orderId = String(req.query.oid || req.body?.orderId || '').trim();
+  const sessionToken = String(req.body?.sessionToken || req.query.sessionToken || '').trim();
+  if (!mongoose.Types.ObjectId.isValid(orderId)) {
+    return res.status(400).json({ ok: false, error: 'invalid_order' });
+  }
+  try {
+    const out = await abandonCheckout({ orderId, sessionToken });
+    if (!out.ok) {
+      // 'not_found' couvre aussi « appartient à quelqu'un d'autre » : ne pas
+      // distinguer les deux évite de confirmer l'existence d'une commande.
+      return res.status(out.reason === 'missing_session' ? 400 : 404)
+        .json({ ok: false, error: out.reason });
+    }
+    return res.json(out);
+  } catch (err) {
+    console.error('[pay/abandon]', err);
+    return res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
 router.get('/return', async (req, res) => {
   const q = req.query || {};
   console.log('[pay/return] query=', {
@@ -343,10 +669,10 @@ router.get('/return', async (req, res) => {
   if (orderIdParam) {
     try {
       order = await Order.findById(orderIdParam);
-      if (!order) orderLookupWarning = "Commande introuvable. Si le paiement est confirmé, contactez l’assistance.";
+      if (!order) orderLookupWarning = "Commande introuvable. Si le paiement est confirmé, contactez l'assistance.";
     } catch (e) {
       console.warn('[pay/return] lookup failed:', e?.message || e);
-      orderLookupWarning = "Commande introuvable. Si le paiement est confirmé, contactez l’assistance.";
+      orderLookupWarning = "Commande introuvable. Si le paiement est confirmé, contactez l'assistance.";
     }
   }
 
@@ -378,14 +704,20 @@ router.get('/return', async (req, res) => {
     providerOrderId: providerOrderIdParam || order?.paymentProviderMeta?.providerOrderId || null
   });
 
-  if (checkoutIntentId) {
+  // Trust DB state first: if the webhook already confirmed the payment, no API call needed.
+  if (order?.status === 'paid') {
+    providerStatus = 'paid';
+  } else if (order?.status === 'refunded') {
+    providerStatus = 'refunded';
+  } else if (checkoutIntentId) {
+    // Not confirmed yet in DB — verify with the payment provider API.
     try {
       const statusFromProvider = await getCheckoutStatus(checkoutIntentId);
       const normalized = normalizePaymentStatus(statusFromProvider);
       if (normalized) providerStatus = normalized;
     } catch (err) {
       console.warn('[pay/return] getCheckoutStatus failed:', err?.message || err);
-      warnings.push('Le prestataire n’a pas encore confirmé le paiement. Veuillez réessayer dans quelques secondes.');
+      warnings.push('Le prestataire n\'a pas encore confirmé le paiement. Veuillez réessayer dans quelques secondes.');
     }
   }
   if (!providerStatus && statusFromQuery) {
@@ -396,7 +728,7 @@ router.get('/return', async (req, res) => {
     warnings.push('Le paiement a été remboursé. Les places associées seront libérées sous peu.');
   } else if (/^(failure|failed|canceled)$/i.test(providerStatus || '')) {
     state = 'failure';
-    warnings.push('Le prestataire a signalé un échec : aucune place n’a été confirmée.');
+    warnings.push('Le prestataire a signalé un échec : aucune place n\'a pas été confirmée.');
   }
 
   if (order) {
@@ -404,27 +736,53 @@ router.get('/return', async (req, res) => {
   }
 
   if (order) {
-    const meta = { ...(order.paymentProviderMeta || {}) };
-    meta.lastReturnAt = new Date();
+    // Écrit champ par champ, et NON par réaffectation du sac entier.
+    //
+    // Cette page et le webhook se chevauchent pour une large part des
+    // commandes payées. Tant que chacun faisait `meta = {...ancien}` puis
+    // `save()`, le dernier à enregistrer réécrivait tout le sac avec SA copie
+    // — effaçant en silence ce que l'autre venait d'y poser, y compris le
+    // tampon anti-doublon d'envoi de courriel. Un `$set` pointé ne touche que
+    // les clés nommées, donc deux chemins simultanés se complètent au lieu de
+    // s'écraser.
+    const metaSet = { paymentProvider: PAYMENT_PROVIDER_ID };
+    const stamp = (key, value) => { metaSet[`paymentProviderMeta.${key}`] = value; };
+
+    stamp('lastReturnAt', new Date());
     if (statusFromQuery || rawStatus) {
-      meta.lastReturnCode = statusFromQuery || String(rawStatus);
+      stamp('lastReturnCode', statusFromQuery || String(rawStatus));
     }
-    if (checkoutIntentId) meta.checkoutIntentId = checkoutIntentId;
+    if (checkoutIntentId) stamp('checkoutIntentId', checkoutIntentId);
     if (providerOrderIdParam) {
-      meta.haOrderId = providerOrderIdParam;
-      if (!meta.providerOrderId) meta.providerOrderId = providerOrderIdParam;
+      stamp('haOrderId', providerOrderIdParam);
+      if (!order.paymentProviderMeta?.providerOrderId) stamp('providerOrderId', providerOrderIdParam);
     }
     if (providerPaymentIdParam) {
-      meta.lastReturnProviderPaymentId = providerPaymentIdParam;
-      if (!meta.providerPaymentId) meta.providerPaymentId = providerPaymentIdParam;
+      stamp('lastReturnProviderPaymentId', providerPaymentIdParam);
+      if (!order.paymentProviderMeta?.providerPaymentId) stamp('providerPaymentId', providerPaymentIdParam);
     }
     if (providerStatus) {
-      meta.lastReturnProviderStatus = providerStatus;
-      meta.lastStatusSource = 'return';
-      meta.lastStatusFromReturn = providerStatus;
-      meta.lastStatusCheckedAt = new Date();
+      stamp('lastReturnProviderStatus', providerStatus);
+      stamp('lastStatusSource', 'return');
+      stamp('lastStatusFromReturn', providerStatus);
+      stamp('lastStatusCheckedAt', new Date());
     }
-    order.paymentProviderMeta = meta;
+
+    try {
+      await Order.updateOne({ _id: order._id }, { $set: metaSet });
+    } catch (err) {
+      console.warn('[pay/return] meta stamp failed:', err?.message || err);
+    }
+
+    // Report en mémoire, pour le rendu de la page plus bas. Ce document ne
+    // sera pas enregistré : la base porte déjà ces valeurs.
+    const localMeta = { ...(order.paymentProviderMeta || {}) };
+    for (const [path, value] of Object.entries(metaSet)) {
+      if (path.startsWith('paymentProviderMeta.')) {
+        localMeta[path.slice('paymentProviderMeta.'.length)] = value;
+      }
+    }
+    order.paymentProviderMeta = localMeta;
     order.paymentProvider = PAYMENT_PROVIDER_ID;
   }
 
@@ -438,20 +796,47 @@ router.get('/return', async (req, res) => {
         if (finalizeInfo.ok) {
           state = 'success';
           if (!finalizeInfo.alreadyFinalized) {
-            const meta = { ...(order.paymentProviderMeta || {}) };
-            meta.lastReturnFinalizeAt = new Date();
-            meta.lastReturnFinalizeSource = 'return';
-            order.paymentProviderMeta = meta;
-            order.markModified?.('paymentProviderMeta');
             try {
-              await sendOrderAttestationIfNeeded(order, { source: 'return' });
+              await Order.updateOne({ _id: order._id }, {
+                $set: {
+                  'paymentProviderMeta.lastReturnFinalizeAt': new Date(),
+                  'paymentProviderMeta.lastReturnFinalizeSource': 'return'
+                }
+              });
             } catch (err) {
-              console.warn('[pay/return] mail send failed:', err?.message || err);
-              warnings.push('Le courriel de confirmation n’a pas pu être envoyé automatiquement.');
+              console.warn('[pay/return] finalize stamp failed:', err?.message || err);
             }
+            // Différé : l'acheteur doit voir sa confirmation tout de suite.
+            // Le courriel part juste après, et la sentinelle le rattrape si
+            // l'envoi échoue — ce que l'ancien avertissement ne faisait pas.
+            scheduleOrderAttestation(order._id, { source: 'return' });
           }
+        } else if (finalizeInfo.inFlight) {
+          // Un autre chemin (webhook, sondage) finalise cette commande en ce
+          // moment. Ce n'est pas un échec : c'est le cas qui produisait les
+          // courriels contradictoires — « votre place reste à finaliser »
+          // pendant que les billets partaient par ailleurs. On n'annonce rien
+          // et on laisse la page se rafraîchir.
+          state = 'pending';
+          warnings.push('Votre paiement est en cours de confirmation. Cette page se met à jour dans quelques secondes.');
         } else {
           warnings.push("Le paiement est confirmé, mais la finalisation de vos sièges nécessite une intervention manuelle.");
+          // Sans cet envoi, l'acheteur ne gardait AUCUNE trace écrite : la page
+          // de retour affichait l'avertissement, puis plus rien. Le webhook,
+          // lui, envoyait déjà un courriel (sendConflictEmail) — le retour ne
+          // faisait rien, d'où un client prévenu ou non selon le chemin
+          // emprunté par le paiement.
+          if (!order.paymentProviderMeta?.seatPendingNoticeSentAt) {
+            try {
+              await sendSeatPendingNotice(order, {
+                source: 'return',
+                seatChangeUrl: await buildSeatChangeUrlForOrder(order)
+              });
+            } catch (err) {
+              console.warn('[pay/return] seat-pending notice failed:', err?.message || err);
+              warnings.push('Le courriel de confirmation n\'a pas pu être envoyé automatiquement.');
+            }
+          }
         }
       } catch (err) {
         console.error('[pay/return] finalize error:', err?.message || err);
@@ -460,13 +845,14 @@ router.get('/return', async (req, res) => {
     }
   }
 
-  if (order) {
-    try {
-      await order.save();
-    } catch (err) {
-      console.warn('[pay/return] order save failed:', err?.message || err);
-    }
-  }
+  // Pas de `order.save()` ici. C'était le geste qui écrasait tout : le
+  // document avait été chargé AVANT l'appel réseau au prestataire, et
+  // l'enregistrer en fin de requête réécrivait un statut vieux de plusieurs
+  // secondes — assez pour repasser `failed` une commande que le webhook venait
+  // de payer, billets déjà expédiés et place rendue vendable. Tout ce que
+  // cette page doit écrire l'est désormais par `$set` pointé, au moment où
+  // elle l'apprend ; finalizePaidIfNoConflict enregistre le statut lui-même,
+  // sous verrou.
 
   const paymentSnapshot = order?.paymentProviderMeta?.lastPaymentSnapshot || null;
   const paymentHistory = Array.isArray(order?.paymentProviderMeta?.paymentHistory)
@@ -498,7 +884,10 @@ router.get('/return', async (req, res) => {
     payerEmail: order?.payerEmail || order?.paymentProviderMeta?.payerEmail || order?.paymentProviderMeta?.lastPayerEmail || '',
     contactEmail,
     homeUrl,
-    ticketsUrl: (state === 'success' && order?.id) ? urlFor(`/pay/tickets/${encodeURIComponent(String(order.id))}.pdf`) : ''
+    ticketsUrl: (state === 'success' && order?.id) ? urlFor(`/pay/tickets/${encodeURIComponent(String(order.id))}.pdf`) : '',
+    // Même discriminant que mailer.js resolveOrderKind : une commande de match
+    // porte un eventId, un abonnement n'en a pas.
+    isSeasonOrder: Boolean(order) && !order?.eventId && !order?.meta?.eventId
   });
   return res.send(html);
 });
@@ -543,7 +932,7 @@ router.get('/back', (_req, res) => {
   res.send(`<!doctype html><meta charset="utf-8">
     <link rel="icon" href="${urlFor('/dynamic/assets/favicon.ico')}">
     <h1>Paiement abandonné</h1>
-    <p>Aucun débit n’a été effectué et vos places restent disponibles tant que la commande n’est pas confirmée.</p>
+    <p>Aucun débit n'a été effectué et vos places restent disponibles tant que la commande n'est pas confirmée.</p>
     <p><a href="/">Revenir à la billetterie</a></p>`);
 });
 
@@ -587,22 +976,69 @@ try {
     try { if ((req.headers['content-type']||'').includes('json')) payload = JSON.parse(rawTxt); } catch {}
     if (payload?.postData?.contents) { try { payload = JSON.parse(payload.postData.contents); } catch {} }
 
-    const data = payload?.data || {};
-    const eventType = String(payload?.eventType || data?.eventType || '').toLowerCase();
-    const orgSlug   = String(data?.organizationSlug || '').toLowerCase();
+    // Mollie webhook: form-urlencoded body "id=tr_xxxx" — fetch payment to get metadata
+    let isMollieCallback = false;
+    if (!payload && rawTxt) {
+      try {
+        const form = new URLSearchParams(rawTxt);
+        const mid = String(form.get('id') || '');
+        if (mid.startsWith('tr_')) {
+          isMollieCallback = true;
+          try {
+            const intent = await currentPaymentProvider().getCheckoutIntent(mid);
+            payload = { _provider: 'mollie', id: mid, status: intent.raw?.status || '', metadata: intent.metadata || {} };
+          } catch (e) {
+            console.warn('[pay/webhook] Mollie getCheckoutIntent failed:', e?.message || e);
+            return res.status(202).send('ignored-mollie-fetch-failed');
+          }
+        }
+      } catch {}
+    }
 
-    // Filtre org
-    if (ORG_SLUG && orgSlug && ORG_SLUG.toLowerCase() !== orgSlug) {
+    const data = payload?.data || {};
+
+    // SumUp callback: flat payload with custom_id / checkout_reference, no eventType wrapper.
+    // HelloAsso callback: nested payload with camelCase eventType.
+    const isSumUpCallback = !isMollieCallback && !!(
+      !payload?.eventType && !data?.eventType &&
+      (payload?.custom_id || payload?.checkout_reference || payload?.id)
+    );
+
+    // Normalise event type across providers.
+    // SumUp uses snake_case event_type (CHECKOUT_COMPLETED) or no event_type at all (status-change callback).
+    const rawEventType = isSumUpCallback
+      ? String(payload?.event_type || '').toUpperCase()
+      : String(payload?.eventType || data?.eventType || '').toLowerCase();
+
+    // Map to canonical value; treat missing type on SumUp callbacks as 'payment'.
+    const eventType = isMollieCallback
+      ? 'payment'
+      : isSumUpCallback
+        ? (rawEventType === '' || rawEventType === 'CHECKOUT_COMPLETED' || rawEventType === 'PAID' ? 'payment' : rawEventType.toLowerCase())
+        : rawEventType;
+
+    const orgSlug = String(data?.organizationSlug || '').toLowerCase();
+
+    // Filtre org (HelloAsso only — SumUp and Mollie callbacks carry no org slug)
+    if (!isSumUpCallback && !isMollieCallback && ORG_SLUG && orgSlug && ORG_SLUG.toLowerCase() !== orgSlug) {
       console.warn('[pay/webhook] ignored (org mismatch)', { orgSlug, ORG_SLUG });
       return res.status(202).send('ignored');
     }
 
     // On ne TRAITE que Payment. Les autres events (Order, ...) sont ignorés (mais repostés).
     if (eventType !== 'payment') {
+      console.log('[pay/webhook] ignored event_type:', rawEventType || '(empty)', { isSumUpCallback });
       return res.status(202).send('ignored-non-payment');
     }
+    console.log('[pay/webhook] processing', isMollieCallback ? 'Mollie' : isSumUpCallback ? 'SumUp' : 'HelloAsso', 'payment event');
 
-    // Corrélation PRIORITAIRE par metadata/custom_id (l’_id BTS passé à PSP)
+    // Corrélation PRIORITAIRE par metadata/custom_id (l'_id BTS passé à PSP)
+    // SumUp: custom_id is at payload top-level; fallback: parse checkout_reference ("bts-{orderId}")
+    const checkoutRefRaw = String(payload?.checkout_reference || data?.checkout_reference || '').trim();
+    const checkoutRefPrefix = (process.env.SUMUP_CHECKOUT_PREFIX || 'bts') + '-';
+    const orderIdFromRef = checkoutRefRaw.startsWith(checkoutRefPrefix)
+      ? checkoutRefRaw.slice(checkoutRefPrefix.length)
+      : '';
     const btsOrderId = String(
       payload?.metadata?.orderId ||
       payload?.metadata?.orderNo ||
@@ -610,6 +1046,7 @@ try {
       data?.metadata?.orderNo ||
       data?.custom_id ||
       payload?.custom_id ||
+      orderIdFromRef ||
       ''
     ).trim();
     if (!btsOrderId) {
@@ -624,17 +1061,21 @@ try {
     }
 
     // Provider order id (utile pour rapprochements futurs)
+    // SumUp: transaction_code / transaction_id at top level
     const providerOrderId = String(
       data?.order?.id ||
       data?.transaction_code ||
       data?.transaction_id ||
+      payload?.transaction_code ||
       payload?.transaction_id ||
       ''
     ).trim() || null;
 
-    // Vérification côté HA via l’intent : on utilise celui stocké en base ;
+    // Vérification côté HA via l'intent : on utilise celui stocké en base ;
     // fallback sur data.checkoutIntentId si présent.
+    // SumUp: checkout UUID is at payload.id; HA: in data.checkoutIntentId or metadata
     const checkoutIntentIdFromPayload =
+      String(payload?.id || '').trim() ||              // SumUp top-level UUID
       String(data?.checkoutIntentId || '').trim() ||
       String(payload?.metadata?.checkoutIntentId || '').trim() ||
       String(data?.checkout_reference || '').trim() ||
@@ -646,17 +1087,22 @@ try {
       checkoutIntentIdFromPayload;
       
     let statusFromApi = '';
+    let intentFromApi = null;
     if (intentId) {
       try {
-        const st = await getCheckoutStatus(intentId);
-        statusFromApi = normalizePaymentStatus(st);
+        // On lit l'intent complet plutôt que le seul statut : il porte aussi
+        // les identifiants du relevé prestataire (transaction SumUp, paiement
+        // HelloAsso), sans lesquels aucun rapprochement comptable n'est possible.
+        intentFromApi = await getCheckoutIntent(intentId);
+        statusFromApi = normalizePaymentStatus(intentFromApi?.status);
       } catch (e) {
-        console.warn('[pay/webhook] getCheckoutStatus failed:', e?.message || e);
+        console.warn('[pay/webhook] getCheckoutIntent failed:', e?.message || e);
       }
     }
 
-    // Fallback très limité : on lit l’état brut du Payment (utile pour traces)
-    const rawState = String(data?.state || data?.status || '').toLowerCase();
+    // Fallback très limité : on lit l'état brut du Payment (utile pour traces)
+    // SumUp: status at top-level payload; HA: in data.state / data.status
+    const rawState = String(payload?.status || data?.state || data?.status || '').toLowerCase();
     const status   = statusFromApi || normalizePaymentStatus(rawState);
 
     // Journalise + persiste les métadonnées HA (haOrderId, lastWebhook*)
@@ -678,6 +1124,11 @@ try {
       meta.lastStatusCheckedAt = now;
     } else {
       meta.lastStatusSource = meta.lastStatusSource || 'webhook';
+    }
+    if (intentFromApi?.transactionCode) meta.transactionCode = intentFromApi.transactionCode;
+    if (intentFromApi?.transactionId) meta.transactionId = intentFromApi.transactionId;
+    if (intentFromApi?.providerOrderId && !meta.providerOrderId) {
+      meta.providerOrderId = intentFromApi.providerOrderId;
     }
 
     const paymentData = (data?.payment && typeof data.payment === 'object') ? data.payment : {};
@@ -799,15 +1250,24 @@ try {
       const fin = await finalizePaidIfNoConflict(order);
       if (fin.ok) {
         if (!fin.alreadyFinalized) {
-          await sendOrderAttestationIfNeeded(order, { source: 'webhook' });
+          // Différé : le prestataire attend un 200 rapide, sinon il rejoue le
+          // webhook — et chaque rejeu est une finalisation concurrente de plus.
+          scheduleOrderAttestation(order._id, { source: 'webhook' });
         }
         return res.status(200).send(fin.alreadyFinalized ? 'ok-already-finalized' : 'ok');
       } else {
         if (fin?.blocked) {
           return res.status(200).send('blocked');
         }
+        if (fin?.inFlight) {
+          // La page de retour ou le sondage tient le verrou : c'est elle qui
+          // conclura. Annoncer « votre commande n'a pas pu aboutir » ici
+          // enverrait un démenti à quelqu'un dont les billets partent dans la
+          // seconde — le cas exact remonté après le match du 03/10/2026.
+          return res.status(200).send('in-flight');
+        }
         await sendConflictEmail(order);
-        // on renvoie 200: le webhook a été traité (même s’il mène à failed)
+        // on renvoie 200: le webhook a été traité (même s'il mène à failed)
         return res.status(200).send('conflict');
       }
     } else {

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 120">
+  <rect width="300" height="120" rx="8" fill="#1d4ed8"/>
+  <text x="150" y="58" text-anchor="middle" fill="#ffffff" font-family="system-ui, Arial" font-size="20" font-weight="700">CLUB PARTNER</text>
+  <text x="150" y="82" text-anchor="middle" fill="#dbeafe" font-family="system-ui, Arial" font-size="12">Official club sponsor</text>
+</svg>

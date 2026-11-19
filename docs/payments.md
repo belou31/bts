@@ -25,6 +25,7 @@ BTS selects its payment adapter through `PAYMENT_PROVIDER`.
 | Provider | Label | Default API base | Local stub | Webhook-driven |
 | --- | --- | --- | --- | --- |
 | `helloasso` | HelloAsso | `https://api.helloasso.com` | `npm run helloasso:stub` | yes |
+| `mollie` | Mollie | `https://api.mollie.com/v2` | `npm run mollie:stub` | yes |
 | `sumup` | SumUp | `https://api.sumup.com/v0.1` | `npm run sumup:stub` | yes |
 
 ## HelloAsso
@@ -52,6 +53,31 @@ BTS selects its payment adapter through `PAYMENT_PROVIDER`.
 
 - Uses OAuth client credentials against the HelloAsso API.
 - Supports local development through the HelloAsso stub by overriding HELLOASSO_API_URL.
+
+## Mollie
+
+- Provider ID: `mollie`
+- Default API base: `https://api.mollie.com/v2`
+- Stub command: `npm run mollie:stub`
+- Uses webhook/async confirmation: yes
+
+### Environment variables
+
+- `PAYMENT_PROVIDER`
+- `MOLLIE_API_BASE`
+- `MOLLIE_API_KEY`
+- `MOLLIE_CURRENCY`
+- `MOLLIE_RETURN_URL`
+- `MOLLIE_CANCEL_URL`
+- `MOLLIE_WEBHOOK_URL`
+- `MOLLIE_METHODS`
+
+### Notes
+
+- Uses API key auth (Bearer token) — no OAuth step needed.
+- Webhook body is form-urlencoded: id=tr_xxxx. BTS fetches payment status from Mollie API upon receipt.
+- Set MOLLIE_METHODS to a comma-separated list to restrict payment methods (e.g. "creditcard,wero").
+- Wero is available in Germany and Belgium; France rollout expected mid/late 2026.
 
 ## SumUp
 

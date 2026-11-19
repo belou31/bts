@@ -1,0 +1,31 @@
+{
+  "_notes": [
+    "Modèle « directory » : connexion obligatoire par l'annuaire BTS (identifiant + e-mail + code reçu par e-mail).",
+    "Après création : Set Partner Admin Credentials, puis import de l'annuaire (CSV) sur /partner/<slug>/admin/directory. Tant que l'annuaire est vide, personne ne peut se connecter.",
+    "entitlements : « beneficiaries » et « extraPublic » viennent des colonnes du CSV de l'annuaire. Voir docs/partner-directory.md."
+  ],
+  "connection": "directory",
+  "paymentMode": "psp",
+  "allowPublicTariffs": true,
+  "reserve": null,
+  "admin": { "user": "", "pass": "" },
+  "entitlements": [
+    {
+      "key": "ayants-droit",
+      "label": "ayants droit",
+      "icon": "❤️",
+      "per": "event",
+      "tariffChannel": "partner",
+      "max": { "attribute": "beneficiaries" }
+    },
+    {
+      "key": "public-extra",
+      "label": "extra (tarif public)",
+      "per": "event",
+      "tariffChannel": "public",
+      "limitDuring": ["presale"],
+      "max": { "attribute": "extraPublic", "default": 1 }
+    }
+  ],
+  "presale": { "events": {}, "seasons": {} }
+}

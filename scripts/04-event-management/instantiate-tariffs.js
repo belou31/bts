@@ -92,9 +92,17 @@ try {
     }
     for (const doc of docs) {
       const zoneKey = normalizeCode(doc.zoneKey);
+      // Le catalogue autorise zoneKey OU metaZone. Ne garder que zoneKey
+      // supprimait silencieusement toute grille rédigée par méta-zone : la
+      // table de l'événement ne contenait alors que les zones tarifées
+      // nommément, et les autres devenaient insélectionnables.
+      const metaZone = normalizeCode(doc.metaZone);
       const tariffCode = normalizeCode(doc.tariffCode);
-      if (!zoneKey || !tariffCode) continue;
-      entryMap.set(`${zoneKey}::${tariffCode}`, {
+      if ((!zoneKey && !metaZone) || !tariffCode) continue;
+      // Préfixe distinct : une zone et une méta-zone homonymes restent deux
+      // lignes différentes.
+      const target = zoneKey ? `zone:${zoneKey}` : `meta:${metaZone}`;
+      entryMap.set(`${target}::${tariffCode}`, {
         priceCents: Number(doc.priceCents) || 0,
         partnerPriceCents: doc.partnerPriceCents != null ? Number(doc.partnerPriceCents) : null,
         currency: doc.currency || 'EUR',
@@ -150,10 +158,14 @@ try {
   }
 
   const priceDocs = Array.from(entryMap.entries()).map(([key, value]) => {
-    const [zoneKey, tariffCode] = key.split('::');
+    const [target, tariffCode] = key.split('::');
+    const isMeta = target.startsWith('meta:');
+    const name = target.slice(target.indexOf(':') + 1);
     return {
       priceTableKey: eventPriceTableKey,
-      zoneKey,
+      // Exactement l'un des deux, comme l'impose le modèle TariffPrice.
+      zoneKey: isMeta ? null : name,
+      metaZone: isMeta ? name : null,
       tariffCode,
       priceCents: value.priceCents,
       partnerPriceCents: value.partnerPriceCents,
@@ -188,6 +200,7 @@ try {
     const setDoc = {
       priceTableKey: eventPriceTableKey,
       zoneKey: doc.zoneKey,
+      metaZone: doc.metaZone,
       tariffCode: doc.tariffCode,
       priceCents: doc.priceCents,
       currency: doc.currency || 'EUR'
@@ -207,14 +220,25 @@ try {
       updateDoc.$unset.channels = '';
     }
     const res = await TariffPrice.updateOne(
-      { priceTableKey: eventPriceTableKey, zoneKey: doc.zoneKey, tariffCode: doc.tariffCode },
+      // metaZone fait partie de la clé d'unicité : l'omettre ferait retomber
+      // toutes les lignes méta-zone sur le même document (zoneKey null).
+      { priceTableKey: eventPriceTableKey, zoneKey: doc.zoneKey, metaZone: doc.metaZone, tariffCode: doc.tariffCode },
       updateDoc,
       { upsert: true, setDefaultsOnInsert: true }
     );
     if ((res.upsertedCount ?? 0) > 0 || (res.modifiedCount ?? 0) > 0) priceUpserts++;
   }
 
-  console.log(`✅ Tariffs upserts=${tariffUpserts} · TariffPrice upserts=${priceUpserts}`);
+  // Trace du catalogue employé : sans elle, rien ne relie plus tard la table
+  // d'un événement à la grille dont elle provient (diagnose-event-pricing.js
+  // devait le deviner par recoupement).
+  await Event.updateOne({ _id: event._id }, {
+    $set: { 'meta.tariffCatalogs': catalogList, 'meta.tariffInstantiatedAt': new Date() }
+  });
+
+  const metaCount = priceDocs.filter(d => d.metaZone).length;
+  console.log(`✅ Tariffs upserts=${tariffUpserts} · TariffPrice upserts=${priceUpserts}`
+    + (metaCount ? ` (dont ${metaCount} ligne(s) de méta-zone)` : ''));
   if (missingTariffs.length) {
     console.log(`ℹ️  Tarifs absents du global: ${missingTariffs.join(', ')}`);
   }

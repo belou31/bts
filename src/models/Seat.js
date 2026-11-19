@@ -35,7 +35,19 @@ const SeatSchema = new mongoose.Schema({
     hold: { type: HoldSchema, default: undefined },
     // déjà utilisés par certains exports/outils d’admin :
     provisionTags: { type: [String], default: undefined },
-    provisionNote: { type: String, default: undefined }
+    provisionNote: { type: String, default: undefined },
+    // Place retirée de la vente à la main depuis admin/plan (invitation, siège
+    // cassé, rangée neutralisée). Sans ce champ déclaré, `strict: true` jetait
+    // la trace en silence et rien ne distinguait plus un blocage voulu d'un
+    // siège bloqué par accident.
+    manualBlock: {
+      type: new mongoose.Schema({
+        at:   { type: Date },
+        by:   { type: String, default: '' },
+        note: { type: String, default: '' }
+      }, { _id: false, strict: true }),
+      default: undefined
+    }
   },
 
   // Siège provisionné pour un abonné (renouvellement)

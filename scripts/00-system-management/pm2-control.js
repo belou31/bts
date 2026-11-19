@@ -7,6 +7,8 @@
  *
  * - If action is "restart", a missing process will trigger a fallback "start" (when a script or command is known).
  * - Allowed names: bts, bts-sentinel, bts-logrotate, pm2-logrotate.
+ * - bts / bts-sentinel are started from ../../ecosystem.config.cjs (repo-versioned flags),
+ *   not ad-hoc `pm2 start <script>` — see that file for the canonical `--cron`/`--no-autorestart` setup.
  */
 import { execSync } from 'child_process';
 import fs from 'fs';
@@ -25,9 +27,12 @@ const getOpt = (key) => {
 const name = getOpt('name');
 const actionRaw = getOpt('action') || 'restart';
 const action = ['restart', 'start'].includes(actionRaw) ? actionRaw : 'restart';
+// bts and bts-sentinel are defined in ecosystem.config.cjs (checked into git) so their
+// start flags (notably bts-sentinel's --cron/--no-autorestart) are versioned instead of
+// living only in whichever host last ran `pm2 save`.
 const START_TARGETS = {
-  bts: { script: 'src/server.js', name: 'bts' },
-  'bts-sentinel': { script: 'scripts/sentinels/pending-orders.js', name: 'bts-sentinel' },
+  bts: { cmd: 'pm2 start ecosystem.config.cjs --only bts', name: 'bts' },
+  'bts-sentinel': { cmd: 'pm2 start ecosystem.config.cjs --only bts-sentinel', name: 'bts-sentinel' },
   'bts-logrotate': { module: 'pm2-logrotate' },
   'pm2-logrotate': { module: 'pm2-logrotate' }
 };
@@ -64,8 +69,13 @@ const startProcess = () => {
       console.log(out || `Started ${target.module} (${scriptPath})`);
       return;
     }
-    const out = run(`pm2 start ${target.module}`);
-    console.log(out || `Started ${target.module}`);
+    // No app.js found under $PM2_HOME/modules/<module>/ — it was never
+    // actually installed on this host (not just stopped). `pm2 start
+    // <module>` treats that name as a script path relative to cwd and fails
+    // with "Script not found"; `pm2 install` is the real first-time-setup
+    // command for a PM2 module.
+    const out = run(`pm2 install ${target.module}`);
+    console.log(out || `Installed ${target.module}`);
     return;
   }
   const scriptPath = target.script;

@@ -99,10 +99,49 @@ body.order-view {
 
 .order-view .zone-toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 12px;
 }
+
+/* Une seule ligne pour toutes les zones (debout puis assises) : elle défile
+   horizontalement (doigt, pavé tactile, flèches) au lieu de s'étaler sur
+   plusieurs lignes. Flèches gérées par generic-view.js (setupZoneScroller),
+   visibles seulement si la ligne déborde. */
+.order-view .zone-track {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 0;              /* l'ombre de survol des boutons n'est pas rognée */
+}
+.order-view .zone-track::-webkit-scrollbar { display: none; }
+.order-view .zone-track .zone-buttons { flex: 0 0 auto; flex-wrap: nowrap; }
+.order-view .zone-track .zone-btn { flex: 0 0 auto; white-space: nowrap; }
+
+.order-view .zone-scroll {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #0d141c;
+  color: #e8eef5;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.order-view .zone-scroll[hidden] { display: none; }
+.order-view .zone-scroll:hover:not([disabled]) { border-color: #3ba0ff; }
+.order-view .zone-scroll[disabled] { opacity: 0.35; cursor: default; }
 
 .order-view .zone-label {
   margin: 0;
@@ -142,6 +181,18 @@ body.order-view {
 .order-view .zone-btn[disabled] {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Zones assises : le bouton mène au plan (il n'ajoute rien), d'où le contour
+   seul et la loupe, pour le distinguer des zones debout qui ajoutent une ligne. */
+.order-view .zone-btn-seated {
+  background: transparent;
+  border-style: dashed;
+}
+.order-view .zone-btn-seated::before {
+  content: "⌕";
+  margin-right: 6px;
+  opacity: 0.8;
 }
 
 @media (max-width: 1024px) {
@@ -210,4 +261,119 @@ body.order-view {
     grid-column: 1;
     justify-content: center;
   }
+}
+
+/* ── Booking status panel (timer + payment confirmation) ── */
+.booking-status {
+  margin: 1rem 0 0;
+}
+.booking-status > .panel > h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+/* ── Hold timer (inside booking-status) ── */
+/* `display:flex` d'une classe l'emporte sur le `display:none` que le
+   navigateur applique à [hidden] : sans cette règle, le décompte restait
+   visible en permanence et affichait « --:-- » même quand aucune place n'était
+   retenue (commande en zone, ou avant tout paiement). */
+.hold-timer[hidden] { display: none; }
+
+.hold-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  background: rgba(59, 160, 255, 0.07);
+  border: 1px solid rgba(59, 160, 255, 0.2);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: #cde5ff;
+}
+.hold-timer-label {
+  color: rgba(255,255,255,0.5);
+}
+.hold-timer .timer-text {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.hold-timer.timer-warning {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #f3b4b4;
+}
+.hold-timer.timer-warning .hold-timer-label {
+  color: rgba(243,180,180,0.6);
+}
+.hold-extend-btn {
+  margin-left: auto;
+  padding: 3px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(59, 160, 255, 0.5);
+  background: rgba(59, 160, 255, 0.15);
+  color: #3ba0ff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hold-extend-btn:hover {
+  background: rgba(59, 160, 255, 0.25);
+}
+/* ── Payment body (inside booking-status) ── */
+.payment-panel-body {
+  font-size: 0.92rem;
+  color: #c9d5e0;
+}
+.pay-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+@keyframes bts-spin { to { transform: rotate(360deg); } }
+.pay-spinner {
+  flex-shrink: 0;
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid rgba(255,255,255,0.15);
+  border-top-color: #3ba0ff;
+  border-radius: 50%;
+  animation: bts-spin 0.8s linear infinite;
+}
+.pay-status-success {
+  color: #4ade80;
+  font-weight: 600;
+}
+.pay-status-success a {
+  color: #4ade80;
+  text-decoration: underline;
+}
+.pay-status-timeout {
+  color: rgba(255,255,255,0.5);
+}
+.pay-status-timeout a {
+  color: #3ba0ff;
+}
+.pay-status-hint {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  color: rgba(255,255,255,0.4);
+}
+.pay-status-confirmed {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.pay-status-open-link {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.4);
+  text-decoration: none;
+}
+.pay-status-open-link:hover { color: #3ba0ff; }
+.pay-return-iframe {
+  display: block;
+  width: 100%;
+  min-height: 520px;
+  border: none;
+  border-radius: 8px;
 }

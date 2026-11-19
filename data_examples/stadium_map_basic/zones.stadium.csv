@@ -1,3 +1,7 @@
 key,name,type,access,capacity,quota,svgSelector,isActive
-FAN_ZONE,"Fan Zone","standing","PUBLIC",20,20,"#fan-zone",true
-VIP,"VIP Space","seated","VIP",8,8,"#zone_North",true
+S1,"Stand South 1","seated","PUBLIC",5,5,"#zone_S1",true
+S2,"Stand South 2","seated","PUBLIC",12,12,"#zone_S2",true
+S3,"Stand South 3","seated","PUBLIC",5,5,"#zone_S3",true
+N,"Stand North","seated","PUBLIC",8,8,"#zone_Nord",true
+E,"Stand East","seated","PUBLIC",6,6,"#zone_East",true
+FAN_ZONE,"Fan Zone (West, standing)","standing","PUBLIC",20,20,"#fan-zone",true

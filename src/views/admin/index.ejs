@@ -2,7 +2,22 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>BTS — Administration</title>
+  <%
+    const PAGE_TITLES = {
+      home: 'BTS Adm',
+      operate: 'BTS Adm Operation',
+      io: 'BTS Adm I/O',
+      monitor: 'BTS Adm Monitoring',
+      templates: 'BTS Adm Documentation',
+      advanced: 'BTS Adm Advanced',
+      plan: 'BTS Adm Plan',
+      orders: 'BTS Adm Orders',
+      tickets: 'BTS Adm Tickets',
+      renewers: 'BTS Adm Renewers',
+      vouchers: 'BTS Adm Vouchers'
+    };
+  %>
+  <title><%= PAGE_TITLES[viewMode] || 'BTS Adm' %></title>
   <style>
     :root {
       color-scheme: light;
@@ -86,31 +101,135 @@
     .btn-small { padding: 4px 8px; font-size: 12px; margin-left: 6px; margin-top: 0; }
     .btn-link { border: none; background: transparent; color: var(--accent); padding: 0; margin-left: 8px; cursor: pointer; font-weight: 500; }
     .btn-link:hover { text-decoration: underline; background: transparent; }
+    .btn-secondary {
+      background: #f3f3f6;
+    }
+    .btn-secondary:hover {
+      background: #e8e8ec;
+    }
+    /* Generic show/hide utility — .modal relies on this to actually be hidden
+       until opened; without it, [hidden] state was purely semantic (class
+       toggled by JS) with no visual effect. */
+    .hidden {
+      display: none !important;
+    }
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+    }
+    .modal-dialog {
+      position: relative;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+      width: 90%;
+      max-width: 480px;
+      max-height: 85vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-dialog-wide { max-width: 900px; }
+    .input-edit-textarea {
+      width: 100%;
+      min-height: 50vh;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.4;
+      resize: vertical;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    .modal-header h3 { margin: 0; }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 22px;
+      line-height: 1;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 0;
+    }
+    .modal-close:hover { color: var(--fg); }
+    .modal-body { padding: 16px; }
+    .modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .modal-summary {
+      margin-right: auto;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .form-group {
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .form-group label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font: inherit;
+    }
+    .form-help {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .error {
+      color: var(--danger);
+      background: #fff6f6;
+      border: 1px solid #f4c2c2;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
     .scripts-card {
       margin-top: 24px;
     }
-    .script-tabs {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-    .script-tabs-rail {
-      position: sticky;
-      top: 0;
-      z-index: 8;
-      padding: 10px 0 12px;
-      margin-bottom: 16px;
-      background: var(--bg);
-      border-bottom: 1px solid var(--border);
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
-    }
-    .script-tabs-rail .script-tabs {
-      margin: 0;
-    }
-    .script-tabs-rail .monitoring-tabs {
-      margin: 0;
-    }
+    .intro-card { margin-top: 24px; }
+    .intro-group { margin-top: 20px; }
+    .intro-group:first-of-type { margin-top: 12px; }
+    .intro-group h3 { margin: 0 0 2px 0; font-size: 15px; }
+    .intro-group-desc { margin: 0 0 8px 0; font-size: 13px; }
+    .intro-list { list-style: none; margin: 0; padding: 0; }
+    .intro-list li { padding: 5px 0; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+    .intro-list li:last-child { border-bottom: none; }
+    .intro-list a { font-weight: 500; }
+    .intro-item-desc { color: var(--muted); font-size: 13px; }
     .tab-stack {
       display: flex;
       flex-direction: column;
@@ -132,10 +251,6 @@
       background: var(--accent);
       color: #fff;
       border-color: var(--accent);
-    }
-    .script-tab.sub-tab {
-      padding: 6px 10px;
-      opacity: 0.9;
     }
     .script-group {
       display: none;
@@ -252,6 +367,14 @@
     .file-list li{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
     .file-list code{flex:1}
     .file-meta{font-size:12px;color:var(--muted)}
+    .custo-tree, .custo-tree ul{list-style:none;margin:0;padding:0}
+    .custo-tree ul{padding-left:16px;margin-left:6px;border-left:1px dashed var(--border)}
+    .custo-tree-dir > details > summary{cursor:pointer;font-weight:600;padding:3px 0;list-style:none}
+    .custo-tree-dir > details > summary::-webkit-details-marker{display:none}
+    .custo-tree-dir > details > summary::before{content:"📂 "}
+    .custo-tree-file{display:flex;align-items:center;gap:8px;padding:3px 0 3px 20px;border-bottom:1px solid var(--border)}
+    .custo-tree-file::before{content:"📄 "}
+    .custo-tree-file code{flex:1}
     .inline-form{display:inline-flex;align-items:center;gap:6px;margin-left:6px}
     .inline-form input[type="text"]{padding:4px 6px;font-size:12px;border-radius:6px;border:1px solid var(--border);width:140px}
     .inline-form input[type="file"]{display:none}
@@ -265,12 +388,44 @@
     .notes li {
       margin-bottom: 4px;
     }
+    .guide-callout {
+      border-left: 4px solid var(--accent);
+      margin-bottom: 20px;
+    }
+    .guide-callout h3 {
+      margin-top: 0;
+    }
+    .guide-callout ol {
+      margin: 8px 0 0;
+      padding-left: 20px;
+    }
+    .guide-callout li {
+      margin-bottom: 6px;
+    }
+    .guide-callout code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #f3f3f6;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
     .script-form-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 8px 12px;
       margin-top: 4px;
     }
+    /* Date et fuseau côte à côte : le fuseau qualifie l'heure saisie, les
+       séparer sur deux lignes laisserait croire à deux réglages sans rapport. */
+    .datetime-field {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .datetime-field input[type="datetime-local"] { flex: 1 1 auto; min-width: 0; }
+    .datetime-field select { flex: 0 1 auto; max-width: 46%; }
+    /* Écart entre le statut de commande et l'état réel des sièges : c'est
+       exactement ce qu'on cherche du regard dans une liste de commandes. */
+    .booking-warn { color: #b45309; font-weight: 600; }
     .script-form-grid label {
       display: flex;
       flex-direction: column;
@@ -330,10 +485,23 @@
     }
     .topbar {
       display: grid;
-      grid-template-columns: auto 1fr auto;
+      grid-template-columns: auto 1fr;
       align-items: center;
       gap: 12px;
       padding: 12px 0;
+    }
+    .topbar-nav {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .topbar-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .brand-chip {
       display: inline-flex;
@@ -358,13 +526,6 @@
       font-weight: 800;
       font-size: 14px;
       letter-spacing: 0.5px;
-    }
-    .menu-stack {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      justify-content: flex-start;
-      align-items: center;
     }
     .dropdown {
       position: relative;
@@ -417,16 +578,6 @@
       background: #f5f7ff;
       border-color: var(--border);
     }
-    .dropdown .pill {
-      font-size: 11px;
-      padding: 2px 6px;
-      background: #eef2ff;
-      border: 1px solid #dfe6ff;
-      color: #2c4fac;
-    }
-    .view-selector {
-      min-width: 160px;
-    }
     .operations-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -438,6 +589,9 @@
       gap: 20px;
       align-items: stretch;
       min-height: calc(100vh - 160px);
+    }
+    .io-layout-2col {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     @media (max-width: 1100px) {
       .io-layout {
@@ -454,15 +608,6 @@
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 16px;
       margin-bottom: 24px;
-    }
-    .monitoring-tabs {
-      margin: 16px 0;
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .monitoring-tabs .menu-link {
-      flex: 0 0 auto;
     }
     .monitoring-panel {
       display: none;
@@ -540,12 +685,81 @@
       flex: 1;
       min-height: 320px;
     }
+    .guide-layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .guide-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+    .guide-list {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+    }
+    .guide-list li + li {
+      margin-top: 2px;
+    }
+    .guide-list a {
+      display: block;
+      padding: 6px 8px;
+      border-radius: 8px;
+      color: inherit;
+    }
+    .guide-list a:hover {
+      background: #f3f6ff;
+      text-decoration: none;
+    }
+    .guide-list a.active {
+      background: var(--accent);
+      color: #0b1020;
+      font-weight: 600;
+    }
+    .guide-content h1, .guide-content h2, .guide-content h3 {
+      margin-top: 1.4em;
+    }
+    .guide-content h1:first-child, .guide-content h2:first-child, .guide-content h3:first-child {
+      margin-top: 0;
+    }
+    .guide-content code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #f3f3f6;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    .guide-content pre {
+      background: #f3f3f6;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-x: auto;
+    }
+    .guide-content pre code {
+      background: none;
+      padding: 0;
+    }
+    .guide-content table {
+      margin: 12px 0;
+    }
+    .guide-content blockquote {
+      margin: 12px 0;
+      padding: 4px 12px;
+      border-left: 3px solid var(--border);
+      color: var(--muted);
+    }
     .io-subsection {
       margin-top: 12px;
     }
     .io-subsection h3 {
       margin-top: 0;
       margin-bottom: 6px;
+    }
+    .muted {
+      color: var(--muted);
     }
     .io-subsection .muted {
       margin-bottom: 8px;
@@ -559,6 +773,32 @@
     }
     .scroll-table table {
       margin: 0;
+    }
+    /* Same look as .scroll-table but no vertical cap — for a single selected
+       record's full detail (e.g. one price catalog's every zone/tariff row),
+       as opposed to .scroll-table's use for scannable summary lists of many
+       records where a small scrollbox is the right size. */
+    .scroll-table-full {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .scroll-table-full table {
+      margin: 0;
+    }
+    tr.totals-row td {
+      border-top: 2px solid var(--border);
+      background: var(--bg);
+    }
+    tr.sub-row td {
+      padding-top: 2px;
+      padding-bottom: 2px;
+      font-size: 12px;
+      border-top: none;
+    }
+    tr.sub-row .sub-row-label {
+      padding-left: 20px;
+      color: var(--muted);
     }
     .empty-state {
       color: var(--muted);
@@ -575,10 +815,23 @@
     }
     .topbar {
       display: grid;
-      grid-template-columns: auto 1fr auto;
+      grid-template-columns: auto 1fr;
       align-items: center;
       gap: 12px;
       padding: 12px 0;
+    }
+    .topbar-nav {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .topbar-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .brand-chip {
       display: inline-flex;
@@ -603,13 +856,6 @@
       font-weight: 800;
       font-size: 14px;
       letter-spacing: 0.5px;
-    }
-    .menu-stack {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      justify-content: flex-start;
-      align-items: center;
     }
     .dropdown {
       position: relative;
@@ -661,16 +907,6 @@
     .dropdown a:hover {
       background: #f5f7ff;
       border-color: var(--border);
-    }
-    .dropdown .pill {
-      font-size: 11px;
-      padding: 2px 6px;
-      background: #eef2ff;
-      border: 1px solid #dfe6ff;
-      color: #2c4fac;
-    }
-    .view-selector {
-      min-width: 160px;
     }
     .plan-view {
       display: flex;
@@ -825,110 +1061,125 @@
   <% const tokenQueryString = tokenQuery ? ('?' + tokenQuery) : ''; %>
   <% const baseOperate = urlFor('/admin/operate') + tokenQueryString; %>
   <% const baseIo = urlFor('/admin/io') + tokenQueryString; %>
-  <% const baseTemplates = urlFor('/admin/templates') + tokenQueryString; %>
+  <% const baseTemplates = urlFor('/admin/doc') + tokenQueryString; %>
   <% const baseMonitor = urlFor('/admin/monitor') + tokenQueryString; %>
   <% const basePlan = urlFor('/admin/plan') + tokenQueryString; %>
   <% const baseOrders = urlFor('/admin/orders') + tokenQueryString; %>
   <% const baseTickets = urlFor('/admin/tickets') + tokenQueryString; %>
-  <% 
-    const compactLabel = (lbl = '') => {
-      const clean = lbl.replace(/\s+/g, ' ').trim();
-      const dashParts = clean.split('—');
-      const body = dashParts.length > 1 ? dashParts[1].trim() : clean;
-      const words = body.split(' ');
-      const shortBody = words.slice(0, 2).join(' ');
-      const prefix = dashParts.length > 1 ? dashParts[0].trim() : '';
-      return (prefix ? `${prefix} ${shortBody}` : shortBody).trim();
+  <% const baseRenewers = urlFor('/admin/renewers') + tokenQueryString; %>
+  <% const baseVouchers = urlFor('/admin/vouchers') + tokenQueryString; %>
+  <% const baseAdvanced = urlFor('/admin/advanced') + tokenQueryString; %>
+  <%
+    // Two-level nav: "BTS Admin" picks a category; a second dropdown (only
+    // rendered when the active category has chapters) picks a chapter within it.
+    // Plan/Orders/Tickets have their own category ("Advanced") rather than being
+    // Monitoring chapters — they're full-page tools (seat-level adjustments,
+    // record search) rather than dashboard-style inspection views.
+    // "Data I/O" is its own top-level category (upload/edit/download/delete
+    // under data/inputs, download/delete under data/outputs) — it's neither an
+    // Operate script nor a Monitoring inspection view, it's file management.
+    const activeCategoryId = ['plan', 'orders', 'tickets', 'renewers', 'vouchers'].includes(viewMode)
+      ? 'advanced'
+      : viewMode;
+    const navCategories = [
+      { id: 'io', label: 'Data I/O', href: baseIo },
+      { id: 'operate', label: 'Operation', href: baseOperate },
+      { id: 'monitor', label: 'Monitoring', href: baseMonitor },
+      { id: 'templates', label: 'Documentation', href: baseTemplates },
+      { id: 'advanced', label: 'Advanced', href: baseAdvanced }
+    ];
+    const monitorHref = (tab) => `${baseMonitor}${baseMonitor.includes('?') ? '&' : '?'}monitorTab=${tab}`;
+    const docHref = (tab) => `${baseTemplates}${baseTemplates.includes('?') ? '&' : '?'}docTab=${tab}`;
+    // "Overview" lands each category on its intro/index page (see the
+    // "showXxxIntro" blocks below) instead of jumping straight into the
+    // first chapter — that's what the "BTS Admin" pulldown links to.
+    const showOperateIntro = viewMode === 'operate' && !activeGroupId;
+    const showDocIntro = viewMode === 'templates' && !docTab;
+    const showMonitorIntro = viewMode === 'monitor' && !monitorTab;
+    const showAdvancedIntro = viewMode === 'advanced';
+    const categoryChapters = {
+      operate: [
+        { id: 'overview', label: 'Overview', href: baseOperate, active: showOperateIntro },
+        ...(scriptGroups || []).map((g) => ({
+          id: g.id,
+          label: g.label || g.id,
+          href: `${baseOperate}${baseOperate.includes('?') ? '&' : '?'}group=${encodeURIComponent(g.id)}`,
+          active: g.id === activeGroupId
+        }))
+      ],
+      templates: [
+        { id: 'overview', label: 'Overview', href: baseTemplates, active: showDocIntro },
+        { id: 'guides', label: 'User guides', description: 'Step-by-step operator walkthroughs.', href: docHref('guides'), active: viewMode === 'templates' && docTab === 'guides' },
+        { id: 'references', label: 'Data references', description: 'Everything under data_references: blank templates to copy (CSV, .env, customization JSON) plus example email/ticket templates and assets.', href: docHref('references'), active: viewMode === 'templates' && docTab === 'references' },
+        { id: 'examples', label: 'Data examples', description: 'Complete starter kits under data_examples — venue map, tariffs, and branding bundled per scenario.', href: docHref('examples'), active: viewMode === 'templates' && docTab === 'examples' }
+      ],
+      monitor: [
+        { id: 'overview', label: 'Overview', href: baseMonitor, active: showMonitorIntro },
+        { id: 'custo', label: 'Custo files', description: 'Parcourt data/customization et data/templates sous forme d’arborescence.', href: monitorHref('custo'), active: viewMode === 'monitor' && monitorTab === 'custo' },
+        { id: 'system', label: 'Système', description: 'État serveur, MongoDB, connexions actives.', href: monitorHref('system'), active: viewMode === 'monitor' && monitorTab === 'system' },
+        { id: 'venue', label: 'Lieux', description: 'Lieux enregistrés, zones, plans associés.', href: monitorHref('venue'), active: viewMode === 'monitor' && monitorTab === 'venue' },
+        { id: 'tariffs', label: 'Tarifs', description: 'Catalogues et grilles tarifaires par lieu/saison.', href: monitorHref('tariffs'), active: viewMode === 'monitor' && monitorTab === 'tariffs' },
+        { id: 'seasons', label: 'Saisons', description: 'Saisons enregistrées et leur statut.', href: monitorHref('seasons'), active: viewMode === 'monitor' && monitorTab === 'seasons' },
+        { id: 'events', label: 'Événements', description: 'Événements enregistrés et leur statut de vente.', href: monitorHref('events'), active: viewMode === 'monitor' && monitorTab === 'events' },
+        { id: 'partners', label: 'Partenaires', description: 'Partenaires configurés, mode de paiement, tarifs publics.', href: monitorHref('partners'), active: viewMode === 'monitor' && monitorTab === 'partners' },
+        { id: 'ticket', label: 'Ticket', description: 'Templates de billets, catalogue de campagnes publicitaires, assets sponsors.', href: monitorHref('ticket'), active: viewMode === 'monitor' && monitorTab === 'ticket' }
+      ],
+      advanced: [
+        { id: 'overview', label: 'Overview', href: baseAdvanced, active: showAdvancedIntro },
+        { id: 'plan', label: 'Plan', description: 'Visualisation du plan de salle, occupation des sièges, ajustement de présence.', href: basePlan, active: viewMode === 'plan' },
+        { id: 'orders', label: 'Orders', description: 'Recherche et détail des commandes, ajustement de présence.', href: baseOrders, active: viewMode === 'orders' },
+        { id: 'tickets', label: 'Tickets', description: 'Recherche et détail des billets émis.', href: baseTickets, active: viewMode === 'tickets' },
+        { id: 'renewers', label: 'Renewers', description: 'Suivi des lignes de renouvellement (statut, lien, envoi, annulation).', href: baseRenewers, active: viewMode === 'renewers' },
+        { id: 'vouchers', label: 'Vouchers', description: 'Bons cadeaux : solde, retraits, suspension, prolongation.', href: baseVouchers, active: viewMode === 'vouchers' }
+      ]
     };
-    const extractNum = (label = '', id = '') => {
-      const m1 = String(label).match(/^\s*(\d+)/);
-      if (m1) return m1[1];
-      const m2 = String(id).match(/^(\d+)/);
-      return m2 ? m2[1] : '';
+    const activeCategory = navCategories.find((c) => c.id === activeCategoryId);
+    const activeChapters = categoryChapters[activeCategoryId] || [];
+    const categoryTitles = {
+      io: 'Data I/O',
+      operate: 'Operation management',
+      templates: 'Documentation',
+      monitor: 'Monitoring',
+      advanced: 'Advanced'
     };
-    const shortMenuLabel = (label = '', id = '') => {
-      const num = extractNum(label, id);
-      if (String(label).toLowerCase().includes('renewal')) {
-        return `${num ? num + ' ' : ''}Renewal`;
-      }
-      const cleaned = label.replace(/Management/gi, '').trim();
-      const compact = compactLabel(cleaned);
-      return num ? `${num} ${compact.replace(/^\d+\s*/, '').trim()}` : compact;
-    };
-    const groupedMenu = [];
-    const groupMap = new Map();
-    (scriptGroups || []).forEach((g) => {
-      const baseId = g.id === '03-season-management-renewal' ? '03-season-management' : g.id;
-      let entry = groupMap.get(baseId);
-      if (!entry) {
-        entry = { id: baseId, group: null, children: [] };
-        groupMap.set(baseId, entry);
-        groupedMenu.push(entry);
-      }
-      if (g.id === baseId) {
-        entry.group = g;
-      } else {
-        entry.children.push(g);
-      }
-    });
+    const activeChapter = activeChapters.find((ch) => ch.active);
+    const pageTitle = 'BTS > Administration'
+      + (activeCategory ? ` / ${categoryTitles[activeCategory.id] || activeCategory.label}` : '')
+      + (activeChapter ? ` / ${activeChapter.label}` : '');
   %>
   <div class="topbar-shell">
     <div class="topbar">
-      <div class="brand-chip">
-        <span class="brand-logo">B</span>
-        <span>BTS Admin</span>
-      </div>
+      <div class="topbar-nav">
+        <details class="dropdown" data-nav-dropdown>
+          <summary class="brand-chip">
+            <span class="brand-logo">B</span>
+            <span>BTS Admin</span>
+          </summary>
+          <div class="dropdown-menu">
+            <% navCategories.forEach((cat) => { %>
+              <a href="<%= cat.href %>" target="_blank" rel="noopener" class="<%= cat.id === activeCategoryId ? 'active' : '' %>"><%= cat.label %></a>
+            <% }); %>
+          </div>
+        </details>
 
-      <div class="menu-stack">
-        <% groupedMenu.forEach(entry => { 
-             const base = entry.group || entry.children[0];
-             const rawLabel = base?.label || base?.id || '';
-             const label = shortMenuLabel(rawLabel, base?.id || '');
-             const hrefBase = `${baseOperate}${baseOperate.includes('?') ? '&' : '?'}group=${encodeURIComponent(base?.id || '')}`;
-             const isActive = activeGroupId === (base?.id || '') || entry.children.some(c => c.id === activeGroupId);
-             if (entry.children.length) { %>
+        <% if (activeChapters.length) { %>
           <details class="dropdown">
-            <summary class="script-tab <%= isActive ? 'active' : '' %>"><%= label %></summary>
+            <summary class="script-tab active"><%= activeCategory ? activeCategory.label : '' %></summary>
             <div class="dropdown-menu">
-              <% entry.children.forEach(child => { 
-                   const childHref = `${baseOperate}${baseOperate.includes('?') ? '&' : '?'}group=${encodeURIComponent(child.id)}`;
-                   const childLabel = shortMenuLabel(child.label || child.id, child.id);
-              %>
-                <a href="<%= childHref %>" class="<%= child.id === activeGroupId ? 'active' : '' %>">
-                  <span><%= childLabel %></span>
-                  <span class="pill">sous-chap.</span>
-                </a>
+              <% activeChapters.forEach((ch) => { %>
+                <a href="<%= ch.href %>" class="<%= ch.active ? 'active' : '' %>"><%= ch.label %></a>
               <% }); %>
             </div>
           </details>
-        <% } else { %>
-          <a href="<%= hrefBase %>" class="script-tab <%= isActive ? 'active' : '' %>"><%= label %></a>
-        <% } }); %>
+        <% } %>
       </div>
 
-      <div>
-        <details class="dropdown view-selector">
-          <summary>Vue: <%= viewMode === 'io' ? 'Data I/O' : (viewMode === 'monitor' ? 'Monitoring' : (viewMode === 'templates' ? 'Templates' : (viewMode === 'plan' ? 'Plan' : (viewMode === 'orders' ? 'Orders' : (viewMode === 'tickets' ? 'Tickets' : 'Exploitation'))))) %></summary>
-          <div class="dropdown-menu">
-            <a href="<%= baseOperate %>" class="<%= viewMode === 'operate' ? 'active' : '' %>">Exploitation</a>
-            <a href="<%= baseIo %>" class="<%= viewMode === 'io' ? 'active' : '' %>">Data I/O</a>
-            <a href="<%= baseTemplates %>" class="<%= viewMode === 'templates' ? 'active' : '' %>">Templates</a>
-            <a href="<%= baseMonitor %>" class="<%= viewMode === 'monitor' ? 'active' : '' %>">Monitoring</a>
-            <a href="<%= basePlan %>" class="<%= viewMode === 'plan' ? 'active' : '' %>">Plan</a>
-            <a href="<%= baseOrders %>" class="<%= viewMode === 'orders' ? 'active' : '' %>">Orders</a>
-            <a href="<%= baseTickets %>" class="<%= viewMode === 'tickets' ? 'active' : '' %>">Tickets</a>
-          </div>
-        </details>
-      </div>
+      <div class="topbar-title"><%= pageTitle %></div>
     </div>
   </div>
 
-  <header>
-    <h1>BTS — Administration</h1>
-  </header>
-
   <% if (viewMode === 'io') { %>
-    <div class="operations-grid io-layout">
+    <div class="operations-grid io-layout io-layout-2col">
       <section class="card io-card">
         <div class="inputs-header">
           <h2>Entrées disponibles (data/inputs)</h2>
@@ -944,6 +1195,8 @@
           <div class="muted">Ajoutez vos CSV/SVG grâce au bouton ci-dessus.</div>
         <% } else { %>
           <% const deleteInputsUrl = urlFor('/admin/inputs/delete') + (tokenSuffix || ''); %>
+          <% const readInputsUrl = urlFor('/admin/inputs/read') + (tokenSuffix || ''); %>
+          <% const writeInputsUrl = urlFor('/admin/inputs/write') + (tokenSuffix || ''); %>
           <ul class="file-list scroll-limited">
             <% for (const file of inputsList || []) {
                  const dlUrl = urlFor('/admin/inputs/download') + '?file=' + encodeURIComponent(file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
@@ -952,6 +1205,13 @@
                 <code><%= file.name %></code>
                 <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
                 <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                <button
+                  type="button"
+                  class="btn btn-small"
+                  data-edit-button
+                  data-read-url="<%= readInputsUrl %>"
+                  data-write-url="<%= writeInputsUrl %>"
+                  data-file="<%= file.rel %>">Edit</button>
                 <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
                 <button
                   type="button"
@@ -965,6 +1225,25 @@
           </ul>
         <% } %>
       </section>
+
+      <div class="modal hidden" data-input-edit-modal>
+        <div class="modal-backdrop" data-input-edit-close></div>
+        <div class="modal-dialog modal-dialog-wide">
+          <div class="modal-header">
+            <h3>Edit <code data-input-edit-filename></code></h3>
+            <button type="button" class="modal-close" data-input-edit-close>&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="muted" data-input-edit-status></div>
+            <textarea class="input-edit-textarea" data-input-edit-textarea rows="24" spellcheck="false"></textarea>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-input-edit-summary></div>
+            <button type="button" class="btn btn-secondary" data-input-edit-close>Cancel</button>
+            <button type="button" class="btn" data-input-edit-save>Save</button>
+          </footer>
+        </div>
+      </div>
 
       <section class="card io-card">
         <h2>Fichiers générés (data/outputs)</h2>
@@ -993,221 +1272,303 @@
           </ul>
         <% } %>
       </section>
+    </div>
+  <% } %>
 
-      <section class="card io-card">
-        <div class="inputs-header">
-          <h2>Personnalisation (lecture seule)</h2>
+  <% if (viewMode === 'home') { %>
+    <section class="card intro-card">
+      <h2>BTS — Administration</h2>
+      <p class="muted">Choose a section below.</p>
+      <ul class="intro-list">
+        <li>
+          <a href="<%= baseIo %>">Data I/O</a>
+          <span class="intro-item-desc">Upload, edit, download, and delete files under data/inputs and data/outputs.</span>
+        </li>
+        <li>
+          <a href="<%= baseOperate %>">Operation</a>
+          <span class="intro-item-desc">Run setup, import, and export scripts — organized by chapter.</span>
+        </li>
+        <li>
+          <a href="<%= baseMonitor %>">Monitoring</a>
+          <span class="intro-item-desc">Inspect current system state: files, venues, tariffs, seasons, events, partners.</span>
+        </li>
+        <li>
+          <a href="<%= baseTemplates %>">Documentation</a>
+          <span class="intro-item-desc">Guides, reference templates, and example files.</span>
+        </li>
+        <li>
+          <a href="<%= baseAdvanced %>">Advanced</a>
+          <span class="intro-item-desc">Seating plan, order search, and ticket search — with seat-level presence adjustments.</span>
+        </li>
+      </ul>
+    </section>
+  <% } %>
+
+  <% if (showAdvancedIntro) { %>
+    <section class="card intro-card">
+      <h2>Advanced — Overview</h2>
+      <p class="muted">Pick a tool below, or use the dropdown above.</p>
+      <ul class="intro-list">
+        <% for (const ch of categoryChapters.advanced) { if (ch.id === 'overview') continue; %>
+          <li>
+            <a href="<%= ch.href %>"><%= ch.label %></a>
+            <% if (ch.description) { %><span class="intro-item-desc"><%= ch.description %></span><% } %>
+          </li>
+        <% } %>
+      </ul>
+    </section>
+  <% } %>
+
+  <% if (showDocIntro) { %>
+    <section class="card intro-card">
+      <h2>Documentation — Overview</h2>
+      <p class="muted">Pick a chapter below, or use the dropdown above.</p>
+      <ul class="intro-list">
+        <% for (const ch of categoryChapters.templates) { if (ch.id === 'overview') continue; %>
+          <li>
+            <a href="<%= ch.href %>"><%= ch.label %></a>
+            <% if (ch.description) { %><span class="intro-item-desc"><%= ch.description %></span><% } %>
+          </li>
+        <% } %>
+      </ul>
+    </section>
+  <% } %>
+
+  <% if (viewMode === 'templates' && docTab) { %>
+    <div class="monitoring-panel <%= docTab === 'guides' ? 'active' : '' %>" data-doc-panel="guides">
+      <% if (!guidesList || !guidesList.length) { %>
+        <div class="operations-grid io-layout">
+          <section class="card io-card">
+            <h2>User guides</h2>
+            <div class="muted">Aucun guide utilisateur pour le moment.</div>
+          </section>
         </div>
+      <% } else { %>
+        <div class="guide-layout">
+          <section class="card">
+            <h2>Guides</h2>
+            <ul class="guide-list">
+              <% guidesList.forEach((g) => {
+                   const isActive = activeGuide && activeGuide.rel === g.rel;
+                   const href = docHref('guides') + (docHref('guides').includes('?') ? '&' : '?') + 'guide=' + encodeURIComponent(g.rel);
+              %>
+                <li><a href="<%= href %>" class="<%= isActive ? 'active' : '' %>"><%= g.title %></a></li>
+              <% }); %>
+            </ul>
+          </section>
+          <section class="card guide-content">
+            <% if (activeGuide) { %>
+              <%- activeGuide.html %>
+            <% } else { %>
+              <div class="muted">Sélectionnez un guide dans la liste.</div>
+            <% } %>
+          </section>
+        </div>
+      <% } %>
+    </div>
 
-        <div class="io-subsection">
-          <h3>JSON (data/customization)</h3>
-          <% if (!customizationList || !customizationList.length) { %>
-            <div class="muted">Aucune personnalisation détectée.</div>
+    <div class="monitoring-panel <%= docTab === 'references' ? 'active' : '' %>" data-doc-panel="references">
+      <div class="operations-grid io-layout io-layout-2col">
+        <section class="card io-card">
+          <h2>.env & Customization</h2>
+          <h3>.env (data_references/env)</h3>
+          <% if (!templatesEnv || !templatesEnv.length) { %>
+            <div class="muted">Aucun fichier détecté dans data_references/env.</div>
           <% } else { %>
             <ul class="file-list scroll-limited">
-              <% for (const file of customizationList || []) {
-                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              <% for (const file of templatesEnv || []) {
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/env/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
               %>
                 <li>
                   <code><%= file.rel %></code>
-                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
                   <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
                   <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
                 </li>
               <% } %>
             </ul>
           <% } %>
-        </div>
 
-        <div class="io-subsection">
-          <h3>Public (public/dynamic)</h3>
-          <div class="muted">Assets dynamiques (public/dynamic/assets)</div>
-          <% if (!dynamicAssetsList || !dynamicAssetsList.length) { %>
-            <div class="muted">Aucun asset dynamique pour le moment.</div>
+          <h3>Customizations (data_references/customization)</h3>
+          <% if (!customizationList || !customizationList.length) { %>
+            <div class="muted">Aucune customization détectée.</div>
           <% } else { %>
             <ul class="file-list scroll-limited">
-              <% for (const file of dynamicAssetsList || []) {
-                   const assetUrl = urlFor('/dynamic/assets/' + encodeURIComponent(file.rel));
-              %>
-                <li>
-                  <code><%= file.name %></code>
-                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
-                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
-                  <a class="btn btn-small" href="<%= assetUrl %>" download="<%= file.name %>">Télécharger</a>
-                </li>
-              <% } %>
-            </ul>
-          <% } %>
-          <div class="muted" style="margin-top:8px;">Lieux (public/dynamic/venues)</div>
-          <% if (!venueResources || !venueResources.length) { %>
-            <div class="muted">Aucun plan ou vue détecté.</div>
-          <% } else { %>
-            <ul class="file-list scroll-limited">
-              <% for (const venue of venueResources) { %>
-                <li>
-                  <div><strong><%= venue.venueSlug %></strong></div>
-                  <% if (venue.plan) { const planUrl = urlFor('/' + venue.plan.rel); %>
-                    <div class="file-meta">Plan (<%= (venue.plan.size/1024).toFixed(1) %> KB)
-                      <a class="btn btn-small" href="<%= planUrl %>" download="plan.svg">Télécharger</a>
-                    </div>
-                  <% } else { %>
-                    <div class="file-meta muted">Plan manquant</div>
-                  <% } %>
-                  <% if (venue.views && venue.views.length) { %>
-                    <div class="file-meta">Vues :</div>
-                    <div class="file-meta" style="display:flex;flex-wrap:wrap;gap:6px;">
-                      <% for (const view of venue.views) { const viewUrl = urlFor('/' + view.rel); %>
-                        <a class="btn btn-small" href="<%= viewUrl %>" download="<%= view.slug %>.svg"><%= view.slug %></a>
-                      <% } %>
-                    </div>
-                  <% } else { %>
-                    <div class="file-meta muted">Aucune vue</div>
-                  <% } %>
-                </li>
-              <% } %>
-            </ul>
-          <% } %>
-        </div>
-
-        <div class="io-subsection">
-          <h3>Templates (data/templates)</h3>
-          <% if (!dataTemplatesList || !dataTemplatesList.length) { %>
-            <div class="muted">Aucun template détecté.</div>
-          <% } else { %>
-            <ul class="file-list scroll-limited">
-              <% for (const file of dataTemplatesList || []) {
-                   const tplUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data/templates/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              <% for (const file of customizationList || []) {
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
               %>
                 <li>
                   <code><%= file.rel %></code>
-                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
                   <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
-                  <a class="btn btn-small" href="<%= tplUrl %>" download="<%= file.name %>">Télécharger</a>
+                  <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
                 </li>
               <% } %>
             </ul>
           <% } %>
-        </div>
-      </section>
+        </section>
+
+        <section class="card io-card">
+          <h2>Templates CSV & SVG</h2>
+          <h3>CSV (data_references/csv)</h3>
+          <% if (!templatesCsv || !templatesCsv.length) { %>
+            <div class="muted">Aucun template détecté dans data_references/csv.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of templatesCsv || []) {
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/csv/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li>
+                  <code><%= file.rel %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+
+          <h3>SVG (data_references/svg)</h3>
+          <% if (!templatesSvg || !templatesSvg.length) { %>
+            <div class="muted">Aucun template détecté dans data_references/svg.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of templatesSvg || []) {
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/svg/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li>
+                  <code><%= file.rel %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+        </section>
+
+        <section class="card io-card">
+          <h2>Templates e-mail & Tickets</h2>
+          <h3>E-mail (data_references/templates/email)</h3>
+          <% if (!templatesEmail || !templatesEmail.length) { %>
+            <div class="muted">Aucun template détecté dans data_references/templates/email.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of templatesEmail || []) {
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/email/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li>
+                  <code><%= file.rel %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+
+          <h3>Tickets (data_references/templates/tickets)</h3>
+          <% if (!templatesTickets || !templatesTickets.length) { %>
+            <div class="muted">Aucun template détecté dans data_references/templates/tickets.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of templatesTickets || []) {
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/tickets/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li>
+                  <code><%= file.rel %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+        </section>
+
+        <section class="card io-card">
+          <h2>Assets</h2>
+          <h3>Assets (data_references/assets)</h3>
+          <% if (!templatesAssets || !templatesAssets.length) { %>
+            <div class="muted">Aucun asset détecté dans data_references/assets.</div>
+          <% } else { %>
+            <ul class="file-list scroll-limited">
+              <% for (const file of templatesAssets || []) {
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/assets/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li>
+                  <code><%= file.rel %></code>
+                  <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
+                </li>
+              <% } %>
+            </ul>
+          <% } %>
+        </section>
+      </div>
     </div>
-  <% } %>
 
-  <% if (viewMode === 'templates') { %>
-    <div class="operations-grid io-layout">
-      <section class="card io-card">
-        <h2>.env & Customization</h2>
-        <h3>.env (data_references/env)</h3>
-        <% if (!templatesEnv || !templatesEnv.length) { %>
-          <div class="muted">Aucun fichier détecté dans data_references/env.</div>
-        <% } else { %>
-          <ul class="file-list scroll-limited">
-            <% for (const file of templatesEnv || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/env/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
-            %>
-              <li>
-                <code><%= file.rel %></code>
-                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
-                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
-                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
-              </li>
-            <% } %>
-          </ul>
-        <% } %>
-
-        <h3>Customizations (data_references/customization)</h3>
-        <% if (!customizationList || !customizationList.length) { %>
-          <div class="muted">Aucune customization détectée.</div>
-        <% } else { %>
-          <ul class="file-list scroll-limited">
-            <% for (const file of customizationList || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/customization/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
-            %>
-              <li>
-                <code><%= file.rel %></code>
-                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
-                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
-                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
-              </li>
-            <% } %>
-          </ul>
-        <% } %>
-      </section>
-
-      <section class="card io-card">
-        <h2>Templates e-mail & Tickets</h2>
-        <h3>E-mail (data_references/templates/email)</h3>
-        <% if (!templatesEmail || !templatesEmail.length) { %>
-          <div class="muted">Aucun template détecté dans data_references/templates/email.</div>
-        <% } else { %>
-          <ul class="file-list scroll-limited">
-            <% for (const file of templatesEmail || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/email/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
-            %>
-              <li>
-                <code><%= file.rel %></code>
-                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
-                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
-                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
-              </li>
-            <% } %>
-          </ul>
-        <% } %>
-
-        <h3>Tickets (data_references/templates/tickets)</h3>
-        <% if (!templatesTickets || !templatesTickets.length) { %>
-          <div class="muted">Aucun template détecté dans data_references/templates/tickets.</div>
-        <% } else { %>
-          <ul class="file-list scroll-limited">
-            <% for (const file of templatesTickets || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/templates/tickets/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
-            %>
-              <li>
-                <code><%= file.rel %></code>
-                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
-                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
-                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
-              </li>
-            <% } %>
-          </ul>
-        <% } %>
-      </section>
+    <div class="monitoring-panel <%= docTab === 'examples' ? 'active' : '' %>" data-doc-panel="examples">
+      <%
+        // Local to this panel — mirrors the tree helper in the Custo files
+        // monitor panel, kept self-contained rather than shared across
+        // panels (EJS scriptlet functions defined inside one conditional
+        // block shouldn't be relied on from another).
+        function buildExampleFileTree(files) {
+          const root = { type: 'dir', name: '', children: new Map(), fileCount: 0 };
+          for (const file of (files || [])) {
+            const parts = file.rel.split('/');
+            let node = root;
+            for (let i = 0; i < parts.length - 1; i++) {
+              const part = parts[i];
+              if (!node.children.has(part)) {
+                node.children.set(part, { type: 'dir', name: part, children: new Map(), fileCount: 0 });
+              }
+              node = node.children.get(part);
+              node.fileCount += 1;
+            }
+            node.children.set(parts[parts.length - 1], { type: 'file', name: parts[parts.length - 1], rel: file.rel, size: file.size, mtime: file.mtime });
+          }
+          const toArray = (node) => Array.from(node.children.values())
+            .map(child => child.type === 'dir' ? Object.assign({}, child, { children: toArray(child) }) : child)
+            .sort((a, b) => a.type !== b.type ? (a.type === 'dir' ? -1 : 1) : a.name.localeCompare(b.name));
+          return toArray(root);
+        }
+        function renderExampleFileTree(nodes, downloadPrefix) {
+      %>
+        <ul class="custo-tree">
+        <% nodes.forEach(function (node) { %>
+          <% if (node.type === 'dir') { %>
+            <li class="custo-tree-dir">
+              <details open>
+                <summary><%= node.name %>/ <span class="file-meta">(<%= node.fileCount %>)</span></summary>
+                <% renderExampleFileTree(node.children, downloadPrefix); %>
+              </details>
+            </li>
+          <% } else {
+               const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent(downloadPrefix + node.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+          %>
+            <li class="custo-tree-file">
+              <code><%= node.name %></code>
+              <span class="file-meta"><%= (node.size/1024).toFixed(1) %> KB</span>
+              <span class="file-meta"><%= new Date(node.mtime).toLocaleString() %></span>
+              <a class="btn btn-small" href="<%= dlUrl %>" download="<%= node.name %>">Télécharger</a>
+            </li>
+          <% } %>
+        <% }); %>
+        </ul>
+      <% } %>
 
       <section class="card io-card">
-        <h2>Templates CSV & SVG</h2>
-        <h3>CSV (data_references/csv)</h3>
-        <% if (!templatesCsv || !templatesCsv.length) { %>
-          <div class="muted">Aucun template détecté dans data_references/csv.</div>
+        <h2>Example bundles (data_examples)</h2>
+        <p class="muted">Complete starter kits — venue map + zones/seats, tariff catalogs, and app branding — organized by scenario.</p>
+        <% if (!dataExamplesList || !dataExamplesList.length) { %>
+          <div class="muted">Aucun exemple détecté dans data_examples.</div>
         <% } else { %>
-          <ul class="file-list scroll-limited">
-            <% for (const file of templatesCsv || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/csv/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
-            %>
-              <li>
-                <code><%= file.rel %></code>
-                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
-                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
-                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
-              </li>
-            <% } %>
-          </ul>
-        <% } %>
-
-        <h3>SVG (data_references/svg)</h3>
-        <% if (!templatesSvg || !templatesSvg.length) { %>
-          <div class="muted">Aucun template détecté dans data_references/svg.</div>
-        <% } else { %>
-          <ul class="file-list scroll-limited">
-            <% for (const file of templatesSvg || []) {
-                 const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent('data_references/svg/' + file.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
-            %>
-              <li>
-                <code><%= file.rel %></code>
-                <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
-                <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
-                <a class="btn btn-small" href="<%= dlUrl %>">Télécharger</a>
-              </li>
-            <% } %>
-          </ul>
+          <div class="scroll-limited">
+            <% renderExampleFileTree(buildExampleFileTree(dataExamplesList), 'data_examples/'); %>
+          </div>
         <% } %>
       </section>
     </div>
@@ -1236,6 +1597,9 @@
           <label>
             Événement
             <select name="event" data-auto-submit="change">
+              <option value="__season__" <%= planView.selectedEventSlug === '__season__' ? 'selected' : '' %>>
+                — Saison (abonnements + renouvellements) —
+              </option>
               <% if (planView.events && planView.events.length) { %>
                 <% for (const ev of planView.events) { const eventDate = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
                   <option value="<%= ev.slug %>" <%= ev.slug === planView.selectedEventSlug ? 'selected' : '' %>>
@@ -1258,7 +1622,7 @@
         <% } %>
       </section>
 
-      <div class="plan-layout">
+      <div class="plan-layout" data-event-orders-block data-event-slug="<%= planView.selectedEventSlug || '' %>">
         <section class="card plan-canvas">
           <% if (planView.planUrl) { %>
             <object
@@ -1311,8 +1675,35 @@
                 <dd data-plan-seat-order-id>—</dd>
               </div>
             </dl>
+            <button type="button" class="btn btn-small hidden" data-attendance-edit data-plan-seat-adjust data-order-id="">Ajuster</button>
+            <%# Retirer une place de la vente sans commande : invitation, siège
+                cassé, rangée neutralisée. Masqué pour une place vendue ou
+                provisionnée — elle appartient à quelqu'un. %>
+            <div class="plan-seat-state hidden" data-plan-seat-state>
+              <div class="muted" data-plan-seat-state-label>—</div>
+              <input type="text" data-plan-seat-note placeholder="motif (optionnel) : invitation, siège cassé…" size="28">
+              <button type="button" class="btn btn-small" data-plan-seat-toggle data-to="">—</button>
+            </div>
           </section>
         </aside>
+      </div>
+
+      <div class="modal hidden" data-attendance-modal>
+        <div class="modal-backdrop" data-attendance-close></div>
+        <div class="modal-dialog">
+          <header class="modal-header">
+            <h3>Ajuster la présence</h3>
+            <button type="button" class="modal-close" data-attendance-close>&times;</button>
+          </header>
+          <div class="modal-body" data-attendance-body>
+            <div class="empty-state">Chargement…</div>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-attendance-summary></div>
+            <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
+            <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
+          </footer>
+        </div>
       </div>
     </div>
   <% } %>
@@ -1340,6 +1731,9 @@
           <label>
             Événement
             <select name="event" data-auto-submit="change">
+              <option value="__season__" <%= ordersView.selectedEventSlug === '__season__' ? 'selected' : '' %>>
+                — Saison (abonnements + renouvellements) —
+              </option>
               <% if (ordersView.events && ordersView.events.length) { %>
                 <% for (const ev of ordersView.events) { const eventDate = ev.startsAt ? new Date(ev.startsAt).toLocaleString() : null; %>
                   <option value="<%= ev.slug %>" <%= ev.slug === ordersView.selectedEventSlug ? 'selected' : '' %>>
@@ -1361,7 +1755,7 @@
 
       <section class="card">
         <% if (ordersView.rows && ordersView.rows.length) { %>
-          <div class="records-table-wrap">
+          <div class="records-table-wrap" data-event-orders-block data-event-slug="<%= ordersView.selectedEventSlug || '' %>">
             <table class="records-table">
               <thead>
                 <tr>
@@ -1374,6 +1768,7 @@
                   <th>Tarif(s)</th>
                   <th>Lignes</th>
                   <th>Total</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="ordersRows">
@@ -1381,13 +1776,34 @@
                   <tr data-search="<%= row.searchIndex || '' %>">
                     <td><code><%= row.id %></code></td>
                     <td><%= row.createdAt ? new Date(row.createdAt).toLocaleString() : '—' %></td>
-                    <td><%= row.status || '—' %></td>
+                    <td>
+                      <%= row.status || '—' %>
+                      <% if (row.booking) { %>
+                        <%# État réel des sièges, dans la même colonne que le statut
+                            de commande : les deux ne se lisent utilement qu'ensemble. %>
+                        <br><small class="<%= row.booking.mismatch ? 'booking-warn' : 'muted' %>">
+                          <%= row.booking.mismatch ? '⚠ ' : '' %><%= row.booking.booked %>/<%= row.booking.total %> siège(s) réservé(s)
+                        </small>
+                      <% } %>
+                    </td>
                     <td><%= row.beneficiaries && row.beneficiaries.length ? row.beneficiaries.join(', ') : '—' %></td>
                     <td><%= row.payerName || '—' %></td>
                     <td><%= row.payerEmail || '—' %></td>
                     <td><%= row.tariffs && row.tariffs.length ? row.tariffs.join(', ') : '—' %></td>
                     <td><%= row.lineCount || 0 %></td>
                     <td><%= ((row.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
+                    <td>
+                      <%# « Ajuster » est l'overlay de présence d'un match : il n'a
+                          pas de sens hors d'un événement, et l'API 404 sur le
+                          sentinelle « __season__ ». En périmètre saison on offre
+                          l'édition du contact, qui est le besoin réel. %>
+                      <% if (ordersView.seasonScope) { %>
+                        <button type="button" class="btn btn-small" data-order-contact-edit data-order-id="<%= row.id %>">Contact</button>
+                        <button type="button" class="btn btn-small" data-order-seat-edit data-order-id="<%= row.id %>">Places</button>
+                      <% } else if (ordersView.selectedEventSlug) { %>
+                        <button type="button" class="btn btn-small" data-attendance-edit data-order-id="<%= row.id %>">Ajuster</button>
+                      <% } %>
+                    </td>
                   </tr>
                 <% } %>
               </tbody>
@@ -1397,6 +1813,312 @@
           <div class="empty-state">Aucune commande pour cette sélection.</div>
         <% } %>
       </section>
+
+      <%# Réallocation de place — déplace les vrais documents Seat. %>
+      <div class="modal hidden" data-seat-modal>
+        <div class="modal-backdrop" data-seat-close></div>
+        <div class="modal-dialog">
+          <header class="modal-header">
+            <h3>Places de la commande</h3>
+            <button type="button" class="modal-close" data-seat-close>&times;</button>
+          </header>
+          <div class="modal-body" data-seat-body>
+            <div class="empty-state">Chargement…</div>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-seat-summary></div>
+            <button type="button" class="btn btn-secondary" data-seat-close>Fermer</button>
+          </footer>
+        </div>
+      </div>
+
+      <%# Édition du contact — distincte de « Ajuster la présence » : elle ne
+          touche ni aux sièges ni au montant, et n'envoie aucun e-mail. %>
+      <div class="modal hidden" data-contact-modal>
+        <div class="modal-backdrop" data-contact-close></div>
+        <div class="modal-dialog">
+          <header class="modal-header">
+            <h3>Contact de la commande</h3>
+            <button type="button" class="modal-close" data-contact-close>&times;</button>
+          </header>
+          <div class="modal-body" data-contact-body>
+            <div class="empty-state">Chargement…</div>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-contact-summary></div>
+            <button type="button" class="btn btn-secondary" data-contact-close>Annuler</button>
+            <button type="button" class="btn" data-contact-submit>Enregistrer</button>
+          </footer>
+        </div>
+      </div>
+
+      <div class="modal hidden" data-attendance-modal>
+        <div class="modal-backdrop" data-attendance-close></div>
+        <div class="modal-dialog">
+          <header class="modal-header">
+            <h3>Ajuster la présence</h3>
+            <button type="button" class="modal-close" data-attendance-close>&times;</button>
+          </header>
+          <div class="modal-body" data-attendance-body>
+            <div class="empty-state">Chargement…</div>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-attendance-summary></div>
+            <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
+            <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
+          </footer>
+        </div>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (viewMode === 'vouchers' && vouchersView) { %>
+    <section class="panel">
+      <h2>Bons cadeaux</h2>
+      <form method="get" action="<%= baseVouchers %>" class="records-toolbar">
+        <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+        <label>
+          Statut
+          <select name="status" data-auto-submit="change">
+            <option value="">Tous</option>
+            <% for (const st of vouchersView.statuses) { %>
+              <option value="<%= st %>" <%= st === vouchersView.statusFilter ? 'selected' : '' %>><%= st %></option>
+            <% } %>
+          </select>
+        </label>
+        <noscript><button type="submit" class="btn btn-small">Filtrer</button></noscript>
+      </form>
+
+      <% if (!vouchersView.rows.length) { %>
+        <div class="empty-state">Aucun bon.</div>
+      <% } else { %>
+        <div class="scroll-table-full">
+          <table>
+            <tr>
+              <th>Code</th><th>Libellé</th><th>Solde</th><th>Par match</th>
+              <th>Échéance</th><th>Portée</th><th>Statut</th><th>Actions</th>
+            </tr>
+            <% for (const v of vouchersView.rows) { %>
+              <tr data-voucher-id="<%= v.id %>">
+                <td><code><%= v.code %></code></td>
+                <td>
+                  <%= v.label || '—' %>
+                  <% if (v.redemptions.length) { %>
+                    <br><small class="muted"><%= v.redemptions.length %> retrait(s) :
+                      <%= v.redemptions.map(r => `${r.eventSlug} ×${r.qty}`).join(', ') %>
+                    </small>
+                  <% } %>
+                </td>
+                <td><strong><%= v.remaining %></strong> / <%= v.total %></td>
+                <td><%= v.maxPerEvent > 0 ? v.maxPerEvent : '—' %></td>
+                <td>
+                  <%= v.expiresAt ? new Date(v.expiresAt).toLocaleDateString() : '—' %>
+                  <% if (v.expired) { %><br><small class="muted">expiré</small><% } %>
+                </td>
+                <td>
+                  <% if (v.allowedZones.length) { %><small>zones : <%= v.allowedZones.join(', ') %></small><br><% } %>
+                  <% if (v.eligibility.events.length) { %><small>matchs : <%= v.eligibility.events.join(', ') %></small><br><% } %>
+                  <% if (v.eligibility.seasonCodes.length) { %><small>saisons : <%= v.eligibility.seasonCodes.join(', ') %></small><br><% } %>
+                  <% if (v.eligibility.tags.length) { %><small>tags : <%= v.eligibility.tags.join(', ') %></small><% } %>
+                  <% if (!v.allowedZones.length && !v.eligibility.events.length && !v.eligibility.seasonCodes.length && !v.eligibility.tags.length) { %>—<% } %>
+                </td>
+                <td><span class="voucher-status"><%= v.status %></span></td>
+                <td class="voucher-actions">
+                  <button type="button" class="btn btn-small" data-voucher-action="link">Lien</button>
+                  <% if (v.status === 'active') { %>
+                    <button type="button" class="btn btn-small" data-voucher-action="suspend">Suspendre</button>
+                  <% } else if (v.status === 'suspended') { %>
+                    <button type="button" class="btn btn-small" data-voucher-action="activate">Réactiver</button>
+                  <% } %>
+                  <button type="button" class="btn btn-small" data-voucher-action="extend">Prolonger</button>
+                </td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } %>
+    </section>
+
+    <script>
+      (function () {
+        const base = <%- JSON.stringify(urlFor('/admin/vouchers')) %>;
+        const tokenQS = <%- JSON.stringify(tokenQueryString || '') %>;
+        document.querySelectorAll('[data-voucher-action]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const row = btn.closest('[data-voucher-id]');
+            const id = row?.dataset.voucherId;
+            const action = btn.dataset.voucherAction;
+            if (!id) return;
+
+            if (action === 'link') {
+              const res = await fetch(`${base}/${id}/link${tokenQS}`);
+              const data = await res.json().catch(() => ({}));
+              if (data.ok) {
+                // prompt() plutôt qu'une copie muette : le lien doit pouvoir
+                // être relu et collé dans un mail ou une commande d'impression.
+                window.prompt('Lien du bon ' + data.code, data.url);
+              } else { alert('Erreur : ' + (data.error || 'inconnue')); }
+              return;
+            }
+
+            let body = null;
+            if (action === 'extend') {
+              const v = window.prompt('Nouvelle échéance (AAAA-MM-JJ)');
+              if (!v) return;
+              body = JSON.stringify({ expiresAt: v });
+            }
+            const res = await fetch(`${base}/${id}/${action}${tokenQS}`, {
+              method: 'POST',
+              headers: body ? { 'Content-Type': 'application/json' } : {},
+              body
+            });
+            const data = await res.json().catch(() => ({}));
+            if (data.ok) window.location.reload();
+            else alert('Erreur : ' + (data.error || 'inconnue'));
+          });
+        });
+      })();
+    </script>
+  <% } %>
+
+  <% if (viewMode === 'renewers' && renewersView) { %>
+    <div class="records-view">
+      <section class="card">
+        <h2>Renewers administrateur</h2>
+        <form method="get" action="<%= baseRenewers %>" class="records-toolbar">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <label>
+            Saison
+            <select name="season" data-auto-submit="change">
+              <% if (renewersView.seasons && renewersView.seasons.length) { %>
+                <% for (const s of renewersView.seasons) { %>
+                  <option value="<%= s.code %>" <%= s.code === renewersView.selectedSeasonCode ? 'selected' : '' %>>
+                    <%= s.code %><%= s.name ? ' — ' + s.name : '' %><%= s.venueSlug ? ' (' + s.venueSlug + ')' : '' %>
+                  </option>
+                <% } %>
+              <% } else { %>
+                <option value="">Aucune saison</option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Statut
+            <select name="status" data-auto-submit="change">
+              <option value="">Tous</option>
+              <% for (const st of renewersView.statuses) { %>
+                <option value="<%= st %>" <%= st === renewersView.statusFilter ? 'selected' : '' %>><%= st %></option>
+              <% } %>
+            </select>
+          </label>
+          <label>
+            Filtrer nom / email / groupe / siège
+            <input type="search" data-table-filter data-table-target="renewersRows" placeholder="Tapez un nom, un email, un groupe…">
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Actualiser</button></noscript>
+        </form>
+        <% if (renewersView.selectedSeasonCode && !renewersView.selectedVenueSlug) { %>
+          <div class="error">Cette saison n'a pas de venueSlug renseigné (voir create-season.js / instantiate-venue-for-season.js) — aucune ligne de renouvellement ne peut être affichée.</div>
+        <% } %>
+      </section>
+
+      <section class="card">
+        <% if (renewersView.rows && renewersView.rows.length) { %>
+          <div class="records-table-wrap">
+            <table class="records-table">
+              <thead>
+                <tr>
+                  <th>Groupe</th>
+                  <th>Nom</th>
+                  <th>Email</th>
+                  <th>Téléphone</th>
+                  <th>Siège préféré</th>
+                  <th>Statut siège</th>
+                  <th>Statut renouvellement</th>
+                  <th>Dernier envoi</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="renewersRows">
+                <% for (const row of renewersView.rows) { %>
+                  <tr data-search="<%= row.searchIndex || '' %>" data-renewer-row data-renewer-id="<%= row.id %>">
+                    <td><%= row.groupKey || '—' %></td>
+                    <td data-renewer-field="name"><%= [row.firstName, row.lastName].filter(Boolean).join(' ') || '—' %></td>
+                    <td data-renewer-field="email"><%= row.email || '—' %></td>
+                    <td data-renewer-field="phone"><%= row.phone || '—' %></td>
+                    <td data-renewer-field="prefSeatId"><%= row.prefSeatId || '—' %></td>
+                    <td data-renewer-field="seatStatus"><%= row.seatStatus || '—' %></td>
+                    <td><span class="pill" data-renewer-field="status"><%= row.status %></span></td>
+                    <td data-renewer-field="lastInviteSentAt"><%= row.lastInviteSentAt ? new Date(row.lastInviteSentAt).toLocaleString() : '—' %></td>
+                    <td class="records-row-actions">
+                      <button type="button" class="btn btn-small" data-renewer-link>Lien</button>
+                      <button type="button" class="btn btn-small" data-renewer-send>Envoyer</button>
+                      <button type="button" class="btn btn-small" data-renewer-edit>Modifier</button>
+                      <button type="button" class="btn btn-small btn-danger" data-renewer-cancel>Annuler</button>
+                    </td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state">Aucune ligne de renouvellement pour cette sélection.</div>
+        <% } %>
+      </section>
+
+      <div class="modal hidden" data-renewer-modal>
+        <div class="modal-backdrop" data-renewer-close></div>
+        <div class="modal-dialog">
+          <header class="modal-header">
+            <h3>Modifier la ligne de renouvellement</h3>
+            <button type="button" class="modal-close" data-renewer-close>&times;</button>
+          </header>
+          <div class="modal-body">
+            <form data-renewer-form>
+              <div class="form-group">
+                <label>Prénom</label>
+                <input type="text" name="firstName" data-renewer-field-input="firstName">
+              </div>
+              <div class="form-group">
+                <label>Nom</label>
+                <input type="text" name="lastName" data-renewer-field-input="lastName">
+              </div>
+              <div class="form-group">
+                <label>Email</label>
+                <input type="email" name="email" data-renewer-field-input="email">
+              </div>
+              <div class="form-group">
+                <label>Téléphone</label>
+                <input type="text" name="phone" data-renewer-field-input="phone">
+              </div>
+              <div class="form-group">
+                <label>Siège préféré</label>
+                <input type="text" name="prefSeatId" data-renewer-field-input="prefSeatId" placeholder="ex: S1-A-01">
+              </div>
+              <div class="form-group">
+                <label>Groupe</label>
+                <input type="text" name="groupKey" data-renewer-field-input="groupKey">
+              </div>
+              <div class="form-group">
+                <label>Statut</label>
+                <select name="status" data-renewer-field-input="status">
+                  <% for (const st of renewersView.statuses) { %>
+                    <option value="<%= st %>"><%= st %></option>
+                  <% } %>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Notes</label>
+                <textarea name="notes" rows="3" data-renewer-field-input="notes"></textarea>
+              </div>
+            </form>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-renewer-modal-summary></div>
+            <button type="button" class="btn btn-secondary" data-renewer-close>Annuler</button>
+            <button type="button" class="btn" data-renewer-submit>Enregistrer</button>
+          </footer>
+        </div>
+      </div>
     </div>
   <% } %>
 
@@ -1444,7 +2166,7 @@
 
       <section class="card">
         <% if (ticketsView.rows && ticketsView.rows.length) { %>
-          <div class="records-table-wrap">
+          <div class="records-table-wrap" data-event-orders-block data-event-slug="<%= ticketsView.selectedEventSlug || '' %>">
             <table class="records-table">
               <thead>
                 <tr>
@@ -1458,10 +2180,13 @@
                   <th>Order id</th>
                   <th>Créé</th>
                   <th>Scan</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="ticketsRows">
-                <% for (const row of ticketsView.rows) { %>
+                <% for (const row of ticketsView.rows) {
+                     const hasOrder = row.orderId && row.orderId !== '—';
+                %>
                   <tr data-search="<%= row.searchIndex || '' %>">
                     <td><code><%= row.id %></code></td>
                     <td><%= row.seatId || '—' %></td>
@@ -1470,12 +2195,17 @@
                     <td><%= row.holderEmail || '—' %></td>
                     <td><%= row.contactName || '—' %></td>
                     <td><%= row.contactEmail || '—' %></td>
-                    <td><%= row.orderId && row.orderId !== '—' ? row.orderId : '—' %></td>
+                    <td><%= hasOrder ? row.orderId : '—' %></td>
                     <td><%= row.createdAt ? new Date(row.createdAt).toLocaleString() : '—' %></td>
                     <td>
                       <%= row.scannedAt ? ('Scanné le ' + new Date(row.scannedAt).toLocaleString()) : 'Non scanné' %>
                       <% if ((row.scanCount || 0) > 0) { %>
                         (<%= row.scanCount %>)
+                      <% } %>
+                    </td>
+                    <td>
+                      <% if (hasOrder) { %>
+                        <button type="button" class="btn btn-small" data-attendance-edit data-order-id="<%= row.orderId %>">Ajuster</button>
                       <% } %>
                     </td>
                   </tr>
@@ -1487,48 +2217,51 @@
           <div class="empty-state">Aucun ticket pour cette sélection.</div>
         <% } %>
       </section>
+
+      <div class="modal hidden" data-attendance-modal>
+        <div class="modal-backdrop" data-attendance-close></div>
+        <div class="modal-dialog">
+          <header class="modal-header">
+            <h3>Ajuster la présence</h3>
+            <button type="button" class="modal-close" data-attendance-close>&times;</button>
+          </header>
+          <div class="modal-body" data-attendance-body>
+            <div class="empty-state">Chargement…</div>
+          </div>
+          <footer class="modal-footer">
+            <div class="modal-summary" data-attendance-summary></div>
+            <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
+            <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
+          </footer>
+        </div>
+      </div>
     </div>
   <% } %>
 
-  <% if (viewMode === 'operate') { %>
-    <% 
-      const groupedOpsMenu = [];
-      const opsMap = new Map();
-      (scriptGroups || []).forEach((g) => {
-        const baseId = g.id === '03-season-management-renewal' ? '03-season-management' : g.id;
-        let entry = opsMap.get(baseId);
-        if (!entry) {
-          entry = { id: baseId, group: null, children: [] };
-          opsMap.set(baseId, entry);
-          groupedOpsMenu.push(entry);
-        }
-        if (g.id === baseId) {
-          entry.group = g;
-        } else {
-          entry.children.push(g);
-        }
-      });
-    %>
-    <div class="script-tabs-rail">
-      <div class="menu-stack">
-        <% groupedOpsMenu.forEach(entry => { 
-             const base = entry.group || entry.children[0];
-             const label = base?.label || base?.id || '';
-        %>
-          <span
-            class="script-tab <%= base.id === activeGroupId ? 'active' : '' %>">
-            <%= label %>
-          </span>
-          <% if (entry.children.length) { entry.children.forEach(child => { %>
-            <span
-              class="script-tab sub-tab <%= child.id === activeGroupId ? 'active' : '' %>">
-              <%= child.label || child.id %>
-            </span>
-          <% }); } %>
-        <% }); %>
-      </div>
-    </div>
+  <% if (showOperateIntro) { %>
+    <section class="card intro-card">
+      <h2>Operation — Overview</h2>
+      <p class="muted">Pick a script below, or use the chapter dropdown above to jump straight to one.</p>
+      <% for (const group of scriptGroups || []) { %>
+        <div class="intro-group">
+          <h3><%= group.label %></h3>
+          <% if (group.description) { %><p class="muted intro-group-desc"><%= group.description %></p><% } %>
+          <ul class="intro-list">
+            <% for (const script of group.scripts || []) {
+                 const scriptHref = `${baseOperate}${baseOperate.includes('?') ? '&' : '?'}group=${encodeURIComponent(group.id)}#script-${encodeURIComponent(script.id)}`;
+            %>
+              <li>
+                <a href="<%= scriptHref %>"><%= script.label %></a>
+                <span class="intro-item-desc"><%= script.description %></span>
+              </li>
+            <% } %>
+          </ul>
+        </div>
+      <% } %>
+    </section>
+  <% } %>
 
+  <% if (viewMode === 'operate' && activeGroupId) { %>
     <section class="card scripts-card">
       <h2>Scripts opérationnels</h2>
       <p style="color: var(--muted); margin-bottom: 16px;">
@@ -1545,7 +2278,7 @@
                const automationJobList = (automationJobs && automationJobs[script.id]) || [];
                const defaultDryRun = script.automation && script.automation.defaultDryRun ? 'true' : 'false';
           %>
-            <article class="script-item <%= script.danger ? 'danger' : '' %>">
+            <article class="script-item <%= script.danger ? 'danger' : '' %>" id="script-<%= script.id %>">
               <header>
                 <div class="title"><%= script.label %></div>
                 <div class="badge">#<%= script.order != null ? script.order.toString().padStart(2,'0') : '—' %></div>
@@ -1592,7 +2325,13 @@
                   data-default-dry-run="<%= defaultDryRun %>"
                 <% } %>>
                 <% if (script.form && script.form.fields && script.form.fields.length) { %>
-                  <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'create-season'; const freeCatalogField = script.id === 'import-tariff-prices'; %>
+                  <% const opt = operateOptions || {}; const freeSeasonField = script.id === 'create-season'; const freeCatalogField = script.id === 'import-tariff-prices';
+                     // Création de partenaire : le slug se SAISIT (texte libre), les existants
+                     // ne sont que suggérés — une liste fermée interdisait d'en créer un.
+                     const freePartnerField = script.id === 'partner-upsert';
+                     const adCampaignCatalogScriptIds = ['event-instantiate-ad-campaigns', 'season-instantiate-ad-campaigns', 'import-ad-campaign-catalog', 'export-ad-campaign-catalog', 'remove-ad-campaign-catalog'];
+                     const catalogOptionsSource = adCampaignCatalogScriptIds.includes(script.id) ? opt.adCampaignCatalogs : opt.tariffCatalogs;
+                  %>
                   <div class="script-form-grid">
                   <% for (const field of script.form.fields) { 
                          const inputRole = script.id + ':' + field.name;
@@ -1620,8 +2359,11 @@
                          const hasVenueSelect = field.name === 'venue' && Array.isArray(opt.venues) && opt.venues.length;
                          const hasVenueViewSelect = field.name === 'venueView' && Array.isArray(opt.venueViews) && opt.venueViews.length;
                          const isPartnerField = (field.name === 'partner' || field.name === 'partnerSlug' || (field.name === 'slug' && group.id === '05-partner-management'));
-                         const hasPartnerSelect = isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
-                          const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(opt.tariffCatalogs) && opt.tariffCatalogs.length;
+                         const hasPartnerSelect = !freePartnerField && isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
+                         const hasPartnerSuggest = freePartnerField && isPartnerField && Array.isArray(opt.partners) && opt.partners.length;
+                          const hasCatalogSelect = !freeCatalogField && field.name === 'catalog' && Array.isArray(catalogOptionsSource) && catalogOptionsSource.length;
+                          const hasGoogleLibrarySelect = field.name === 'library' && Array.isArray(opt.googleLibraries) && opt.googleLibraries.length;
+                          const hasMultiInputFiles = field.multi === true && Array.isArray(opt.inputFiles) && opt.inputFiles.length && field.placeholder && field.placeholder.startsWith('data/inputs');
                           const defaultValue = (field.placeholder && field.placeholder.startsWith('data/outputs/'))
                            ? field.placeholder
                            : '';
@@ -1680,6 +2422,15 @@
                                 </option>
                               <% } %>
                             </select>
+                          <% } else if (hasPartnerSuggest) { %>
+                            <input type="text" data-role="<%= inputRole %>" list="partner-slugs-<%= script.id %>"
+                                   placeholder="<%= field.placeholder || '' %>" autocomplete="off" <%= field.required ? 'required' : '' %> />
+                            <datalist id="partner-slugs-<%= script.id %>">
+                              <% for (const partner of opt.partners) { %>
+                                <option value="<%= partner.slug %>"><%= partner.name || '' %></option>
+                              <% } %>
+                            </datalist>
+                            <small class="field-hint">Nouveau slug pour créer un partenaire, ou un existant pour le modifier.</small>
                           <% } else if (hasPartnerSelect) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Choisir un partenaire —</option>
@@ -1691,11 +2442,20 @@
                             </select>
                           <% } else if (hasCatalogSelect) { %>
                             <select data-role="<%= inputRole %>" multiple data-join="," <%= field.required ? 'required' : '' %>>
-                              <% for (const cat of opt.tariffCatalogs) { %>
+                              <% for (const cat of catalogOptionsSource) { %>
                                 <option value="<%= cat %>"><%= cat %></option>
                               <% } %>
                             </select>
                             <small class="field-hint">Sélection multiple permise (Cmd/Ctrl + clic).</small>
+                          <% } else if (hasGoogleLibrarySelect) { %>
+                            <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
+                              <option value="">— Choisir une bibliothèque —</option>
+                              <% for (const lib of opt.googleLibraries) { %>
+                                <option value="<%= lib.scriptId %>:<%= lib.latestVersion %>">
+                                  <%= lib.title || lib.scriptId %> — v<%= lib.latestVersion %><%= lib.googleUser ? ' · ' + lib.googleUser : '' %> (<%= lib.scriptId.slice(0, 10) %>…)
+                                </option>
+                              <% } %>
+                            </select>
                           <% } else if (hasAssetFiles) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Fichier dans data/inputs —</option>
@@ -1712,6 +2472,13 @@
                               <% } %>
                             </select>
                             <small class="field-hint">Choisissez un fichier présent dans data/inputs ou saisissez un chemin personnalisé.</small>
+                          <% } else if (hasMultiInputFiles) { %>
+                            <select data-role="<%= inputRole %>" multiple data-join="," <%= field.required ? 'required' : '' %>>
+                              <% for (const file of (opt.inputFiles || [])) { const val = `data/inputs/${file}`; %>
+                                <option value="<%= val %>"><%= val %></option>
+                              <% } %>
+                            </select>
+                            <small class="field-hint">Sélection multiple permise (Cmd/Ctrl + clic).</small>
                           <% } else if (hasInputFiles) { %>
                             <select data-role="<%= inputRole %>" <%= field.required ? 'required' : '' %>>
                               <option value="">— Fichier dans data/inputs —</option>
@@ -1720,6 +2487,21 @@
                               <% } %>
                             </select>
                             <small class="field-hint">Choisissez un fichier existant ou saisissez un chemin personnalisé.</small>
+                          <% } else if (fieldType === 'datetime') { %>
+                            <div class="datetime-field">
+                              <input
+                                type="datetime-local"
+                                data-role="<%= inputRole %>"
+                                data-datetime="1"
+                                step="60"
+                                <%= field.required ? 'required' : '' %> />
+                              <select data-datetime-tz="<%= inputRole %>" aria-label="Fuseau horaire">
+                                <option value="">— fuseau —</option>
+                              </select>
+                            </div>
+                            <small class="field-hint" data-datetime-preview="<%= inputRole %>">
+                              Heure saisie dans le fuseau choisi ; le décalage est ajouté automatiquement.
+                            </small>
                           <% } else { %>
                             <input
                               type="text"
@@ -1759,20 +2541,196 @@
               </form>
 
             </article>
+            <% if (group.guide && group.guide.afterScriptId === script.id && group.guide.steps && group.guide.steps.length) { %>
+              <section class="card guide-callout">
+                <h3><%= group.guide.title %></h3>
+                <ol>
+                  <% for (const step of group.guide.steps) { %>
+                    <li><%- step %></li>
+                  <% } %>
+                </ol>
+              </section>
+            <% } %>
           <% } %>
         </div>
       <% } %>
     </section>
   <% } %>
 
-  <% if (viewMode === 'monitor' && monitoring) { %>
-    <div class="script-tabs-rail">
-      <div class="menu-stack monitoring-tabs">
-        <button type="button" class="script-tab <%= monitorTab === 'system' ? 'active' : '' %>" data-monitor-button="system">Système</button>
-        <button type="button" class="script-tab <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-button="tariffs">Tarifs</button>
-        <button type="button" class="script-tab <%= monitorTab === 'seasons' ? 'active' : '' %>" data-monitor-button="seasons">Saisons</button>
-        <button type="button" class="script-tab <%= monitorTab === 'events' ? 'active' : '' %>" data-monitor-button="events">Événements</button>
-        <button type="button" class="script-tab <%= monitorTab === 'partners' ? 'active' : '' %>" data-monitor-button="partners">Partenaires</button>
+  <% if (viewMode === 'monitor' && monitoring && !monitorTab) { %>
+    <section class="card intro-card">
+      <h2>Monitoring — Overview</h2>
+      <p class="muted">Pick a view below, or use the dropdown above.</p>
+      <ul class="intro-list">
+        <% for (const ch of categoryChapters.monitor) { if (ch.id === 'overview') continue; %>
+          <li>
+            <a href="<%= ch.href %>"><%= ch.label %></a>
+            <% if (ch.description) { %><span class="intro-item-desc"><%= ch.description %></span><% } %>
+          </li>
+        <% } %>
+      </ul>
+    </section>
+  <% } %>
+
+  <% if (viewMode === 'monitor' && monitoring && monitorTab) { %>
+
+    <div class="monitoring-panel <%= monitorTab === 'custo' ? 'active' : '' %>" data-monitor-panel="custo">
+      <div class="operations-grid io-layout io-layout-2col">
+        <section class="card io-card">
+          <div class="inputs-header">
+            <h2>Fichiers data/ (lecture seule)</h2>
+          </div>
+
+          <%
+            // Turns the flat {rel, name, size, mtime} listing into a nested
+            // dir/file tree so the season/event/partner hierarchy under
+            // data/customization (and data/templates) is visible at a
+            // glance instead of read off dotted-looking flat paths.
+            function buildFileTree(files) {
+              const root = { type: 'dir', name: '', children: new Map(), fileCount: 0 };
+              for (const file of (files || [])) {
+                const parts = file.rel.split('/');
+                let node = root;
+                for (let i = 0; i < parts.length - 1; i++) {
+                  const part = parts[i];
+                  if (!node.children.has(part)) {
+                    node.children.set(part, { type: 'dir', name: part, children: new Map(), fileCount: 0 });
+                  }
+                  node = node.children.get(part);
+                  node.fileCount += 1;
+                }
+                node.children.set(parts[parts.length - 1], { type: 'file', name: parts[parts.length - 1], rel: file.rel, size: file.size, mtime: file.mtime });
+              }
+              const toArray = (node) => Array.from(node.children.values())
+                .map(child => child.type === 'dir' ? Object.assign({}, child, { children: toArray(child) }) : child)
+                .sort((a, b) => a.type !== b.type ? (a.type === 'dir' ? -1 : 1) : a.name.localeCompare(b.name));
+              return toArray(root);
+            }
+            function renderFileTree(nodes, downloadPrefix) {
+          %>
+            <ul class="custo-tree">
+            <% nodes.forEach(function (node) { %>
+              <% if (node.type === 'dir') { %>
+                <li class="custo-tree-dir">
+                  <details open>
+                    <summary><%= node.name %>/ <span class="file-meta">(<%= node.fileCount %>)</span></summary>
+                    <% renderFileTree(node.children, downloadPrefix); %>
+                  </details>
+                </li>
+              <% } else {
+                   const dlUrl = urlFor('/admin/templates/download') + '?path=' + encodeURIComponent(downloadPrefix + node.rel) + (token ? '&token=' + encodeURIComponent(token) : '');
+              %>
+                <li class="custo-tree-file">
+                  <code><%= node.name %></code>
+                  <span class="file-meta"><%= (node.size/1024).toFixed(1) %> KB</span>
+                  <span class="file-meta"><%= new Date(node.mtime).toLocaleString() %></span>
+                  <a class="btn btn-small" href="<%= dlUrl %>" download="<%= node.name %>">Télécharger</a>
+                </li>
+              <% } %>
+            <% }); %>
+            </ul>
+          <% } %>
+
+          <div class="io-subsection">
+            <h3>JSON (data/customization)</h3>
+            <% if (!customizationList || !customizationList.length) { %>
+              <div class="muted">Aucune personnalisation détectée.</div>
+            <% } else { %>
+              <div class="scroll-limited">
+                <% renderFileTree(buildFileTree(customizationList), 'data/customization/'); %>
+              </div>
+            <% } %>
+          </div>
+
+          <div class="io-subsection">
+            <h3>Templates (data/templates)</h3>
+            <% if (!dataTemplatesList || !dataTemplatesList.length) { %>
+              <div class="muted">Aucun template détecté.</div>
+            <% } else { %>
+              <div class="scroll-limited">
+                <% renderFileTree(buildFileTree(dataTemplatesList), 'data/templates/'); %>
+              </div>
+            <% } %>
+          </div>
+
+          <div class="io-subsection">
+            <h3>Assets (data/assets)</h3>
+            <% if (!dataAssetsList || !dataAssetsList.length) { %>
+              <div class="muted">Aucun asset détecté.</div>
+            <% } else { %>
+              <div class="scroll-limited">
+                <% renderFileTree(buildFileTree(dataAssetsList), 'data/assets/'); %>
+              </div>
+            <% } %>
+          </div>
+        </section>
+
+        <section class="card io-card">
+          <div class="inputs-header">
+            <h2>Assets publics (public/dynamic)</h2>
+          </div>
+
+          <div class="io-subsection">
+            <h3>Assets (public/dynamic/assets)</h3>
+            <% if (!dynamicAssetsList || !dynamicAssetsList.length) { %>
+              <div class="muted">Aucun asset dynamique pour le moment.</div>
+            <% } else { %>
+              <ul class="file-list scroll-limited">
+                <% for (const file of dynamicAssetsList || []) {
+                     const assetUrl = urlFor('/dynamic/assets/' + encodeURIComponent(file.rel));
+                %>
+                  <li>
+                    <code><%= file.name %></code>
+                    <span class="file-meta"><%= (file.size/1024).toFixed(1) %> KB</span>
+                    <span class="file-meta"><%= new Date(file.mtime).toLocaleString() %></span>
+                    <a class="btn btn-small" href="<%= assetUrl %>" download="<%= file.name %>">Télécharger</a>
+                  </li>
+                <% } %>
+              </ul>
+            <% } %>
+          </div>
+
+          <div class="io-subsection">
+            <h3>Lieux (public/dynamic/venues)</h3>
+            <% if (!venueResources || !venueResources.length) { %>
+              <div class="muted">Aucun plan ou vue détecté.</div>
+            <% } else { %>
+              <div class="scroll-limited">
+                <ul class="custo-tree">
+                  <% for (const venue of venueResources) {
+                       const viewCount = (venue.views || []).length;
+                  %>
+                    <li class="custo-tree-dir">
+                      <details open>
+                        <summary><%= venue.venueSlug %>/ <span class="file-meta">(<%= venue.plan ? '1 plan' : '0 plan' %> + <%= viewCount %> vue<%= viewCount === 1 ? '' : 's' %>)</span></summary>
+                        <ul class="custo-tree">
+                          <% if (venue.plan) { const planUrl = urlFor('/' + venue.plan.rel); %>
+                            <li class="custo-tree-file">
+                              <code>plan.svg</code>
+                              <span class="file-meta"><%= (venue.plan.size/1024).toFixed(1) %> KB</span>
+                              <span class="file-meta"><%= new Date(venue.plan.mtime).toLocaleString() %></span>
+                              <a class="btn btn-small" href="<%= planUrl %>" download="plan.svg">Télécharger</a>
+                            </li>
+                          <% } else { %>
+                            <li class="custo-tree-file"><span class="file-meta muted">Plan manquant</span></li>
+                          <% } %>
+                          <% for (const view of (venue.views || [])) { const viewUrl = urlFor('/' + view.rel); %>
+                            <li class="custo-tree-file">
+                              <code><%= view.slug %>.svg</code>
+                              <span class="file-meta"><%= (view.size/1024).toFixed(1) %> KB</span>
+                              <span class="file-meta"><%= new Date(view.mtime).toLocaleString() %></span>
+                              <a class="btn btn-small" href="<%= viewUrl %>" download="<%= view.slug %>.svg">Télécharger</a>
+                            </li>
+                          <% } %>
+                        </ul>
+                      </details>
+                    </li>
+                  <% } %>
+                </ul>
+              </div>
+            <% } %>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -1788,8 +2746,29 @@
 
         <section class="card">
           <h2>MongoDB</h2>
-          <div>État : <strong><%= monitoring.summary.mongoState %></strong></div>
-          <div class="muted" style="margin-top:8px;">Statut en temps réel de la connexion.</div>
+          <div>État : <strong><%= monitoring.summary.mongoState %></strong></div>
+          <% const mongoConn = monitoring.summary.mongoConnections; %>
+          <% if (mongoConn) { %>
+            <div>Connexions actives : <strong><%= mongoConn.current != null ? mongoConn.current : '—' %></strong><%= mongoConn.available != null ? ' / ' + mongoConn.available + ' disponibles' : '' %></div>
+          <% } else { %>
+            <div class="muted" style="margin-top:8px;">Nombre de connexions non disponible.</div>
+          <% } %>
+          <% const opCounters = monitoring.summary.mongoOpCounters; %>
+          <% if (opCounters) { %>
+            <div class="muted" style="margin-top:8px;">Opérations (depuis démarrage du serveur Mongo) :</div>
+            <div class="mono">insert <%= opCounters.insert || 0 %> · query <%= opCounters.query || 0 %> · update <%= opCounters.update || 0 %> · delete <%= opCounters.delete || 0 %> · command <%= opCounters.command || 0 %></div>
+          <% } %>
+        </section>
+
+        <section class="card">
+          <h2>Activité</h2>
+          <% const activity = monitoring.summary.requestActivity; %>
+          <% if (activity) { %>
+            <div>Requêtes concurrentes : <strong><%= activity.concurrentRequests %></strong> (pic : <%= activity.peakConcurrentRequests %>)</div>
+            <div>Requêtes totales (depuis démarrage) : <%= activity.totalRequests %></div>
+            <div class="muted" style="margin-top:4px;">Démarré <%= activity.startedAt ? new Date(activity.startedAt).toLocaleString() : '—' %></div>
+          <% } %>
+          <div style="margin-top:8px;">Workflows automatisés en cours : <strong><%= monitoring.summary.activeAutomationJobs != null ? monitoring.summary.activeAutomationJobs : '—' %></strong></div>
         </section>
 
         <section class="card">
@@ -1830,33 +2809,60 @@
 
       <div class="monitoring-grid">
         <section class="card">
-          <h2>Sièges (global)</h2>
-          <% if (monitoring.summary.seatCounts && Object.keys(monitoring.summary.seatCounts).length) { %>
-            <ul class="metrics-list">
-              <% for (const [status, value] of Object.entries(monitoring.summary.seatCounts)) { %>
-                <li><span><%= status %></span><span><%= value %></span></li>
-              <% } %>
-            </ul>
+          <h2>MongoDB — Datasets</h2>
+          <% const dbCollections = monitoring.summary.dbCollections; %>
+          <% if (dbCollections && dbCollections.length) { %>
+            <div class="scroll-table">
+              <table>
+                <tr><th>Collection</th><th>Documents</th><th>Taille</th></tr>
+                <% for (const c of dbCollections) { %>
+                  <tr>
+                    <td><code><%= c.name %></code></td>
+                    <td><%= c.count != null ? c.count : '—' %></td>
+                    <td><%= c.sizeBytes != null ? (c.sizeBytes / (1024 * 1024)).toFixed(2) + ' MB' : '—' %></td>
+                  </tr>
+                <% } %>
+              </table>
+            </div>
           <% } else { %>
-            <div class="empty-state">Aucune donnée siège disponible.</div>
+            <div class="empty-state">Aucune collection détectée.</div>
           <% } %>
         </section>
 
         <section class="card">
-          <h2>Commandes (24h)</h2>
-          <% if (monitoring.summary.recentOrders && monitoring.summary.recentOrders.length) { %>
-            <ul class="metrics-list">
-              <% for (const row of monitoring.summary.recentOrders) { %>
-                <li><span><%= row._id || 'unknown' %></span><span><%= row.c %></span></li>
+          <h2>Logs récents</h2>
+          <% const recentLogs = monitoring.summary.recentLogs; %>
+          <% if (recentLogs && recentLogs.length) { %>
+            <ul class="metrics-list scroll-limited">
+              <% for (const entry of recentLogs) { %>
+                <li><span class="pill"><%= entry.stream %></span><span class="mono"><%= entry.line %></span></li>
               <% } %>
             </ul>
           <% } else { %>
-            <div class="empty-state">Aucune commande enregistrée sur les 24 dernières heures.</div>
+            <div class="empty-state">Aucun log récent disponible.</div>
           <% } %>
-          <div style="margin-top:12px;">
-            <a class="btn btn-small" href="<%= urlFor('/admin/export/orders.csv') %><%= tokenSuffix %>">Exporter commandes</a>
-            <a class="btn btn-small" href="<%= urlFor('/admin/export/seats.csv') %><%= tokenSuffix %>" style="margin-left:8px;">Exporter sièges</a>
-          </div>
+        </section>
+
+        <section class="card">
+          <h2>Routes les plus sollicitées</h2>
+          <% const topRoutes = monitoring.summary.requestActivity && monitoring.summary.requestActivity.topRoutes; %>
+          <% if (topRoutes && topRoutes.length) { %>
+            <div class="scroll-table">
+              <table>
+                <tr><th>Méthode</th><th>Route</th><th>Appels</th></tr>
+                <% for (const r of topRoutes) { %>
+                  <tr>
+                    <td><%= r.method %></td>
+                    <td><code><%= r.path %></code></td>
+                    <td><%= r.count %></td>
+                  </tr>
+                <% } %>
+              </table>
+            </div>
+            <div class="muted" style="margin-top:8px;">Compteurs remis à zéro à chaque redémarrage du serveur.</div>
+          <% } else { %>
+            <div class="empty-state">Aucune requête comptabilisée depuis le démarrage.</div>
+          <% } %>
         </section>
       </div>
 
@@ -1910,47 +2916,265 @@
       </section>
     </div>
 
-    <div class="monitoring-panel <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-panel="tariffs">
-      <h3>Résumé des tables de tarifs</h3>
-      <% if (monitoring.lists.tariffSummary && monitoring.lists.tariffSummary.length) { %>
-        <div class="scroll-table" style="margin-bottom:16px;">
+    <div class="monitoring-panel <%= monitorTab === 'venue' ? 'active' : '' %>" data-monitor-panel="venue">
+      <h3>Lieux</h3>
+      <% if (monitoring.lists.venues && monitoring.lists.venues.length) { %>
+        <div class="scroll-table-full" style="margin-bottom:16px;">
           <table>
-            <tr><th>Table</th><th>Tarifs</th><th>Actifs</th><th>Entrées de prix</th></tr>
-            <% for (const row of monitoring.lists.tariffSummary) { %>
+            <tr><th>Slug</th><th>Nom</th><th>Zones</th><th>Sièges</th><th>Vues</th><th>Plan</th></tr>
+            <% for (const v of monitoring.lists.venues) {
+                 const resources = (venueResources || []).find(r => r.venueSlug === v.slug) || null;
+                 const views = (resources && resources.views) || [];
+            %>
               <tr>
-                <td><%= row.priceTableKey === 'global' ? 'Global (abonnements)' : row.priceTableKey %></td>
-                <td><%= row.total %></td>
-                <td><%= row.active %></td>
-                <td><%= row.priceEntries %></td>
+                <td><code><%= v.slug %></code></td>
+                <td><%= v.name %></td>
+                <td><%= v.zoneCount %></td>
+                <td><%= v.seatCount %></td>
+                <td><%= v.viewCount %></td>
+                <td>
+                  <% if (resources && resources.plan) { %>
+                    <a class="btn btn-small" href="<%= urlFor('/' + resources.plan.rel) %>" download="plan.svg">Télécharger</a>
+                  <% } else { %>
+                    <span class="muted">—</span>
+                  <% } %>
+                </td>
               </tr>
+              <% for (const view of views) { const viewUrl = urlFor('/' + view.rel); %>
+                <tr class="sub-row">
+                  <td class="sub-row-label">↳ <code><%= view.slug %></code></td>
+                  <td><%= view.name || '—' %></td>
+                  <td colspan="2" class="muted"><%= (view.size/1024).toFixed(1) %> KB · <%= new Date(view.mtime).toLocaleString() %></td>
+                  <td></td>
+                  <td><a class="btn btn-small" href="<%= viewUrl %>" download="<%= view.slug %>.svg">Télécharger</a></td>
+                </tr>
+              <% } %>
             <% } %>
           </table>
         </div>
       <% } else { %>
-        <div class="empty-state">Aucune table tarifaire configurée.</div>
+        <div class="empty-state">Aucun lieu configuré.</div>
       <% } %>
 
-      <h3>Tarifs (extraits)</h3>
-      <% if (monitoring.lists.tariffs && monitoring.lists.tariffs.length) { %>
-        <div class="scroll-table">
+      <h3>Détail des zones</h3>
+      <% if (monitoring.lists.venues && monitoring.lists.venues.length) { %>
+        <form method="get" class="inline-filter-form">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <input type="hidden" name="monitorTab" value="venue">
+          <label>
+            Lieu
+            <select name="monitorVenue" data-auto-submit="change">
+              <% for (const v of monitoring.lists.venues) { %>
+                <option value="<%= v.slug %>" <%= v.slug === monitoring.lists.selectedMonitorVenueSlug ? 'selected' : '' %>>
+                  <%= v.slug %><%= v.name ? ' — ' + v.name : '' %>
+                </option>
+              <% } %>
+            </select>
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Afficher</button></noscript>
+        </form>
+
+        <h3 style="margin-top:18px;">Méta-zones</h3>
+      <p class="muted" style="margin-top:-6px;">
+        Une méta-zone regroupe des zones sans exister sur le plan : elle sert à écrire
+        une grille tarifaire une seule fois pour le groupe. Définie ici, au niveau du lieu,
+        elle est recopiée sur les zones de chaque saison instanciée ensuite.
+      </p>
+      <% if (monitoring.lists.venueMetaZones && monitoring.lists.venueMetaZones.length) { %>
+        <div class="scroll-table" style="margin-bottom:16px;">
           <table>
-            <tr><th>Code</th><th>Libellé</th><th>Actif</th><th>Table</th></tr>
-            <% for (const t of monitoring.lists.tariffs) { %>
+            <tr><th>Méta-zone</th><th>Zones</th><th>Nb zones</th><th>Capacité</th><th>Sièges</th><th>Remarque</th></tr>
+            <% for (const mz of monitoring.lists.venueMetaZones) { %>
               <tr>
-                <td><code><%= t.code %></code></td>
-                <td><%= t.label %></td>
-                <td><%= t.active ? 'Oui' : 'Non' %></td>
-                <td><%= t.priceTableKey || 'Global' %></td>
+                <td><code><%= mz.key %></code></td>
+                <td><%= mz.zones.join(', ') %></td>
+                <td><%= mz.zoneCount %></td>
+                <td><%= mz.capacity %></td>
+                <td><%= mz.seatCount %></td>
+                <td>
+                  <% if (mz.inactive && mz.inactive.length) { %>
+                    <span class="muted">zone(s) inactive(s) : <%= mz.inactive.join(', ') %></span>
+                  <% } else { %>
+                    <span class="muted">—</span>
+                  <% } %>
+                </td>
               </tr>
             <% } %>
           </table>
         </div>
+      <% } else if (monitoring.lists.selectedMonitorVenueSlug) { %>
+        <div class="empty-state" style="margin-bottom:16px;">
+          Aucune méta-zone pour ce lieu — les zones se tarifent une par une.
+          Pour en créer une : <code>01-venue-management/set-zone-meta.js --venue=<%= monitoring.lists.selectedMonitorVenueSlug %> --meta=&lt;NOM&gt; --zones=&lt;A,B&gt;</code>
+        </div>
+      <% } %>
+
+
+        <h3>Zones</h3>
+        <% if (monitoring.lists.venueZoneDetails && monitoring.lists.venueZoneDetails.length) { %>
+          <div class="scroll-table" style="margin-top:12px;">
+            <table>
+              <tr><th>Clé</th><th>Nom</th><th>Type</th><th>Accès</th><th>Méta-zone</th><th>Capacité</th><th>Quota</th><th>Sièges</th><th>Active</th></tr>
+              <% for (const z of monitoring.lists.venueZoneDetails) { %>
+                <tr>
+                  <td><code><%= z.key %></code></td>
+                  <td><%= z.name || '—' %></td>
+                  <td><%= z.type %></td>
+                  <td><%= z.access %></td>
+                  <td><% if (z.metaZone) { %><code><%= z.metaZone %></code><% } else { %><span class="muted">—</span><% } %></td>
+                  <td><%= z.capacity %></td>
+                  <td><%= z.quota %></td>
+                  <td><%= z.seatCount %></td>
+                  <td><%= z.isActive ? 'Oui' : 'Non' %></td>
+                </tr>
+              <% } %>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state" style="margin-top:12px;">Aucune zone configurée pour ce lieu.</div>
+        <% } %>
       <% } else { %>
-        <div class="empty-state">Aucun tarif disponible.</div>
+        <div class="empty-state">Aucun lieu à afficher.</div>
       <% } %>
     </div>
 
+
+    <div class="monitoring-panel <%= monitorTab === 'tariffs' ? 'active' : '' %>" data-monitor-panel="tariffs">
+      <% const globalTariffs = monitoring.lists.globalTariffs || []; const instTariffs = monitoring.lists.instantiatedTariffs || []; %>
+      <h3>Tarifs globaux (catalogue)</h3>
+      <% if (globalTariffs.length) { const unusedCount = globalTariffs.filter(t => t.unused).length; %>
+        <p class="muted"><%= globalTariffs.length %> tarif(s)<% if (globalTariffs[0].usage) { %> · <strong><%= unusedCount %></strong> utilisé(s) nulle part (ni catalogue de prix, ni événement, ni saison, ni commande)<% } %>.</p>
+        <div class="scroll-table" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Code</th><th>Libellé</th><th>Actif</th><th>Champ requis</th><th>Canaux</th>
+              <% if (globalTariffs[0].usage) { %><th>Catalogues</th><th>Événements</th><th>Saison</th><th>Lignes de commande</th><% } %></tr>
+            <% for (const t of globalTariffs) { %>
+              <tr<%= t.unused ? ' style="opacity:.55"' : '' %>>
+                <td><code><%= t.code %></code><%= t.unused ? ' · inutilisé' : '' %></td>
+                <td><%= t.label %></td>
+                <td><%= t.active ? 'Oui' : 'Non' %></td>
+                <td><%= t.fieldLabel || t.requiresField || '—' %></td>
+                <td><%= t.channels.length ? t.channels.join(', ') : 'public (implicite)' %></td>
+                <% if (t.usage) { %><td><%= t.usage.catalogs %></td><td><%= t.usage.events %></td><td><%= t.usage.season %></td><td><%= t.usage.orders %></td><% } %>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun tarif global.</div>
+      <% } %>
+
+      <h3>Tarifs instanciés (tables de prix des événements)</h3>
+      <% if (instTariffs.length) { %>
+        <div class="scroll-table" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Table de prix</th><th>Code</th><th>Libellé</th><th>Actif</th><th>Champ requis</th><th>Canaux</th></tr>
+            <% for (const t of instTariffs) { %>
+              <tr>
+                <td><code><%= t.priceTableKey %></code></td>
+                <td><code><%= t.code %></code></td>
+                <td><%= t.label %></td>
+                <td><%= t.active ? 'Oui' : 'Non' %></td>
+                <td><%= t.fieldLabel || t.requiresField || '—' %></td>
+                <td><%= t.channels.length ? t.channels.join(', ') : 'public (implicite)' %></td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun tarif instancié.</div>
+      <% } %>
+
+      <h3>Catalogues de prix (Tariff Price Catalog)</h3>
+      <% if (monitoring.lists.tariffPriceCatalogGroups && monitoring.lists.tariffPriceCatalogGroups.length) { %>
+        <div class="scroll-table" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Catalogue</th><th>Lieu</th><th>Zones</th><th>Tarifs</th><th>Entrées</th><th>Devise</th><th>Canaux</th></tr>
+            <% for (const g of monitoring.lists.tariffPriceCatalogGroups) { %>
+              <tr>
+                <td><code><%= g.catalogSlug %></code></td>
+                <td><%= g.venueSlug || '—' %></td>
+                <td><%= g.zoneCount %></td>
+                <td><%= g.tariffCount %></td>
+                <td><%= g.entryCount %></td>
+                <td><%= g.currency %></td>
+                <td><%= g.channels.length ? g.channels.join(', ') : 'public (implicite)' %></td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun catalogue de prix configuré.</div>
+      <% } %>
+
+      <h3>Détail d'un catalogue de prix</h3>
+      <% if (monitoring.lists.tariffPriceCatalogGroups && monitoring.lists.tariffPriceCatalogGroups.length) { %>
+        <form method="get" class="inline-filter-form">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <input type="hidden" name="monitorTab" value="tariffs">
+          <label>
+            Catalogue
+            <select name="catalogKey" data-auto-submit="change">
+              <% for (const g of monitoring.lists.tariffPriceCatalogGroups) { %>
+                <option value="<%= g.key %>" <%= g.key === monitoring.lists.selectedCatalogKey ? 'selected' : '' %>>
+                  <%= g.catalogSlug %><%= g.venueSlug ? ' — ' + g.venueSlug : ' (global)' %>
+                </option>
+              <% } %>
+            </select>
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Afficher</button></noscript>
+        </form>
+
+        <% if (monitoring.lists.tariffPriceCatalogEntries && monitoring.lists.tariffPriceCatalogEntries.length) { %>
+          <div class="muted" style="margin-top:12px;"><%= monitoring.lists.tariffPriceCatalogEntries.length %> entrée(s)</div>
+          <div class="scroll-table-full" style="margin-top:4px;">
+            <table>
+              <tr><th>Zone</th><th>Méta-zone</th><th>Tarif</th><th>Prix</th><th>Prix partenaire</th><th>Canaux</th></tr>
+              <% for (const e of monitoring.lists.tariffPriceCatalogEntries) { %>
+                <tr>
+                  <td><% if (e.zoneKey) { %><code><%= e.zoneKey %></code><% } else { %>—<% } %></td>
+                  <td><% if (e.metaZone) { %><code><%= e.metaZone %></code><% } else { %>—<% } %></td>
+                  <td><code><%= e.tariffCode %></code></td>
+                  <td><%= (e.priceCents / 100).toLocaleString('fr-FR', { style: 'currency', currency: e.currency }) %></td>
+                  <td><%= e.partnerPriceCents != null ? (e.partnerPriceCents / 100).toLocaleString('fr-FR', { style: 'currency', currency: e.currency }) : '—' %></td>
+                  <td><%= e.channels.length ? e.channels.join(', ') : 'public (implicite)' %></td>
+                </tr>
+              <% } %>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state" style="margin-top:12px;">Aucune entrée pour ce catalogue.</div>
+        <% } %>
+      <% } else { %>
+        <div class="empty-state">Aucun catalogue de prix à afficher.</div>
+      <% } %>
+    </div>
     <div class="monitoring-panel <%= monitorTab === 'seasons' ? 'active' : '' %>" data-monitor-panel="seasons">
+      <h3>Toutes les saisons</h3>
+      <% if (monitoring.lists.seasons && monitoring.lists.seasons.length) { %>
+        <div class="scroll-table-full" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Code</th><th>Nom</th><th>Statut</th><th>Lieu</th><th>Renouvellement</th><th>Abonnement</th><th>Lien public</th><th></th></tr>
+            <% for (const s of monitoring.lists.seasons) {
+                 const publicUrl = urlFor('/season/' + s.code);
+                 const detailUrl = `${monitorHref('seasons')}&season=${encodeURIComponent(s.code)}`;
+            %>
+              <tr>
+                <td><code><%= s.code %></code></td>
+                <td><%= s.name || '—' %></td>
+                <td><%= s.activity %></td>
+                <td><%= s.renew %></td>
+                <td><%= s.subscribe %></td>
+                <td><a href="<%= publicUrl %>" target="_blank" rel="noopener"><%= publicUrl %></a></td>
+                <td><a class="btn btn-small" href="<%= detailUrl %>">Détail</a></td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucune saison.</div>
+      <% } %>
+
       <h3>Abonnement</h3>
       <% if (monitoring.subscription.selectedSeasonCode) { %>
         <form method="get" class="inline-filter-form">
@@ -1980,6 +3204,37 @@
           </label>
           <noscript><button type="submit" class="btn btn-small">Mettre à jour</button></noscript>
         </form>
+
+        <h4>Répartition par zone</h4>
+        <% if (monitoring.subscription.zoneBreakdown && monitoring.subscription.zoneBreakdown.zones.length) { %>
+          <div class="scroll-table-full" style="margin-bottom:16px;">
+            <table>
+              <tr>
+                <th>Zone</th>
+                <% for (const status of monitoring.subscription.zoneBreakdown.statuses) { %><th><%= status %></th><% } %>
+                <th>Total</th>
+              </tr>
+              <% for (const z of monitoring.subscription.zoneBreakdown.zones) { %>
+                <tr>
+                  <td><code><%= z.zoneKey %></code></td>
+                  <% for (const status of monitoring.subscription.zoneBreakdown.statuses) { %>
+                    <td><%= z.statusCounts[status] || 0 %></td>
+                  <% } %>
+                  <td><strong><%= z.total %></strong></td>
+                </tr>
+              <% } %>
+              <tr class="totals-row">
+                <td><strong>Total</strong></td>
+                <% for (const status of monitoring.subscription.zoneBreakdown.statuses) { %>
+                  <td><strong><%= monitoring.subscription.zoneBreakdown.totalsByStatus[status] || 0 %></strong></td>
+                <% } %>
+                <td><strong><%= monitoring.subscription.zoneBreakdown.grandTotal || 0 %></strong></td>
+              </tr>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state" style="margin-bottom:16px;">Aucun siège pour cette sélection.</div>
+        <% } %>
 
         <div class="monitoring-grid">
           <section class="card">
@@ -2086,6 +3341,35 @@
     </div>
 
     <div class="monitoring-panel <%= monitorTab === 'events' ? 'active' : '' %>" data-monitor-panel="events">
+      <h3>Tous les événements</h3>
+      <% if (monitoring.lists.events && monitoring.lists.events.length) { %>
+        <div class="scroll-table-full" style="margin-bottom:16px;">
+          <table>
+            <tr><th>Slug</th><th>Nom</th><th>Date</th><th>Saison</th><th>Lieu</th><th>Vente</th><th>Activité</th><th>Lien public</th><th>Scan</th><th></th></tr>
+            <% for (const ev of monitoring.lists.events) {
+                 const publicUrl = urlFor('/event/' + ev.slug);
+                 const scanUrl = urlFor('/control/scan/' + ev.slug);
+                 const detailUrl = `${monitorHref('events')}&event=${encodeURIComponent(ev.slug)}`;
+            %>
+              <tr>
+                <td><code><%= ev.slug %></code></td>
+                <td><%= ev.name || '—' %></td>
+                <td><%= ev.startsAt ? new Date(ev.startsAt).toLocaleString() : '—' %></td>
+                <td><%= ev.seasonCode || '—' %></td>
+                <td><%= ev.venueSlug || '—' %></td>
+                <td><%= ev.sale || 'notopen' %></td>
+                <td><%= ev.activity || 'draft' %></td>
+                <td><a href="<%= publicUrl %>" target="_blank" rel="noopener"><%= publicUrl %></a></td>
+                <td><a class="btn btn-small" href="<%= scanUrl %>" target="_blank" rel="noopener">Scan</a></td>
+                <td><a class="btn btn-small" href="<%= detailUrl %>">Détail</a></td>
+              </tr>
+            <% } %>
+          </table>
+        </div>
+      <% } else { %>
+        <div class="empty-state">Aucun événement.</div>
+      <% } %>
+
       <h3>Événement</h3>
       <% if (monitoring.event && monitoring.event.selectedEvent) { %>
         <form method="get" class="inline-filter-form">
@@ -2113,8 +3397,40 @@
           <div>Date : <%= monitoring.event.selectedEvent.startsAt ? new Date(monitoring.event.selectedEvent.startsAt).toLocaleString() : '—' %></div>
           <div>Saison : <%= monitoring.event.selectedEvent.seasonCode || '—' %></div>
           <div>Lieu : <%= monitoring.event.selectedEvent.venueSlug || '—' %></div>
-          <div>En vente : <%= monitoring.event.selectedEvent.isOnSale ? 'Oui' : 'Non' %></div>
+          <div>Vente : <%= monitoring.event.selectedEvent.sale || 'notopen' %></div>
+          <div>Activité : <%= monitoring.event.selectedEvent.activity || 'draft' %></div>
         </section>
+
+        <h4>Répartition par zone</h4>
+        <% if (monitoring.event.zoneBreakdown && monitoring.event.zoneBreakdown.zones.length) { %>
+          <div class="scroll-table-full" style="margin-bottom:16px;">
+            <table>
+              <tr>
+                <th>Zone</th>
+                <% for (const status of monitoring.event.zoneBreakdown.statuses) { %><th><%= status %></th><% } %>
+                <th>Total</th>
+              </tr>
+              <% for (const z of monitoring.event.zoneBreakdown.zones) { %>
+                <tr>
+                  <td><code><%= z.zoneKey %></code></td>
+                  <% for (const status of monitoring.event.zoneBreakdown.statuses) { %>
+                    <td><%= z.statusCounts[status] || 0 %></td>
+                  <% } %>
+                  <td><strong><%= z.total %></strong></td>
+                </tr>
+              <% } %>
+              <tr class="totals-row">
+                <td><strong>Total</strong></td>
+                <% for (const status of monitoring.event.zoneBreakdown.statuses) { %>
+                  <td><strong><%= monitoring.event.zoneBreakdown.totalsByStatus[status] || 0 %></strong></td>
+                <% } %>
+                <td><strong><%= monitoring.event.zoneBreakdown.grandTotal || 0 %></strong></td>
+              </tr>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="empty-state" style="margin-bottom:16px;">Aucun siège pour cette sélection.</div>
+        <% } %>
 
         <div class="monitoring-grid">
           <section class="card">
@@ -2170,9 +3486,11 @@
           </section>
         </div>
 
-        <div class="monitoring-grid" data-event-orders-block data-event-slug="<%= monitoring.event.selectedEvent.slug %>">
+        <div class="monitoring-grid">
           <section class="card">
             <h4>Commandes récentes</h4>
+            <% const ordersForEventUrl = `${baseOrders}${baseOrders.includes('?') ? '&' : '?'}event=${encodeURIComponent(monitoring.event.selectedEvent.slug)}`; %>
+            <div class="muted" style="margin-bottom:8px;">Pour ajuster la présence d'une commande, utilisez la page <a href="<%= ordersForEventUrl %>">Orders</a>.</div>
             <% if (monitoring.event.orders && monitoring.event.orders.length) { %>
               <div class="scroll-table">
                 <table>
@@ -2185,7 +3503,6 @@
                     <th>Lignes</th>
                     <th>Présence</th>
                     <th>Ajustements</th>
-                    <th></th>
                     <th>Total</th>
                   </tr>
                   <% monitoring.event.orders.forEach(o => { %>
@@ -2226,11 +3543,6 @@
                         <% } else { %>
                           <span class="muted">—</span>
                         <% } %>
-                      </td>
-                      <td>
-                        <button type="button" class="btn btn-small" data-attendance-edit data-order-id="<%= o.id %>">
-                          Ajuster
-                        </button>
                       </td>
                       <td><%= ((o.totalCents || 0)/100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) %></td>
                     </tr>
@@ -2321,6 +3633,9 @@
                 <th>Slug</th>
                 <th>Nom</th>
                 <th>Mode</th>
+                <th>Connexion</th>
+                <th>Jetons</th>
+                <th>Admin</th>
                 <th>Tarifs publics</th>
                 <th>Vue lieu</th>
               </tr>
@@ -2331,6 +3646,9 @@
                   <td><code><%= p.slug %></code></td>
                   <td><%= p.name || '—' %></td>
                   <td><%= p.paymentMode || '—' %></td>
+                  <td><%= p.login || '—' %></td>
+                  <td><%= p.tokens.length ? p.tokens.join(', ') : '—' %></td>
+                  <td><% if (p.adminUrl) { %><a href="<%= p.adminUrl %>" target="_blank" rel="noopener">Commandes</a><% } else { %>—<% } %></td>
                   <td><%= p.allowPublicTariffs ? 'Oui' : 'Non' %></td>
                   <td><%= p.venueView || '—' %></td>
                 </tr>
@@ -2338,28 +3656,174 @@
             </tbody>
           </table>
         </div>
+
+        <h4 style="margin-top:16px;">Détail</h4>
+        <form method="get" class="inline-filter-form">
+          <% if (token) { %><input type="hidden" name="token" value="<%= token %>"><% } %>
+          <input type="hidden" name="view" value="monitoring">
+          <input type="hidden" name="monitorTab" value="partners">
+          <label>
+            Partenaire
+            <select name="partner" data-auto-submit="change">
+              <% for (const p of partnerList) { %>
+                <option value="<%= p.slug %>" <%= p.slug === monitoring.lists.selectedPartnerSlug ? 'selected' : '' %>><%= p.slug %></option>
+              <% } %>
+            </select>
+          </label>
+          <noscript><button type="submit" class="btn btn-small">Afficher</button></noscript>
+        </form>
+
+        <% const pd = monitoring.lists.partnerDetail; %>
+        <% if (pd) { %>
+          <section class="card" style="margin-top:12px;">
+            <h4><%= pd.name %> — <code><%= pd.slug %></code></h4>
+
+            <div>Lien complet (liste des événements) :
+              <% if (pd.eventsUrl) { %><a href="<%= pd.eventsUrl %>" target="_blank" rel="noopener"><%= pd.eventsUrl %></a><% } else { %>—<% } %>
+            </div>
+
+            <div>Connexion : <%= pd.connection %></div>
+
+            <div>Jeton d'accès (accessToken) :
+              <% if (pd.accessToken) { %><code><%= pd.accessToken %></code><% } else { %>—<% } %>
+              <% if (pd.tokensIgnored && (pd.accessToken || pd.eventTokens.length || pd.seasonTokens.length)) { %><span class="muted">(ignoré tant que la connexion est obligatoire)</span><% } %>
+            </div>
+
+            <% if (pd.eventTokens.length) { %>
+              <div>Jetons spécifiques par événement :
+                <ul>
+                  <% for (const t of pd.eventTokens) { %><li><code><%= t.eventSlug %></code> → <code><%= t.token %></code></li><% } %>
+                </ul>
+              </div>
+            <% } %>
+
+            <% if (pd.seasonTokens.length) { %>
+              <div>Jetons spécifiques par saison :
+                <ul>
+                  <% for (const t of pd.seasonTokens) { %><li><code><%= t.seasonCode %></code> → <code><%= t.token %></code></li><% } %>
+                </ul>
+              </div>
+            <% } %>
+
+            <div>Accès admin partenaire (Basic Auth) :
+              <% if (pd.admin) { %>login <code><%= pd.admin.user %></code> / mot de passe <code><%= pd.admin.pass %></code>
+                <ul>
+                  <li>Commandes : <a href="<%= pd.adminOrdersUrl %>" target="_blank" rel="noopener"><%= pd.adminOrdersUrl %></a></li>
+                  <% if (pd.adminDirectoryUrl) { %><li>Annuaire : <a href="<%= pd.adminDirectoryUrl %>" target="_blank" rel="noopener"><%= pd.adminDirectoryUrl %></a></li><% } %>
+                </ul>
+              <% } else { %>— (non configuré, accès désactivé — Set Partner Admin Credentials)<% } %>
+            </div>
+
+            <div>Quota présaison :
+              <% if (pd.presaleEvents.length || pd.presaleSeasons.length) { %>
+                <ul>
+                  <% for (const q of pd.presaleEvents) { %><li>Événement <code><%= q.eventSlug %></code> : <%= q.quota %></li><% } %>
+                  <% for (const q of pd.presaleSeasons) { %><li>Saison <code><%= q.seasonCode %></code> : <%= q.quota %></li><% } %>
+                </ul>
+              <% } else { %> aucun<% } %>
+            </div>
+
+            <div>Tarifs spécifiques (par canal « partner ») :
+              <% if (pd.specificTariffs.length) { %>
+                <ul>
+                  <% for (const t of pd.specificTariffs) { %><li><code><%= t.code %></code> — <%= t.label || t.code %> (<%= t.channels.join(', ') %>)</li><% } %>
+                </ul>
+              <% } else { %> aucun<% } %>
+            </div>
+          </section>
+        <% } %>
       <% } else { %>
         <div class="empty-state">Aucun partenaire configuré.</div>
       <% } %>
     </div>
-
-  <div class="modal hidden" data-attendance-modal>
-    <div class="modal-backdrop" data-attendance-close></div>
-    <div class="modal-dialog">
-      <header class="modal-header">
-        <h3>Ajuster la présence</h3>
-        <button type="button" class="modal-close" data-attendance-close>&times;</button>
-      </header>
-      <div class="modal-body" data-attendance-body>
-        <div class="empty-state">Chargement…</div>
+    <div class="monitoring-panel <%= monitorTab === 'ticket' ? 'active' : '' %>" data-monitor-panel="ticket">
+      <div class="io-subsection">
+        <h3>Templates de billets (data/templates/templates.json)</h3>
+        <% if (!ticketTemplatesList || !ticketTemplatesList.length) { %>
+          <div class="empty-state">Aucun template de billet configuré — voir "Import Email/Ticket Template" (chapitre 02 — Ticket/Ad) pour en définir un.</div>
+        <% } else { %>
+          <div class="scroll-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Kind</th>
+                  <th>Fichier</th>
+                  <th>Logo</th>
+                  <th>Présent sur disque ?</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% for (const t of ticketTemplatesList) { %>
+                  <tr>
+                    <td><code><%= t.kind %></code></td>
+                    <td><code><%= t.file || '—' %></code></td>
+                    <td><code><%= t.logo || '—' %></code></td>
+                    <td><%= t.exists ? 'Oui' : '⚠ Absent' %></td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+          <div class="muted">Un kind absent de ce tableau retombe sur <code>tickets/ticket.svg</code> — voir <code>buildTicketsPdfBuffer</code> dans <code>src/services/tickets-pdf.js</code>.</div>
+        <% } %>
       </div>
-      <footer class="modal-footer">
-        <div class="modal-summary" data-attendance-summary></div>
-        <button type="button" class="btn btn-secondary" data-attendance-close>Annuler</button>
-        <button type="button" class="btn" data-attendance-submit>Enregistrer</button>
-      </footer>
+
+      <div class="io-subsection">
+        <h3>Catalogue de campagnes publicitaires (AdCampaignCatalog)</h3>
+        <% const adCatalogList = monitoring.lists.adCampaignCatalog || []; %>
+        <% if (!adCatalogList.length) { %>
+          <div class="empty-state">Aucune ligne de catalogue — voir "Import Ad Campaign Catalog" (chapitre 02 — Ticket/Ad).</div>
+        <% } else { %>
+          <div class="scroll-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Catalogue</th>
+                  <th>Lieu</th>
+                  <th>Campagne</th>
+                  <th>Type</th>
+                  <th>Slot</th>
+                  <th>Tarif</th>
+                  <th>Zone</th>
+                  <th>Type de zone</th>
+                  <th>Priorité</th>
+                  <th>Actif</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% for (const row of adCatalogList) { %>
+                  <tr>
+                    <td><code><%= row.catalogSlug %></code></td>
+                    <td><%= row.venueSlug || '—' %></td>
+                    <td><code><%= row.campaignSlug %></code></td>
+                    <td><%= row.contentType %></td>
+                    <td><code><%= row.slot %></code></td>
+                    <td><%= row.tariffCode || '—' %></td>
+                    <td><%= row.zoneKey || '—' %></td>
+                    <td><%= row.zoneType || '—' %></td>
+                    <td><%= row.priority %></td>
+                    <td><%= row.active ? 'Oui' : 'Non' %></td>
+                  </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+
+      <div class="io-subsection">
+        <h3>Assets sponsors (data/assets/ads)</h3>
+        <% if (!adAssetsList || !adAssetsList.length) { %>
+          <div class="empty-state">Aucun asset — voir "Import Ad Campaign Asset" (chapitre 02 — Ticket/Ad).</div>
+        <% } else {
+             const adsOnlyFiles = adAssetsList.map(f => Object.assign({}, f, { rel: f.rel.replace(/^ads\//, '') }));
+        %>
+          <div class="scroll-limited">
+            <% renderFileTree(buildFileTree(adsOnlyFiles), 'data/assets/ads/'); %>
+          </div>
+        <% } %>
+      </div>
     </div>
-  </div>
 
   <% } %>
 
@@ -2369,20 +3833,6 @@
     const PLAN_VIEW_DATA = <%- JSON.stringify(planView || null).replace(/</g, '\\u003c') %>;
     const CURRENT_VIEW_MODE = <%- JSON.stringify(viewMode || '') %>;
     (() => {
-      const monitorTabs = document.querySelectorAll('[data-monitor-button]');
-      const monitorPanels = document.querySelectorAll('[data-monitor-panel]');
-      if (monitorTabs.length) {
-        const active = '<%= monitorTab %>';
-        const activate = (tab) => {
-          monitorTabs.forEach(btn => btn.classList.toggle('active', btn.dataset.monitorButton === tab));
-          monitorPanels.forEach(panel => panel.classList.toggle('active', panel.dataset.monitorPanel === tab));
-        };
-        monitorTabs.forEach(btn => {
-          btn.addEventListener('click', () => activate(btn.dataset.monitorButton));
-        });
-        activate(active);
-      }
-
       document.querySelectorAll('[data-auto-submit]').forEach(el => {
         el.addEventListener('change', () => {
           const form = el.closest('form');
@@ -2410,6 +3860,109 @@
           });
         };
         input.addEventListener('input', applyFilter);
+      });
+
+      // ---- Date + fuseau explicite -------------------------------------
+      //
+      // <input type="datetime-local"> ne rend qu'une heure murale, sans fuseau.
+      // Le script attend une date ISO complète. On compose les deux : l'heure
+      // saisie est lue DANS le fuseau choisi, et le décalage correspondant y
+      // est ajouté.
+
+      const TZ_LOCAL = (() => {
+        try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+        catch { return 'UTC'; }
+      })();
+
+      // Décalage (en minutes) d'un fuseau à un INSTANT donné. On reformate
+      // l'instant dans le fuseau visé puis on relit les composantes comme si
+      // elles étaient UTC : l'écart est le décalage. C'est la seule façon de
+      // l'obtenir pour un fuseau arbitraire sans embarquer de base tzdata.
+      const tzOffsetMinutesAt = (tz, instant) => {
+        const dtf = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz, hour12: false,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+        const p = {};
+        for (const part of dtf.formatToParts(instant)) p[part.type] = part.value;
+        // hour peut valoir "24" à minuit selon les moteurs.
+        const hour = Number(p.hour) % 24;
+        const asUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), hour, Number(p.minute), Number(p.second));
+        return (asUtc - instant.getTime()) / 60000;
+      };
+
+      // Heure murale + fuseau -> chaîne ISO décalée.
+      //
+      // Deux passes : la première estime le décalage en traitant l'heure
+      // saisie comme de l'UTC, la seconde le recalcule sur l'instant obtenu.
+      // Sans cette reprise, une date située le jour d'un changement d'heure
+      // recevrait le décalage de la veille.
+      const isoWithOffset = (local, tz) => {
+        if (!local) return '';
+        const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(local);
+        if (!m) return local;               // saisie inattendue : on la laisse passer telle quelle
+        const [, Y, Mo, D, H, Mi, Sec] = m;
+        const naive = Date.UTC(+Y, +Mo - 1, +D, +H, +Mi, +(Sec || 0));
+        const zone = tz || TZ_LOCAL;
+        let offset;
+        try {
+          offset = tzOffsetMinutesAt(zone, new Date(naive));
+          offset = tzOffsetMinutesAt(zone, new Date(naive - offset * 60000));
+        } catch {
+          offset = -new Date(local).getTimezoneOffset();   // repli : fuseau du poste
+        }
+        const sign = offset >= 0 ? '+' : '-';
+        const abs = Math.abs(offset);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${Y}-${Mo}-${D}T${H}:${Mi}:${pad(+(Sec || 0))}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+      };
+
+      // Liste des fuseaux : celle du navigateur si elle est exposée, sinon un
+      // repli court. Le fuseau du poste est proposé en tête et présélectionné —
+      // le cas de très loin le plus fréquent reste « ici, maintenant ».
+      const TZ_CHOICES = (() => {
+        let all = [];
+        try { all = Intl.supportedValuesOf('timeZone') || []; } catch { all = []; }
+        if (!all.length) {
+          all = ['UTC', 'Europe/Paris', 'Europe/London', 'Europe/Madrid', 'Europe/Berlin',
+                 'America/New_York', 'America/Toronto', 'America/Los_Angeles'];
+        }
+        const head = [TZ_LOCAL, 'UTC'].filter((v, i, a) => v && a.indexOf(v) === i);
+        return head.concat(all.filter(z => !head.includes(z)));
+      })();
+
+      const selectedTzFor = (role) => {
+        const sel = document.querySelector(`[data-datetime-tz="${role}"]`);
+        return (sel && sel.value) || TZ_LOCAL;
+      };
+
+      document.querySelectorAll('input[data-datetime="1"]').forEach((input) => {
+        const role = input.getAttribute('data-role');
+        const preview = document.querySelector(`[data-datetime-preview="${role}"]`);
+        const tzSelect = document.querySelector(`[data-datetime-tz="${role}"]`);
+
+        if (tzSelect && tzSelect.options.length <= 1) {
+          tzSelect.innerHTML = '';
+          for (const zone of TZ_CHOICES) {
+            const o = document.createElement('option');
+            o.value = zone;
+            o.textContent = zone === TZ_LOCAL ? `${zone} (ce poste)` : zone;
+            tzSelect.appendChild(o);
+          }
+          tzSelect.value = TZ_LOCAL;
+        }
+
+        if (!preview) return;
+        const base = preview.textContent;
+        const render = () => {
+          const iso = isoWithOffset((input.value || '').trim(), selectedTzFor(role));
+          preview.textContent = iso ? `→ ${iso}` : base;
+        };
+        input.addEventListener('input', render);
+        input.addEventListener('change', render);
+        if (tzSelect) tzSelect.addEventListener('change', render);
+        render();
       });
 
       const collectScriptArgs = (form, argLine) => {
@@ -2441,6 +3994,14 @@
             const joiner = el.dataset?.join ?? ',';
             value = selected.join(joiner || ',');
             hasValue = selected.length > 0;
+          } else if (fieldType === 'datetime') {
+            // <input type="datetime-local"> ne rend QUE l'heure murale, sans
+            // fuseau : "2026-09-16T18:30". Le script attend une date ISO
+            // complète. On la qualifie avec le fuseau choisi à côté du champ,
+            // et le décalage retenu est celui de CETTE DATE dans CE fuseau —
+            // +02:00 en été à Paris, +01:00 en hiver.
+            value = isoWithOffset((el.value || '').trim(), selectedTzFor(`${scriptId}:${field.name}`));
+            hasValue = value !== '';
           } else {
             value = (el.value || '').trim();
             hasValue = value !== '';
@@ -2578,6 +4139,17 @@
         const payerEl = document.querySelector('[data-plan-seat-payer]');
         const tariffEl = document.querySelector('[data-plan-seat-tariff]');
         const orderIdEl = document.querySelector('[data-plan-seat-order-id]');
+        const adjustBtn = document.querySelector('[data-plan-seat-adjust]');
+        const stateBlock = document.querySelector('[data-plan-seat-state]');
+        const stateLabel = document.querySelector('[data-plan-seat-state-label]');
+        const stateNote = document.querySelector('[data-plan-seat-note]');
+        const stateToggle = document.querySelector('[data-plan-seat-toggle]');
+        const seatStateBase = <%- JSON.stringify(urlFor('/admin/seat-state')) %>;
+        const seatStateSuffix = <%- JSON.stringify(tokenSuffix || '') %>;
+        let stateSeatId = '';
+        // Déclaré ici, avant applySeatStatuses qui l'affecte : la placer plus bas
+        // ne tenait que parce que le plan se charge de façon asynchrone.
+        let planSvgDoc = null;
 
         const seatStatusById = new Map(
           (Array.isArray(PLAN_VIEW_DATA.seats) ? PLAN_VIEW_DATA.seats : [])
@@ -2601,6 +4173,10 @@
         const hidePanel = () => {
           if (!seatPanel) return;
           seatPanel.classList.remove('active');
+          if (adjustBtn) {
+            adjustBtn.classList.add('hidden');
+            adjustBtn.dataset.orderId = '';
+          }
         };
 
         const showSeatPanel = (seatId) => {
@@ -2611,10 +4187,50 @@
           if (payerEl) payerEl.textContent = details.payer || '—';
           if (tariffEl) tariffEl.textContent = details.tariff || '—';
           if (orderIdEl) orderIdEl.textContent = details.orderId || '—';
+          if (adjustBtn) {
+            // Même raison que dans le tableau des commandes : « Ajuster » vise
+            // un match. En périmètre saison le bouton partirait sur le
+            // sentinelle « __season__ » et l'API répondrait 404.
+            if (details.orderId && !PLAN_VIEW_DATA?.seasonScope) {
+              adjustBtn.dataset.orderId = details.orderId;
+              adjustBtn.classList.remove('hidden');
+            } else {
+              adjustBtn.dataset.orderId = '';
+              adjustBtn.classList.add('hidden');
+            }
+          }
+          // La bascule ne s'offre que là où elle est légitime : une place vendue
+          // ou provisionnée appartient à quelqu'un, et se traite par la
+          // réallocation — pas par un bouton de plan.
+          if (stateBlock && stateToggle && stateLabel) {
+            stateSeatId = seatId;
+            const status = seatStatusById.get(seatId) || 'available';
+            const blockable = status === 'available';
+            const releasable = status === 'busy';
+            if (blockable || releasable) {
+              // La portée suit le sélecteur : un match choisi ne bloque que ce
+              // match, sinon le blocage vaut pour la saison entière.
+              const evSlug = PLAN_VIEW_DATA?.seasonScope ? '' : (PLAN_VIEW_DATA?.selectedEvent?.slug || '');
+              const portee = evSlug ? `ce match (${evSlug})` : 'toute la saison';
+              stateLabel.textContent = `État actuel : ${status} — portée : ${portee}`;
+              stateToggle.dataset.to = blockable ? 'busy' : 'available';
+              stateToggle.dataset.event = evSlug;
+              stateToggle.textContent = blockable
+                ? (evSlug ? 'Retirer pour ce match' : 'Retirer de la vente (saison)')
+                : (evSlug ? 'Remettre pour ce match' : 'Remettre à la vente (saison)');
+              if (stateNote) stateNote.value = '';
+              stateBlock.classList.remove('hidden');
+            } else {
+              stateLabel.textContent = `État actuel : ${status} — non modifiable ici`;
+              stateToggle.dataset.to = '';
+              stateBlock.classList.add('hidden');
+            }
+          }
           seatPanel.classList.add('active');
         };
 
         const applySeatStatuses = (svgDoc) => {
+          planSvgDoc = svgDoc;
           seatStatusById.forEach((status, seatId) => {
             const node = findPlanSeatElement(svgDoc, seatId);
             if (!node) return;
@@ -2624,6 +4240,51 @@
             else node.classList.add('seat-available');
           });
         };
+
+        // Bascule available ⇄ busy. Repeint la place sur le plan sans recharger :
+        // bloquer une rangée se fait siège par siège, et un rechargement entre
+        // chaque perdrait le zoom et la position.
+        const repaintSeat = (seatId, status) => {
+          seatStatusById.set(seatId, status);
+          const node = planSvgDoc ? findPlanSeatElement(planSvgDoc, seatId) : null;
+          if (!node) return;
+          node.classList.remove('seat-available', 'seat-booked', 'seat-busy');
+          if (status === 'booked') node.classList.add('seat-booked');
+          else if (status === 'busy') node.classList.add('seat-busy');
+          else node.classList.add('seat-available');
+        };
+
+        stateToggle?.addEventListener('click', async () => {
+          const to = stateToggle.dataset.to;
+          if (!stateSeatId || !to) return;
+          stateToggle.disabled = true;
+          try {
+            const res = await fetch(`${seatStateBase}${seatStateSuffix}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+              body: JSON.stringify({
+                seasonCode: PLAN_VIEW_DATA?.seasonCode || '',
+                venueSlug: PLAN_VIEW_DATA?.venueSlug || '',
+                seatId: stateSeatId,
+                to,
+                event: stateToggle.dataset.event || '',
+                note: stateNote?.value || ''
+              })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data?.ok) {
+              if (stateLabel) stateLabel.textContent = data?.error || `Échec (${res.status})`;
+              return;
+            }
+            repaintSeat(stateSeatId, data.status);
+            showSeatPanel(stateSeatId);
+            if (stateLabel) stateLabel.textContent = data.message || `État : ${data.status}`;
+          } catch (err) {
+            if (stateLabel) stateLabel.textContent = err?.message || 'Erreur inconnue';
+          } finally {
+            stateToggle.disabled = false;
+          }
+        });
 
         const enablePlanPanZoom = (svgDoc) => {
           const svg = svgDoc?.querySelector('svg');
@@ -2737,18 +4398,33 @@
           });
         };
 
+        // Chrome/Chromium can return a truthy contentDocument synchronously,
+        // before the <object>'s SVG resource has actually finished loading —
+        // it points at an interim placeholder document (not an <svg> root)
+        // rather than null like Firefox does. Checking for an <svg> root
+        // specifically (not just "document present") avoids treating that
+        // placeholder as ready.
+        const isSvgDocReady = (doc) => {
+          const root = doc?.documentElement;
+          return Boolean(root && String(root.tagName || '').toLowerCase() === 'svg');
+        };
+
         const onReady = () => {
           if (planInitialized) return;
           const svgDoc = planObject.contentDocument;
-          if (!svgDoc) return;
+          if (!isSvgDocReady(svgDoc)) return;
           planInitialized = true;
           const shouldIgnoreClick = enablePlanPanZoom(svgDoc);
           applySeatStatuses(svgDoc);
           bindPlanClicks(svgDoc, shouldIgnoreClick);
         };
 
-        if (planObject.contentDocument) onReady();
-        planObject.addEventListener('load', onReady, { once: true });
+        if (isSvgDocReady(planObject.contentDocument)) onReady();
+        // Not { once: true }: if the synchronous check above hit the
+        // placeholder document and bailed out, planInitialized is still
+        // false, so the real load event — fired once the SVG is actually
+        // in place — must still be able to run onReady().
+        planObject.addEventListener('load', onReady);
       };
 
       initAdminPlanView();
@@ -2870,6 +4546,33 @@
         });
       };
 
+      // Interroge le job jusqu'à ce qu'il aboutisse, puis affiche son résumé.
+      const followAutomationJob = async (scriptId, jobId, output) => {
+        if (!jobId) return;
+        const deadline = Date.now() + 5 * 60 * 1000;   // garde-fou : 5 min
+        const container = document.querySelector(`[data-automation-jobs="${scriptId}"]`);
+        const jobsUrl = container && container.dataset.jobsUrl;
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 2000));
+          await refreshAutomationJobs(scriptId);
+          const jobs = AUTOMATION_JOBS_STATE[scriptId] || [];
+          const job = jobs.find(j => String(j.id) === String(jobId));
+          if (!job) { if (!jobsUrl) return; continue; }
+          if (job.status === 'succeeded' || job.status === 'failed') {
+            const mode = job.dryRun ? ' [simulation — rien envoyé]' : '';
+            // Le résumé de la tâche vit dans result.summary (voir
+            // serializeJob) ; « summary » à la racine désigne autre chose.
+            const summary = (job.result && job.result.summary) || 'Terminé';
+            output.textContent = job.status === 'succeeded'
+              ? `✔ ${summary}${mode}`
+              : `✖ Échec : ${job.error || 'voir le journal du job'}`;
+            return;
+          }
+          output.textContent = `⏳ Job ${jobId} (${job.status})…`;
+        }
+        output.textContent = `⏳ Job ${jobId} — toujours en cours, voir la liste ci-dessous.`;
+      };
+
       const setupAutomationForm = (form) => {
         const scriptId = form.dataset.scriptId;
         const defaultDryRun = form.dataset.defaultDryRun === 'true';
@@ -2913,9 +4616,14 @@
               output.textContent = `✖ ${data.error || response.statusText}`;
             } else {
               const job = data.job || {};
-              output.textContent = `✔ Job ${job.id || '—'} (${job.status || 'queued'})`;
+              output.textContent = `⏳ Job ${job.id || '—'} (${job.status || 'queued'})…`;
               refreshAutomationJobs(scriptId, { highlightJobId: job.id });
-              setTimeout(() => refreshAutomationJobs(scriptId), 4000);
+              // Suivi jusqu'à l'état final. Deux rafraîchissements (immédiat et
+              // à 4 s) ne suffisaient pas : une campagne d'invitations attend
+              // ~800 ms entre deux envois, donc 25 destinataires prennent une
+              // vingtaine de secondes. L'opérateur restait sur « queued » et
+              // croyait la tâche sans effet.
+              followAutomationJob(scriptId, job.id, output);
             }
           } catch (err) {
             output.textContent = `✖ ${err && err.message ? err.message : err}`;
@@ -3041,8 +4749,92 @@
       };
       bindDeleteButtons();
 
+      /* ----- Close the "BTS Admin" dropdown once a menu item is picked ----- */
+      document.querySelectorAll('[data-nav-dropdown] .dropdown-menu a').forEach(link => {
+        link.addEventListener('click', () => {
+          link.closest('[data-nav-dropdown]')?.removeAttribute('open');
+        });
+      });
+
+      /* ----- Input file edit modal wiring ----- */
+      const inputEditModal = document.querySelector('[data-input-edit-modal]');
+      if (inputEditModal) {
+        const editFilename = inputEditModal.querySelector('[data-input-edit-filename]');
+        const editStatus = inputEditModal.querySelector('[data-input-edit-status]');
+        const editTextarea = inputEditModal.querySelector('[data-input-edit-textarea]');
+        const editSummary = inputEditModal.querySelector('[data-input-edit-summary]');
+        const editSaveBtn = inputEditModal.querySelector('[data-input-edit-save]');
+        let editState = { file: null, writeUrl: null };
+
+        const closeInputEdit = () => {
+          inputEditModal.classList.add('hidden');
+          editState = { file: null, writeUrl: null };
+          if (editTextarea) editTextarea.value = '';
+          if (editStatus) editStatus.textContent = '';
+          if (editSummary) editSummary.textContent = '';
+        };
+
+        inputEditModal.querySelectorAll('[data-input-edit-close]').forEach(btn => {
+          btn.addEventListener('click', closeInputEdit);
+        });
+
+        document.querySelectorAll('[data-edit-button]').forEach(button => {
+          button.addEventListener('click', async () => {
+            const file = button.dataset.file || '';
+            const readUrl = button.dataset.readUrl || '';
+            const writeUrl = button.dataset.writeUrl || '';
+            if (!file || !readUrl || !writeUrl) return;
+            editState = { file, writeUrl };
+            if (editFilename) editFilename.textContent = file;
+            if (editTextarea) editTextarea.value = '';
+            if (editStatus) editStatus.textContent = 'Chargement…';
+            if (editSummary) editSummary.textContent = '';
+            inputEditModal.classList.remove('hidden');
+            try {
+              const response = await fetch(`${readUrl}${readUrl.includes('?') ? '&' : '?'}file=${encodeURIComponent(file)}`);
+              const data = await response.json().catch(() => ({}));
+              if (!response.ok || data.ok === false) {
+                if (editStatus) editStatus.textContent = `✖ ${data.error || response.statusText}`;
+                return;
+              }
+              if (editTextarea) editTextarea.value = data.content || '';
+              if (editStatus) editStatus.textContent = '';
+            } catch (err) {
+              if (editStatus) editStatus.textContent = `✖ ${err && err.message ? err.message : err}`;
+            }
+          });
+        });
+
+        editSaveBtn?.addEventListener('click', async () => {
+          if (!editState.file || !editState.writeUrl) return;
+          editSaveBtn.disabled = true;
+          const originalLabel = editSaveBtn.textContent;
+          editSaveBtn.textContent = '…';
+          if (editSummary) editSummary.textContent = '';
+          try {
+            const response = await fetch(editState.writeUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ file: editState.file, content: editTextarea?.value ?? '' })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false) {
+              if (editSummary) editSummary.textContent = `✖ ${data.error || response.statusText}`;
+            } else {
+              if (editSummary) editSummary.textContent = '✔ Enregistré';
+              setTimeout(closeInputEdit, 600);
+            }
+          } catch (err) {
+            if (editSummary) editSummary.textContent = `✖ ${err && err.message ? err.message : err}`;
+          } finally {
+            editSaveBtn.disabled = false;
+            editSaveBtn.textContent = originalLabel;
+          }
+        });
+      }
+
       /* ----- Attendance modal wiring ----- */
-      const defaultEventSlug = <%- JSON.stringify((locals.monitoring && locals.monitoring.event && locals.monitoring.event.selectedEvent && locals.monitoring.event.selectedEvent.slug) ? locals.monitoring.event.selectedEvent.slug : '') %>;
+      const defaultEventSlug = <%- JSON.stringify((locals.ordersView && locals.ordersView.selectedEventSlug) ? locals.ordersView.selectedEventSlug : '') %>;
       const attendanceBase = <%- JSON.stringify(urlFor('/admin/events')) %>;
       const attendanceSuffix = <%- JSON.stringify(tokenSuffix || '') %>;
 
@@ -3234,7 +5026,9 @@
           const orderId = btn.dataset.orderId;
           const container = btn.closest('[data-event-orders-block]');
           const eventSlug = container?.dataset.eventSlug || defaultEventSlug;
-          if (!orderId || !eventSlug) return;
+          // '__season__' est un sentinelle d'affichage, pas un slug d'événement :
+          // le laisser passer produit un 404 « Event not found » incompréhensible.
+          if (!orderId || !eventSlug || eventSlug === '__season__') return;
           attendanceState = { eventSlug, orderId, lineIndex: null, order: null };
           openAttendance();
           fetchAttendance();
@@ -3251,6 +5045,399 @@
         if (evt.target === attendanceModal) {
           closeAttendance();
         }
+      });
+
+      /* ===================== Order contact edit ===================== */
+      // Séparé de la présence : ne touche ni aux sièges ni au montant, et
+      // n'envoie aucun e-mail — renvoyer l'attestation reste une action à part.
+      const contactBase = <%- JSON.stringify(urlFor('/admin/order-contact')) %>;
+      const contactSuffix = <%- JSON.stringify(tokenSuffix || '') %>;
+      const contactModal = document.querySelector('[data-contact-modal]');
+      const contactBody = contactModal?.querySelector('[data-contact-body]') || null;
+      const contactSummary = contactModal?.querySelector('[data-contact-summary]') || null;
+      const contactSubmit = contactModal?.querySelector('[data-contact-submit]') || null;
+      let contactOrderId = null;
+
+      const contactUrl = (orderId) => `${contactBase}/${encodeURIComponent(orderId)}${contactSuffix}`;
+      const closeContact = () => {
+        contactModal?.classList.add('hidden');
+        contactOrderId = null;
+        if (contactSummary) contactSummary.textContent = '';
+      };
+
+      const renderContactForm = (order) => {
+        if (!contactBody) return;
+        const val = (v) => escapeHtml(v || '');
+        const lineRows = (order.lines || []).map((l) => `
+          <tr>
+            <td><code>${escapeHtml(l.seatId || l.zoneKey || '—')}</code></td>
+            <td><input type="text" data-contact-holder-first data-line-index="${l.index}" value="${val(l.holderFirstName)}"></td>
+            <td><input type="text" data-contact-holder-last data-line-index="${l.index}" value="${val(l.holderLastName)}"></td>
+          </tr>`).join('');
+        contactBody.innerHTML = `
+          <form data-contact-form>
+            <p class="muted">Commande <code>${escapeHtml(order.id)}</code> — ${escapeHtml(order.flow || '')} ${escapeHtml(order.seasonCode || '')} — statut ${escapeHtml(order.status || '')}</p>
+            <label>E-mail du payeur<input type="email" data-contact-email value="${val(order.payerEmail)}" required></label>
+            <label>Prénom<input type="text" data-contact-first value="${val(order.payerFirstName)}"></label>
+            <label>Nom<input type="text" data-contact-last value="${val(order.payerLastName)}"></label>
+            ${lineRows ? `<h4>Porteurs</h4><table class="records-table"><thead><tr><th>Place</th><th>Prénom</th><th>Nom</th></tr></thead><tbody>${lineRows}</tbody></table>` : ''}
+            <p class="muted">Aucun e-mail n'est envoyé : le renvoi d'attestation est une action séparée.</p>
+          </form>`;
+      };
+
+      const fetchContact = async () => {
+        if (!contactOrderId || !contactBody) return;
+        try {
+          const res = await fetch(contactUrl(contactOrderId), { headers: { Accept: 'application/json' } });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data?.ok) throw new Error(data?.error || `Chargement impossible (${res.status})`);
+          renderContactForm(data.order);
+        } catch (err) {
+          contactBody.innerHTML = `<div class="error">${escapeHtml(err.message || 'Erreur inconnue')}</div>`;
+        }
+      };
+
+      const submitContact = async () => {
+        if (!contactOrderId || !contactBody) return;
+        const form = contactBody.querySelector('[data-contact-form]');
+        if (!form) return;
+        const payload = {
+          payerEmail: form.querySelector('[data-contact-email]')?.value || '',
+          payerFirstName: form.querySelector('[data-contact-first]')?.value || '',
+          payerLastName: form.querySelector('[data-contact-last]')?.value || '',
+          lines: Array.from(form.querySelectorAll('[data-contact-holder-first]')).map((input) => {
+            const index = Number(input.dataset.lineIndex);
+            const last = form.querySelector(`[data-contact-holder-last][data-line-index="${index}"]`);
+            return { index, holderFirstName: input.value || '', holderLastName: last?.value || '' };
+          })
+        };
+        try {
+          const res = await fetch(contactUrl(contactOrderId), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data?.ok) throw new Error(data?.error || `Enregistrement impossible (${res.status})`);
+          if (contactSummary) contactSummary.textContent = data.message || 'Enregistré.';
+          if (data.changed) setTimeout(() => window.location.reload(), 700);
+        } catch (err) {
+          if (contactSummary) contactSummary.textContent = err.message || 'Erreur inconnue';
+        }
+      };
+
+      document.querySelectorAll('[data-contact-close]').forEach(btn => btn.addEventListener('click', closeContact));
+      contactModal?.addEventListener('click', (evt) => { if (evt.target === contactModal) closeContact(); });
+      contactSubmit?.addEventListener('click', submitContact);
+      document.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Escape' && contactModal && !contactModal.classList.contains('hidden')) closeContact();
+      });
+
+      document.querySelectorAll('[data-order-contact-edit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          contactOrderId = btn.dataset.orderId || null;
+          if (!contactOrderId) return;
+          if (contactSummary) contactSummary.textContent = '';
+          if (contactBody) contactBody.innerHTML = '<div class="empty-state">Chargement…</div>';
+          contactModal?.classList.remove('hidden');
+          fetchContact();
+        });
+      });
+
+      /* ===================== Order seat reallocation ===================== */
+      // Déplace les vrais documents Seat. Une place occupée n'est jamais
+      // bloquante : elle est signalée, et l'admin confirme s'il veut passer outre.
+      const seatBase = <%- JSON.stringify(urlFor('/admin/order-seat')) %>;
+      const seatModal = document.querySelector('[data-seat-modal]');
+      const seatBody = seatModal?.querySelector('[data-seat-body]') || null;
+      const seatSummary = seatModal?.querySelector('[data-seat-summary]') || null;
+      let seatOrderId = null;
+
+      const seatUrl = (orderId) => `${seatBase}/${encodeURIComponent(orderId)}${contactSuffix}`;
+      const closeSeat = () => {
+        seatModal?.classList.add('hidden');
+        seatOrderId = null;
+        if (seatSummary) seatSummary.textContent = '';
+      };
+
+      const seatStateLabel = (seat) => {
+        if (!seat) return '<span class="muted">inconnue</span>';
+        const cls = seat.status === 'booked' ? 'booking-warn' : 'muted';
+        return `<span class="${cls}">${escapeHtml(seat.status)}</span>`;
+      };
+
+      const renderSeatForm = (order) => {
+        if (!seatBody) return;
+        const rows = (order.lines || []).map((l) => {
+          if (l.unitType === 'zone') {
+            // Une place en zone se relogeait nulle part : elle est désormais
+            // déplaçable vers un siège comme vers une autre zone.
+            return `<tr>
+              <td><code>${escapeHtml(l.seatId || l.zoneKey || '—')}</code> <span class="muted">(zone)</span></td>
+              <td>${escapeHtml(l.holder || '—')}</td>
+              <td>${escapeHtml(l.tariffCode || '—')}</td>
+              <td>
+                <input type="text" data-seat-target data-line-index="${l.index}" placeholder="N2-A-07" size="10">
+                <input type="text" data-seat-zone data-line-index="${l.index}" placeholder="ou zone : DEBOUT" size="12">
+                <button type="button" class="btn btn-small" data-seat-move data-line-index="${l.index}">Déplacer</button>
+              </td>
+            </tr>`;
+          }
+          return `<tr>
+            <td><code>${escapeHtml(l.seatId || '—')}</code> ${seatStateLabel(l.seat)}</td>
+            <td>${escapeHtml(l.holder || '—')}</td>
+            <td>${escapeHtml(l.tariffCode || '—')}</td>
+            <td>
+              <input type="text" data-seat-target data-line-index="${l.index}" placeholder="N2-A-07" size="10">
+              <input type="text" data-seat-zone data-line-index="${l.index}" placeholder="ou zone : DEBOUT" size="12">
+              <button type="button" class="btn btn-small" data-seat-move data-line-index="${l.index}">Déplacer</button>
+            </td>
+          </tr>`;
+        }).join('');
+        seatBody.innerHTML = `
+          <p class="muted">Commande <code>${escapeHtml(order.id)}</code> — ${escapeHtml(order.flow || '')} ${escapeHtml(order.seasonCode || '')} — statut ${escapeHtml(order.status || '')}</p>
+          <table class="records-table"><thead><tr><th>Place</th><th>Porteur</th><th>Tarif</th><th>Déplacer vers</th></tr></thead><tbody>${rows}</tbody></table>
+          <p class="muted">Le tarif n'est jamais modifié par un déplacement. Aucun e-mail n'est envoyé.</p>`;
+        seatBody.querySelectorAll('[data-seat-move]').forEach(btn => {
+          btn.addEventListener('click', () => moveSeat(Number(btn.dataset.lineIndex), false));
+        });
+      };
+
+      const fetchSeats = async () => {
+        if (!seatOrderId || !seatBody) return;
+        try {
+          const res = await fetch(seatUrl(seatOrderId), { headers: { Accept: 'application/json' } });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data?.ok) throw new Error(data?.error || `Chargement impossible (${res.status})`);
+          renderSeatForm(data.order);
+        } catch (err) {
+          seatBody.innerHTML = `<div class="error">${escapeHtml(err.message || 'Erreur inconnue')}</div>`;
+        }
+      };
+
+      const moveSeat = async (lineIndex, force) => {
+        if (!seatOrderId || !seatBody) return;
+        const input = seatBody.querySelector(`[data-seat-target][data-line-index="${lineIndex}"]`);
+        const zoneInput = seatBody.querySelector(`[data-seat-zone][data-line-index="${lineIndex}"]`);
+        const targetSeatId = (input?.value || '').trim();
+        const targetZoneKey = (zoneInput?.value || '').trim();
+        if (!targetSeatId && !targetZoneKey) {
+          if (seatSummary) seatSummary.textContent = 'Indiquer une place OU une zone de destination.';
+          return;
+        }
+        if (targetSeatId && targetZoneKey) {
+          if (seatSummary) seatSummary.textContent = 'Une seule destination : une place ou une zone, pas les deux.';
+          return;
+        }
+        try {
+          const res = await fetch(seatUrl(seatOrderId), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ lineIndex, targetSeatId, targetZoneKey, force: Boolean(force) })
+          });
+          const data = await res.json().catch(() => ({}));
+          // 409 + needsForce : la place n'est pas libre. On expose exactement
+          // pourquoi, et on laisse confirmer — jamais de contournement muet.
+          if (res.status === 409 && data?.needsForce) {
+            const detail = [data.error, ...(data.derivedEventOrders || []).map(d => `commande de match ${d.orderId} (${d.status})`)].join(' ');
+            if (window.confirm(`${detail}\n\nDéplacer quand même vers ${targetSeatId || 'la zone ' + targetZoneKey} ?`)) {
+              return moveSeat(lineIndex, true);
+            }
+            if (seatSummary) seatSummary.textContent = 'Déplacement annulé.';
+            return;
+          }
+          if (!res.ok || !data?.ok) throw new Error(data?.error || `Déplacement impossible (${res.status})`);
+          const notes = (data.warnings || []).join(' ');
+          if (seatSummary) seatSummary.textContent = `${data.from} → ${data.to}. ${data.message || ''} ${notes}`.trim();
+          await fetchSeats();
+        } catch (err) {
+          if (seatSummary) seatSummary.textContent = err.message || 'Erreur inconnue';
+        }
+      };
+
+      document.querySelectorAll('[data-seat-close]').forEach(btn => btn.addEventListener('click', closeSeat));
+      seatModal?.addEventListener('click', (evt) => { if (evt.target === seatModal) closeSeat(); });
+      document.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Escape' && seatModal && !seatModal.classList.contains('hidden')) closeSeat();
+      });
+
+      document.querySelectorAll('[data-order-seat-edit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          seatOrderId = btn.dataset.orderId || null;
+          if (!seatOrderId) return;
+          if (seatSummary) seatSummary.textContent = '';
+          if (seatBody) seatBody.innerHTML = '<div class="empty-state">Chargement…</div>';
+          seatModal?.classList.remove('hidden');
+          fetchSeats();
+        });
+      });
+
+      /* ===================== Renewers panel ===================== */
+      const renewersBase = <%- JSON.stringify(urlFor('/admin/renewers')) %>;
+      const renewersSuffix = <%- JSON.stringify(tokenSuffix || '') %>;
+      const renewerModal = document.querySelector('[data-renewer-modal]');
+      const renewerForm = renewerModal?.querySelector('[data-renewer-form]') || null;
+      const renewerSubmit = renewerModal?.querySelector('[data-renewer-submit]') || null;
+      const renewerSummary = document.querySelector('[data-renewer-modal-summary]');
+      let renewerEditingId = null;
+
+      const renewerFieldNames = ['firstName', 'lastName', 'email', 'phone', 'prefSeatId', 'groupKey', 'status', 'notes'];
+
+      const closeRenewerModal = () => {
+        if (!renewerModal) return;
+        renewerModal.classList.add('hidden');
+        renewerEditingId = null;
+        if (renewerSummary) renewerSummary.textContent = '';
+      };
+      const openRenewerModal = () => renewerModal?.classList.remove('hidden');
+
+      document.querySelectorAll('[data-renewer-close]').forEach(btn => {
+        btn.addEventListener('click', closeRenewerModal);
+      });
+      renewerModal?.addEventListener('click', (evt) => {
+        if (evt.target === renewerModal) closeRenewerModal();
+      });
+      document.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Escape' && renewerModal && !renewerModal.classList.contains('hidden')) {
+          closeRenewerModal();
+        }
+      });
+
+      const updateRenewerRow = (row, sub) => {
+        if (!row || !sub) return;
+        const setField = (name, value) => {
+          const cell = row.querySelector(`[data-renewer-field="${name}"]`);
+          if (cell) cell.textContent = value || '—';
+        };
+        setField('name', [sub.firstName, sub.lastName].filter(Boolean).join(' '));
+        setField('email', sub.email);
+        setField('phone', sub.phone);
+        setField('prefSeatId', sub.prefSeatId);
+        setField('status', sub.status);
+        setField('lastInviteSentAt', sub.lastInviteSentAt ? new Date(sub.lastInviteSentAt).toLocaleString() : '');
+      };
+
+      document.querySelectorAll('[data-renewer-edit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const row = btn.closest('[data-renewer-row]');
+          const id = row?.dataset.renewerId;
+          if (!id || !renewerForm) return;
+          renewerEditingId = id;
+          for (const name of renewerFieldNames) {
+            const input = renewerForm.querySelector(`[data-renewer-field-input="${name}"]`);
+            if (!input) continue;
+            const cell = row.querySelector(`[data-renewer-field="${name}"]`);
+            input.value = (cell?.textContent === '—' ? '' : cell?.textContent) || '';
+          }
+          openRenewerModal();
+        });
+      });
+
+      const submitRenewerEdit = async () => {
+        if (!renewerEditingId || !renewerForm) return;
+        const body = {};
+        for (const name of renewerFieldNames) {
+          const input = renewerForm.querySelector(`[data-renewer-field-input="${name}"]`);
+          if (input) body[name] = input.value;
+        }
+        if (renewerSubmit) { renewerSubmit.disabled = true; renewerSubmit.textContent = 'Enregistrement…'; }
+        try {
+          const res = await fetch(`${renewersBase}/${renewerEditingId}${renewersSuffix}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json();
+          if (!res.ok || !data?.ok) throw new Error(data?.error || 'Enregistrement impossible');
+          const row = document.querySelector(`[data-renewer-row][data-renewer-id="${renewerEditingId}"]`);
+          updateRenewerRow(row, data.subscriber);
+          if (renewerSubmit) { renewerSubmit.textContent = 'Enregistré'; }
+          setTimeout(closeRenewerModal, 700);
+        } catch (err) {
+          if (renewerSummary) {
+            renewerSummary.textContent = err.message || 'Erreur inconnue';
+            renewerSummary.classList.add('error');
+          }
+          if (renewerSubmit) { renewerSubmit.disabled = false; renewerSubmit.textContent = 'Réessayer'; }
+        }
+      };
+      renewerSubmit?.addEventListener('click', submitRenewerEdit);
+
+      document.querySelectorAll('[data-renewer-cancel]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('[data-renewer-row]');
+          const id = row?.dataset.renewerId;
+          if (!id) return;
+          if (!confirm('Annuler cette ligne de renouvellement ? Le siège provisionné (le cas échéant) sera libéré.')) return;
+          btn.disabled = true;
+          try {
+            const res = await fetch(`${renewersBase}/${id}/cancel${renewersSuffix}`, {
+              method: 'POST',
+              headers: { Accept: 'application/json' }
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.ok) throw new Error(data?.error || 'Annulation impossible');
+            updateRenewerRow(row, data.subscriber);
+            const seatCell = row.querySelector('[data-renewer-field="seatStatus"]');
+            if (seatCell && data.seatReleased) seatCell.textContent = 'available';
+            btn.disabled = false;
+          } catch (err) {
+            alert(err.message || 'Erreur inconnue');
+            btn.disabled = false;
+          }
+        });
+      });
+
+      document.querySelectorAll('[data-renewer-link]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('[data-renewer-row]');
+          const id = row?.dataset.renewerId;
+          if (!id) return;
+          btn.disabled = true;
+          const original = btn.textContent;
+          btn.textContent = '…';
+          try {
+            const res = await fetch(`${renewersBase}/${id}/link${renewersSuffix}`, {
+              method: 'POST',
+              headers: { Accept: 'application/json' }
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.ok) throw new Error(data?.error || 'Génération du lien impossible');
+            window.prompt('Lien de renouvellement (copier) :', data.url);
+          } catch (err) {
+            alert(err.message || 'Erreur inconnue');
+          } finally {
+            btn.disabled = false;
+            btn.textContent = original;
+          }
+        });
+      });
+
+      document.querySelectorAll('[data-renewer-send]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('[data-renewer-row]');
+          const id = row?.dataset.renewerId;
+          if (!id) return;
+          btn.disabled = true;
+          const original = btn.textContent;
+          btn.textContent = 'Envoi…';
+          try {
+            const res = await fetch(`${renewersBase}/${id}/send-email${renewersSuffix}`, {
+              method: 'POST',
+              headers: { Accept: 'application/json' }
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.ok) throw new Error(data?.error || 'Envoi impossible');
+            updateRenewerRow(row, data.subscriber);
+            btn.textContent = 'Envoyé ✓';
+            btn.disabled = true;
+            setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1800);
+          } catch (err) {
+            btn.textContent = 'Échec';
+            btn.title = err.message || 'Erreur inconnue';
+            setTimeout(() => { btn.textContent = original; btn.disabled = false; btn.title = ''; }, 2500);
+          }
+        });
       });
 
     })();

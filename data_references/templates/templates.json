@@ -1,18 +1,17 @@
 {
   "email": {
     "templates": {
-      "renew": { "file": "email/renew-confirmation.html", "subject": "Confirmation – Abonnement (Renouvellement)" },
-      "subscription": { "file": "email/subscription-confirmation.html", "subject": "Confirmation – Abonnement" },
-      "public": { "file": "email/public-confirmation.html", "subject": "Confirmation" },
-      "event": { "file": "email/event-confirmation.dark.html", "subject": "Confirmation – Billetterie (Match)" },
-      "event-light": { "file": "email/event-confirmation.html", "subject": "Confirmation – Billetterie (Match)" }
+      "renew": { "file": "email/renew-confirmation.html" },
+      "subscription": { "file": "email/subscription-confirmation.html" },
+      "public": { "file": "email/public-confirmation.html" },
+      "event": { "file": "email/event-confirmation.html" },
+      "event-dark": { "file": "email/event-confirmation.dark.html" }
     }
   },
   "tickets": {
     "templates": {
       "default": { "file": "tickets/ticket.svg", "logo": "assets/logo.svg" },
       "subscription": { "file": "tickets/ticket.svg", "logo": "assets/logo.svg" },
-      "fanclub": { "file": "tickets/ticket.svg", "logo": "assets/logo.svg" },
       "event": { "file": "tickets/ticket.svg", "logo": "assets/logo.svg" }
     }
   }

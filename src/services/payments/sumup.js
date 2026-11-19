@@ -1,4 +1,7 @@
 // src/services/payments/sumup.js
+import { providerFetch, createTokenCache } from './http.js';
+import { providerError } from './provider-error.js';
+import { buildOrderDescription } from './order-description.js';
 
 const DEFAULT_API_BASE = 'https://api.sumup.com/v0.1';
 const DEFAULT_TOKEN_URL = 'https://api.sumup.com/token';
@@ -14,32 +17,47 @@ function tokenUrl() {
 
 function assertEnv() {
   const miss = [];
-  if (!process.env.SUMUP_CLIENT_ID) miss.push('SUMUP_CLIENT_ID');
-  if (!process.env.SUMUP_CLIENT_SECRET) miss.push('SUMUP_CLIENT_SECRET');
+  if (!process.env.SUMUP_API_KEY) {
+    if (!process.env.SUMUP_CLIENT_ID) miss.push('SUMUP_CLIENT_ID');
+    if (!process.env.SUMUP_CLIENT_SECRET) miss.push('SUMUP_CLIENT_SECRET');
+  }
   if (!process.env.SUMUP_MERCHANT_CODE && !process.env.SUMUP_PAY_TO_EMAIL) {
     miss.push('SUMUP_MERCHANT_CODE or SUMUP_PAY_TO_EMAIL');
   }
   if (miss.length) throw new Error('SumUp env missing: ' + miss.join(', '));
 }
 
+const tokenCache = createTokenCache({ label: 'sumup oauth' });
+
 async function getAccessToken() {
   assertEnv();
-  const body = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: process.env.SUMUP_CLIENT_ID,
-    client_secret: process.env.SUMUP_CLIENT_SECRET
-  });
-  if (process.env.SUMUP_OAUTH_SCOPES) {
-    body.set('scope', process.env.SUMUP_OAUTH_SCOPES);
+  // API Key auth: use directly as Bearer token (no OAuth step)
+  //
+  // .trim() : une clé collée dans .env emporte souvent un espace final, et un
+  // fichier en CRLF y ajoute un \r. L'en-tête « Bearer <clé>\r » est alors
+  // malformé et SumUp répond 401 — indiscernable d'une clé révoquée.
+  if (process.env.SUMUP_API_KEY) {
+    // Une clé d'API ne s'échange pas : rien à mettre en cache.
+    return String(process.env.SUMUP_API_KEY).trim();
   }
-  const r = await fetch(tokenUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body
+  // OAuth client_credentials flow — jeton gardé jusqu'à son échéance.
+  return tokenCache.get(async () => {
+    const body = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: String(process.env.SUMUP_CLIENT_ID || '').trim(),
+      client_secret: String(process.env.SUMUP_CLIENT_SECRET || '').trim()
+    });
+    if (process.env.SUMUP_OAUTH_SCOPES) {
+      body.set('scope', process.env.SUMUP_OAUTH_SCOPES);
+    }
+    const { res, json } = await providerFetch(tokenUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    }, { label: 'sumup oauth', retry: true });
+    if (!res.ok) throw new Error(`SumUp oauth ${res.status} ${JSON.stringify(json)}`);
+    return { token: json.access_token, expiresInSec: json.expires_in };
   });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`SumUp oauth ${r.status} ${JSON.stringify(j)}`);
-  return j.access_token;
 }
 
 function addOrderIdParam(url, orderId) {
@@ -49,24 +67,26 @@ function addOrderIdParam(url, orderId) {
   return url.includes('?') ? `${url}&${param}` : `${url}?${param}`;
 }
 
+function appBase() {
+  return String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+}
+
 function defaultReturnUrl() {
-  return process.env.SUMUP_RETURN_URL ||
-         process.env.HELLOASSO_RETURN_URL ||
-         (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, '')}/pay/return` : '');
+  if (process.env.SUMUP_RETURN_URL) return process.env.SUMUP_RETURN_URL;
+  const base = appBase();
+  return base ? `${base}/pay/return` : '';
 }
 
 function defaultCancelUrl() {
-  const fallback = defaultReturnUrl().replace(/\/pay\/return(?:\/)?$/, '/pay/back');
-  return process.env.SUMUP_CANCEL_URL ||
-         process.env.HELLOASSO_BACK_URL ||
-         fallback;
+  if (process.env.SUMUP_CANCEL_URL) return process.env.SUMUP_CANCEL_URL;
+  const base = appBase();
+  return base ? `${base}/pay/back` : '';
 }
 
 function defaultErrorUrl() {
-  const fallback = defaultReturnUrl().replace(/\/pay\/return(?:\/)?$/, '/pay/error');
-  return process.env.SUMUP_ERROR_URL ||
-         process.env.HELLOASSO_ERROR_URL ||
-         fallback;
+  if (process.env.SUMUP_ERROR_URL) return process.env.SUMUP_ERROR_URL;
+  const base = appBase();
+  return base ? `${base}/pay/error` : '';
 }
 
 function buildReturnUrls(order, overrides = {}) {
@@ -97,6 +117,23 @@ function normalizeStatus(input, fallback) {
   return raw.toLowerCase();
 }
 
+// SumUp n'expose pas `transaction_code` à la racine du checkout : il vit dans
+// `transactions[]`, alimenté une fois le paiement abouti. C'est ce code (ex.
+// TCZ8ULJ4RP) qui figure dans le relevé SumUp — donc la clé de rapprochement.
+function pickTransaction(j) {
+  const list = Array.isArray(j?.transactions) ? j.transactions : [];
+  if (!list.length) return null;
+  return list.find(t => /^(SUCCESSFUL|PAID)$/i.test(String(t?.status || ''))) || list[list.length - 1];
+}
+
+function transactionIds(j) {
+  const t = pickTransaction(j) || {};
+  return {
+    transactionCode: t.transaction_code || j?.transaction_code || '',
+    transactionId:   t.id || t.transaction_id || j?.transaction_id || ''
+  };
+}
+
 function buildCheckoutPayload({ order, urls }) {
   const checkoutReference = `${process.env.SUMUP_CHECKOUT_PREFIX || 'bts'}-${order._id}`;
   const currency = String(order.currency || process.env.SUMUP_CURRENCY || 'EUR').toUpperCase();
@@ -106,13 +143,14 @@ function buildCheckoutPayload({ order, urls }) {
     pay_to_email: process.env.SUMUP_PAY_TO_EMAIL || undefined,
     amount: totalAmountFromOrder(order),
     currency,
-    description: order.itemName || `Order ${order._id}`,
+    description: buildOrderDescription(order),
     return_url: urls.returnUrl || undefined,
     cancel_url: urls.backUrl || undefined,
     failure_url: urls.errorUrl || undefined,
     callback_url: process.env.SUMUP_CALLBACK_URL || process.env.SUMUP_WEBHOOK_URL || process.env.HELLOASSO_WEBHOOK_URL || undefined,
     payment_type: process.env.SUMUP_PAYMENT_TYPE || undefined,
-    custom_id: String(order._id || '')
+    custom_id: String(order._id || ''),
+    hosted_checkout: { enabled: true }
   };
   // Remove undefined keys
   for (const key of Object.keys(payload)) {
@@ -125,50 +163,88 @@ function buildCheckoutPayload({ order, urls }) {
 
 async function createCheckoutIntent({ order, returnUrl, backUrl, errorUrl }) {
   const token = await getAccessToken();
-  const urls = buildReturnUrls(order, { returnUrl, backUrl, errorUrl });
+  // URLs are already built (with oid) by the caller — pass them through directly
+  const urls = { returnUrl: returnUrl || '', backUrl: backUrl || '', errorUrl: errorUrl || '' };
   const payload = buildCheckoutPayload({ order, urls });
 
-  const r = await fetch(`${apiBase()}/checkouts`, {
+  // Pas de `retry` : rejouer une création de paiement pourrait en ouvrir deux.
+  const { res: r, json: j } = await providerFetch(`${apiBase()}/checkouts`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
     body: JSON.stringify(payload)
-  });
-  const j = await r.json().catch(() => ({}));
+  }, { label: 'sumup checkout' });
   if (!r.ok) {
     console.error('[sumup] payload sent:', JSON.stringify(payload));
-    throw new Error(`SumUp checkout ${r.status} ${JSON.stringify(j)}`);
+    if (r.status === 401) {
+      tokenCache.invalidate();
+      // 401 = la requête est bien partie, SumUp refuse l'identité. Ce n'est
+      // donc jamais le panier ni les URLs de retour : inutile de les relire.
+      console.error('[sumup] 401 — identifiants refusés. À vérifier, dans cet ordre :');
+      console.error(`[sumup]   mode d'auth : ${process.env.SUMUP_API_KEY ? 'SUMUP_API_KEY' : 'OAuth client_credentials'}`);
+      console.error(`[sumup]   api base    : ${apiBase()}`);
+      console.error(`[sumup]   merchant    : ${process.env.SUMUP_MERCHANT_CODE || '(non défini)'}`);
+      console.error('[sumup]   diagnostic  : node scripts/00-system-management/check-payment-provider.js');
+    }
+    throw providerError('SumUp checkout', r.status, j, [j?.message || j?.error_message || j?.detail]);
+  }
+  // SumUp sometimes only returns links on GET, not POST — fetch to get the real checkout URL
+  let jGet = j;
+  if (j.id && !j.checkout_url && !j.links?.length) {
+    try {
+      const { res: rGet, json: jGetRaw } = await providerFetch(
+        `${apiBase()}/checkouts/${encodeURIComponent(j.id)}`,
+        { headers: { 'Authorization': `Bearer ${token}` } },
+        { label: 'sumup get checkout (post-create)', retry: true }
+      );
+      if (rGet.ok) jGet = jGetRaw;
+    } catch { /* ignore, fall back to POST response */ }
   }
 
+  const resolvedCheckout = { ...j, ...jGet };
+  const hostedUrl = resolvedCheckout.id ? `https://pay.sumup.com/b2c/${encodeURIComponent(resolvedCheckout.id)}` : '';
+  const resolvedRedirectUrl =
+    resolvedCheckout.hosted_checkout_url ||
+    resolvedCheckout.hosted_checkout?.url ||
+    resolvedCheckout.checkout_url ||
+    resolvedCheckout.checkout_redirect_url ||
+    (resolvedCheckout.links && resolvedCheckout.links.find(l => l.rel === 'checkout')?.href) ||
+    hostedUrl;
   return {
-    redirectUrl: j.checkout_url || j.checkout_redirect_url || (j.links && j.links.find(l => l.rel === 'checkout')?.href) || '',
-    id: j.id || j.checkout_reference || payload.checkout_reference,
-    raw: j,
-    checkoutReference: j.checkout_reference || payload.checkout_reference,
-    providerOrderId: j.transaction_code || j.transaction_id || j.id || j.checkout_reference || payload.checkout_reference
+    redirectUrl: resolvedRedirectUrl,
+    id: resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference,
+    raw: resolvedCheckout,
+    checkoutReference: resolvedCheckout.checkout_reference || payload.checkout_reference,
+    ...transactionIds(resolvedCheckout),
+    providerOrderId: transactionIds(resolvedCheckout).transactionCode || transactionIds(resolvedCheckout).transactionId
+      || resolvedCheckout.id || resolvedCheckout.checkout_reference || payload.checkout_reference
   };
 }
 
 async function getCheckoutIntent(intentId) {
   const token = await getAccessToken();
   const ref = encodeURIComponent(intentId);
-  const params = new URLSearchParams();
-  if (process.env.SUMUP_MERCHANT_CODE) params.set('merchant_code', process.env.SUMUP_MERCHANT_CODE);
-  const suffix = params.toString() ? `?${params.toString()}` : '';
-  const r = await fetch(`${apiBase()}/checkouts/${ref}${suffix}`, {
+  // Relecture pure, et le chemin le plus sollicité (sondage du navigateur,
+  // page de retour, sentinelle) : le réessai est sans conséquence.
+  const { res: r, json: j } = await providerFetch(`${apiBase()}/checkouts/${ref}`, {
     headers: {
       'Authorization': `Bearer ${token}`
     }
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`SumUp get checkout ${r.status} ${JSON.stringify(j)}`);
+  }, { label: 'sumup get checkout', retry: true });
+  if (!r.ok) {
+    if (r.status === 401) tokenCache.invalidate();
+    throw new Error(`SumUp get checkout ${r.status} ${JSON.stringify(j)}`);
+  }
   return {
     status: j.status || '',
     metadata: { custom_id: j.custom_id || j.checkout_reference || '' },
     payer: j.customer || {},
-    providerOrderId: j.transaction_code || j.transaction_id || j.id || j.checkout_reference || '',
+    ...transactionIds(j),
+    checkoutReference: j.checkout_reference || '',
+    providerOrderId: transactionIds(j).transactionCode || transactionIds(j).transactionId
+      || j.id || j.checkout_reference || '',
     raw: j
   };
 }
@@ -181,6 +257,12 @@ async function getCheckoutStatus(intentId) {
 const provider = {
   id: 'sumup',
   label: 'SumUp',
+  uxCapabilities: ['widget', 'redirect'],
+  // L'API Checkouts de SumUp ne connaît pas l'échéancier : elle prend UN
+  // montant et l'encaisse. Il n'existe pas de champ « terms », et
+  // totalAmountFromOrder() envoie donc le total. Proposer « en 3 fois » ici
+  // prélèverait la totalité tout en annonçant trois échéances au client.
+  supportsInstallments: false,
   docs: {
     env: [
       'PAYMENT_PROVIDER',
