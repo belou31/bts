@@ -3634,6 +3634,31 @@ export const adminScriptGroups = [
         }
       },
       {
+        id: 'partner-repair-contribution',
+        label: 'Repair Partner Contribution',
+        order: 12,
+        path: 'scripts/05-partner-management/repair-partner-contribution.js',
+        command: 'node scripts/05-partner-management/repair-partner-contribution.js --partner=<slug> [--event=<slug>] [--commit]',
+        run: {
+          script: 'scripts/05-partner-management/repair-partner-contribution.js',
+          args: []
+        },
+        danger: true,
+        description: 'Corrige la part partenaire des commandes passées avant le correctif : un tarif sans part partenaire était enregistré avec une part égale au prix affiché, ce qui doublait partnerTotalCents (export CSV, admin partenaire).',
+        notes: [
+          'Une ligne n\'est corrigée que si sa part enregistrée égale son prix ET qu\'aucun tarif de ce code ne porte de part partenaire (pour ce partenaire ou le public) : une vraie part égale au prix n\'est jamais touchée.',
+          'Ligne corrigée : part 0, total = prix. Les totaux de la commande (meta.partner) sont recalculés.',
+          'Sans « Appliquer », rien n\'est écrit : chaque ligne à corriger est listée. Idempotent.'
+        ],
+        form: {
+          fields: [
+            { name: 'partner', label: 'Partenaire (slug)', placeholder: 'aisc', required: true, arg: { type: 'option', template: '--partner=${value}' } },
+            { name: 'event', label: 'Événement (slug, optionnel)', arg: { type: 'option', template: '--event=${value}' } },
+            { name: 'commit', label: 'Appliquer (sinon simulation)', type: 'checkbox', arg: { type: 'flag', flag: '--commit' } }
+          ]
+        }
+      },
+      {
         id: 'partner-import-csv',
         label: 'Import Partners (CSV)',
         order: 8,

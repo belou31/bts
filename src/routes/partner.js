@@ -114,13 +114,19 @@ const csvCell = (v) => {
 
 // Une ligne CSV par place. L'événement vient de la commande (eventId), les
 // champs eventSlug/eventName n'étant pas stockés sur Order.
+// Part partenaire d'une ligne : absente, elle vaut 0 (même règle qu'au calcul
+// de la commande, event-flow.factory.js).
+function linePartnerCents(ln) {
+  return Number(ln.partnerPriceCents ?? ln?.meta?.partnerPriceCents ?? 0) || 0;
+}
+
 function orderToCsvRow(ord, ev) {
   const lines = Array.isArray(ord.lines) ? ord.lines : [];
   return lines.map((ln) => {
     const meta = ln?.meta || {};
-    const partnerPrice = ln.partnerPriceCents ?? meta.partnerPriceCents ?? ln.priceCents;
+    const partnerPrice = linePartnerCents(ln);
     const displayPrice = ln.priceCents || 0;
-    const partnerTotal = ln.partnerTotalCents ?? (displayPrice + partnerPrice);
+    const partnerTotal = displayPrice + partnerPrice;
     return [
       ord._id,
       ord.createdAt ? new Date(ord.createdAt).toISOString() : '',
@@ -317,12 +323,15 @@ adminRouter.get('/:partnerSlug/admin/orders', loadPartnerForAdmin, partnerAdminA
     // ── HTML ──
     let places = 0;
     let amount = 0;
+    let contribution = 0;
     const rowsHtml = orders.map(o => {
       const ev = eventById.get(String(o.eventId));
       const ident = o?.meta?.partner?.identifier || '';
       return (Array.isArray(o.lines) ? o.lines : []).map(ln => {
         places += 1;
         amount += Number(ln.priceCents || 0);
+        const partnerCents = Number(linePartnerCents(ln)) || 0;
+        contribution += partnerCents;
         const holderFirst = ln.holderFirstName || ln?.meta?.holderFirstName || '';
         const holderLast = ln.holderLastName || ln?.meta?.holderLastName || '';
         const search = [holderFirst, holderLast, o.payerFirstName, o.payerLastName, o.payerEmail, ident]
@@ -333,6 +342,7 @@ adminRouter.get('/:partnerSlug/admin/orders', loadPartnerForAdmin, partnerAdminA
           <td>${escHtml(ln.seatId || ln.zoneKey || '')}</td>
           <td>${escHtml(ln.tariffCode || '')}</td>
           <td class="num">${escHtml(fmtEuro(ln.priceCents))}</td>
+          <td class="num">${escHtml(fmtEuro(partnerCents))}</td>
           <td>${escHtml(holderLast)}</td>
           <td>${escHtml(holderFirst)}</td>
           <td>${escHtml(o.payerLastName || '')}</td>
@@ -362,6 +372,7 @@ adminRouter.get('/:partnerSlug/admin/orders', loadPartnerForAdmin, partnerAdminA
           <span><strong>${summary.count}</strong> commande(s)</span>
           <span><strong>${places}</strong> place(s)</span>
           <span><strong>${escHtml(fmtEuro(amount))}</strong> au total</span>
+          <span><strong>${escHtml(fmtEuro(contribution))}</strong> de part partenaire</span>
         </div>
         <div class="controls">
           <form method="get">
@@ -387,7 +398,7 @@ adminRouter.get('/:partnerSlug/admin/orders', loadPartnerForAdmin, partnerAdminA
         <table>
           <thead>
             <tr>
-              <th>Date</th><th>Événement</th><th>Place</th><th>Tarif</th><th class="num">Prix</th>
+              <th>Date</th><th>Événement</th><th>Place</th><th>Tarif</th><th class="num">Prix</th><th class="num">Part partenaire</th>
               <th>Bénéficiaire · Nom</th><th>Bénéficiaire · Prénom</th>
               <th>Contact · Nom</th><th>Contact · Prénom</th><th>Identifiant</th><th>Contact · Email</th>
               ${status === 'all' ? '<th>Statut</th>' : ''}
