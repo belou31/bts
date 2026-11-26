@@ -362,9 +362,12 @@ export function createEventFlowRouter({
     const pmap = new Map(prices.map(p => {
       const key = `${String(p.zoneKey || '').toUpperCase()}::${String(p.tariffCode || '').toUpperCase()}`;
       const display = Number(p.priceCents) || 0;
-      const partner = Number(
-        (p.partnerPriceCents != null ? p.partnerPriceCents : p.priceCents)
-      ) || display;
+      // Part partenaire : absente ou 0, le partenaire ne contribue pas (0).
+      // L'ancien repli sur le prix affiché doublait partnerTotalCents pour
+      // tous les tarifs sans part partenaire.
+      const partnerRaw = p.partnerPriceCents != null && p.partnerPriceCents !== ''
+        ? Number(p.partnerPriceCents) : NaN;
+      const partner = Number.isFinite(partnerRaw) ? partnerRaw : 0;
       return [key, { display, partner }];
     }));
 
@@ -393,7 +396,7 @@ export function createEventFlowRouter({
         throw new Error(`Tarif indisponible pour la zone (${z}/${t})${scope === 'fallback' ? ' [fallback]' : ''}`);
       }
       const displayPrice = Number(priceObj.display) || 0;
-      const partnerPrice = Number(priceObj.partner) || displayPrice;
+      const partnerPrice = Number(priceObj.partner) || 0;
       const partnerTotal = displayPrice + partnerPrice;
       return {
         seatId: sid,
@@ -414,9 +417,9 @@ export function createEventFlowRouter({
     const totalCents = lines.reduce((s, l) => s + (Number(l.priceCents) || 0), 0);
     const partnerTotals = channelCtx?.kind === 'partner'
       ? lines.reduce((acc, l) => {
-          const partnerPrice = Number(l.partnerPriceCents ?? l.priceCents) || 0;
+          const partnerPrice = Number(l.partnerPriceCents) || 0;
           const displayPrice = Number(l.priceCents) || 0;
-          const partnerTotal = Number(l.partnerTotalCents ?? displayPrice + partnerPrice) || (displayPrice + partnerPrice);
+          const partnerTotal = Number(l.partnerTotalCents ?? displayPrice + partnerPrice) || 0;
           acc.partnerContribution += partnerPrice;
           acc.displayTotal += displayPrice;
           acc.partnerTotal += partnerTotal;
